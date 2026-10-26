@@ -1,0 +1,26 @@
+{
+    "name": "@spinner/daemon",
+    "version": "0.0.0",
+    "private": true,
+    "description": "spinnerd: the local daemon that watches sessions and serves the API.",
+    "license": "MIT",
+    "type": "module",
+    "bin": {
+        "spinnerd": "./dist/main.js"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@spinner/protocol": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "typescript": "^5.9.0",
+        "vitest": "^3.2.0"
+    }
+}

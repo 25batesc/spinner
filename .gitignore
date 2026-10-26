@@ -11,3 +11,4 @@ local/
 
 # never commit agent transcripts, even inside example sessions
 examples/sessions/*/agents/*/pi/
+*.tsbuildinfo
