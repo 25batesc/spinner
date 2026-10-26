@@ -16,10 +16,16 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@spinner/protocol": "workspace:*"
+        "@hono/node-server": "^2.1.5",
+        "@spinner/protocol": "workspace:*",
+        "chokidar": "^6.0.0",
+        "hono": "^4.13.14",
+        "ws": "^8.22.0",
+        "yaml": "^2.9.1"
     },
     "devDependencies": {
         "@types/node": "^24.0.0",
+        "@types/ws": "^8.18.2",
         "typescript": "^5.9.0",
         "vitest": "^3.2.0"
     }

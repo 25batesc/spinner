@@ -16,6 +16,7 @@
         "test": "vitest run"
     },
     "dependencies": {
+        "@spinner/daemon": "workspace:*",
         "@spinner/protocol": "workspace:*"
     },
     "devDependencies": {
