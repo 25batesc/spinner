@@ -14,15 +14,21 @@
         },
         "./schema/session.json": "./schema/session.json"
     },
-    "files": ["dist", "schema"],
+    "files": [
+        "dist",
+        "schema"
+    ],
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "test": "vitest run"
+        "test": "vitest run",
+        "schema": "node scripts/generate-schema.ts"
     },
-    "dependencies": {},
     "devDependencies": {
+        "ajv": "^8.20.0",
+        "ts-json-schema-generator": "^2.9.0",
         "typescript": "^5.9.0",
-        "vitest": "^3.2.0"
+        "vitest": "^3.2.0",
+        "yaml": "^2.9.1"
     }
 }
