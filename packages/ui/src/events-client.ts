@@ -3,6 +3,7 @@
 import {
     EVENT_TYPES,
     EVENTS_WS_URL,
+    type NewSessionRequest,
     type SessionsResponse,
     type SpinnerEvent,
     type SpinnerEventType,
@@ -45,6 +46,22 @@ export async function fetchSessions(signal: AbortSignal): Promise<SessionsRespon
         throw new Error(`GET /sessions failed with status ${response.status}`);
     }
     return (await response.json()) as SessionsResponse;
+}
+
+/**
+ * Asks the daemon to create a session. The UI does not add the session itself: it appears when
+ * the daemon sends `session.created`, so the screen cannot show a session that does not exist.
+ */
+export async function createSession(title: string): Promise<void> {
+    const body: NewSessionRequest = { title };
+    const response = await fetch("/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        throw new Error(`POST /sessions failed with status ${response.status}`);
+    }
 }
 
 export interface EventsHandlers {

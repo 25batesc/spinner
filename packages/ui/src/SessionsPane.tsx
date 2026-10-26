@@ -1,4 +1,8 @@
+import { useState, type FormEvent } from "react";
+
 import type { Session } from "@spinner/protocol";
+
+import { createSession } from "./events-client.ts";
 
 export interface SessionsPaneProps {
     sessions: [string, Session][];
@@ -8,6 +12,39 @@ export interface SessionsPaneProps {
 
 function stackBadge(session: Session): string {
     return session.stack.state === "none" ? "no stack" : `stack ${session.stack.state}`;
+}
+
+function NewSession() {
+    const [title, setTitle] = useState("");
+    const [error, setError] = useState<string | null>(null);
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        const trimmed = title.trim();
+        if (trimmed === "") {
+            return;
+        }
+        createSession(trimmed).then(
+            () => {
+                setTitle("");
+                setError(null);
+            },
+            (failure: unknown) => setError(String(failure)),
+        );
+    };
+
+    return (
+        <form className="new-session" onSubmit={submit}>
+            <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Title"
+                aria-label="New session title"
+            />
+            <button type="submit">new session</button>
+            {error !== null && <span className="needs-human">{error}</span>}
+        </form>
+    );
 }
 
 export function SessionsPane({ sessions, selected, onSelect }: SessionsPaneProps) {
@@ -35,9 +72,7 @@ export function SessionsPane({ sessions, selected, onSelect }: SessionsPaneProps
                 ))}
                 {sessions.length === 0 && <li className="muted">No sessions yet.</li>}
             </ul>
-            <button className="new-session" disabled title="Needs the daemon: POST /sessions">
-                new session
-            </button>
+            <NewSession />
         </section>
     );
 }
