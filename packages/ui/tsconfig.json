@@ -1,0 +1,15 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "jsx": "react-jsx",
+        "types": ["node", "vite/client"],
+        "noEmit": true,
+        "allowImportingTsExtensions": true,
+        "declaration": false,
+        "declarationMap": false
+    },
+    "include": ["src", "fixture", "vite.config.ts", "vitest.config.ts"]
+}

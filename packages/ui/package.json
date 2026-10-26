@@ -2,14 +2,30 @@
     "name": "@spinner/ui",
     "version": "0.0.0",
     "private": true,
-    "description": "Spinner web UI (React + Vite). Owned by the ui agent from Plan item 6 on.",
+    "description": "Spinner web UI (React + Vite): sessions, agent tabs and previews.",
     "license": "MIT",
     "type": "module",
     "scripts": {
-        "build": "echo \"ui: no build yet (Plan 6)\"",
-        "test": "echo \"ui: no tests yet (Plan 6)\""
+        "dev": "vite",
+        "fixture": "node fixture/server.ts",
+        "build": "tsc -p tsconfig.json && vite build",
+        "typecheck": "tsc -p tsconfig.json",
+        "test": "vitest run"
     },
     "dependencies": {
-        "@spinner/protocol": "workspace:*"
+        "@spinner/protocol": "workspace:*",
+        "react": "^19.3.1",
+        "react-dom": "^19.3.1"
+    },
+    "devDependencies": {
+        "@types/node": "^24.19.2",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "@types/ws": "^8.18.2",
+        "@vitejs/plugin-react": "^6.1.2",
+        "typescript": "^5.9.3",
+        "vite": "^8.3.5",
+        "vitest": "^3.2.7",
+        "ws": "^8.22.0"
     }
 }

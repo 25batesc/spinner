@@ -1,0 +1,41 @@
+:root {
+    color-scheme: light dark;
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+}
+html, body, #root { height: 100%; margin: 0; }
+.layout {
+    display: grid;
+    grid-template-rows: 1fr auto;
+    height: 100%;
+}
+.pane { overflow: auto; padding: 8px; min-width: 0; border: 1px solid #8884; }
+.pane h2 { font-size: 13px; text-transform: uppercase; margin: 0 0 8px; }
+.handle { cursor: col-resize; background: #8883; touch-action: none; }
+.handle:hover { background: #8886; }
+.status { grid-column: 1 / -1; padding: 2px 8px; font-size: 12px; border-top: 1px solid #8884; }
+.muted { opacity: 0.6; }
+.session-list { list-style: none; margin: 0; padding: 0; }
+.session {
+    display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+    margin-bottom: 6px; padding: 6px; border: 1px solid #8886; border-radius: 4px;
+    background: transparent; color: inherit; cursor: pointer;
+}
+.session-selected { border-color: #38f; }
+.badges { display: flex; gap: 4px; }
+.badge { font-size: 11px; padding: 0 5px; border-radius: 8px; background: #8883; }
+.needs-human { color: #d80; font-size: 12px; }
+.new-session { width: 100%; margin-top: 8px; }
+.agents-pane { display: flex; flex-direction: column; gap: 8px; }
+.agents-top { display: flex; gap: 8px; flex: 1; min-height: 0; }
+.chat { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow: auto; }
+.actions { display: flex; flex-direction: column; gap: 4px; align-self: flex-start; }
+.prompt { margin-top: auto; padding: 6px; }
+.transcript { margin: 0; padding-left: 18px; font-size: 12px; overflow-wrap: anywhere; }
+.feed { max-height: 30%; overflow: auto; border-top: 1px solid #8884; padding-top: 6px; }
+.feed ul { margin: 0; padding-left: 16px; font-size: 12px; }
+.tabs { display: flex; gap: 2px; }
+.tab { padding: 2px 10px; border: 1px solid #8886; background: transparent; color: inherit; }
+.tab-selected { border-color: #38f; font-weight: 600; }
+.preview-pane { display: flex; flex-direction: column; gap: 6px; }
+.preview-frame { flex: 1; width: 100%; border: 1px solid #8886; background: white; }
