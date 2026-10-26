@@ -1,0 +1,29 @@
+# Maintained by hand until spinnerd exists (M2).
+version: 1
+id: s002
+slug: board-and-stack
+title: "Pipeline board + stack runner"
+created: 2026-10-26
+stage: planned
+needs_human: "start after s001 lands"
+branch: main
+base: main
+repos:
+  spinner:
+    path: .
+    changed: true
+    pr: null
+pipeline:
+  verified_locally: false
+  slack_post: null
+stack:
+  state: none
+agents:
+  board:
+    harness: pi
+    model: openrouter/anthropic/claude-sonnet-4.5
+    process: idle
+  stack:
+    harness: pi
+    model: openrouter/anthropic/claude-sonnet-4.5
+    process: idle

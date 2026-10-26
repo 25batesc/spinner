@@ -1,0 +1,26 @@
+# Maintained by hand until spinnerd exists (M2).
+version: 1
+id: s001
+slug: bootstrap
+title: "Bootstrap: Spinner builds Spinner"
+created: 2026-10-20
+stage: planned             # see docs/SESSION_PROTOCOL.md → "Lifecycle and pipeline stages"
+needs_human: "start the two pi terminals (RUN.md)"
+branch: main               # bootstrap commits straight to main; later sessions use feat/<slug>
+base: main
+repos:
+  spinner:
+    path: .                # this repo; no worktrees in the bootstrap session
+    changed: true
+    pr: null
+stack:
+  state: none              # no stack for Spinner itself
+agents:
+  engine:
+    harness: pi
+    model: openrouter/anthropic/claude-sonnet-4.5     # pick what you like; one strong model for the engine
+    process: idle
+  ui:
+    harness: pi
+    model: openrouter/anthropic/claude-sonnet-4.5
+    process: idle

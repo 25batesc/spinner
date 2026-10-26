@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# the symlink from this checkout to its live session under ~/.spinner
+.spinner
+
+# private, machine-local project config (stack specs with real repo paths, channel ids)
+local/
+
+# never commit agent transcripts, even inside example sessions
+examples/sessions/*/agents/*/pi/

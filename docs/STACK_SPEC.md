@@ -1,0 +1,148 @@
+# Stack spec (`spinner.yaml`)
+
+A project tells Spinner what its stack is with one file. Spinner renders it, per session, into `stack/compose.yaml` and `stack/.env`. The format is generic: any set of repos and services that Docker Compose can run. Nothing in Spinner knows about a specific company's repos.
+
+## Where the file lives
+
+Spinner looks for the spec in this order:
+
+1. `--project <path-or-name>` on the command line.
+2. `spinner.yaml` at the root of the current repo (a monorepo commits it and shares it with the team).
+3. `local/<name>/spinner.yaml` inside a Spinner checkout (gitignored; for private multi-repo setups).
+4. `~/.spinner/projects/<name>/spinner.yaml` (private, outside any repo).
+
+A multi-repo project (several repos, one app) uses option 3 or 4, because the spec spans repos and should not live in one of them. Everything under `local/` and `~/.spinner/` stays on your machine.
+
+Everything marked `# TODO` below is a placeholder for the real command, port or path.
+
+## Example: a multi-repo project
+
+The fictional *acme* project has an API, an admin app and a customer web app in three repos, plus Postgres and a Temporal dev server.
+
+```yaml
+name: acme
+base: main                                   # the branch PRs land in
+
+repos:
+  backend:
+    path: ~/code/acme-backend
+  admin:
+    path: ~/code/acme-admin
+  web:
+    path: ~/code/acme-web
+
+services:
+  backend:
+    repo: backend
+    image: spinner/acme-backend-dev          # built once from repos.backend/Dockerfile.dev
+    command: pnpm dev                        # TODO
+    port: 3000                               # the port the dev server listens on
+    host: api                                # → api.<session>.localhost
+    env:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/${SESSION_DB}
+      TEMPORAL_ADDRESS: temporal:7233
+      PUBLIC_URL: http://api.${SESSION_ID}.localhost
+    healthcheck: GET /health
+    depends_on: [postgres, temporal]
+    deps_volume: pnpm-store                  # named volume keyed by lockfile hash
+
+  worker:                                    # a second process from the same repo
+    repo: backend
+    image: spinner/acme-backend-dev
+    command: pnpm worker
+    env:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/${SESSION_DB}
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on: [temporal]
+
+  admin:
+    repo: admin
+    image: spinner/acme-admin-dev
+    command: pnpm dev --host
+    port: 5173
+    host: admin
+    env:
+      VITE_API_URL: http://api.${SESSION_ID}.localhost
+    depends_on: [backend]
+
+  web:
+    repo: web
+    image: spinner/acme-web-dev
+    command: pnpm dev --host
+    port: 5173
+    host: web
+    env:
+      VITE_API_URL: http://api.${SESSION_ID}.localhost
+    depends_on: [backend]
+
+  temporal:
+    image: temporalio/temporal:1.3.0         # pin a version
+    command: server start-dev --ip 0.0.0.0 --db-filename /data/temporal.db
+    port: 8233                               # Temporal web UI
+    host: temporal                           # → temporal.<session>.localhost
+    volumes: [temporal-data:/data]
+
+database:
+  mode: template                             # template | per-session
+  server: spinner-postgres                   # shared container, started once by spinnerd
+  version: "16"
+  template: acme_seed
+  seed:
+    migrate: cd backend && pnpm migrate      # run inside the backend image
+    fixtures: cd backend && pnpm seed        # or restore a scrubbed dump
+    # dump: ~/dumps/acme-scrubbed.sql.gz
+
+proxy:
+  http_port: 80                              # Traefik; falls back to 8080 if 80 is taken
+  strip_frame_headers: [temporal]            # services to embed that send X-Frame-Options
+
+harness:
+  default: pi                                # the harness new agents use; pi in v1
+  pi:
+    trust_projects: true                     # pass --approve so project .pi/ skills and extensions load
+
+pipeline: {}                                 # see ARCHITECTURE → Pipeline tracker. Empty = plain GitHub.
+```
+
+A monorepo needs one entry under `repos` and `path: .`. A single-service project needs one service and no `proxy` changes.
+
+## Semantics
+
+**Repos.** Each entry becomes a git worktree per session at `worktrees/<name>` on the session branch. A repo with no commits ahead of `base` at `spinner pr` time gets no PR.
+
+**Services.** Each becomes a compose service in project `spinner-<id>`. If `repo` is set, the worktree is bind-mounted at `/app` and `command` runs there, so edits hot-reload. `spinner build` builds `image` from the repo's dev Dockerfile and caches it; it rebuilds when the Dockerfile or lockfile changes. `port` + `host` produce Traefik labels (`Host(\`<host>.<id>.localhost\`)`); services without `host` are internal only. `healthcheck` gates the preview panes and the `up` command's exit.
+
+**Variables available in `env`.** `${SESSION_ID}` (e.g. `s17`), `${SESSION_DB}` (`spinner_s17`), `${SESSION_BRANCH}`, `${SESSION_DIR}`, plus anything in the host environment allow-listed under a `pass_env:` key (API keys for third-party services the backend needs).
+
+**Database, `template` mode.** `spinnerd` keeps one Postgres container alive. `spinner seed rebuild` creates the template database from scratch (migrations, then fixtures or a dump) and marks it as a template. `spinner up` clones it into the session's database; `spinner db reseed <session>` drops and re-clones; `spinner close` drops it. Cloning is a file copy inside Postgres, so a few hundred MB takes a couple of seconds. The daemon prompts for a rebuild when the migration directory hash changes on `base`.
+
+**Database, `per-session` mode.** A `postgres` service is added to the session's compose project from a prebuilt image whose data directory already contains the seed (`spinner seed rebuild` builds that image). Slower to start, fully isolated, lets a branch run a different Postgres version.
+
+**Temporal.** Optional, like any other service. When present, it runs per session, so workflow tasks never cross branches, and its UI gets a preview pane.
+
+**Proxy.** One Traefik container with the Docker provider, started by the daemon on first `up`. Labels on each service do the routing. `strip_frame_headers` adds a response-header middleware that removes `X-Frame-Options` and the `frame-ancestors` CSP directive so the web UI can embed the service.
+
+**Harness.** Which agent harness new agents use, and harness-specific options. For pi, `trust_projects: true` passes `--approve`, so the repo's `.pi/` skills, extensions and settings load. Your user-level pi configuration (`~/.pi/agent`: skills, extensions, `AGENTS.md`) always loads, because Spinner runs pi with your agent directory.
+
+**Pipeline.** Settings for the pipeline tracker: review-bot logins, the approval check and policy, merge-queue kind, Slack. See [ARCHITECTURE.md](ARCHITECTURE.md#pipeline-tracker-packagesdaemonsrcpipeline). An empty block means a plain GitHub repo: PR open → checks → reviews → merged, with no bot stage and no Slack.
+
+## Commands this drives
+
+```
+spinner build                 # build/refresh dev images for all services with a repo
+spinner seed rebuild          # rebuild the template DB (or seed image)
+spinner up <session>          # clone DB, compose up -d, wait for healthchecks, print URLs
+spinner down <session>        # compose stop (volumes kept)
+spinner logs <session> [svc]  # compose logs -f
+spinner exec <session> <svc> -- <cmd>
+spinner db reseed <session>
+spinner close <session>       # compose down -v, drop DB, remove worktrees
+```
+
+## What to find out about your repos before M1
+
+- Dev commands and ports for each app, and whether the frontends read the API URL at runtime or at build time.
+- How the backend runs migrations and whether a fixture or seed script exists, or whether a scrubbed dump is the practical seed.
+- Whether background workers are separate processes.
+- Any other service the backend expects locally (Redis, object storage, mail catcher).
+- Node version and package manager per repo, for the dev images.
