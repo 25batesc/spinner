@@ -1,0 +1,437 @@
+{
+  "_source": "gh api graphql, 2026-10-26, scrubbed: logins, bodies, title, head ref, URLs",
+  "_shape": "open PR, bot-authored, all bot threads resolved, checks green except the Independent approval check (FAILURE = waiting). Stage: approving.",
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "number": 4812,
+        "url": "https://github.com/acme/backend/pull/4812",
+        "title": "feat: example feature from a real PR, title scrubbed",
+        "isDraft": false,
+        "state": "OPEN",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "author": {
+          "login": "human-1"
+        },
+        "baseRefName": "develop",
+        "headRefName": "devin/example-feature",
+        "headRefOid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4",
+        "updatedAt": "2026-10-26T20:56:46Z",
+        "mergeQueueEntry": null,
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4",
+                "statusCheckRollup": {
+                  "state": "FAILURE",
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "deploy-flyio",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044571/job/121839740830"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Devin Review Gate tests",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044609/job/121839679075"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Flat Layout (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044564/job/121839679282"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044572/job/121839679336"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40400120945/job/121843403574"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044798/job/121839679553"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Replay affected prompt targets",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044668/job/121839679246"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044595/job/121839678436"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Sonar Quality Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044534/job/121839678863"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121839764748"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "deploy-copilotkit",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044571/job/121839681229"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Devin Review Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044609/job/121839681007"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "migration-info / apply-migrations",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044798/job/121839806102"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "ORM vs Migrations",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044595/job/121839838258"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Lint & Format (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840017260"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "migration-info / notify-on-failure",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044798/job/121839806871"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Build AI Test Image (build)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840009233"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Schema Drift Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044595/job/121839836836"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Build AI Test Image",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840062149"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Type Check (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840062180"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Move Snapshot (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840062148"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 gateway-1",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840063273"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 gateway-2",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840063109"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 gateway-3",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840063137"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-1",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840063177"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-2",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840063227"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-3",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840063344"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-4",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840063343"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "PPTX Render Backstop (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121840056011"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "All Checks Passed (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40399044545/job/121841803748"
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "Independent approval",
+                        "state": "FAILURE",
+                        "targetUrl": "https://github.com/acme/backend/actions/runs/40400120945"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Supabase Preview",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://supabase.com/dashboard/project/uvrbcmogwvxealoeitus/branches"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "SonarCloud Code Analysis",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://sonarcloud.io/scrubbed"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "author": {
+                "login": "devin-ai-integration"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-26T20:11:25Z",
+              "commit": {
+                "oid": "45f2c6e193aa238fe920429c81ae73ea65ca26a1"
+              }
+            },
+            {
+              "author": {
+                "login": "devin-ai-integration"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-26T20:12:27Z",
+              "commit": {
+                "oid": "45f2c6e193aa238fe920429c81ae73ea65ca26a1"
+              }
+            },
+            {
+              "author": {
+                "login": "devin-ai-integration"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-26T20:13:04Z",
+              "commit": {
+                "oid": "e8f0d1038970a76b457776a5028ba08263405a44"
+              }
+            },
+            {
+              "author": {
+                "login": "devin-ai-integration"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-26T20:13:05Z",
+              "commit": {
+                "oid": "e8f0d1038970a76b457776a5028ba08263405a44"
+              }
+            },
+            {
+              "author": {
+                "login": "devin-ai-integration"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-26T20:33:21Z",
+              "commit": {
+                "oid": "e8f0d1038970a76b457776a5028ba08263405a44"
+              }
+            },
+            {
+              "author": {
+                "login": "human-1"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-26T20:56:46Z",
+              "commit": {
+                "oid": "e8f0d1038970a76b457776a5028ba08263405a44"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "totalCount": 2,
+          "nodes": [
+            {
+              "id": "PRRT_kwDOO83bzs6wbyiP",
+              "isResolved": true,
+              "isOutdated": false,
+              "path": "apps/ai/scripts/evals/turn_replay.py",
+              "line": 411,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBS9oRQ",
+                    "databaseId": 4381960261,
+                    "author": {
+                      "login": "devin-ai-integration"
+                    },
+                    "body": "[scrubbed, 2380 chars]",
+                    "createdAt": "2026-10-26T20:12:24Z",
+                    "commit": {
+                      "oid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4"
+                    }
+                  },
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBS-ADA",
+                    "databaseId": 4381966348,
+                    "author": {
+                      "login": "devin-ai-integration"
+                    },
+                    "body": "[scrubbed, 338 chars]",
+                    "createdAt": "2026-10-26T20:13:04Z",
+                    "commit": {
+                      "oid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4"
+                    }
+                  },
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBTJhfw",
+                    "databaseId": 4382155135,
+                    "author": {
+                      "login": "devin-ai-integration"
+                    },
+                    "body": "[scrubbed, 115 chars]",
+                    "createdAt": "2026-10-26T20:33:21Z",
+                    "commit": {
+                      "oid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOO83bzs6wbykI",
+              "isResolved": true,
+              "isOutdated": false,
+              "path": "apps/ai/scripts/evals/turn_replay.py",
+              "line": 341,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBS9pCg",
+                    "databaseId": 4381960458,
+                    "author": {
+                      "login": "devin-ai-integration"
+                    },
+                    "body": "[scrubbed, 954 chars]",
+                    "createdAt": "2026-10-26T20:12:25Z",
+                    "commit": {
+                      "oid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4"
+                    }
+                  },
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBS-BFQ",
+                    "databaseId": 4381966613,
+                    "author": {
+                      "login": "devin-ai-integration"
+                    },
+                    "body": "[scrubbed, 325 chars]",
+                    "createdAt": "2026-10-26T20:13:05Z",
+                    "commit": {
+                      "oid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4"
+                    }
+                  },
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBTXVIA",
+                    "databaseId": 4382381344,
+                    "author": {
+                      "login": "human-1"
+                    },
+                    "body": "[scrubbed, 22 chars]",
+                    "createdAt": "2026-10-26T20:56:46Z",
+                    "commit": {
+                      "oid": "c46867ff747b5d774b3073ead5ebc54c939bdfb4"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "nodes": []
+        }
+      }
+    }
+  }
+}

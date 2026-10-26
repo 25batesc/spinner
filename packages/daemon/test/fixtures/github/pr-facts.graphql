@@ -1,0 +1,26 @@
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number url title isDraft state mergeable reviewDecision
+      author { login }
+      baseRefName headRefName headRefOid
+      updatedAt
+      mergeQueueEntry { state position enqueuedAt estimatedTimeToMerge }
+      commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 50) { nodes {
+        __typename
+        ... on CheckRun { name status conclusion detailsUrl }
+        ... on StatusContext { context state targetUrl }
+      } } } } } }
+      reviews(last: 50) { nodes { author { login } state submittedAt commit { oid } } }
+      reviewThreads(first: 100) { totalCount nodes { id isResolved isOutdated path line
+        comments(first: 20) { nodes { id databaseId author { login } body createdAt commit { oid } } } } }
+      timelineItems(last: 50, itemTypes: [ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT, MERGED_EVENT, REVIEW_REQUESTED_EVENT]) {
+        nodes { __typename
+          ... on AddedToMergeQueueEvent { createdAt enqueuer { login } }
+          ... on RemovedFromMergeQueueEvent { createdAt reason beforeCommit { oid } }
+          ... on MergedEvent { createdAt commit { oid } }
+          ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on User { login } } }
+        } }
+    }
+  }
+}
