@@ -8,7 +8,7 @@ Spinner does not make one feature faster by adding agents to it. Communication c
 
 > Status: **M1 partial** (2026-10-27). The board works on real PRs (`spinner adopt`, `spinner board`). The stack runner brings up `examples/sample-stack` in 3 s and the operator's own three-repo stack, two sessions side by side. Details in [docs/STATUS.md](docs/STATUS.md).
 >
-> Try it: `pnpm install && pnpm -r build`, then `spinner new --project examples/sample-stack "try it"`, `spinner seed rebuild s001`, `spinner up s001`. The `spinner` command comes from the workspace after `pnpm install`; the daemon is not needed for the stack runner. `spinner close s001` removes the stack, the database and the worktree, and keeps the branch `feat/try-it` in the repo. Run `pnpm install && pnpm -r build && pnpm daemon`, then `pnpm --filter ui dev`. Start with [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
+> Try it: `pnpm install && pnpm -r build`, then `pnpm spinner new --project examples/sample-stack "try it"`, `pnpm spinner seed rebuild s001`, `pnpm spinner up s001`. `pnpm spinner` is a root script; for a plain `spinner` on your PATH run `pnpm link --global` once in `packages/cli`. The daemon is not needed for the stack runner. `spinner close s001` removes the stack, the database and the worktree, and keeps the branch `feat/try-it` in the repo. Run `pnpm install && pnpm -r build && pnpm daemon`, then `pnpm --filter ui dev`. Start with [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
 
 ## The problem
 
