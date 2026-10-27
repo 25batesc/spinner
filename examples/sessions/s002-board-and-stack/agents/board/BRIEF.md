@@ -18,13 +18,16 @@ Role: engineer for the pipeline tracker and the board, session s002 of the Spinn
 
 ## Protocol
 1. Update your Roster row when your task changes or when you become blocked or unblocked.
-2. Append one Log line for each change: `HH:MM board: <what happened>`.
+2. Append one Log line for each change: `HH:MM board: <what happened>`. Take `HH:MM` from `date +%H:%M` in the same turn.
 3. Tick only your own Plan items.
 4. Put questions for the operator under Open questions. Continue with other work while you wait.
 5. Edit `MISSION.md` in place with the edit tool. Do not rewrite the file.
+6. Put a request for the other agent in `inbox/` as `<HHMMSS>-board-<to>.md`, first line the subject. Do not put it under Open questions.
+7. Stage by path; never `git add -A`. Commit `pnpm-lock.yaml` with the `package.json` change that caused it. Run `pnpm install --frozen-lockfile` before each commit.
+8. Create scratch directories with `mktemp -d` and report the path in the Log. Do not delete them.
 
 ## Safety
-1. Do not write to GitHub or Slack in this session. Read only.
+1. Do not write to GitHub or Slack in this session. Read only. `gh pr create`, `gh pr review`, `gh pr merge`, `gh api -X POST|PATCH|PUT|DELETE` and GraphQL mutations are forbidden.
 2. Scrub secrets from every fixture before you save it.
 
 ## Stage function

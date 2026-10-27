@@ -21,10 +21,13 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 
 ## Protocol
 1. Update your Roster row when your task changes or when you become blocked or unblocked.
-2. Append one Log line for each change: `HH:MM stack: <what happened>`.
+2. Append one Log line for each change: `HH:MM stack: <what happened>`. Take `HH:MM` from `date +%H:%M` in the same turn.
 3. Tick only your own Plan items.
 4. Put questions about the operator's real repos under Open questions: ports, dev commands, seed path. Continue with other work while you wait.
 5. Edit `MISSION.md` in place with the edit tool. Do not rewrite the file.
+6. Put a request for the other agent in `inbox/` as `<HHMMSS>-stack-<to>.md`, first line the subject. Do not put it under Open questions.
+7. Stage by path; never `git add -A`. Commit `pnpm-lock.yaml` with the `package.json` change that caused it. Run `pnpm install --frozen-lockfile` before each commit.
+8. Create scratch directories with `mktemp -d` and report the path in the Log. Do not delete them.
 
 ## Compose
 1. Render `spinner.yaml` plus the session into `stack/compose.yaml` and `stack/.env`.
@@ -34,7 +37,7 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 5. Add the response-header middleware for the services listed under `strip_frame_headers`.
 
 ## Database
-1. Use one shared Postgres container named `spinner-postgres` for all sessions.
+1. Use one shared Postgres server for all sessions. By default it is the `spinner-postgres` container that Spinner starts. With `database.server: external` it is a server Spinner does not manage; host, port and user come from the spec. Spinner creates and drops databases there and nothing else.
 2. Make `spinner seed rebuild` create the template database.
 3. Make `spinner up` run `CREATE DATABASE spinner_<id> TEMPLATE <template>`.
 4. Before step 3, make sure that no client is connected to the template database. Postgres refuses the clone if one is.
@@ -48,6 +51,11 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 1. Make `spinner new` run `git worktree add` per repo, on `feat/<slug>` from `base`.
 2. Add a `.spinner` symlink in each worktree. List it in `.git/info/exclude`.
 3. Make `spinner close` remove the worktrees and keep the branches.
+
+## Operator rules
+1. The operator's shell guard blocks some bash commands: recursive or forced `rm`, `docker compose down -v`, `supabase db reset`, and `psql` with DDL or writes. A child session cannot answer its prompt. Run those actions through your own CLI code and its tests, never by hand in bash.
+2. Test against `examples/sample-stack` first. Touch the Knit repos under `~/knit` only through `spinner new` worktrees, never their primary checkouts.
+3. Build the sample stack's images small. The 15-second target is for warm images.
 
 ## Quality
 1. Measure and print the `up` time. The target is under 15 seconds when images are warm.
