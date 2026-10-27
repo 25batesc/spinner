@@ -7,15 +7,18 @@ import { execFile, spawn } from "node:child_process";
 export interface RunOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
-    /** Text written to stdin, for commands that read a file from it. */
-    input?: string;
+    /** Data written to stdin, for commands that read a file from it. */
+    input?: string | Buffer;
+    /** `buffer` keeps stdout as bytes, for a binary dump. */
+    encoding?: "utf8" | "buffer";
     /** Upper bound on wall-clock time. A command that runs longer is killed. */
     timeout_ms?: number;
 }
 
 export interface RunResult {
     code: number;
-    stdout: string;
+    /** A string, or a Buffer when `encoding: "buffer"` was asked for. */
+    stdout: string | Buffer;
     stderr: string;
 }
 
@@ -41,11 +44,11 @@ export function run(
                 env: options.env ?? process.env,
                 timeout: options.timeout_ms ?? TIMEOUT_MS_DEFAULT,
                 maxBuffer: OUTPUT_BYTES_MAX,
-                encoding: "utf8",
+                encoding: options.encoding ?? "utf8",
             },
             (error, stdout, stderr) => {
                 const code = error === null ? 0 : exit_code(error.code);
-                resolve({ code, stdout, stderr });
+                resolve({ code, stdout, stderr: String(stderr) });
             },
         );
         if (options.input !== undefined) {
@@ -60,19 +63,25 @@ export async function run_ok(
     args: string[],
     options: RunOptions = {},
 ): Promise<string> {
-    const result = await run(command, args, options);
+    const result = await run(command, args, { ...options, encoding: "utf8" });
+    const stdout = String(result.stdout);
     if (result.code !== 0) {
         const stderr = result.stderr.trim();
-        const detail = stderr.length > 0 ? stderr : result.stdout.trim();
+        const detail = stderr.length > 0 ? stderr : stdout.trim();
         throw new Error(`${command} ${args.join(" ")} failed (${result.code}): ${detail}`);
     }
-    return result.stdout;
+    return stdout;
 }
 
 /** Runs a command with the terminal attached, for `logs -f` and `exec`. Resolves with the code. */
-export function run_attached(command: string, args: string[], cwd?: string): Promise<number> {
+export function run_attached(
+    command: string,
+    args: string[],
+    cwd?: string,
+    env?: NodeJS.ProcessEnv,
+): Promise<number> {
     return new Promise((resolve) => {
-        const child = spawn(command, args, { cwd, stdio: "inherit" });
+        const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: "inherit" });
         child.on("exit", (code) => resolve(code ?? 1));
         child.on("error", () => resolve(1));
     });

@@ -1,4 +1,5 @@
-// `spinner seed rebuild (<session> | --project <name|path>)`: rebuild the template database.
+// `spinner seed rebuild (<session> | --project <name|path>) [--copy-only]`: rebuild the
+// template database. `--copy-only` copies `seed.source` without running the seed commands.
 import { parseArgs } from "node:util";
 import {
     find_spec,
@@ -13,7 +14,7 @@ import { session_arg } from "./session-arg.js";
 
 export const seed_command: Command = {
     name: "seed",
-    usage: "rebuild (<session> | --project <name|path>)",
+    usage: "rebuild (<session> | --project <name|path>) [--copy-only]",
     summary: "rebuild the template database from the spec's seed",
     run: run_seed,
 };
@@ -21,7 +22,7 @@ export const seed_command: Command = {
 async function run_seed(args: string[], home: SpinnerHome, io: CliIo): Promise<number> {
     const parsed = parseArgs({
         args,
-        options: { project: { type: "string" } },
+        options: { project: { type: "string" }, "copy-only": { type: "boolean" } },
         allowPositionals: true,
         strict: true,
     });
@@ -41,7 +42,7 @@ async function run_seed(args: string[], home: SpinnerHome, io: CliIo): Promise<n
             }
             loaded = read_session_spec(summary);
         }
-        await seed_rebuild(loaded, io.out);
+        await seed_rebuild(loaded, { copy_only: parsed.values["copy-only"] === true }, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner seed: ${describe_error(error)}`);

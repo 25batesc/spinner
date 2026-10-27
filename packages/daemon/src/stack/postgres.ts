@@ -7,6 +7,7 @@ import { gunzipSync } from "node:zlib";
 import pg from "pg";
 import type { StackDatabase } from "@spinner/protocol";
 import { POSTGRES_HOST_PORT, POSTGRES_PASSWORD } from "./docker.js";
+import { run } from "./shell.js";
 
 export interface ServerAddress {
     host: string;
@@ -40,8 +41,12 @@ export function assert_identifier(name: string): void {
     assert.ok(/^[a-z_][a-z0-9_]{0,62}$/.test(name), `not a safe database name: ${name}`);
 }
 
+/** Upper bound on one dump or restore of a seed database. */
+const DUMP_TIMEOUT_MS = 30 * 60_000;
+
 /** Upper bound on the wait for a server that is still starting. */
 const READY_ATTEMPTS_MAX = 60;
+const READY_ATTEMPTS_EXTERNAL = 3;
 const READY_INTERVAL_MS = 500;
 
 export class DatabaseServer {
@@ -55,10 +60,15 @@ export class DatabaseServer {
         return `${this.address.user}@${this.address.host}:${this.address.port}`;
     }
 
-    /** Polls until the server accepts a connection. Throws after the bound. */
-    async wait_ready(): Promise<void> {
+    /**
+     * Polls until the server accepts a connection. A managed container gets the full bound
+     * because it may still be starting; an external server gets a few tries, because nobody
+     * else will start it, and the error says so.
+     */
+    async wait_ready(managed: boolean): Promise<void> {
+        const attempts = managed ? READY_ATTEMPTS_MAX : READY_ATTEMPTS_EXTERNAL;
         let last = "";
-        for (let attempt = 0; attempt < READY_ATTEMPTS_MAX; attempt += 1) {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
             try {
                 await this.query("postgres", "SELECT 1");
                 return;
@@ -67,7 +77,8 @@ export class DatabaseServer {
                 await sleep(READY_INTERVAL_MS);
             }
         }
-        throw new Error(`postgres at ${this.describe()} did not answer: ${last}`);
+        const hint = managed ? "" : " (database.server is external: start that server first)";
+        throw new Error(`postgres at ${this.describe()} did not answer${hint}: ${last}`);
     }
 
     async database_exists(name: string): Promise<boolean> {
@@ -129,20 +140,78 @@ export class DatabaseServer {
         await this.query("postgres", `ALTER DATABASE "${template}" IS_TEMPLATE true`);
     }
 
+    /** A connection URL for host commands that take `DATABASE_URL`. */
+    url(database: string): string {
+        assert_identifier(database);
+        const { user, password, host, port } = this.address;
+        return `postgresql://${user}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
+    }
+
+    async create_database(name: string): Promise<void> {
+        assert_identifier(name);
+        await this.query("postgres", `CREATE DATABASE "${name}"`);
+    }
+
     /** Marks a database built by host commands (migrations, fixtures) as the template. */
     async mark_template(template: string): Promise<void> {
         assert_identifier(template);
         await this.query("postgres", `ALTER DATABASE "${template}" IS_TEMPLATE true`);
     }
 
-    /** Copies an existing database into a new template, for seeds that fill a fixed database. */
-    async copy_to_template(source: string, template: string): Promise<void> {
+    /**
+     * Copies an existing database into a new template. `CREATE DATABASE ... TEMPLATE` is a
+     * file copy but needs the source free of other clients; a Supabase `postgres` database
+     * always has its services connected and its `postgres` role may not end their sessions.
+     * Then the copy goes through `pg_dump` and `pg_restore` on the host instead.
+     */
+    async copy_to_template(source: string, template: string): Promise<string> {
         assert_identifier(source);
         assert_identifier(template);
         await this.drop_database(template);
-        await this.terminate_clients(source);
-        await this.query("postgres", `CREATE DATABASE "${template}" TEMPLATE "${source}"`);
+        try {
+            await this.terminate_clients(source);
+            await this.query("postgres", `CREATE DATABASE "${template}" TEMPLATE "${source}"`);
+            await this.mark_template(template);
+            return "cloned as a file copy";
+        } catch {
+            await this.drop_database(template);
+        }
+        await this.query("postgres", `CREATE DATABASE "${template}"`);
+        const report = await this.dump_restore(source, template);
         await this.mark_template(template);
+        return `copied with pg_dump and pg_restore${report}`;
+    }
+
+    /** Returns a note about restore errors, or an empty string when there were none. */
+    private async dump_restore(source: string, target: string): Promise<string> {
+        const env = { ...process.env, PGPASSWORD: this.address.password };
+        const common = ["--host", this.address.host, "--port", String(this.address.port)];
+        const dump = await run(
+            "pg_dump",
+            [...common, "--username", this.address.user, "--format", "custom", "--no-owner",
+                "--no-privileges", source],
+            { env, timeout_ms: DUMP_TIMEOUT_MS, encoding: "buffer" },
+        );
+        if (dump.code !== 0) {
+            throw new Error(`pg_dump ${source} failed: ${dump.stderr}`);
+        }
+        const restore = await run(
+            "pg_restore",
+            [...common, "--username", this.address.user, "--no-owner", "--no-privileges",
+                "--dbname", target],
+            { env, timeout_ms: DUMP_TIMEOUT_MS, input: dump.stdout },
+        );
+        // pg_restore exits 1 when some objects failed (extension-owned schemas on a Supabase
+        // server, for example) and still restores the rest; a failed connection exits 2.
+        if (restore.code > 1) {
+            throw new Error(`pg_restore into ${target} failed: ${restore.stderr}`);
+        }
+        if (restore.code === 0) {
+            return "";
+        }
+        const lines = restore.stderr.trim().split("\n");
+        const errors = lines.filter((line) => line.includes("error:"));
+        return `; ${errors.length} objects failed, first: ${errors[0] ?? lines[0] ?? ""}`;
     }
 
     private async terminate_clients(name: string): Promise<void> {

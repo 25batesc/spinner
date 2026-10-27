@@ -7,7 +7,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { request as http_request } from "node:http";
 import { dirname, join } from "node:path";
 import { stringify } from "yaml";
-import type { Session, SessionSummary, StackService, StackSpec } from "@spinner/protocol";
+import type {
+    DatabaseSeed,
+    Session,
+    SessionSummary,
+    StackService,
+    StackSpec,
+} from "@spinner/protocol";
 import { add_worktree, remove_worktree } from "../git/worktree.js";
 import type { SpinnerHome } from "../home.js";
 import { list_sessions, write_session } from "../store/session-store.js";
@@ -42,7 +48,7 @@ import {
     type ComposeTarget,
 } from "./docker.js";
 import { DatabaseServer, server_address } from "./postgres.js";
-import { run_ok } from "./shell.js";
+import { run_attached, run_ok } from "./shell.js";
 import { load_spec, type LoadedSpec } from "./spec.js";
 
 export type Log = (line: string) => void;
@@ -183,7 +189,7 @@ async function start_stack(
 
     await ensure_shared_containers(spec, log);
     const server = new DatabaseServer(server_address(spec.database));
-    await server.wait_ready();
+    await server.wait_ready(spec.database?.server !== "external");
     log(`database ${db}: ${await server.clone_from_template(db, template_name(spec))}`);
 
     await ensure_images(spec, options.build === true, log);
@@ -287,12 +293,10 @@ async function ensure_shared_containers(spec: StackSpec, log: Log): Promise<void
 async function ensure_images(spec: StackSpec, force: boolean, log: Log): Promise<void> {
     const built = new Set<string>();
     for (const service of Object.values(spec.services)) {
-        if (service.repo === undefined || built.has(service.image)) {
+        if (built.has(service.image)) {
             continue;
         }
-        const repo = spec.repos[service.repo];
-        assert.ok(repo !== undefined, `repo ${service.repo} missing`);
-        const dockerfile = find_dev_dockerfile(repo.path, service.workdir);
+        const dockerfile = service_dockerfile(spec, service);
         if (dockerfile === null) {
             continue;
         }
@@ -301,6 +305,22 @@ async function ensure_images(spec: StackSpec, force: boolean, log: Log): Promise
         }
         built.add(service.image);
     }
+}
+
+/** The spec's `dockerfile`, else the repo's `Dockerfile.dev`, else null (a pulled image). */
+function service_dockerfile(spec: StackSpec, service: StackService): string | null {
+    if (service.dockerfile !== undefined) {
+        if (!existsSync(service.dockerfile)) {
+            throw new Error(`dockerfile ${service.dockerfile} does not exist`);
+        }
+        return service.dockerfile;
+    }
+    if (service.repo === undefined) {
+        return null;
+    }
+    const repo = spec.repos[service.repo];
+    assert.ok(repo !== undefined, `repo ${service.repo} missing`);
+    return find_dev_dockerfile(repo.path, service.workdir);
 }
 
 function render_stack(summary: SessionSummary, spec: StackSpec, db: string): Rendered {
@@ -467,8 +487,17 @@ export async function shared_down(home: SpinnerHome, log: Log): Promise<void> {
     }
 }
 
+export interface SeedOptions {
+    /** Copy `seed.source` into the template as it is, without running the seed commands. */
+    copy_only?: boolean;
+}
+
 /** Rebuilds the template database from the spec's seed: a dump, or host commands. */
-export async function seed_rebuild(loaded: LoadedSpec, log: Log): Promise<void> {
+export async function seed_rebuild(
+    loaded: LoadedSpec,
+    options: SeedOptions,
+    log: Log,
+): Promise<void> {
     const { spec } = loaded;
     const seed = spec.database?.seed;
     if (seed === undefined) {
@@ -476,14 +505,61 @@ export async function seed_rebuild(loaded: LoadedSpec, log: Log): Promise<void> 
     }
     await ensure_shared_containers(spec, log);
     const server = new DatabaseServer(server_address(spec.database));
-    await server.wait_ready();
+    await server.wait_ready(spec.database?.server !== "external");
     const template = template_name(spec);
     if (seed.dump !== undefined) {
         await server.rebuild_template_from_dump(template, seed.dump);
         log(`template ${template} rebuilt from ${seed.dump} on ${server.describe()}`);
         return;
     }
-    throw new Error("seed.migrate and seed.fixtures are not supported yet; use seed.dump");
+    if (options.copy_only === true) {
+        if (seed.source === undefined) {
+            throw new Error("--copy-only needs database.seed.source");
+        }
+        const how = await server.copy_to_template(seed.source, template);
+        log(`template ${template} from ${seed.source} on ${server.describe()}: ${how}`);
+        return;
+    }
+    if (seed.migrate === undefined && seed.fixtures === undefined) {
+        throw new Error("database.seed needs a dump, or migrate and fixtures commands");
+    }
+    const cwd = seed_cwd(spec, seed);
+    // Without `source` the commands fill the future template itself, through DATABASE_URL.
+    const filled = seed.source ?? template;
+    if (seed.source === undefined) {
+        await server.drop_database(template);
+        await server.create_database(template);
+    }
+    const env = { ...process.env, DATABASE_URL: server.url(filled), SEED_DB: filled };
+    for (const [step, command] of [["migrate", seed.migrate], ["fixtures", seed.fixtures]]) {
+        if (command === undefined) {
+            continue;
+        }
+        log(`seed ${step}: ${command} (in ${cwd})`);
+        const code = await run_attached("sh", ["-c", command], cwd, env);
+        if (code !== 0) {
+            throw new Error(`seed ${step} failed with exit code ${code}`);
+        }
+    }
+    if (seed.source === undefined) {
+        await server.mark_template(template);
+        log(`template ${template} rebuilt on ${server.describe()}`);
+    } else {
+        const how = await server.copy_to_template(seed.source, template);
+        log(`template ${template} from ${seed.source} on ${server.describe()}: ${how}`);
+    }
+}
+
+function seed_cwd(spec: StackSpec, seed: DatabaseSeed): string {
+    const name = seed.repo ?? Object.keys(spec.repos)[0];
+    if (name === undefined) {
+        throw new Error("database.seed commands need a repo to run in");
+    }
+    const repo = spec.repos[name];
+    if (repo === undefined) {
+        throw new Error(`database.seed.repo "${name}" is not under repos`);
+    }
+    return repo.path;
 }
 
 function compose_target(summary: SessionSummary): ComposeTarget {

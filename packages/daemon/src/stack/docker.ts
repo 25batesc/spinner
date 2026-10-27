@@ -30,7 +30,7 @@ export async function container_info(name: string): Promise<ContainerInfo> {
     if (result.code !== 0) {
         return { state: "missing", image: "" };
     }
-    const [running, image] = result.stdout.trim().split(" ");
+    const [running, image] = String(result.stdout).trim().split(" ");
     return { state: running === "true" ? "running" : "stopped", image: image ?? "" };
 }
 

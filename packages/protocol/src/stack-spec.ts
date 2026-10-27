@@ -22,8 +22,16 @@ export interface StackRepo {
 export interface StackService {
     /** Name under `repos`. When set, the session's worktree is bind-mounted at `/app`. */
     repo?: string;
-    /** Image name. Built from the repo's `Dockerfile.dev` when the repo has one, else pulled. */
+    /**
+     * Image name. Built from `dockerfile` when set, else from the repo's `Dockerfile.dev`
+     * (next to `workdir`, then at the repo root) when one exists, else pulled.
+     */
     image: string;
+    /**
+     * A dev Dockerfile outside the repo, relative to the spec file; its directory is the
+     * build context. For private multi-repo setups whose repos must stay untouched.
+     */
+    dockerfile?: string;
     runtime?: ServiceRuntime;
     /** Command prefix run before `command`, for a secrets injector. Relative to the worktree. */
     wrapper?: string;
@@ -63,12 +71,22 @@ export interface ExternalDatabase {
 }
 
 export interface DatabaseSeed {
-    /** Host command that applies migrations. Runs in the first repo's primary checkout. */
-    migrate?: string;
-    /** Host command that loads fixtures, after `migrate`. */
-    fixtures?: string;
-    /** A SQL file or a gzip-compressed SQL file, relative to the spec file, loaded instead. */
+    /** A SQL file or a gzip-compressed SQL file, relative to the spec file. */
     dump?: string;
+    /**
+     * Host command that applies migrations. Runs in the primary checkout of `repo` with
+     * `DATABASE_URL` set to a fresh, empty template database, unless `source` is set.
+     */
+    migrate?: string;
+    /** Host command that loads fixtures, after `migrate`, in the same environment. */
+    fixtures?: string;
+    /** Repo whose primary checkout the commands run in. Defaults to the first repo. */
+    repo?: string;
+    /**
+     * Name of the database the commands fill when they ignore `DATABASE_URL`, for example
+     * `postgres` for a Supabase stack. It is copied into the template afterwards.
+     */
+    source?: string;
 }
 
 export interface StackDatabase {

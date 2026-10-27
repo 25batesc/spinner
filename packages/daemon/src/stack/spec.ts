@@ -75,6 +75,11 @@ export function load_spec(path: string): LoadedSpec {
     if (dump !== undefined && spec.database?.seed !== undefined) {
         spec.database.seed.dump = resolve(dir, expand_home(dump));
     }
+    for (const service of Object.values(spec.services)) {
+        if (service.dockerfile !== undefined) {
+            service.dockerfile = resolve(dir, expand_home(service.dockerfile));
+        }
+    }
     return { path, spec };
 }
 

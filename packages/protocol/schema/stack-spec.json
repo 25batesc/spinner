@@ -80,7 +80,11 @@
                 },
                 "image": {
                     "type": "string",
-                    "description": "Image name. Built from the repo's `Dockerfile.dev` when the repo has one, else pulled."
+                    "description": "Image name. Built from `dockerfile` when set, else from the repo's `Dockerfile.dev` (next to `workdir`, then at the repo root) when one exists, else pulled."
+                },
+                "dockerfile": {
+                    "type": "string",
+                    "description": "A dev Dockerfile outside the repo, relative to the spec file; its directory is the build context. For private multi-repo setups whose repos must stay untouched."
                 },
                 "runtime": {
                     "$ref": "#/definitions/ServiceRuntime"
@@ -230,17 +234,25 @@
         "DatabaseSeed": {
             "type": "object",
             "properties": {
+                "dump": {
+                    "type": "string",
+                    "description": "A SQL file or a gzip-compressed SQL file, relative to the spec file."
+                },
                 "migrate": {
                     "type": "string",
-                    "description": "Host command that applies migrations. Runs in the first repo's primary checkout."
+                    "description": "Host command that applies migrations. Runs in the primary checkout of `repo` with `DATABASE_URL` set to a fresh, empty template database, unless `source` is set."
                 },
                 "fixtures": {
                     "type": "string",
-                    "description": "Host command that loads fixtures, after `migrate`."
+                    "description": "Host command that loads fixtures, after `migrate`, in the same environment."
                 },
-                "dump": {
+                "repo": {
                     "type": "string",
-                    "description": "A SQL file or a gzip-compressed SQL file, relative to the spec file, loaded instead."
+                    "description": "Repo whose primary checkout the commands run in. Defaults to the first repo."
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Name of the database the commands fill when they ignore `DATABASE_URL`, for example `postgres` for a Supabase stack. It is copied into the template afterwards."
                 }
             },
             "additionalProperties": false
