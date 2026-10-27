@@ -55,6 +55,12 @@ export interface StackService {
     /** Directory inside the worktree where `command` runs. */
     workdir?: string;
     command?: string;
+    /**
+     * For `runtime: host`: a command run in `workdir`, through `wrapper` and with the same
+     * environment, before the service starts. A non-zero exit fails `up` at once with the
+     * command's last lines, for an import error a dev server would only log.
+     */
+    preflight?: string;
     /** The port the process listens on inside the container. A host service gets one assigned. */
     port?: number;
     /** Hostname label: `<host>.<session>.localhost`. Services without one are internal only. */

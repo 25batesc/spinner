@@ -114,6 +114,10 @@
                 "command": {
                     "type": "string"
                 },
+                "preflight": {
+                    "type": "string",
+                    "description": "For `runtime: host`: a command run in `workdir`, through `wrapper` and with the same environment, before the service starts. A non-zero exit fails `up` at once with the command's last lines, for an import error a dev server would only log."
+                },
                 "port": {
                     "type": "number",
                     "description": "The port the process listens on inside the container. A host service gets one assigned."

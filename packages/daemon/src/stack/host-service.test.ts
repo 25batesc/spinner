@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
     host_command_line,
     process_alive,
+    run_preflight,
     start_host_service,
     stop_host_process,
     write_proxy_routes,
@@ -82,6 +83,45 @@ describe("Spinner's env inside the wrapper", () => {
     it("renders env after the wrapper and quotes values", () => {
         const command = { command: "python main.py" };
         const line = host_command_line("/w/run.sh knit3 ", { A: "x y" }, 5, command);
-        expect(line).toBe("/w/run.sh knit3 env A='x y' PORT='5' python main.py");
+        expect(line).toBe("/w/run.sh knit3 env A='x y' PORT='5' sh -c 'python main.py'");
+    });
+});
+
+describe("preflight", () => {
+    it("passes with the service's env and fails with the output tail", async () => {
+        const session_dir = mkdtempSync(join(tmpdir(), "spinner-host-"));
+        const base = {
+            name: "fake",
+            worktree: session_dir,
+            session_dir,
+            port: 23458,
+            env: { DATABASE_URL: "postgres://x/spinner_s17" },
+        };
+        const ok = await run_preflight({
+            ...base,
+            service: {
+                runtime: "host",
+                repo: "app",
+                command: "x",
+                preflight: 'test "$PORT" = 23458',
+            },
+        });
+        expect(ok).toEqual({ ok: true, tail: "" });
+        const failing = await run_preflight({
+            ...base,
+            service: {
+                runtime: "host",
+                repo: "app",
+                command: "x",
+                preflight:
+                    'for i in $(seq 1 30); do echo "line $i"; done; ' +
+                    'echo "ImportError: nope" >&2; exit 3',
+            },
+        });
+        expect(failing.ok).toBe(false);
+        const lines = failing.tail.split("\n");
+        expect(lines).toHaveLength(20);
+        expect(lines[0]).toBe("line 12");
+        expect(lines[19]).toBe("ImportError: nope");
     });
 });

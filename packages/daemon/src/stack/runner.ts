@@ -66,6 +66,7 @@ import {
     process_alive,
     proxy_dir,
     proxy_routes_path,
+    run_preflight,
     start_host_service,
     stop_host_process,
     write_proxy_routes,
@@ -310,7 +311,7 @@ async function start_stack(
     if (Object.keys(services).length > 0) {
         await compose(target, ["up", "--detach", "--remove-orphans", "--quiet-pull"]);
     }
-    const processes = start_host_services(home, summary, spec, rendered, log);
+    const processes = await start_host_services(home, summary, spec, rendered, log);
     await wait_healthy(target, spec, processes, log);
     const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
     await wait_routes(route_probes(spec, rendered.hosts), http_port);
@@ -321,13 +322,13 @@ async function start_stack(
  * Starts each `runtime: host` service that is not already running, on its deterministic
  * port, and writes the proxy routes for them. Returns the records for `session.yaml`.
  */
-function start_host_services(
+async function start_host_services(
     home: SpinnerHome,
     summary: SessionSummary,
     spec: StackSpec,
     rendered: Rendered,
     log: Log,
-): Record<string, HostProcess> {
+): Promise<Record<string, HostProcess>> {
     const session = summary.session;
     const current = session.stack.processes ?? {};
     const processes: Record<string, HostProcess> = {};
@@ -351,14 +352,22 @@ function start_host_services(
             const repo = session.repos[service.repo];
             assert.ok(repo?.worktree !== undefined, `repo ${service.repo} has no worktree`);
             const env = substitute_env(service.env ?? {}, variables, []);
-            processes[name] = start_host_service({
+            const input = {
                 name,
                 service,
                 worktree: join(summary.path, repo.worktree),
                 session_dir: summary.path,
                 port,
                 env,
-            });
+            };
+            if (service.preflight !== undefined) {
+                log(`preflight ${name}: ${service.preflight}`);
+                const result = await run_preflight(input);
+                if (!result.ok) {
+                    throw new Error(`preflight of ${name} failed:\n${result.tail}`);
+                }
+            }
+            processes[name] = start_host_service(input);
             log(`started ${name} on the host (pid ${processes[name].pid}, port ${port})`);
         }
         if (service.host !== undefined) {

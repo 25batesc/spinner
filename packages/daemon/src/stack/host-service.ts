@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import type { HostProcess, StackService } from "@spinner/protocol";
 import { stringify } from "yaml";
 import { compose_project, hostname } from "./compose.js";
+import { run } from "./shell.js";
 
 export interface HostServiceInput {
     name: string;
@@ -54,9 +55,10 @@ export function start_host_service(input: HostServiceInput): HostProcess {
 }
 
 /**
- * `<wrapper> env K=V ... <command>`: Spinner's values are applied by `env` inside the
- * wrapper, after a secrets injector such as Doppler has set its own, so the session's
- * `DATABASE_URL`, `PORT` and the like win. Values are single-quoted for the shell.
+ * `<wrapper> env K=V ... sh -c '<command>'`: Spinner's values are applied by `env` inside
+ * the wrapper, after a secrets injector such as Doppler has set its own, so the session's
+ * `DATABASE_URL`, `PORT` and the like win. The inner shell lets `command` be a compound
+ * command. Values are single-quoted for the shell.
  */
 export function host_command_line(
     wrapper: string,
@@ -68,7 +70,7 @@ export function host_command_line(
     const pairs = Object.entries({ ...env, PORT: String(port) }).map(
         ([key, value]) => `${key}=${shell_quote(value)}`,
     );
-    return `${wrapper}env ${pairs.join(" ")} ${service.command.trim()}`;
+    return `${wrapper}env ${pairs.join(" ")} sh -c ${shell_quote(service.command.trim())}`;
 }
 
 function shell_quote(value: string): string {
@@ -80,6 +82,42 @@ function host_wrapper(wrapper: string, worktree: string): string {
     assert.ok(first !== undefined && first.length > 0, "wrapper must not be empty");
     const on_path = first.startsWith("/") || !first.includes("/");
     return [on_path ? first : join(worktree, first), ...rest].join(" ");
+}
+
+/** Bound on one preflight command. */
+const PREFLIGHT_TIMEOUT_MS = 5 * 60_000;
+/** Lines of output kept from a failed preflight or a dead service. */
+export const TAIL_LINES = 20;
+
+export interface PreflightResult {
+    ok: boolean;
+    /** The last lines of the combined output, for the error message. */
+    tail: string;
+}
+
+/**
+ * Runs `preflight` the way the service will run: in `workdir`, through the wrapper, with
+ * Spinner's env applied last. Resolves with the outcome; never throws for a failing command.
+ */
+export async function run_preflight(input: HostServiceInput): Promise<PreflightResult> {
+    const { service } = input;
+    assert.ok(service.preflight !== undefined, `services.${input.name}: no preflight`);
+    const cwd = join(input.worktree, service.workdir ?? ".");
+    const wrapper =
+        service.wrapper === undefined ? "" : `${host_wrapper(service.wrapper, input.worktree)} `;
+    const line = host_command_line(wrapper, input.env, input.port, { command: service.preflight });
+    const result = await run("sh", ["-c", line], {
+        cwd,
+        env: { ...process.env, ...input.env, PORT: String(input.port) },
+        timeout_ms: PREFLIGHT_TIMEOUT_MS,
+    });
+    return { ok: result.code === 0, tail: tail_lines(`${result.stdout}${result.stderr}`) };
+}
+
+/** The last `TAIL_LINES` non-empty lines of a text. */
+export function tail_lines(text: string): string {
+    const lines = text.split("\n").filter((line) => line.trim().length > 0);
+    return lines.slice(-TAIL_LINES).join("\n");
 }
 
 export function process_alive(pid: number): boolean {
