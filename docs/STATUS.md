@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-27, during session s002 round 3.
+Updated: 2026-10-27, after session s002 round 4.
 
 ## Summary
 
@@ -65,7 +65,7 @@ Fixtures from real PRs, scrubbed, under `packages/daemon/test/fixtures/github/`:
 | `examples/sample-stack` comes up with `spinner new/up/down/close` | done | `07cf8c8`; `up` 3.2 s warm for a fresh session, 2.4 s after `down`; `up` twice succeeds; `close` after a failed `up` succeeds |
 | `examples/sample-stack` comes up in CI | open | CI runs the unit tests only. A compose run in GitHub Actions is not wired |
 | Two sessions of the sample stack side by side on their own hostnames | done | `api.s003.localhost` and `api.s004.localhost` answered `GET /health` with their own session id through Traefik; `X-Frame-Options` stripped through the proxy |
-| Two sessions of the operator's project side by side, both logged in, Temporal UI per session | partial | two sessions (s005, s006 on 2026-10-27): `api`, `web`, `admin`, `temporal` answer 200 on both through Traefik; `web` compiles on the host; the login page renders; Google SSO is blocked by Cognito (finding 12); password login under test. Round 2 state for one session: the backend answers `GET /health/ready` → 200 through Traefik (`api.s003.localhost`) with `database: ok` on the clone `spinner_s003` (`pg_stat_activity` shows 4 backend connections) and `temporal: ok` on the session's Temporal; the worker started with 49 workflows; admin and Temporal UI answer 200. Open: `web` (finding 6), `copilot` (finding 7), the second session (finding 8), login (finding 5) |
+| Two sessions of the operator's project side by side, both logged in, Temporal UI per session | done, pending the operator's browser check of the 2.0 calls | two sessions (s016, s017 on 2026-10-27, after s005 to s010): the 2.0 cloud API answers through the session's own origin (`upstreams`); the 3.0 API serves data from a fresh dev snapshot clone per session; password login on both; earlier: `api`, `web`, `admin`, `temporal` answer 200 on both through Traefik; `web` compiles on the host; the login page renders; Google SSO is blocked by Cognito (finding 12); password login under test. Round 2 state for one session: the backend answers `GET /health/ready` → 200 through Traefik (`api.s003.localhost`) with `database: ok` on the clone `spinner_s003` (`pg_stat_activity` shows 4 backend connections) and `temporal: ok` on the session's Temporal; the worker started with 49 workflows; admin and Temporal UI answer 200. Open: `web` (finding 6), `copilot` (finding 7), the second session (finding 8), login (finding 5) |
 | `spinner up` under 15 s warm | partial | 3.2 s on the sample stack. the operator's project: 20.0 s and 25.9 s with everything warm, with `web` on the host (the backend preflight and start take most of it) |
 | `spinner close` leaves no containers, worktrees or databases behind | partial | `tools/stack-proof.sh` passes for containers, worktrees, databases and branches. Host processes: after round 2 the operator found 5 strays (the s003 worker, the s004 copilot) that the proof missed (finding 9) |
 | `pnpm -r build && pnpm -r test` green | done | 108 tests at `fc83d1c` (protocol 11, daemon 75, ui 9, cli 13) |
@@ -88,11 +88,14 @@ Fixtures from real PRs, scrubbed, under `packages/daemon/test/fixtures/github/`:
 | 12 | Google SSO fails with `redirect_mismatch`: the app sends `window.location.origin + '/auth/sso'` and the Cognito app client accepts a fixed list of callback URLs, no wildcards | operator, Cognito admin | add `http://web.s001.localhost/auth/sso` to `s020` to the app client once; Spinner reserves ids in that range. Email and password sign-in works without it |
 | 13 | A full webpack build of the frontend does not fit in the Docker VM (7.7 GB): Node OOM at the default heap, then exit 137 at 6 GB. Lazy compilation (`WEBPACK_LAZY=true`) serves modules from a random `localhost` port, unreachable through Traefik from a container | done in the spec | `web` runs on the host (`runtime: host`), with `--port $PORT` and `--client-web-socket-url auto://0.0.0.0:0/ws` |
 | 14 | The seed template was copied without migrations: the backend logs `relation "questionnaire_chat_sessions" does not exist` every minute | stack agent | `seed rebuild` applies `seed.migrate` on the template after the copy |
-| 15 | The copied `envs/.env.local` points copilot at `localhost:4100`; each session's copilot has its own host port | stack agent | a `copilot` hostname and `env_file` overrides for the two `REACT_APP_COPILOTKIT_*` keys |
+| 15 | The copied `envs/.env.local` pointed copilot at a fixed localhost port | done in the spec | a `copilot` hostname and `env_file` overrides |
+| 16 | `spinner down --shared` and the proxy directory are scoped to one `SPINNER_HOME`, while `spinner-proxy` and `spinner-postgres` are machine-global containers. A second home's `down --shared` removed the proxy under a live session of the first home; a second home's `up` starts a proxy without the first home's route files. Found by a review agent | stack agent | one proxy directory per machine regardless of home (`~/.spinner/proxy` or a volume); `down --shared` refuses while any `spinner-*` compose project has containers or any route file exists; `ensure_proxy` never recreates a running proxy; session ids unique per machine |
+| 17 | The frontend's `node-sass` binary is for Node 18 (ABI 108); under Node 24 its install fails. The frontend's host service runs with the project's Node version | done in the spec | `wrapper` and `install` prefix the right `fnm` binary path; a `node_version:` field would be cleaner |
+| 18 | The stack agent printed a registry token from an untracked `.npmrc` into its own transcript while debugging an install. No tracked file holds it | operator | rotate the tokens if the transcript leaves the machine; the brief says to print secrets never, add the file names to the rule |
 
 ### Record
 
-Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 min); operator relays 3 (one decision, two steers); agent-to-operator calls 2. Round 2: stack agent $11.23 (30 min); operator relays 4 (steers); the operator killed hung backends by hand three times (reloader parents that survive a failed startup) and found the Supabase and install facts from the logs. Full mission record: [sessions/s002-MISSION.md](sessions/s002-MISSION.md).
+Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 min); operator relays 3 (one decision, two steers); agent-to-operator calls 2. Round 2: stack agent $11.23 (30 min); operator relays 4 (steers). Rounds 3 and 4: see the budget table; the operator killed hung backends by hand three times (reloader parents that survive a failed startup) and found the Supabase and install facts from the logs. Full mission record: [sessions/s002-MISSION.md](sessions/s002-MISSION.md).
 
 ### Next
 
@@ -109,7 +112,11 @@ Estimates before the work were "days 1 to 3" for s001 and "weeks 2 to 3" for s00
 | s001 | engine, ui | $5.80 | 17 min | 2 |
 | s002 round 1 | board, stack | $33.43 | 75 min | 3 |
 | s002 round 2 | stack | $11.23 | 30 min | 4 |
-| Total | | $50.46 | 122 min | 9 |
+| s002 round 3 | stack | see note | 65 min | 0 |
+| s002 round 4 | stack | see note | 55 min | 0 |
+| Total | | $50.46 + rounds 3 and 4 | 242 min | 9 |
+
+Note: rounds 3 and 4 cost is read from the run records at the M1 close. The operator's own time on 2026-10-27 was about 5 hours: reading logs the agents could not interpret (cloud auth keys, grants, the team's install commands), refreshing the local database, and killing hung processes.
 
 Space per session, measured on the sample stack: 3 containers, one database clone, one network. Not yet measured on the operator's project.
 
