@@ -10,6 +10,18 @@ export default tseslint.config(
     js.configs.recommended,
     ...tseslint.configs.recommended,
     {
+        // The example stacks are plain Node scripts that run inside containers.
+        files: ["examples/**/*.js"],
+        languageOptions: {
+            globals: {
+                process: "readonly",
+                console: "readonly",
+                URL: "readonly",
+                fetch: "readonly",
+            },
+        },
+    },
+    {
         rules: {
             "max-len": ["error", { code: 100, ignoreUrls: true }],
             "@typescript-eslint/consistent-type-imports": "error",

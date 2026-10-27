@@ -80,6 +80,23 @@ export function read_session(home: SpinnerHome, dir: string): ReadResult {
     return { ok: true, summary: { dir, path, session: parsed as Session } };
 }
 
+/** Writes `session.yaml` back. The caller holds the whole session, so this is one atomic write. */
+export function write_session(summary: SessionSummary): void {
+    assert.ok(summary.session.id.length > 0, "session id must not be empty");
+    assert.ok(existsSync(summary.path), `${summary.path} does not exist`);
+    writeFileSync(join(summary.path, "session.yaml"), stringify(summary.session));
+}
+
+/** Finds a session by directory name (`s17-refund-flow`) or by id (`s17`). */
+export function find_session(home: SpinnerHome, name: string): SessionSummary | null {
+    assert.ok(name.length > 0, "session name must not be empty");
+    const result = list_sessions(home);
+    const match = result.sessions.find(
+        (entry) => entry.dir === name || entry.session.id === name,
+    );
+    return match ?? null;
+}
+
 /**
  * A structural check that is cheap and dependency-free. The JSON schema in the protocol
  * package is the full definition; this check only rejects files that cannot be a session.

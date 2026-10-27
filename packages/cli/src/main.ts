@@ -3,7 +3,7 @@
 // `run_cli` with a fake environment and capture its output.
 import { run_cli } from "./cli.js";
 
-const code = run_cli(process.argv.slice(2), {
+const code = await run_cli(process.argv.slice(2), {
     env: process.env,
     out: (line) => process.stdout.write(`${line}\n`),
     err: (line) => process.stderr.write(`${line}\n`),

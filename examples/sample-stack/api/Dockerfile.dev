@@ -1,0 +1,4 @@
+# Dev image for the sample API and web services. The worktree is bind-mounted at /app at run
+# time and dependencies live in a shared volume, so the image holds only the runtime.
+FROM node:24-alpine
+WORKDIR /app
