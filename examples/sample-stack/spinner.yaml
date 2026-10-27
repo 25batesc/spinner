@@ -40,10 +40,10 @@ services:
 
   temporal:
     image: temporalio/temporal:1.6.1
-    command: server start-dev --ip 0.0.0.0 --log-level warn --db-filename /data/temporal.db
+    command: server start-dev --ip 0.0.0.0 --log-level warn --db-filename /home/temporal/temporal.db
     port: 8233
     host: temporal
-    volumes: [temporal-data:/data]
+    volumes: [temporal-data:/home/temporal]
 
 database:
   mode: template

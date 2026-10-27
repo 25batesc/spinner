@@ -125,9 +125,11 @@ describe("render_compose options", () => {
         const document = parse(rendered.compose) as {
             services: Record<string, { command: string[]; environment: Record<string, string> }>;
         };
+        expect(document.services["temporal"]?.command).toMatch(/^server start-dev --ip/);
         expect(document.services["api"]?.command[2]).toContain(
             "exec /app/bin/run-with-secrets.sh sample node --watch server.js",
         );
+        expect(document.services["temporal"]?.command).toMatch(/^server start-dev --ip/);
         expect(document.services["api"]?.environment["OPENAI_API_KEY"]).toBe("${OPENAI_API_KEY}");
     });
 });

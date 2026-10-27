@@ -294,21 +294,23 @@ function render_deps(name: string, service: StackService, input: RenderInput): D
 }
 
 /**
- * The container command: an install guard when the dependency volume is empty, then the
- * wrapper and the command. A marker file in the volume says the install finished, so a
- * volume shared by many sessions installs once.
+ * The container command: the wrapper and the command, behind an install guard when the
+ * service has a dependency volume. The guard needs a shell, so only then is the command
+ * wrapped in `sh -c`; a plain string keeps the image's own entrypoint (Temporal's `temporal`)
+ * in front. A marker file in the volume says the install finished, so a volume shared by
+ * many sessions installs once.
  */
-function render_command(service: StackService, install: string | null): string[] {
+function render_command(service: StackService, install: string | null): string | string[] {
     assert.ok(service.command !== undefined);
-    const parts: string[] = [];
-    if (install !== null && service.deps_volume !== undefined) {
-        const dir = DEPS_DIR[service.deps_volume];
-        const marker = `${dir}/.spinner-ready`;
-        parts.push(`if [ ! -f ${marker} ]; then ${install} && touch ${marker}; fi`);
-    }
     const wrapper = service.wrapper === undefined ? "" : `${wrapper_path(service.wrapper)} `;
-    parts.push(`exec ${wrapper}${service.command.trim()}`);
-    return ["sh", "-c", parts.join(" && ")];
+    const command = `${wrapper}${service.command.trim()}`;
+    if (install === null || service.deps_volume === undefined) {
+        return command;
+    }
+    const dir = DEPS_DIR[service.deps_volume];
+    const marker = `${dir}/.spinner-ready`;
+    const guard = `if [ ! -f ${marker} ]; then ${install} && touch ${marker}; fi`;
+    return ["sh", "-c", `${guard} && exec ${command}`];
 }
 
 /** A wrapper is a path relative to the worktree, so it must resolve from any `workdir`. */
@@ -333,12 +335,16 @@ function render_healthcheck(check: string, port: number, runtime?: ServiceRuntim
         `sys.exit(0 if urllib.request.urlopen('${url}').status<300 else 1)`;
     const node = `fetch('${url}').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))`;
     const probe = runtime === "python" ? ["python", "-c", python] : ["node", "-e", node];
+    // Docker probes every `start_interval` during `start_period` (its default is 5 s, which
+    // alone costs 5 s per dependency level), then every `interval`. A success at any time
+    // marks the service healthy; failures during the start period do not count.
     return {
         test: ["CMD", ...probe],
-        interval: "1s",
+        interval: "2s",
         timeout: "3s",
-        retries: 60,
-        start_period: "2s",
+        retries: 30,
+        start_period: "60s",
+        start_interval: "250ms",
     };
 }
 

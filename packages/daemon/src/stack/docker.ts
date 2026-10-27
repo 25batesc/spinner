@@ -13,60 +13,80 @@ export const POSTGRES_HOST_PORT = 55432;
 export const POSTGRES_PASSWORD = "postgres";
 /** The alias every session network gives the managed Postgres, as `DATABASE_URL` uses it. */
 export const POSTGRES_ALIAS = "postgres";
-const TRAEFIK_IMAGE = "traefik:v3.3";
+// Traefik before 3.6 speaks a Docker API version that Docker 29 no longer accepts.
+const TRAEFIK_IMAGE = "traefik:v3.6";
 
 export type ContainerState = "missing" | "running" | "stopped";
 
-export async function container_state(name: string): Promise<ContainerState> {
-    const result = await run("docker", ["inspect", "--format", "{{.State.Running}}", name]);
-    if (result.code !== 0) {
-        return "missing";
-    }
-    return result.stdout.trim() === "true" ? "running" : "stopped";
+export interface ContainerInfo {
+    state: ContainerState;
+    /** The image the container was created from; empty when missing. */
+    image: string;
 }
 
-/** Starts a long-lived container if it is not running. Returns true when it started one. */
-async function ensure_container(name: string, run_args: string[]): Promise<boolean> {
-    const state = await container_state(name);
-    if (state === "running") {
+export async function container_info(name: string): Promise<ContainerInfo> {
+    const format = "{{.State.Running}} {{.Config.Image}}";
+    const result = await run("docker", ["inspect", "--format", format, name]);
+    if (result.code !== 0) {
+        return { state: "missing", image: "" };
+    }
+    const [running, image] = result.stdout.trim().split(" ");
+    return { state: running === "true" ? "running" : "stopped", image: image ?? "" };
+}
+
+/**
+ * Starts a long-lived container if it is not running, and recreates it when it was created
+ * from another image (an upgrade of Traefik or Postgres). Returns true when it started one.
+ */
+async function ensure_container(
+    name: string,
+    image: string,
+    options: string[],
+    command: string[] = [],
+): Promise<boolean> {
+    const info = await container_info(name);
+    if (info.state !== "missing" && info.image !== image) {
+        await run_ok("docker", ["rm", "--force", name]);
+        info.state = "missing";
+    }
+    if (info.state === "running") {
         return false;
     }
-    if (state === "stopped") {
+    if (info.state === "stopped") {
         await run_ok("docker", ["start", name]);
         return true;
     }
     const base = ["run", "-d", "--name", name, "--restart", "unless-stopped"];
-    await run_ok("docker", [...base, ...run_args]);
+    await run_ok("docker", [...base, ...options, image, ...command]);
     return true;
 }
 
 /** One Traefik for every session, routing by the labels the renderer puts on services. */
 export function ensure_proxy(http_port: number): Promise<boolean> {
     assert.ok(http_port > 0 && http_port < 65536, `bad proxy port ${http_port}`);
-    return ensure_container(PROXY_CONTAINER, [
-        "-p",
-        `${http_port}:80`,
-        "-v",
-        "/var/run/docker.sock:/var/run/docker.sock:ro",
+    return ensure_container(
+        PROXY_CONTAINER,
         TRAEFIK_IMAGE,
-        "--providers.docker=true",
-        "--providers.docker.exposedbydefault=false",
-        "--entrypoints.web.address=:80",
-        "--log.level=WARN",
-    ]);
+        ["-p", `${http_port}:80`, "-v", "/var/run/docker.sock:/var/run/docker.sock:ro"],
+        [
+            "--providers.docker=true",
+            "--providers.docker.exposedbydefault=false",
+            "--entrypoints.web.address=:80",
+            "--log.level=WARN",
+        ],
+    );
 }
 
 /** The managed Postgres server. Its data volume survives `close` of every session. */
 export function ensure_postgres_container(version: string): Promise<boolean> {
     assert.ok(/^\d+$/.test(version), `postgres version must be a major number: ${version}`);
-    return ensure_container(POSTGRES_CONTAINER, [
+    return ensure_container(POSTGRES_CONTAINER, `postgres:${version}`, [
         "-p",
         `127.0.0.1:${POSTGRES_HOST_PORT}:5432`,
         "-e",
         `POSTGRES_PASSWORD=${POSTGRES_PASSWORD}`,
         "-v",
         "spinner-postgres-data:/var/lib/postgresql/data",
-        `postgres:${version}`,
     ]);
 }
 

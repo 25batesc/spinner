@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { request as http_request } from "node:http";
 import { dirname, join } from "node:path";
 import { stringify } from "yaml";
 import type { Session, SessionSummary, StackService, StackSpec } from "@spinner/protocol";
@@ -52,9 +53,9 @@ const ENV_FILE = join("stack", ".env");
 const PROXY_PORT_DEFAULT = 80;
 const POSTGRES_VERSION_DEFAULT = "16";
 
-/** Bound on the wait for healthchecks: 240 polls of 500 ms is 2 minutes. */
-const HEALTH_POLLS_MAX = 240;
-const HEALTH_INTERVAL_MS = 500;
+/** Bound on the wait for healthchecks: 480 polls of 250 ms is 2 minutes. */
+const HEALTH_POLLS_MAX = 480;
+const HEALTH_INTERVAL_MS = 250;
 
 export function session_db(session_id: string): string {
     return `spinner_${session_id}`;
@@ -152,13 +153,33 @@ export async function stack_up(
     log: Log,
 ): Promise<UpResult> {
     const started = Date.now();
+    set_stack_state(summary, "starting");
+    try {
+        const hosts = await start_stack(summary, options, log);
+        const db = session_db(summary.session.id);
+        const project = compose_project(summary.session.id);
+        summary.session.stack = { project, state: "up", hosts, db };
+        write_session(summary);
+        return { hosts, db, elapsed_ms: Date.now() - started };
+    } catch (error) {
+        // `failed` tells the board and the UI that a retry or a `close` is due; the containers
+        // stay for `spinner logs` to show what went wrong.
+        set_stack_state(summary, "failed");
+        throw error;
+    }
+}
+
+async function start_stack(
+    summary: SessionSummary,
+    options: UpOptions,
+    log: Log,
+): Promise<Record<string, string>> {
     const { spec } = read_session_spec(summary);
     const session = summary.session;
     const target = compose_target(summary);
     const network = compose_network(session.id);
     const db = session_db(session.id);
 
-    set_stack_state(summary, "starting");
     await ensure_shared_containers(spec, log);
     const server = new DatabaseServer(server_address(spec.database));
     await server.wait_ready();
@@ -183,10 +204,70 @@ export async function stack_up(
     }
     await compose(target, ["up", "--detach", "--remove-orphans", "--quiet-pull"]);
     await wait_healthy(target, spec, log);
+    const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
+    await wait_routes(route_probes(spec, rendered.hosts), http_port);
+    return rendered.hosts;
+}
 
-    session.stack = { project: target.project, state: "up", hosts: rendered.hosts, db };
-    write_session(summary);
-    return { hosts: rendered.hosts, db, elapsed_ms: Date.now() - started };
+/** Bound on the wait for Traefik to publish the routes: 120 polls of 250 ms is 30 s. */
+const ROUTE_POLLS_MAX = 120;
+
+interface RouteProbe {
+    host: string;
+    /** The healthcheck path when the service has one, else `/`. */
+    path: string;
+}
+
+function route_probes(spec: StackSpec, hosts: Record<string, string>): RouteProbe[] {
+    const probes: RouteProbe[] = [];
+    for (const [name, host] of Object.entries(hosts)) {
+        const check = spec.services[name]?.healthcheck;
+        const path = check === undefined ? "/" : check.replace(/^GET\s+/, "");
+        probes.push({ host, path });
+    }
+    return probes;
+}
+
+/**
+ * Traefik reads labels with a short delay after a container starts, so right after `up`
+ * a hostname answers 404 from the proxy itself. This waits until every host reaches its
+ * service. The request goes to the loopback port with a `Host` header, because macOS does
+ * not resolve `*.localhost` for curl or Node, only browsers do.
+ */
+async function wait_routes(probes: RouteProbe[], http_port: number): Promise<void> {
+    const pending = new Set(probes);
+    for (let poll = 0; poll < ROUTE_POLLS_MAX && pending.size > 0; poll += 1) {
+        for (const probe of pending) {
+            if (await route_answers(probe, http_port)) {
+                pending.delete(probe);
+            }
+        }
+        if (pending.size > 0) {
+            await sleep(HEALTH_INTERVAL_MS);
+        }
+    }
+    if (pending.size > 0) {
+        const hosts = [...pending].map((probe) => probe.host);
+        throw new Error(`the proxy does not route ${hosts.join(", ")} yet`);
+    }
+}
+
+function route_answers(probe: RouteProbe, http_port: number): Promise<boolean> {
+    // `fetch` drops a `Host` header (the spec forbids it), so this uses `node:http`.
+    return new Promise((resolve) => {
+        const request = http_request(
+            { host: "127.0.0.1", port: http_port, path: probe.path, headers: { Host: probe.host } },
+            (response) => {
+                response.resume();
+                // Traefik answers 404 itself when no router matches. The probe path is the
+                // service's healthcheck path when it has one, so its own 404 does not occur.
+                resolve(response.statusCode !== 404);
+            },
+        );
+        request.setTimeout(3_000, () => request.destroy());
+        request.on("error", () => resolve(false));
+        request.end();
+    });
 }
 
 async function ensure_shared_containers(spec: StackSpec, log: Log): Promise<void> {

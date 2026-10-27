@@ -180,11 +180,17 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
 /** Upper bound on the numeric part of a session id. Three digits keep ids short and sortable. */
 const SESSION_NUMBER_MAX = 999;
 
-/** `s001`, `s002`, ...: one more than the highest id among existing session directories. */
+/**
+ * `s001`, `s002`, ...: one more than the highest id among live and archived sessions, so an
+ * id (and the database and branch names derived from it) is never reused after `close`.
+ */
 export function next_session_id(home: SpinnerHome): string {
     let highest = 0;
-    if (existsSync(home.sessions)) {
-        for (const entry of readdirSync(home.sessions)) {
+    for (const dir of [home.sessions, home.archive]) {
+        if (!existsSync(dir)) {
+            continue;
+        }
+        for (const entry of readdirSync(dir)) {
             const match = /^s(\d+)-/.exec(entry);
             if (match?.[1] !== undefined) {
                 highest = Math.max(highest, Number.parseInt(match[1], 10));
