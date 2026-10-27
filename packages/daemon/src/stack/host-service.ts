@@ -4,7 +4,7 @@
 // platform. The process outlives the CLI; `down` and `close` stop it by pid.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { request as http_request } from "node:http";
 import { dirname, join } from "node:path";
 import type { HostProcess, StackService } from "@spinner/protocol";
@@ -37,13 +37,18 @@ export function start_host_service(input: HostServiceInput): HostProcess {
     const log_path = join(input.session_dir, log);
     mkdirSync(dirname(log_path), { recursive: true });
     const fd = openSync(log_path, "a");
-    const child = spawn("sh", ["-c", `exec ${wrapper}${service.command.trim()}`], {
+    // No `exec`: a command may be a compound one, and the process group (see `stop_host_process`)
+    // reaches the shell and whatever it runs.
+    const child = spawn("sh", ["-c", `${wrapper}${service.command.trim()}`], {
         cwd,
         env: { ...process.env, ...input.env, PORT: String(input.port) },
         stdio: ["ignore", fd, fd],
         detached: true,
     });
     child.unref();
+    // The child holds its own copies of the descriptor; the parent closes its one so that
+    // `spinner up` keeps no handle on the log and exits as soon as its work is done.
+    closeSync(fd);
     assert.ok(child.pid !== undefined, `could not start ${input.name}`);
     return { pid: child.pid, port: input.port, log };
 }

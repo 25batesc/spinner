@@ -71,6 +71,13 @@
                         "type": "string"
                     },
                     "description": "Untracked files (`.npmrc`, `.env.local`) that `spinner new` copies from the primary checkout into the worktree when they are absent there. Paths relative to the repo."
+                },
+                "seed_links": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Local directories (`.venv`, `node_modules`) that the worktree symlinks to the primary checkout's copy instead of installing again, as the Knit team's `wt` tool does. Paths relative to the repo. The link is excluded from git through `info/exclude`."
                 }
             },
             "required": [

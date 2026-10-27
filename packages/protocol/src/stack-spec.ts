@@ -27,6 +27,12 @@ export interface StackRepo {
      * checkout into the worktree when they are absent there. Paths relative to the repo.
      */
     seed_files?: string[];
+    /**
+     * Local directories (`.venv`, `node_modules`) that the worktree symlinks to the primary
+     * checkout's copy instead of installing again, as the Knit team's `wt` tool does. Paths
+     * relative to the repo. The link is excluded from git through `info/exclude`.
+     */
+    seed_links?: string[];
 }
 
 export interface StackService {

@@ -186,7 +186,8 @@ describe("render_compose with a host service", () => {
 
     it("render_dotenv replaces keys in place and appends new ones", () => {
         expect(render_dotenv("A=1\nB=2\n", { B: "x", C: "y" })).toBe(
-            "A=1\nB=x\n# Added by spinner for this session. Edit spinner.yaml, not this file.\nC=y\n",
+            "A=1\nB=x\n# Added by spinner for this session. Edit spinner.yaml, not this file.\n" +
+                "C=y\n",
         );
         expect(render_dotenv("", { A: "1" })).toMatch(/^# Added by spinner.*\nA=1\n$/);
     });

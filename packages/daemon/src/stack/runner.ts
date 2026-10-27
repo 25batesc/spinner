@@ -6,10 +6,12 @@ import { createHash } from "node:crypto";
 import {
     copyFileSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     readFileSync,
     renameSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { request as http_request } from "node:http";
@@ -81,8 +83,8 @@ const ENV_FILE = join("stack", ".env");
 const PROXY_PORT_DEFAULT = 80;
 const POSTGRES_VERSION_DEFAULT = "16";
 
-/** Bound on the wait for healthchecks: 480 polls of 250 ms is 2 minutes. */
-const HEALTH_POLLS_MAX = 480;
+/** Bound on the wait for healthchecks: 2400 polls of 250 ms is 10 minutes, for a first install. */
+const HEALTH_POLLS_MAX = 2400;
 const HEALTH_INTERVAL_MS = 250;
 
 export function session_db(session_id: string): string {
@@ -135,6 +137,11 @@ export async function attach_project(
         if (copied.length > 0) {
             log(`  copied from the primary checkout: ${copied.join(", ")}`);
         }
+        const links = repo.seed_links ?? [];
+        const linked = link_seed_dirs(repo.path, join(summary.path, worktree), links);
+        if (linked.length > 0) {
+            log(`  linked to the primary checkout: ${linked.join(", ")}`);
+        }
         session.repos[name] = { path: repo.path, worktree, changed: false, pr: null };
     }
     session.stack = {
@@ -148,9 +155,10 @@ export async function attach_project(
 }
 
 /**
- * Copies untracked files (`.npmrc`, `.env.local`) from the primary checkout into the worktree
- * when the worktree lacks them. Returns the paths it copied. A file the primary checkout
- * does not have is skipped, not an error, so a fresh clone still works.
+ * Copies local files (`.npmrc`, `.env.local`) from the primary checkout into the worktree:
+ * untracked files the worktree lacks, and tracked files whose primary copy carries local
+ * edits (tokens filled in). Returns the paths it copied. A file the primary checkout does
+ * not have is skipped, not an error, so a fresh clone still works.
  */
 function copy_seed_files(repo_path: string, worktree: string, files: string[]): string[] {
     const copied: string[] = [];
@@ -158,7 +166,10 @@ function copy_seed_files(repo_path: string, worktree: string, files: string[]): 
         assert.ok(!file.startsWith("/") && !file.includes(".."), `seed_files entry: ${file}`);
         const source = join(repo_path, file);
         const target = join(worktree, file);
-        if (!existsSync(source) || existsSync(target)) {
+        if (!existsSync(source)) {
+            continue;
+        }
+        if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) {
             continue;
         }
         mkdirSync(dirname(target), { recursive: true });
@@ -166,6 +177,36 @@ function copy_seed_files(repo_path: string, worktree: string, files: string[]): 
         copied.push(file);
     }
     return copied;
+}
+
+/**
+ * Symlinks heavy local directories (`.venv`) to the primary checkout's copy when the
+ * worktree has nothing at that path. Returns the paths it linked. A directory the primary
+ * checkout lacks is skipped.
+ */
+function link_seed_dirs(repo_path: string, worktree: string, dirs: string[]): string[] {
+    const linked: string[] = [];
+    for (const dir of dirs) {
+        assert.ok(!dir.startsWith("/") && !dir.includes(".."), `seed_links entry: ${dir}`);
+        const source = join(repo_path, dir);
+        const target = join(worktree, dir);
+        if (!existsSync(source) || existsSync(target) || lstat_exists(target)) {
+            continue;
+        }
+        mkdirSync(dirname(target), { recursive: true });
+        symlinkSync(source, target);
+        linked.push(dir);
+    }
+    return linked;
+}
+
+function lstat_exists(path: string): boolean {
+    try {
+        lstatSync(path);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
