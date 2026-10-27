@@ -211,16 +211,26 @@ describe("render_compose with a host service", () => {
         expect(rendered.published).toEqual({ "temporal:7233": 21750 });
         expect(document.services["temporal"]?.["ports"]).toEqual(["127.0.0.1:21750:7233"]);
         expect(rendered.hosts["backend"]).toBe("backend.s17.localhost");
-        expect(rendered.env_files[0]?.content).toBe(
-            "REACT_APP_X=keep\nTEMPORAL_HOST=127.0.0.1:21750\n",
-        );
+        expect(rendered.env_files[0]?.content).toContain("# spinner-replaced: TEMPORAL_HOST=old");
+        expect(rendered.env_files[0]?.content).toContain("\nTEMPORAL_HOST=127.0.0.1:21750\n");
     });
 
-    it("render_dotenv replaces keys in place and appends new ones", () => {
-        expect(render_dotenv("A=1\nB=2\n", { B: "x", C: "y" })).toBe(
-            "A=1\nB=x\n# Added by spinner for this session. Edit spinner.yaml, not this file.\n" +
-                "C=y\n",
+    it("render_dotenv owns its keys: a re-render drops keys no longer in the spec", () => {
+        const first = render_dotenv("A=1\nB=2\n", { B: "x", C: "y" });
+        expect(first).toBe(
+            "A=1\n# spinner-replaced: B=2\n" +
+                "# spinner:begin (this session's keys; edit spinner.yaml, not this file)\n" +
+                "B=x\nC=y\n# spinner:end\n",
         );
-        expect(render_dotenv("", { A: "1" })).toMatch(/^# Added by spinner.*\nA=1\n$/);
+        // C leaves the spec, B stays: C is gone and B's original line is still recorded.
+        const second = render_dotenv(first, { B: "z" });
+        expect(second).toBe(
+            "A=1\n# spinner-replaced: B=2\n" +
+                "# spinner:begin (this session's keys; edit spinner.yaml, not this file)\n" +
+                "B=z\n# spinner:end\n",
+        );
+        // No keys at all restores the file as it was.
+        expect(render_dotenv(second, {})).toBe("A=1\nB=2\n");
+        expect(render_dotenv("", { A: "1" })).toMatch(/^# spinner:begin.*\nA=1\n# spinner:end\n$/);
     });
 });

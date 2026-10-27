@@ -347,26 +347,48 @@ function render_env_file(
  * keys the file did not have appended. `pass_env` references stay as `${NAME}` for a dotenv
  * loader that expands them; the frontends' loaders do not, so list such keys in `env`.
  */
+/** Marks a line of the file that Spinner commented out to override its key. */
+const REPLACED_PREFIX = "# spinner-replaced: ";
+const BLOCK_BEGIN = "# spinner:begin (this session's keys; edit spinner.yaml, not this file)";
+const BLOCK_END = "# spinner:end";
+
+/**
+ * The dotenv file with Spinner's keys applied, and nothing else of Spinner's: a previous
+ * render is undone first (its block removed, the lines it commented out restored), so a key
+ * dropped from the spec does not survive. The file's own lines for Spinner's keys are kept
+ * as `# spinner-replaced:` comments; Spinner's values sit in one marked block at the end.
+ */
 export function render_dotenv(current: string, env: Record<string, string>): string {
-    const pending = new Map(Object.entries(env));
-    const lines = current.split("\n").map((line) => {
-        const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-        const key = match?.[1];
-        if (key === undefined || !pending.has(key)) {
-            return line;
+    const original: string[] = [];
+    let in_block = false;
+    for (const line of current.split("\n")) {
+        if (line === BLOCK_BEGIN) {
+            in_block = true;
+        } else if (line === BLOCK_END) {
+            in_block = false;
+        } else if (in_block) {
+            continue;
+        } else if (line.startsWith(REPLACED_PREFIX)) {
+            original.push(line.slice(REPLACED_PREFIX.length));
+        } else {
+            original.push(line);
         }
-        const value = pending.get(key);
-        pending.delete(key);
-        return `${key}=${value}`;
-    });
-    if (lines.length > 0 && lines[lines.length - 1] === "") {
-        lines.pop();
     }
-    if (pending.size > 0) {
-        lines.push("# Added by spinner for this session. Edit spinner.yaml, not this file.");
-        for (const [key, value] of pending) {
+    while (original.length > 0 && original[original.length - 1] === "") {
+        original.pop();
+    }
+    const lines = original.map((line) => {
+        const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+        const key = match?.[1];
+        return key !== undefined && key in env ? `${REPLACED_PREFIX}${line}` : line;
+    });
+    const entries = Object.entries(env);
+    if (entries.length > 0) {
+        lines.push(BLOCK_BEGIN);
+        for (const [key, value] of entries) {
             lines.push(`${key}=${value}`);
         }
+        lines.push(BLOCK_END);
     }
     return `${lines.join("\n")}\n`;
 }

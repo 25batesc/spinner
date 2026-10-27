@@ -76,6 +76,7 @@ import {
     start_host_service,
     stop_host_process,
     write_proxy_routes,
+    type UpstreamRoute,
 } from "./host-service.js";
 import { DatabaseServer, server_address } from "./postgres.js";
 import { run_attached, run_ok } from "./shell.js";
@@ -389,8 +390,19 @@ async function start_host_services(
             routes.push({ name, host: service.host, port });
         }
     }
-    if (routes.length > 0) {
-        write_proxy_routes(home.root, session.id, routes);
+    // Upstreams of every service, container or host, go through the same file: the route
+    // only needs the hostname and the outside URL.
+    const upstreams: UpstreamRoute[] = [];
+    for (const [name, service] of Object.entries(spec.services)) {
+        if (service.host === undefined) {
+            continue;
+        }
+        for (const [prefix, url] of Object.entries(service.upstreams ?? {})) {
+            upstreams.push({ name, host: service.host, prefix, url });
+        }
+    }
+    if (routes.length > 0 || upstreams.length > 0) {
+        write_proxy_routes(home.root, session.id, routes, upstreams);
     }
     return processes;
 }
@@ -434,13 +446,19 @@ interface RouteProbe {
     host: string;
     /** The healthcheck path when the service has one, else `/`. */
     path: string;
+    /**
+     * Without a healthcheck, any status from the hostname means routed, 404 included: the
+     * service's own 404 on `/` is as good as a 200. With one, 404 can only be Traefik's.
+     */
+    any_status: boolean;
 }
 
 function route_probes(spec: StackSpec, hosts: Record<string, string>): RouteProbe[] {
     const probes: RouteProbe[] = [];
     for (const [name, host] of Object.entries(hosts)) {
         const check = spec.services[name]?.healthcheck;
-        probes.push({ host, path: check === undefined ? "/" : health_path(check) });
+        const path = check === undefined ? "/" : health_path(check);
+        probes.push({ host, path, any_status: check === undefined });
     }
     return probes;
 }
@@ -473,16 +491,32 @@ async function wait_routes(probes: RouteProbe[], http_port: number): Promise<voi
     }
 }
 
+/** The body Traefik sends when no router matches; a service's own 404 reads differently. */
+const TRAEFIK_NOT_FOUND = "404 page not found";
+
 function route_answers(probe: RouteProbe, http_port: number): Promise<boolean> {
     // `fetch` drops a `Host` header (the spec forbids it), so this uses `node:http`.
     return new Promise((resolve) => {
         const request = http_request(
             { host: "127.0.0.1", port: http_port, path: probe.path, headers: { Host: probe.host } },
             (response) => {
-                response.resume();
-                // Traefik answers 404 itself when no router matches. The probe path is the
-                // service's healthcheck path when it has one, so its own 404 does not occur.
-                resolve(response.statusCode !== 404);
+                if (response.statusCode !== 404) {
+                    response.resume();
+                    resolve(true);
+                    return;
+                }
+                if (!probe.any_status) {
+                    // The probe path is the healthcheck path, so a 404 is Traefik's.
+                    response.resume();
+                    resolve(false);
+                    return;
+                }
+                const chunks: Buffer[] = [];
+                response.on("data", (chunk: Buffer) => chunks.push(chunk));
+                response.on("end", () => {
+                    const body = Buffer.concat(chunks).toString("utf8").trim();
+                    resolve(body !== TRAEFIK_NOT_FOUND);
+                });
             },
         );
         request.setTimeout(3_000, () => request.destroy());

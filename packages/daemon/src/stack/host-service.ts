@@ -393,14 +393,31 @@ export function proxy_dir(home_root: string): string {
  * proxy picks up through its file provider. Routes go to `host.docker.internal`, which
  * Docker Desktop resolves to the host.
  */
+export interface HostRoute {
+    name: string;
+    host: string;
+    port: number;
+}
+
+export interface UpstreamRoute {
+    name: string;
+    host: string;
+    /** Path prefix on the hostname, for example `/upstream/goknit`. */
+    prefix: string;
+    /** The outside URL the prefix maps to. */
+    url: string;
+}
+
 export function write_proxy_routes(
     home_root: string,
     session_id: string,
-    routes: { name: string; host: string; port: number }[],
+    routes: HostRoute[],
+    upstreams: UpstreamRoute[] = [],
 ): string {
     const project = compose_project(session_id);
     const routers: Record<string, unknown> = {};
     const services: Record<string, unknown> = {};
+    const middlewares: Record<string, unknown> = {};
     for (const route of routes) {
         const key = `${project}-${route.name}`;
         routers[key] = {
@@ -412,9 +429,34 @@ export function write_proxy_routes(
             loadBalancer: { servers: [{ url: `http://host.docker.internal:${route.port}` }] },
         };
     }
+    for (const upstream of upstreams) {
+        assert.ok(upstream.prefix.startsWith("/"), `upstream prefix: ${upstream.prefix}`);
+        assert.ok(/^https?:\/\//.test(upstream.url), `upstream must be a URL: ${upstream.url}`);
+        const slug = upstream.prefix.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+        const key = `${project}-${upstream.name}-${slug}`;
+        // The longer rule wins over the service's plain Host() router by Traefik's default
+        // priority, so only requests under the prefix go outside. The Host header is not
+        // passed: the outside server must see its own name, not `<host>.<id>.localhost`.
+        routers[key] = {
+            rule:
+                `Host(\`${hostname(upstream.host, session_id)}\`) && ` +
+                `PathPrefix(\`${upstream.prefix}\`)`,
+            entryPoints: ["web"],
+            middlewares: [`${key}-strip`],
+            service: key,
+        };
+        middlewares[`${key}-strip`] = { stripPrefix: { prefixes: [upstream.prefix] } };
+        services[key] = {
+            loadBalancer: { passHostHeader: false, servers: [{ url: upstream.url }] },
+        };
+    }
+    const http: Record<string, unknown> = { routers, services };
+    if (Object.keys(middlewares).length > 0) {
+        http["middlewares"] = middlewares;
+    }
     const path = join(proxy_dir(home_root), `${project}.yaml`);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, stringify({ http: { routers, services } }));
+    writeFileSync(path, stringify({ http }));
     return path;
 }
 

@@ -85,6 +85,13 @@ export interface StackService {
     /** Extra compose volumes, `name:/path` or `/host:/path`. */
     volumes?: string[];
     /**
+     * Path prefix on this service's hostname to an outside URL, proxied by Traefik with the
+     * prefix stripped: `/upstream/goknit: https://api.goknit.us` makes
+     * `http://<host>.<id>.localhost/upstream/goknit/x` fetch `https://api.goknit.us/x` from the
+     * page's own origin, for an API whose CORS allows only fixed origins.
+     */
+    upstreams?: Record<string, string>;
+    /**
      * Container ports a `runtime: host` service must reach, published on loopback at a
      * per-session port. `env` may refer to it as `${<SERVICE>_<PORT>_HOST_PORT}`, for
      * example `${TEMPORAL_7233_HOST_PORT}`.

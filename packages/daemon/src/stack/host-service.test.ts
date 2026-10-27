@@ -57,13 +57,22 @@ describe("host services", () => {
         expect(await stop_host_process(record.pid)).toBe("absent");
     });
 
-    it("writes a Traefik file-provider route to host.docker.internal", () => {
+    it("writes a Traefik file-provider route to host.docker.internal and upstreams", () => {
         const home = mkdtempSync(join(tmpdir(), "spinner-proxy-"));
-        const path = write_proxy_routes(home, "s17", [{ name: "api", host: "api", port: 21700 }]);
+        const path = write_proxy_routes(
+            home,
+            "s17",
+            [{ name: "api", host: "api", port: 21700 }],
+            [{ name: "web", host: "web", prefix: "/upstream/goknit", url: "https://api.goknit.us" }],
+        );
         expect(existsSync(path)).toBe(true);
         const text = readFileSync(path, "utf8");
         expect(text).toContain("Host(`api.s17.localhost`)");
         expect(text).toContain("http://host.docker.internal:21700");
+        expect(text).toContain("Host(`web.s17.localhost`) && PathPrefix(`/upstream/goknit`)");
+        expect(text).toContain("prefixes:\n          - /upstream/goknit");
+        expect(text).toContain("passHostHeader: false");
+        expect(text).toContain("url: https://api.goknit.us");
     });
 });
 
