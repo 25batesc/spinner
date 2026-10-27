@@ -6,8 +6,10 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import {
     diagnose_host_exit,
+    kill_processes_under,
     host_command_line,
     log_shows_traceback,
     process_alive,
@@ -53,6 +55,19 @@ describe("host services", () => {
         const text = readFileSync(path, "utf8");
         expect(text).toContain("Host(`api.s17.localhost`)");
         expect(text).toContain("http://host.docker.internal:21700");
+    });
+});
+
+describe("kill_processes_under", () => {
+    it("ends a process whose command line names the path", async () => {
+        const marker = mkdtempSync(join(tmpdir(), "spinner-stray-"));
+        const line = `sleep 600; echo ${marker}/worktrees/x`;
+        const child = spawn("sh", ["-c", line], { detached: true, stdio: "ignore" });
+        child.unref();
+        const pid = child.pid ?? 0;
+        expect(process_alive(pid)).toBe(true);
+        expect(await kill_processes_under(`${marker}/`)).toContain(pid);
+        expect(process_alive(pid)).toBe(false);
     });
 });
 

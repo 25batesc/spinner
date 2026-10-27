@@ -254,6 +254,38 @@ export async function stop_host_process(pid: number): Promise<"stopped" | "absen
     return "stopped";
 }
 
+/**
+ * Ends every process whose command line names `path`: children a service spawned outside
+ * its process group (Python's multiprocessing resource trackers and spawned workers under a
+ * reloader). Returns the pids it signalled. `pgrep` is bounded by the process table.
+ */
+export async function kill_processes_under(path: string): Promise<number[]> {
+    assert.ok(path.length > 1, "path must not be empty");
+    const result = await run("pgrep", ["-f", path]);
+    const pids = String(result.stdout)
+        .split("\n")
+        .map((line) => Number.parseInt(line, 10))
+        .filter((pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid);
+    for (const pid of pids) {
+        try {
+            process.kill(pid, "SIGTERM");
+        } catch {
+            // Gone already.
+        }
+    }
+    for (let poll = 0; poll < STOP_POLLS_MAX && pids.some(process_alive); poll += 1) {
+        await sleep(100);
+    }
+    for (const pid of pids.filter(process_alive)) {
+        try {
+            process.kill(pid, "SIGKILL");
+        } catch {
+            // Gone already.
+        }
+    }
+    return pids;
+}
+
 function signal_group(pid: number, signal: NodeJS.Signals): void {
     try {
         process.kill(-pid, signal);

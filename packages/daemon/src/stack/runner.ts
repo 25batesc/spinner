@@ -64,6 +64,7 @@ import {
 import {
     diagnose_host_exit,
     host_answers,
+    kill_processes_under,
     log_shows_traceback,
     process_alive,
     proxy_dir,
@@ -397,6 +398,12 @@ async function stop_host_services(
     for (const [name, process_info] of Object.entries(processes)) {
         const outcome = await stop_host_process(process_info.pid);
         log(`${name} on the host (pid ${process_info.pid}): ${outcome}`);
+    }
+    // Resource trackers and reloader children of a Python service leave the process group;
+    // their command lines name the worktree, which is under the session directory.
+    const stray = await kill_processes_under(`${summary.path}/`);
+    if (stray.length > 0) {
+        log(`stopped ${stray.length} stray processes of the session: ${stray.join(", ")}`);
     }
     const routes = proxy_routes_path(home.root, summary.session.id);
     if (existsSync(routes)) {
@@ -786,6 +793,8 @@ export async function shared_down(home: SpinnerHome, log: Log): Promise<void> {
         const removed = await remove_container(name);
         log(`${name}: ${removed ? "removed" : "absent"}`);
     }
+    const stray = await kill_processes_under(`${home.sessions}/`);
+    log(`host processes under ${home.sessions}: ${stray.length === 0 ? "none" : stray.join(", ")}`);
 }
 
 export interface SeedOptions {
