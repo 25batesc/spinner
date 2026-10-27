@@ -6,7 +6,7 @@ import { session_arg } from "./session-arg.js";
 
 export const down_command: Command = {
     name: "down",
-    usage: "<session> | --shared",
+    usage: "<session> | --shared [--force]",
     summary: "compose stop (volumes and database kept); --shared removes proxy and postgres",
     run: run_down,
 };
@@ -14,7 +14,7 @@ export const down_command: Command = {
 async function run_down(args: string[], home: SpinnerHome, io: CliIo): Promise<number> {
     if (args[0] === "--shared") {
         try {
-            await shared_down(home, io.out);
+            await shared_down(home, { force: args.includes("--force") }, io.out);
             return 0;
         } catch (error) {
             io.err(`spinner down: ${describe_error(error)}`);

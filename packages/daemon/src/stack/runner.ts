@@ -8,6 +8,7 @@ import {
     existsSync,
     lstatSync,
     mkdirSync,
+    readdirSync,
     readFileSync,
     renameSync,
     rmSync,
@@ -27,7 +28,7 @@ import type {
 } from "@spinner/protocol";
 import { add_worktree, fetch_base, remove_worktree } from "../git/worktree.js";
 import type { SpinnerHome } from "../home.js";
-import { list_sessions, write_session } from "../store/session-store.js";
+import { write_session } from "../store/session-store.js";
 import {
     compose_network,
     compose_project,
@@ -59,8 +60,10 @@ import {
     project_has_containers,
     remove_container,
     remove_project_containers,
-    shared_busy_reason,
+    shared_use_lines,
     spinner_projects,
+    container_info,
+    proxy_mount_of,
     type ComposeTarget,
 } from "./docker.js";
 import {
@@ -73,8 +76,10 @@ import {
     processes_with_cwd_under,
     read_pid_files,
     process_alive,
-    proxy_dir,
+    group_alive,
+    homes_in_route_files,
     proxy_routes_path,
+    route_files_in,
     run_preflight,
     start_host_service,
     stop_host_process,
@@ -381,7 +386,7 @@ async function start_stack(
     const network = compose_network(session.id);
     const db = session_db(session.id);
 
-    await ensure_shared_containers(home, spec, log);
+    const proxy_dir = await ensure_shared_containers(home, spec, log);
     // The clone, the image builds and the network do not depend on each other. The connects
     // do: the proxy and Postgres must be on the network before compose starts the services.
     const server = new DatabaseServer(server_address(spec.database));
@@ -417,7 +422,7 @@ async function start_stack(
     if (Object.keys(services).length > 0) {
         await compose(target, ["up", "--detach", "--remove-orphans", "--quiet-pull"]);
     }
-    const processes = await start_host_services(home, summary, spec, rendered, log);
+    const processes = await start_host_services(proxy_dir, summary, spec, rendered, log);
     await wait_healthy(summary, target, spec, processes, log);
     const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
     await wait_routes(route_probes(spec, rendered.hosts), http_port);
@@ -429,7 +434,7 @@ async function start_stack(
  * port, and writes the proxy routes for them. Returns the records for `session.yaml`.
  */
 async function start_host_services(
-    home: SpinnerHome,
+    proxy_dir: string,
     summary: SessionSummary,
     spec: StackSpec,
     rendered: Rendered,
@@ -495,7 +500,7 @@ async function start_host_services(
         }
     }
     if (routes.length > 0 || upstreams.length > 0) {
-        write_proxy_routes(home.root, session.id, routes, upstreams);
+        write_proxy_routes(proxy_dir, session.id, routes, upstreams, summary.path);
     }
     return processes;
 }
@@ -526,7 +531,7 @@ async function stop_host_services(
         await kill_pids(stray);
         log(`stopped ${stray.length} stray processes in the session: ${stray.join(", ")}`);
     }
-    const routes = proxy_routes_path(home.root, summary.session.id);
+    const routes = proxy_routes_path(await current_proxy_dir(home), summary.session.id);
     if (existsSync(routes)) {
         rmSync(routes);
     }
@@ -619,14 +624,19 @@ function route_answers(probe: RouteProbe, http_port: number): Promise<boolean> {
     });
 }
 
+/** Starts the shared containers as needed. Returns the directory the proxy watches. */
 async function ensure_shared_containers(
     home: SpinnerHome,
     spec: StackSpec,
     log: Log,
-): Promise<void> {
+): Promise<string> {
     const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
-    if (await ensure_proxy(http_port, proxy_dir(home.root))) {
+    const proxy = await ensure_proxy(http_port, home.proxy);
+    if (proxy.started) {
         log(`started ${PROXY_CONTAINER}`);
+    }
+    if (proxy.note !== null) {
+        log(proxy.note);
     }
     if (spec.database?.server !== "external") {
         const version = spec.database?.version ?? POSTGRES_VERSION_DEFAULT;
@@ -634,6 +644,16 @@ async function ensure_shared_containers(
             log(`started ${POSTGRES_CONTAINER} (postgres:${version})`);
         }
     }
+    return proxy.dir;
+}
+
+/** The directory the running proxy watches, else the configured one. */
+async function current_proxy_dir(home: SpinnerHome): Promise<string> {
+    const info = await container_info(PROXY_CONTAINER);
+    if (info.state === "running") {
+        return proxy_mount_of(info.config) ?? home.proxy;
+    }
+    return home.proxy;
 }
 
 /** Builds each distinct image that has a dev Dockerfile and is missing, or all with `force`. */
@@ -945,17 +965,32 @@ function free_archive_path(home: SpinnerHome, dir: string): string {
  * Stops and removes the shared containers, `spinner-proxy` and `spinner-postgres`, once no
  * session stack is up. The Postgres data volume stays, so the template databases survive.
  */
-export async function shared_down(home: SpinnerHome, log: Log): Promise<void> {
-    const up = list_sessions(home).sessions.filter((entry) => entry.session.stack.state === "up");
-    if (up.length > 0) {
-        const names = up.map((entry) => entry.dir).join(", ");
-        throw new Error(`stacks are still up: ${names}; run spinner down or close first`);
+export interface SharedDownOptions {
+    /** Remove the containers even while sessions use them, after listing what breaks. */
+    force?: boolean;
+}
+
+export async function shared_down(
+    home: SpinnerHome,
+    options: SharedDownOptions,
+    log: Log,
+): Promise<void> {
+    // The containers are machine-global: stacks of any home, route files of any home in the
+    // proxy directory and the host services those homes started all count, not only this
+    // home's session.yaml.
+    const proxy_dir = await current_proxy_dir(home);
+    const lines = shared_use_lines({
+        projects: await spinner_projects(),
+        route_files: route_files_in(proxy_dir),
+        live_pids: live_pid_files([home.root, ...homes_in_route_files(proxy_dir)]),
+    });
+    if (lines.length > 0 && options.force !== true) {
+        throw new Error(
+            `${lines.join("\n")}\nrun spinner down or close in their home first, or --force`,
+        );
     }
-    // session.yaml only knows this home. The containers are machine-global, so a stack that
-    // another home brought up counts too.
-    const busy = shared_busy_reason(await spinner_projects());
-    if (busy !== null) {
-        throw new Error(busy);
+    for (const line of lines) {
+        log(`breaking: ${line}`);
     }
     for (const name of [PROXY_CONTAINER, POSTGRES_CONTAINER]) {
         const removed = await remove_container(name);
@@ -969,6 +1004,26 @@ export async function shared_down(home: SpinnerHome, log: Log): Promise<void> {
 export interface SeedOptions {
     /** Copy `seed.source` into the template as it is, without running the seed commands. */
     copy_only?: boolean;
+}
+
+/** Host-service pid files, of every session of the given homes, whose group is alive. */
+function live_pid_files(home_roots: string[]): string[] {
+    const live: string[] = [];
+    for (const root of new Set(home_roots)) {
+        const sessions = join(root, "sessions");
+        if (!existsSync(sessions)) {
+            continue;
+        }
+        for (const dir of readdirSync(sessions)) {
+            const pids = read_pid_files(join(sessions, dir));
+            for (const [service, pgid] of Object.entries(pids)) {
+                if (group_alive(pgid)) {
+                    live.push(`${dir}/${service}`);
+                }
+            }
+        }
+    }
+    return live.sort();
 }
 
 /** Rebuilds the template database from the spec's seed: a dump, or host commands. */

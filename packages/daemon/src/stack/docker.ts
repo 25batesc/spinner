@@ -2,6 +2,7 @@
 // `spinner-postgres`), session networks, image builds and `docker compose` on a session's
 // project. Everything here is idempotent, so `up` twice and `close` after a failed `up` work.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { run, run_attached, run_ok } from "./shell.js";
@@ -75,20 +76,35 @@ async function ensure_container(
  * One Traefik for every session: the Docker provider routes by the labels the renderer puts
  * on services; the file provider watches `proxy_dir` for the routes of host services.
  */
-export async function ensure_proxy(http_port: number, proxy_dir: string): Promise<boolean> {
+export interface ProxyOutcome {
+    started: boolean;
+    /** The directory the running proxy watches: the configured one, or an earlier one. */
+    dir: string;
+    /** What to tell the operator when the running proxy watches another directory, or null. */
+    note: string | null;
+}
+
+export async function ensure_proxy(http_port: number, proxy_dir: string): Promise<ProxyOutcome> {
     assert.ok(http_port > 0 && http_port < 65536, `bad proxy port ${http_port}`);
     mkdirSync(proxy_dir, { recursive: true });
     // A running proxy serves every home. Recreating it to pick up another directory would
-    // drop those routes, so a different mount is refused instead of applied.
+    // drop those routes, so a running proxy is never recreated: its directory is used.
     const info = await container_info(PROXY_CONTAINER);
-    if (info.state === "running" && proxy_mount_differs(info.config, proxy_dir)) {
-        const reason = shared_busy_reason(await spinner_projects());
-        throw new Error(
-            `${PROXY_CONTAINER} is running with another directory mounted; ` +
-                (reason ?? "leave it, or stop it once no session routes through it"),
-        );
+    if (info.state === "running") {
+        const mounted = proxy_mount_of(info.config);
+        if (mounted !== null && mounted !== proxy_dir) {
+            mkdirSync(mounted, { recursive: true });
+            return {
+                started: false,
+                dir: mounted,
+                note:
+                    `${PROXY_CONTAINER} watches ${mounted}, not ${proxy_dir}; routes go there ` +
+                    "until the proxy is recreated (spinner down --shared, once nothing runs)",
+            };
+        }
+        return { started: false, dir: proxy_dir, note: null };
     }
-    return ensure_container(
+    const started = await ensure_container(
         PROXY_CONTAINER,
         TRAEFIK_IMAGE,
         [
@@ -108,6 +124,7 @@ export async function ensure_proxy(http_port: number, proxy_dir: string): Promis
             "--log.level=WARN",
         ],
     );
+    return { started, dir: proxy_dir, note: null };
 }
 
 /** The managed Postgres server. Its data volume survives `close` of every session. */
@@ -316,28 +333,79 @@ export async function spinner_projects(): Promise<string[]> {
 }
 
 /**
- * True when a running proxy's recorded config mounts a different directory. An empty config
- * is an old container from before the label existed; it is left running rather than removed.
+ * The directory a proxy's recorded config mounts at `/dynamic`, or null for a container
+ * from before the label existed (left as it is).
  */
-export function proxy_mount_differs(config: string, proxy_dir: string): boolean {
-    if (config.length === 0) {
-        return false;
-    }
+export function proxy_mount_of(config: string): string | null {
     const mount = config.split("|").find((part) => part.endsWith(":/dynamic:ro"));
     if (mount === undefined) {
-        return false;
+        return null;
     }
-    const source = mount.slice(0, -":/dynamic:ro".length);
-    return source !== proxy_dir;
+    return mount.slice(0, -":/dynamic:ro".length);
+}
+
+/** Session ids (`s17` as 17) of the running `spinner-s<n>` compose projects. */
+export function session_numbers_of(projects: string[]): number[] {
+    const numbers: number[] = [];
+    for (const project of projects) {
+        const match = /^spinner-s(\d+)$/.exec(project);
+        if (match?.[1] !== undefined) {
+            numbers.push(Number.parseInt(match[1], 10));
+        }
+    }
+    return numbers;
+}
+
+/**
+ * Compose project names of every `spinner-*` container, from `docker ps` output. Sync, for
+ * `next_session_id`; a machine without Docker yields none.
+ */
+export function spinner_projects_sync(): string[] {
+    try {
+        const out = execFileSync(
+            "docker",
+            ["ps", "--all", "--format", '{{.Label "com.docker.compose.project"}}'],
+            { encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] },
+        );
+        return [...new Set(out.split("\n").map((line) => line.trim()))]
+            .filter((name) => name.startsWith("spinner-"))
+            .sort();
+    } catch {
+        return [];
+    }
+}
+
+export interface SharedUse {
+    /** `spinner-*` compose projects with containers, from any home. */
+    projects: string[];
+    /** Route files in the proxy directory, one per session with host services or upstreams. */
+    route_files: string[];
+    /** Host-service pid files whose process group is alive, as `<session>/<service>`. */
+    live_pids: string[];
+}
+
+/** What `down --shared` would break, one line each; empty when nothing uses the containers. */
+export function shared_use_lines(use: SharedUse): string[] {
+    const lines: string[] = [];
+    if (use.projects.length > 0) {
+        lines.push(`stacks with containers: ${use.projects.join(", ")}`);
+    }
+    if (use.route_files.length > 0) {
+        lines.push(`route files in the proxy directory: ${use.route_files.join(", ")}`);
+    }
+    if (use.live_pids.length > 0) {
+        lines.push(`host services alive: ${use.live_pids.join(", ")}`);
+    }
+    return lines;
 }
 
 /** The error when a shared container must not be removed, or null. */
 export function shared_busy_reason(projects: string[]): string | null {
-    if (projects.length === 0) {
+    const lines = shared_use_lines({ projects, route_files: [], live_pids: [] });
+    if (lines.length === 0) {
         return null;
     }
-    return `spinner stacks still have containers: ${projects.join(", ")}; ` +
-        "run spinner down or close in their home first";
+    return `${lines.join("; ")}; run spinner down or close in their home first`;
 }
 
 async function project_container_ids(project: string): Promise<string[]> {

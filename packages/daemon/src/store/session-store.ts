@@ -8,6 +8,8 @@ import { parse, stringify } from "yaml";
 import type { Session, SessionSummary } from "@spinner/protocol";
 import { SESSION_VERSION } from "@spinner/protocol";
 import { is_inside_git_repo, type SpinnerHome } from "../home.js";
+import { session_numbers_of, spinner_projects_sync } from "../stack/docker.js";
+import { session_numbers_in_route_files } from "../stack/host-service.js";
 import { render_agents_file, render_mission } from "./mission-template.js";
 
 /** Directories every session has from the start, in the order of the protocol document. */
@@ -181,11 +183,21 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
 const SESSION_NUMBER_MAX = 999;
 
 /**
- * `s001`, `s002`, ...: one more than the highest id among live and archived sessions, so an
- * id (and the database and branch names derived from it) is never reused after `close`.
+ * `s001`, `s002`, ...: one more than the highest id among live and archived sessions, the
+ * route files of the machine's proxy directory and the running `spinner-s<n>` compose
+ * projects, so an id (and the ports, hostnames, database and branch names derived from it)
+ * is never reused after `close` and never shared by two homes on one machine.
  */
 export function next_session_id(home: SpinnerHome): string {
     let highest = 0;
+    if (home.ids_scope === "machine") {
+        for (const number of session_numbers_in_route_files(home.proxy)) {
+            highest = Math.max(highest, number);
+        }
+        for (const number of session_numbers_of(spinner_projects_sync())) {
+            highest = Math.max(highest, number);
+        }
+    }
     for (const dir of [home.sessions, home.archive]) {
         if (!existsSync(dir)) {
             continue;

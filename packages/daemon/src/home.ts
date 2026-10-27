@@ -11,6 +11,18 @@ export interface SpinnerHome {
     sessions: string;
     /** `<root>/archive`, where `spinner close` moves sessions. */
     archive: string;
+    /**
+     * The proxy's dynamic-configuration directory. Machine-global, not per home: one
+     * `spinner-proxy` serves every home, so every home writes its route files to one place.
+     * `~/.spinner/proxy` unless `SPINNER_PROXY_DIR` says otherwise.
+     */
+    proxy: string;
+    /**
+     * Where `next_session_id` looks: `machine` (this home, the proxy directory's route files
+     * and the running `spinner-*` projects, so two homes never share an id) or `home` (this
+     * home only; `SPINNER_SESSION_IDS=home`, for tests and offline use).
+     */
+    ids_scope: "machine" | "home";
 }
 
 /** Reads `SPINNER_HOME` from the environment, or falls back to `~/.spinner`. */
@@ -18,10 +30,21 @@ export function resolve_home(env: NodeJS.ProcessEnv = process.env): SpinnerHome 
     const override = env["SPINNER_HOME"];
     const has_override = override !== undefined && override !== "";
     const root = has_override ? resolve(override) : join(homedir(), ".spinner");
+    const proxy_override = env["SPINNER_PROXY_DIR"];
+    const proxy =
+        proxy_override !== undefined && proxy_override !== ""
+            ? resolve(proxy_override)
+            : join(homedir(), ".spinner", "proxy");
     return {
         root,
         sessions: join(root, "sessions"),
         archive: join(root, "archive"),
+        proxy,
+        // The scope is a process-wide switch (tests set it for the whole run), so the
+        // process environment is consulted even when a caller passes its own.
+        ids_scope: (env["SPINNER_SESSION_IDS"] ?? process.env["SPINNER_SESSION_IDS"]) === "home"
+            ? "home"
+            : "machine",
     };
 }
 

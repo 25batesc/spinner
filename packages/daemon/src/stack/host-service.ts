@@ -394,11 +394,6 @@ export function host_answers(port: number, path: string): Promise<boolean> {
     });
 }
 
-/** The service directory the proxy watches; `<home>/proxy`, mounted into `spinner-proxy`. */
-export function proxy_dir(home_root: string): string {
-    return join(home_root, "proxy");
-}
-
 /**
  * Writes the Traefik dynamic-configuration file for a session's host services, which the
  * proxy picks up through its file provider. Routes go to `host.docker.internal`, which
@@ -420,10 +415,11 @@ export interface UpstreamRoute {
 }
 
 export function write_proxy_routes(
-    home_root: string,
+    proxy_dir: string,
     session_id: string,
     routes: HostRoute[],
     upstreams: UpstreamRoute[] = [],
+    home_root = "",
 ): string {
     const project = compose_project(session_id);
     const routers: Record<string, unknown> = {};
@@ -465,14 +461,44 @@ export function write_proxy_routes(
     if (Object.keys(middlewares).length > 0) {
         http["middlewares"] = middlewares;
     }
-    const path = join(proxy_dir(home_root), `${project}.yaml`);
+    const path = join(proxy_dir, `${project}.yaml`);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, stringify({ http }));
+    // The header names the home, so `down --shared` can find that home's pid files.
+    writeFileSync(path, `# home: ${home_root}\n${stringify({ http })}`);
     return path;
 }
 
-export function proxy_routes_path(home_root: string, session_id: string): string {
-    return join(proxy_dir(home_root), `${compose_project(session_id)}.yaml`);
+/** The homes named in the route files of a proxy directory, for the pid files they hold. */
+export function homes_in_route_files(proxy_dir: string): string[] {
+    const homes = new Set<string>();
+    for (const file of route_files_in(proxy_dir)) {
+        const first = readFileSync(join(proxy_dir, file), "utf8").split("\n")[0] ?? "";
+        const match = /^# home: (.+)$/.exec(first);
+        if (match?.[1] !== undefined && match[1].length > 0) {
+            homes.add(match[1]);
+        }
+    }
+    return [...homes].sort();
+}
+
+/** The `spinner-s<n>.yaml` files of a proxy directory. */
+export function route_files_in(proxy_dir: string): string[] {
+    if (!existsSync(proxy_dir)) {
+        return [];
+    }
+    return readdirSync(proxy_dir)
+        .filter((name) => /^spinner-s\d+\.yaml$/.test(name))
+        .sort();
+}
+
+/** Session numbers of the route files, for ids unique across homes. */
+export function session_numbers_in_route_files(proxy_dir: string): number[] {
+    const prefix = "spinner-s".length;
+    return route_files_in(proxy_dir).map((name) => Number.parseInt(name.slice(prefix), 10));
+}
+
+export function proxy_routes_path(proxy_dir: string, session_id: string): string {
+    return join(proxy_dir, `${compose_project(session_id)}.yaml`);
 }
 
 function sleep(ms: number): Promise<void> {
