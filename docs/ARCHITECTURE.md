@@ -194,7 +194,7 @@ This solves three things at once: port collisions vanish (only Traefik binds a h
 
 `*.localhost` resolves to loopback without configuration in Chromium and Firefox. Safari and `curl` use the system resolver, which on macOS does not resolve subdomains of `localhost`; `spinner doctor` offers to add `/etc/hosts` entries per session (or a `dnsmasq` resolver) for those.
 
-**Database.** Default: one shared `spinner-postgres` container holding a seed **template database** (`<project>_seed`, built from migrations + fixtures or a scrubbed dump by `spinner seed rebuild`). `spinner up` runs `CREATE DATABASE spinner_s17 TEMPLATE knit_seed`, which is a file copy and takes seconds. Each session's services get their own `DATABASE_URL`; branch migrations only touch that database. Fallback: a Postgres container per session from a prebuilt image whose data directory already contains the seed, for branches that need a different Postgres version or extension.
+**Database.** Default: one shared `spinner-postgres` container holding a seed **template database** (`<project>_seed`, built from migrations + fixtures or a scrubbed dump by `spinner seed rebuild`). `spinner up` runs `CREATE DATABASE spinner_s17 TEMPLATE acme_seed`, which is a file copy and takes seconds. Each session's services get their own `DATABASE_URL`; branch migrations only touch that database. Fallback: a Postgres container per session from a prebuilt image whose data directory already contains the seed, for branches that need a different Postgres version or extension.
 
 **Temporal.** One dev server per session (`temporal server start-dev`) as a compose service, UI exposed at `temporal.<id>.localhost`. Not shared across sessions: workers from one branch must never pick up tasks queued by another.
 

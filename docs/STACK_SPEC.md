@@ -144,6 +144,10 @@ spinner db reseed <session>
 spinner close <session>       # compose down -v, drop DB, remove worktrees
 ```
 
+## Recipes
+
+Stacks that need more than the defaults are described by shape under [stacks/](stacks/README.md): a service on the host, a secrets injector, Supabase, a webpack dev server, cloud APIs with fixed origins, worktree dependencies.
+
 ## What to find out about your repos before M1
 
 - Dev commands and ports for each app, and whether the frontends read the API URL at runtime or at build time.

@@ -54,7 +54,7 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 
 ## Operator rules
 1. The operator's shell guard blocks some bash commands: recursive or forced `rm`, `docker compose down -v`, `supabase db reset`, and `psql` with DDL or writes. A child session cannot answer its prompt. Run those actions through your own CLI code and its tests, never by hand in bash.
-2. Test against `examples/sample-stack` first. Touch the Knit repos under `~/knit` only through `spinner new` worktrees, never their primary checkouts.
+2. Test against `examples/sample-stack` first. Touch the operator's repos only through `spinner new` worktrees, never their primary checkouts.
 3. Build the sample stack's images small. The 15-second target is for warm images.
 
 ## Host services
@@ -77,7 +77,7 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 5. Start each commit message with `stack:`.
 
 ## Finish
-1. Make *Done when* items 4 and 5 true on `examples/sample-stack`, then on the operator's project. `local/knit/spinner.yaml` is filled.
+1. Make *Done when* items 4 and 5 true on `examples/sample-stack`, then on the operator's project. `local/<project>/spinner.yaml` is filled.
 2. Tick all your Plan items.
 3. Set your Roster row: Doing = `done`, Blocked? = `no`.
 4. Append a final Log line: what exists, and what `STACK_SPEC.md` got wrong.

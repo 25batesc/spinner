@@ -18,6 +18,7 @@ A subset of ASD-STE100 for Spinner's docs, briefs, run sheets, system-prompt sec
 10. Do not use the words in the left column below. Use the right column.
 11. Keep the articles. Write "the daemon", not "daemon".
 12. Write a paragraph about one topic, with at most six sentences.
+13. A tracked file names no customer, employer, private repo, person or vendor project. Write "the operator's project" or use the fictional *acme* names. A product name (Supabase, Doppler, Traefik) is allowed in a recipe about that product. Private names and values live under `local/`.
 
 | Do not use | Use |
 |---|---|

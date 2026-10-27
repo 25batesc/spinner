@@ -110,6 +110,7 @@ A local daemon (`spinnerd`) owns sessions, stacks, agent processes and the pipel
 
 - [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md): the session directory, the pipeline stages, and the `MISSION.md` contract. Everything else is built against this.
 - [docs/STACK_SPEC.md](docs/STACK_SPEC.md): how a project describes its stack (`spinner.yaml`), with a three-repo example.
+- [docs/stacks/](docs/stacks/README.md): recipes by stack shape: a service on the host, a secrets injector, Supabase, a webpack dev server, cloud APIs with fixed origins, worktree dependencies.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): daemon, pipeline tracker, CLI, UI, agent adapter, stack runner, hostnames, web vs desktop.
 - [docs/ROADMAP.md](docs/ROADMAP.md): milestones, in order, with exit criteria.
 - [docs/STATUS.md](docs/STATUS.md): what exists, what is proven, what is open, and what it cost. Updated when a session closes.
