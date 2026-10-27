@@ -35,3 +35,4 @@ Rules:
 2. The primary checkout's install can itself drift from its lockfile. The team usually has a check (`make venv-check`, `npm ls`); run its fix before a session, and let `preflight` catch what remains (`import api`, `test -d node_modules/<package>`).
 3. Install from the files the team installs from. One project kept a `uv.lock` nobody used; the real pins were a `requirements-ci.txt`. A venv built from the stale lock failed at import with a confusing version mismatch.
 4. The file watcher of a dev server restarts on every file an install writes. Install before the service starts, never under it.
+5. A native binding that the team built by hand (a `vendor/<platform>-<abi>` directory with no working prebuilt upstream) does not come back from a fresh install. Add that directory to `seed_files`; the symptom is every stylesheet failing to build and a blank page.
