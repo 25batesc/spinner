@@ -110,6 +110,11 @@ export interface ExternalDatabase {
     user: string;
     /** Password, when the server needs one. Defaults to the user name, as local stacks do. */
     password?: string;
+    /**
+     * A superuser for the steps `user` may not do, such as clearing the template flag of
+     * an invalid database on Supabase. Defaults to `supabase_admin`, same password.
+     */
+    admin_user?: string;
 }
 
 export interface DatabaseSeed {
@@ -129,6 +134,10 @@ export interface DatabaseSeed {
      * `postgres` for a Supabase stack. It is copied into the template afterwards.
      */
     source?: string;
+    /**
+     * SQL statements run on the template after it is built, for grants a snapshot lacks.
+     */
+    after?: string[];
 }
 
 export interface StackDatabase {

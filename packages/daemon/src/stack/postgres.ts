@@ -16,7 +16,12 @@ export interface ServerAddress {
     port: number;
     user: string;
     password: string;
+    /** A superuser for the steps `user` may not do; absent on the managed server. */
+    admin_user?: string;
 }
+
+/** Supabase's superuser; `postgres` there is not one. */
+const ADMIN_USER_DEFAULT = "supabase_admin";
 
 /** Where the CLI reaches the server from the host. */
 export function server_address(database: StackDatabase | undefined): ServerAddress {
@@ -28,6 +33,7 @@ export function server_address(database: StackDatabase | undefined): ServerAddre
             port: external.port,
             user: external.user,
             password: external.password ?? external.user,
+            admin_user: external.admin_user ?? ADMIN_USER_DEFAULT,
         };
     }
     return {
@@ -45,6 +51,10 @@ export function assert_identifier(name: string): void {
 
 /** Upper bound on one dump or restore of a seed database. */
 const DUMP_TIMEOUT_MS = 30 * 60_000;
+
+/** The clone is retried 5 times over 10 s while something holds the template. */
+const CLONE_ATTEMPTS_MAX = 5;
+const CLONE_RETRY_MS = 2_000;
 
 /** Upper bound on the wait for a server that is still starting. */
 const READY_ATTEMPTS_MAX = 60;
@@ -114,10 +124,23 @@ export class DatabaseServer {
                 `template database ${template} does not exist; run \`spinner seed rebuild\``,
             );
         }
-        await this.terminate_clients(template);
-        await this.query("postgres", `CREATE DATABASE "${name}" TEMPLATE "${template}"`);
-        assert.ok(await this.database_exists(name), "clone must exist afterwards");
-        return "created";
+        // A Supabase service may hold the template for a moment, and `postgres` there may
+        // not end its session; the create is retried over a bounded window.
+        let last = "";
+        for (let attempt = 0; attempt < CLONE_ATTEMPTS_MAX; attempt += 1) {
+            await this.terminate_clients(template);
+            try {
+                await this.query("postgres", `CREATE DATABASE "${name}" TEMPLATE "${template}"`);
+                assert.ok(await this.database_exists(name), "clone must exist afterwards");
+                return "created";
+            } catch (error) {
+                last = error instanceof Error ? error.message : String(error);
+                await sleep(CLONE_RETRY_MS);
+            }
+        }
+        throw new Error(
+            `clone of ${template} into ${name} failed ${CLONE_ATTEMPTS_MAX} times: ${last}`,
+        );
     }
 
     async drop_database(name: string): Promise<"dropped" | "absent"> {
@@ -125,7 +148,7 @@ export class DatabaseServer {
         if (!(await this.database_exists(name))) {
             return "absent";
         }
-        await this.query("postgres", `ALTER DATABASE "${name}" IS_TEMPLATE false`);
+        await this.clear_template_flag(name);
         await this.terminate_clients(name);
         await this.query("postgres", `DROP DATABASE "${name}" WITH (FORCE)`);
         assert.ok(!(await this.database_exists(name)), "database must be gone afterwards");
@@ -238,6 +261,37 @@ export class DatabaseServer {
         return `; ${errors.length} objects failed, first: ${errors[0] ?? lines[0] ?? ""}`;
     }
 
+    /**
+     * `ALTER DATABASE ... IS_TEMPLATE false` fails for `postgres` on Supabase when the
+     * database is invalid (a failed clone); the superuser clears the flag in the catalog.
+     */
+    private async clear_template_flag(name: string): Promise<void> {
+        try {
+            await this.query("postgres", `ALTER DATABASE "${name}" IS_TEMPLATE false`);
+            return;
+        } catch (error) {
+            if (this.address.admin_user === undefined) {
+                throw error;
+            }
+        }
+        const admin = { ...this.address, user: this.address.admin_user };
+        await this.query(
+            "postgres",
+            "UPDATE pg_database SET datistemplate = false WHERE datname = $1",
+            [name],
+            admin,
+        );
+    }
+
+    /** Runs statements on a database, one call each, as the configured user. */
+    async run_statements(database: string, statements: string[]): Promise<void> {
+        assert_identifier(database);
+        for (const statement of statements) {
+            assert.ok(statement.trim().length > 0, "empty statement");
+            await this.query(database, statement);
+        }
+    }
+
     private async terminate_clients(name: string): Promise<void> {
         await this.query(
             "postgres",
@@ -251,8 +305,9 @@ export class DatabaseServer {
         database: string,
         sql: string,
         params: unknown[] = [],
+        address: ServerAddress = this.address,
     ): Promise<Row[]> {
-        const client = new pg.Client({ ...this.address, database, connectionTimeoutMillis: 5_000 });
+        const client = new pg.Client({ ...address, database, connectionTimeoutMillis: 5_000 });
         await client.connect();
         try {
             // Without values, pg uses the simple query protocol, which allows the many

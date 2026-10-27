@@ -880,6 +880,7 @@ export async function seed_rebuild(
         }
         const how = await server.copy_to_template(seed.source, template);
         log(`template ${template} from ${seed.source} on ${server.describe()}: ${how}`);
+        await run_seed_after(server, template, seed, log);
         return;
     }
     if (seed.migrate === undefined && seed.fixtures === undefined) {
@@ -910,6 +911,23 @@ export async function seed_rebuild(
         const how = await server.copy_to_template(seed.source, template);
         log(`template ${template} from ${seed.source} on ${server.describe()}: ${how}`);
     }
+    await run_seed_after(server, template, seed, log);
+}
+
+/** `seed.after`: statements such as grants that the snapshot lacks, run on the template. */
+async function run_seed_after(
+    server: DatabaseServer,
+    template: string,
+    seed: DatabaseSeed,
+    log: Log,
+): Promise<void> {
+    const statements = seed.after ?? [];
+    if (statements.length === 0) {
+        return;
+    }
+    await server.run_statements(template, statements);
+    await server.mark_template(template);
+    log(`seed.after: ${statements.length} statements run on ${template}`);
 }
 
 function seed_cwd(spec: StackSpec, seed: DatabaseSeed): string {
