@@ -166,7 +166,8 @@ describe("render_compose with a host service", () => {
         }
         web.depends_on = ["api", "backend"];
         const current = "REACT_APP_X=keep\nTEMPORAL_HOST=old\n";
-        const rendered = render_compose({ ...input, spec, env_file_current: { backend: current } });
+        const env_file_current = { backend: current };
+        const rendered = render_compose({ ...input, spec, env_file_current });
         const document = parse(rendered.compose) as {
             services: Record<string, Record<string, unknown>>;
         };
