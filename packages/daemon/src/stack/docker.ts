@@ -75,9 +75,19 @@ async function ensure_container(
  * One Traefik for every session: the Docker provider routes by the labels the renderer puts
  * on services; the file provider watches `proxy_dir` for the routes of host services.
  */
-export function ensure_proxy(http_port: number, proxy_dir: string): Promise<boolean> {
+export async function ensure_proxy(http_port: number, proxy_dir: string): Promise<boolean> {
     assert.ok(http_port > 0 && http_port < 65536, `bad proxy port ${http_port}`);
     mkdirSync(proxy_dir, { recursive: true });
+    // A running proxy serves every home. Recreating it to pick up another directory would
+    // drop those routes, so a different mount is refused instead of applied.
+    const info = await container_info(PROXY_CONTAINER);
+    if (info.state === "running" && proxy_mount_differs(info.config, proxy_dir)) {
+        const reason = shared_busy_reason(await spinner_projects());
+        throw new Error(
+            `${PROXY_CONTAINER} is running with another directory mounted; ` +
+                (reason ?? "leave it, or stop it once no session routes through it"),
+        );
+    }
     return ensure_container(
         PROXY_CONTAINER,
         TRAEFIK_IMAGE,
@@ -246,8 +256,91 @@ export async function compose_down(target: ComposeTarget): Promise<void> {
     await compose(target, ["down", "--volumes", "--remove-orphans", "--timeout", "5"]);
 }
 
+/**
+ * Container state and health for a project, from `docker ps`. One call, no compose file, so
+ * a health wait can poll it. `health` is empty when the container has no healthcheck.
+ */
+export async function project_status(project: string): Promise<ServiceStatus[]> {
+    const out = await run_ok("docker", [
+        "ps",
+        "--all",
+        "--filter",
+        `label=com.docker.compose.project=${project}`,
+        "--format",
+        "{{.Label \"com.docker.compose.service\"}}\t{{.State}}\t{{.Status}}",
+    ]);
+    const statuses: ServiceStatus[] = [];
+    for (const line of out.split("\n")) {
+        if (line.trim().length === 0) {
+            continue;
+        }
+        const [name, state, status] = line.split("\t");
+        if (name === undefined || name.length === 0) {
+            continue;
+        }
+        const health = status?.includes("(healthy)")
+            ? "healthy"
+            : status?.includes("(unhealthy)")
+                ? "unhealthy"
+                : "";
+        statuses.push({ name, state: state ?? "", health });
+    }
+    return statuses;
+}
+
 /** Whether a compose project with this name has any container, even if its file is gone. */
 export async function project_has_containers(project: string): Promise<boolean> {
+    const ids = await project_container_ids(project);
+    return ids.length > 0;
+}
+
+/**
+ * Compose project names of every `spinner-*` container on the machine, from any home. The
+ * proxy and the managed Postgres are machine-global, so a session in another home counts.
+ */
+export async function spinner_projects(): Promise<string[]> {
+    const out = await run_ok("docker", [
+        "ps",
+        "--all",
+        "--format",
+        "{{.Label \"com.docker.compose.project\"}}",
+    ]);
+    const names = new Set<string>();
+    for (const line of out.split("\n")) {
+        const name = line.trim();
+        if (name.startsWith("spinner-")) {
+            names.add(name);
+        }
+    }
+    return [...names].sort();
+}
+
+/**
+ * True when a running proxy's recorded config mounts a different directory. An empty config
+ * is an old container from before the label existed; it is left running rather than removed.
+ */
+export function proxy_mount_differs(config: string, proxy_dir: string): boolean {
+    if (config.length === 0) {
+        return false;
+    }
+    const mount = config.split("|").find((part) => part.endsWith(":/dynamic:ro"));
+    if (mount === undefined) {
+        return false;
+    }
+    const source = mount.slice(0, -":/dynamic:ro".length);
+    return source !== proxy_dir;
+}
+
+/** The error when a shared container must not be removed, or null. */
+export function shared_busy_reason(projects: string[]): string | null {
+    if (projects.length === 0) {
+        return null;
+    }
+    return `spinner stacks still have containers: ${projects.join(", ")}; ` +
+        "run spinner down or close in their home first";
+}
+
+async function project_container_ids(project: string): Promise<string[]> {
     const out = await run_ok("docker", [
         "ps",
         "--all",
@@ -255,19 +348,12 @@ export async function project_has_containers(project: string): Promise<boolean> 
         "--filter",
         `label=com.docker.compose.project=${project}`,
     ]);
-    return out.trim().length > 0;
+    return out.split("\n").filter((line) => line.length > 0);
 }
 
 /** Removes every container of a project by label, for a `close` whose compose file is gone. */
 export async function remove_project_containers(project: string): Promise<void> {
-    const out = await run_ok("docker", [
-        "ps",
-        "--all",
-        "--quiet",
-        "--filter",
-        `label=com.docker.compose.project=${project}`,
-    ]);
-    const ids = out.split("\n").filter((line) => line.length > 0);
+    const ids = await project_container_ids(project);
     if (ids.length > 0) {
         await run_ok("docker", ["rm", "--force", ...ids]);
     }

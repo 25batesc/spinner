@@ -116,10 +116,24 @@ async function branch_exists(repo_path: string, branch: string): Promise<boolean
  * branch is often behind (the operator's `dev` was 482 commits behind) and stays untouched.
  * Without a remote, or when the fetch fails (offline), the local branch is the start point.
  */
+/**
+ * Fetches `origin/<base>` once per checkout. `add_worktree` fetches again when it creates a
+ * branch; a second fetch of refs that are current is cheap, and two worktrees of one repo
+ * must not fetch at the same time, so the caller fetches first and adds worktrees after.
+ */
+export async function fetch_base(repo_path: string, base: string): Promise<void> {
+    await run("git", ["-C", repo_path, "fetch", "--quiet", "origin", base], {
+        timeout_ms: FETCH_TIMEOUT_MS,
+    });
+}
+
 async function start_point(input: WorktreeInput): Promise<string> {
     const remote = `origin/${input.base}`;
-    const fetch_args = ["-C", input.repo_path, "fetch", "--quiet", "origin", input.base];
-    const fetched = await run("git", fetch_args, { timeout_ms: FETCH_TIMEOUT_MS });
+    const fetched = await run(
+        "git",
+        ["-C", input.repo_path, "fetch", "--quiet", "origin", input.base],
+        { timeout_ms: FETCH_TIMEOUT_MS },
+    );
     if (fetched.code === 0 && (await ref_exists(input.repo_path, remote))) {
         return remote;
     }

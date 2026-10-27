@@ -103,14 +103,17 @@ export function render_compose(input: RenderInput): Rendered {
         }
         if (service.runtime === "host") {
             // The runner starts it on the host; the proxy file provider routes to it.
-            const env = substitute_env(service.env ?? {}, variables, spec.pass_env ?? []);
+            // `${PORT}` is this service's port, so a second listener can share it.
+            const own = { ...variables, ...service_port(name, service, ports) };
+            const env = substitute_env(service.env ?? {}, own, spec.pass_env ?? []);
             const env_file = render_env_file(service, input, env);
             if (env_file !== null) {
                 env_files.push(env_file);
             }
             continue;
         }
-        const rendered = render_service(name, service, input, variables, ports.published);
+        const own = { ...variables, ...service_port(name, service, ports) };
+        const rendered = render_service(name, service, input, own, ports.published);
         services[name] = rendered.service;
         for (const volume of rendered.named_volumes) {
             volumes[volume] = {};
@@ -187,6 +190,22 @@ function assign_ports(spec: StackSpec, session_id: string): AssignedPorts {
         }
     }
     return { host, published };
+}
+
+/**
+ * `${PORT}` for one service: the host port for `runtime: host`, the container port otherwise.
+ * A container reaches its own listener on the container port; the host port is loopback-only.
+ */
+function service_port(
+    name: string,
+    service: StackService,
+    ports: AssignedPorts,
+): Record<string, string> {
+    if (service.runtime === "host") {
+        const port = ports.host[name];
+        return port === undefined ? {} : { PORT: String(port) };
+    }
+    return service.port === undefined ? {} : { PORT: String(service.port) };
 }
 
 /** `TEMPORAL_7233_HOST_PORT=20050` for a published `temporal` port 7233. */
@@ -344,7 +363,9 @@ function render_env_file(
 
 /**
  * The dotenv file: the current content with the session's keys replaced in place, and the
- * keys the file did not have appended. `pass_env` references stay as `${NAME}` for a dotenv
+ * keys the file did not have appended. A key the file already had stays commented out when
+ * the spec drops it; only an empty render restores those lines. `pass_env` references stay
+ * as `${NAME}` for a dotenv
  * loader that expands them; the frontends' loaders do not, so list such keys in `env`.
  */
 /** Marks a line of the file that Spinner commented out to override its key. */
@@ -353,12 +374,14 @@ const BLOCK_BEGIN = "# spinner:begin (this session's keys; edit spinner.yaml, no
 const BLOCK_END = "# spinner:end";
 
 /**
- * The dotenv file with Spinner's keys applied, and nothing else of Spinner's: a previous
- * render is undone first (its block removed, the lines it commented out restored), so a key
- * dropped from the spec does not survive. The file's own lines for Spinner's keys are kept
- * as `# spinner-replaced:` comments; Spinner's values sit in one marked block at the end.
+ * The dotenv file with Spinner's keys applied, and nothing else of Spinner's. A previous
+ * render's block is removed first. A line Spinner commented out stays commented out while
+ * the spec still owns that key, and stays commented out when the key leaves the spec: the
+ * file's own value must not come back under a block that no longer sets it. An empty `env`
+ * is the one undo, and restores those lines.
  */
 export function render_dotenv(current: string, env: Record<string, string>): string {
+    const owns_nothing = Object.keys(env).length === 0;
     const original: string[] = [];
     let in_block = false;
     for (const line of current.split("\n")) {
@@ -368,7 +391,7 @@ export function render_dotenv(current: string, env: Record<string, string>): str
             in_block = false;
         } else if (in_block) {
             continue;
-        } else if (line.startsWith(REPLACED_PREFIX)) {
+        } else if (line.startsWith(REPLACED_PREFIX) && owns_nothing) {
             original.push(line.slice(REPLACED_PREFIX.length));
         } else {
             original.push(line);

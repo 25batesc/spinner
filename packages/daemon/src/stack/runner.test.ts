@@ -5,6 +5,7 @@ import { lstatSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { proxy_mount_differs, shared_busy_reason } from "./docker.js";
 import { link_seed_dirs } from "./runner.js";
 
 describe("link_seed_dirs", () => {
@@ -32,5 +33,22 @@ describe("link_seed_dirs", () => {
             },
         ]);
         expect(lstatSync(join(worktree, "apps", "ai", ".venv")).isSymbolicLink()).toBe(true);
+    });
+});
+
+describe("shared containers are machine-global", () => {
+    it("names the projects that still have containers", () => {
+        expect(shared_busy_reason([])).toBeNull();
+        expect(shared_busy_reason(["spinner-s016", "spinner-s017"])).toMatch(/spinner-s016/);
+        expect(shared_busy_reason(["spinner-s016"])).toMatch(/their home/);
+    });
+
+    it("treats a different proxy mount as a change and the same mount as none", () => {
+        const config = "traefik:v3.6|-v|/tmp/one/proxy:/dynamic:ro|--log.level=WARN";
+        expect(proxy_mount_differs(config, "/tmp/two/proxy")).toBe(true);
+        expect(proxy_mount_differs(config, "/tmp/one/proxy")).toBe(false);
+        // A container from before the label existed is left running, not recreated.
+        expect(proxy_mount_differs("", "/tmp/two/proxy")).toBe(false);
+        expect(proxy_mount_differs("traefik:v3.6|--log.level=WARN", "/tmp/two/proxy")).toBe(false);
     });
 });

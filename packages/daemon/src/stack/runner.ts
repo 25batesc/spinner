@@ -25,7 +25,7 @@ import type {
     StackService,
     StackSpec,
 } from "@spinner/protocol";
-import { add_worktree, remove_worktree } from "../git/worktree.js";
+import { add_worktree, fetch_base, remove_worktree } from "../git/worktree.js";
 import type { SpinnerHome } from "../home.js";
 import { list_sessions, write_session } from "../store/session-store.js";
 import {
@@ -47,8 +47,8 @@ import {
     compose,
     compose_attached,
     compose_down,
-    compose_status,
     connect_network,
+    project_status,
     disconnect_network,
     ensure_postgres_container,
     ensure_proxy,
@@ -59,6 +59,8 @@ import {
     project_has_containers,
     remove_container,
     remove_project_containers,
+    shared_busy_reason,
+    spinner_projects,
     type ComposeTarget,
 } from "./docker.js";
 import {
@@ -93,14 +95,19 @@ const PROXY_PORT_DEFAULT = 80;
 const POSTGRES_VERSION_DEFAULT = "16";
 
 /**
- * After this many polls (15 s) a host service whose log shows a traceback and whose port does
- * not answer counts as failed, even with a live pid (a reloader parent survives the crash).
+ * A host service whose log shows a traceback and whose port does not answer counts as failed
+ * after this long, even with a live pid (a reloader parent survives the crash).
  */
-const HOST_TRACEBACK_GRACE_POLLS = 60;
+const HOST_TRACEBACK_GRACE_MS = 15_000;
 
-/** Bound on the wait for healthchecks: 2400 polls of 250 ms is 10 minutes, for a first install. */
-const HEALTH_POLLS_MAX = 2400;
-const HEALTH_INTERVAL_MS = 250;
+/**
+ * Bound on the wait for healthchecks: 600 polls of 1 s is 10 minutes, for a first install.
+ * Docker probes the container every 250 ms itself; this wait only reads the result, and
+ * `docker compose ps` costs about half a second, so polling faster than 1 s spends the wait
+ * on process startup.
+ */
+const HEALTH_POLLS_MAX = 600;
+const HEALTH_INTERVAL_MS = 1_000;
 
 export function session_db(session_id: string): string {
     return `spinner_${session_id}`;
@@ -137,7 +144,16 @@ export async function attach_project(
     }
     session.project = spec.name;
     session.base = spec.base;
-    for (const [name, repo] of Object.entries(spec.repos)) {
+    // One fetch per checkout, together: two services in one repo must not fetch at once,
+    // and two checkouts need not wait for each other. The copy and install stay in order.
+    const repos = Object.entries(spec.repos);
+    const fetches = new Map<string, { path: string; base: string }>();
+    for (const [, repo] of repos) {
+        const base = repo.base ?? spec.base;
+        fetches.set(`${repo.path}\0${base}`, { path: repo.path, base });
+    }
+    await Promise.all([...fetches.values()].map((item) => fetch_base(item.path, item.base)));
+    const outcomes = await Promise.all(repos.map(async ([name, repo]) => {
         const worktree = join("worktrees", name);
         const outcome = await add_worktree({
             repo_path: repo.path,
@@ -146,6 +162,9 @@ export async function attach_project(
             base: repo.base ?? spec.base,
             session_dir: summary.path,
         });
+        return { name, repo, worktree, outcome };
+    }));
+    for (const { name, repo, worktree, outcome } of outcomes) {
         log(`worktree ${worktree} ${outcome} (${repo.path} on ${session.branch})`);
         const files = repo.seed_files ?? [];
         const copied = copy_seed_files(repo.path, join(summary.path, worktree), files);
@@ -363,14 +382,22 @@ async function start_stack(
     const db = session_db(session.id);
 
     await ensure_shared_containers(home, spec, log);
+    // The clone, the image builds and the network do not depend on each other. The connects
+    // do: the proxy and Postgres must be on the network before compose starts the services.
     const server = new DatabaseServer(server_address(spec.database));
-    await server.wait_ready(spec.database?.server !== "external");
-    log(`database ${db}: ${await server.clone_from_template(db, template_name(spec))}`);
-
-    await ensure_images(spec, options.build === true, log);
-    if (!(await network_exists(network))) {
-        await run_ok("docker", ["network", "create", network]);
-    }
+    const [cloned] = await Promise.all([
+        (async () => {
+            await server.wait_ready(spec.database?.server !== "external");
+            return server.clone_from_template(db, template_name(spec));
+        })(),
+        ensure_images(spec, options.build === true, log),
+        (async () => {
+            if (!(await network_exists(network))) {
+                await run_ok("docker", ["network", "create", network]);
+            }
+        })(),
+    ]);
+    log(`database ${db}: ${cloned}`);
     await connect_network(network, PROXY_CONTAINER);
     if (spec.database?.server !== "external") {
         await connect_network(network, POSTGRES_CONTAINER, POSTGRES_ALIAS);
@@ -430,8 +457,8 @@ async function start_host_services(
             assert.ok(service.repo !== undefined, `services.${name}: host runtime needs a repo`);
             const repo = session.repos[service.repo];
             assert.ok(repo?.worktree !== undefined, `repo ${service.repo} has no worktree`);
-            // `${PORT}` is the service's own port, for a second listener (a health server)
-            // that the spec wants on the same session port.
+            // `${PORT}` is this service's own port. The renderer substitutes it too, for the
+            // env file; this pass covers a host service that has no env file.
             const own = { ...variables, PORT: String(port) };
             const env = substitute_env(service.env ?? {}, own, []);
             const input = {
@@ -505,8 +532,9 @@ async function stop_host_services(
     }
 }
 
-/** Bound on the wait for Traefik to publish the routes: 120 polls of 250 ms is 30 s. */
-const ROUTE_POLLS_MAX = 120;
+/** Bound on the wait for Traefik to publish the routes: 60 polls of 500 ms is 30 s. */
+const ROUTE_POLLS_MAX = 60;
+const ROUTE_INTERVAL_MS = 500;
 
 interface RouteProbe {
     host: string;
@@ -548,7 +576,7 @@ async function wait_routes(probes: RouteProbe[], http_port: number): Promise<voi
             }
         }
         if (pending.size > 0) {
-            await sleep(HEALTH_INTERVAL_MS);
+            await sleep(ROUTE_INTERVAL_MS);
         }
     }
     if (pending.size > 0) {
@@ -761,8 +789,12 @@ async function wait_healthy(
         .filter(([name, service]) => service.healthcheck !== undefined && name in processes)
         .map(([name, service]) => ({ name, path: health_path(service.healthcheck ?? "GET /") }));
     const noted = new Set<string>();
+    let import_notes_done = false;
+    const started = Date.now();
     for (let poll = 0; poll < HEALTH_POLLS_MAX; poll += 1) {
-        if (poll === HOST_TRACEBACK_GRACE_POLLS) {
+        const grace_over = Date.now() - started >= HOST_TRACEBACK_GRACE_MS;
+        if (grace_over && !import_notes_done) {
+            import_notes_done = true;
             // A preflight can pass while the service itself cannot import a module (venv or
             // node_modules drift): one note per service, with the line, healthcheck or not.
             for (const [name, process_info] of Object.entries(processes)) {
@@ -781,7 +813,7 @@ async function wait_healthy(
                 throw new Error(await describe_host_exit(summary, spec, entry.name, process_info));
             }
             const crashed =
-                poll >= HOST_TRACEBACK_GRACE_POLLS &&
+                grace_over &&
                 log_shows_traceback(readFileSync(join(summary.path, process_info.log), "utf8"));
             if (crashed && !(await host_answers(process_info.port, entry.path))) {
                 await stop_host_process(process_info.pid);
@@ -789,7 +821,8 @@ async function wait_healthy(
             }
         }
         const has_containers = Object.values(spec.services).some((s) => s.runtime !== "host");
-        const statuses = has_containers ? await compose_status(target) : [];
+        // `docker ps` by label, not `compose ps`: the same facts, without loading the file.
+        const statuses = has_containers ? await project_status(target.project) : [];
         const dead = statuses.find(
             (status) => status.state === "exited" || status.health === "unhealthy",
         );
@@ -917,6 +950,12 @@ export async function shared_down(home: SpinnerHome, log: Log): Promise<void> {
     if (up.length > 0) {
         const names = up.map((entry) => entry.dir).join(", ");
         throw new Error(`stacks are still up: ${names}; run spinner down or close first`);
+    }
+    // session.yaml only knows this home. The containers are machine-global, so a stack that
+    // another home brought up counts too.
+    const busy = shared_busy_reason(await spinner_projects());
+    if (busy !== null) {
+        throw new Error(busy);
     }
     for (const name of [PROXY_CONTAINER, POSTGRES_CONTAINER]) {
         const removed = await remove_container(name);

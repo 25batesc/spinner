@@ -151,6 +151,29 @@ describe("substitute_env", () => {
     });
 });
 
+describe("render_compose substitutes ${PORT}", () => {
+    it("uses the container port for a container and the host port for a host service", () => {
+        const input = sample_input();
+        const spec: StackSpec = structuredClone(input.spec);
+        const api = spec.services["api"];
+        const web = spec.services["web"];
+        if (api === undefined || web === undefined) {
+            throw new Error("sample has api and web");
+        }
+        api.env = { ...api.env, HEALTH: "${PORT}" };
+        web.runtime = "host";
+        web.env_file = ".env";
+        web.env = { HEALTH: "${PORT}" };
+        const rendered = render_compose({ ...input, spec, env_file_current: { web: "" } });
+        const document = parse(rendered.compose) as {
+            services: Record<string, { environment: Record<string, string> }>;
+        };
+        expect(document.services["api"]?.environment["HEALTH"]).toBe(String(api.port));
+        const web_file = rendered.env_files.find((file) => file.content.includes("HEALTH="));
+        expect(web_file?.content).toContain(`HEALTH=${rendered.host_ports["web"]}`);
+    });
+});
+
 describe("render_compose with an install override", () => {
     it("runs the service's install command instead of the lockfile's", () => {
         const input = sample_input();
@@ -229,7 +252,18 @@ describe("render_compose with a host service", () => {
                 "# spinner:begin (this session's keys; edit spinner.yaml, not this file)\n" +
                 "B=z\n# spinner:end\n",
         );
+        // A key the file already had stays replaced when the spec drops it, so the file's
+        // own value does not come back under a block that no longer sets it.
+        const owned = render_dotenv("A=1\nPORT=4000\n", { PORT: "21603", SESSION: "s016" });
+        const dropped = render_dotenv(owned, { SESSION: "s016" });
+        expect(dropped).toBe(
+            "A=1\n# spinner-replaced: PORT=4000\n" +
+                "# spinner:begin (this session's keys; edit spinner.yaml, not this file)\n" +
+                "SESSION=s016\n# spinner:end\n",
+        );
+        expect(dropped).not.toMatch(/^PORT=/m);
         // No keys at all restores the file as it was.
+        expect(render_dotenv(dropped, {})).toBe("A=1\nPORT=4000\n");
         expect(render_dotenv(second, {})).toBe("A=1\nB=2\n");
         expect(render_dotenv("", { A: "1" })).toMatch(/^# spinner:begin.*\nA=1\n# spinner:end\n$/);
     });
