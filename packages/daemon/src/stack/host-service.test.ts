@@ -2,11 +2,12 @@
 // never held open by it: `start_host_service` returns at once with a live pid, the log file
 // receives the output, and `stop_host_process` ends it. Method: a fake service that is a
 // shell loop writing to stdout, in a temporary session directory.
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+    host_command_line,
     process_alive,
     start_host_service,
     stop_host_process,
@@ -49,5 +50,38 @@ describe("host services", () => {
         const text = readFileSync(path, "utf8");
         expect(text).toContain("Host(`api.s17.localhost`)");
         expect(text).toContain("http://host.docker.internal:21700");
+    });
+});
+
+describe("Spinner's env inside the wrapper", () => {
+    it("wins over a value the wrapper sets", async () => {
+        const session_dir = mkdtempSync(join(tmpdir(), "spinner-host-"));
+        // A fake injector: sets DATABASE_URL and PORT the way Doppler would, then runs the rest.
+        const wrapper = join(session_dir, "inject.sh");
+        writeFileSync(wrapper, '#!/bin/sh\nDATABASE_URL=from-injector PORT=1 exec "$@"\n');
+        chmodSync(wrapper, 0o755);
+        const record = start_host_service({
+            name: "fake",
+            service: {
+                runtime: "host",
+                repo: "app",
+                wrapper: "./inject.sh",
+                command: 'echo "db=$DATABASE_URL port=$PORT quote=$QUOTED"',
+            },
+            worktree: session_dir,
+            session_dir,
+            port: 23457,
+            env: { DATABASE_URL: "postgres://x/spinner_s17", QUOTED: "it's a b" },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const log = readFileSync(join(session_dir, record.log), "utf8");
+        expect(log).toContain("db=postgres://x/spinner_s17 port=23457 quote=it's a b");
+        await stop_host_process(record.pid);
+    });
+
+    it("renders env after the wrapper and quotes values", () => {
+        const command = { command: "python main.py" };
+        const line = host_command_line("/w/run.sh knit3 ", { A: "x y" }, 5, command);
+        expect(line).toBe("/w/run.sh knit3 env A='x y' PORT='5' python main.py");
     });
 });

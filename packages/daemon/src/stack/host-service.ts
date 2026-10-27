@@ -39,7 +39,7 @@ export function start_host_service(input: HostServiceInput): HostProcess {
     const fd = openSync(log_path, "a");
     // No `exec`: a command may be a compound one, and the process group (see `stop_host_process`)
     // reaches the shell and whatever it runs.
-    const child = spawn("sh", ["-c", `${wrapper}${service.command.trim()}`], {
+    const child = spawn("sh", ["-c", host_command_line(wrapper, input.env, input.port, service)], {
         cwd,
         env: { ...process.env, ...input.env, PORT: String(input.port) },
         stdio: ["ignore", fd, fd],
@@ -51,6 +51,28 @@ export function start_host_service(input: HostServiceInput): HostProcess {
     closeSync(fd);
     assert.ok(child.pid !== undefined, `could not start ${input.name}`);
     return { pid: child.pid, port: input.port, log };
+}
+
+/**
+ * `<wrapper> env K=V ... <command>`: Spinner's values are applied by `env` inside the
+ * wrapper, after a secrets injector such as Doppler has set its own, so the session's
+ * `DATABASE_URL`, `PORT` and the like win. Values are single-quoted for the shell.
+ */
+export function host_command_line(
+    wrapper: string,
+    env: Record<string, string>,
+    port: number,
+    service: Pick<StackService, "command">,
+): string {
+    assert.ok(service.command !== undefined);
+    const pairs = Object.entries({ ...env, PORT: String(port) }).map(
+        ([key, value]) => `${key}=${shell_quote(value)}`,
+    );
+    return `${wrapper}env ${pairs.join(" ")} ${service.command.trim()}`;
+}
+
+function shell_quote(value: string): string {
+    return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function host_wrapper(wrapper: string, worktree: string): string {
