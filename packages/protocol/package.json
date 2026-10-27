@@ -12,7 +12,8 @@
             "types": "./dist/index.d.ts",
             "default": "./dist/index.js"
         },
-        "./schema/session.json": "./schema/session.json"
+        "./schema/session.json": "./schema/session.json",
+        "./schema/stack-spec.json": "./schema/stack-spec.json"
     },
     "files": [
         "dist",

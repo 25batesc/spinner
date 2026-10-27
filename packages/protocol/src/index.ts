@@ -4,6 +4,7 @@
 export const PROTOCOL_VERSION = 1 as const;
 
 export * from "./session.js";
+export * from "./stack-spec.js";
 export * from "./events.js";
 export * from "./api.js";
 export * from "./pipeline.js";

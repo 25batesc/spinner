@@ -1,0 +1,58 @@
+# The sample stack: one API, one web page, Postgres in template mode and a Temporal dev
+# server. Schema: docs/STACK_SPEC.md. The "repo" is the Spinner checkout itself, so
+# `spinner new --project examples/sample-stack` makes a worktree of this repo on the session
+# branch; the two services run from `examples/sample-stack/{api,web}` inside it.
+name: sample
+base: main
+
+repos:
+  app:
+    path: ../..
+
+services:
+  api:
+    repo: app
+    image: spinner/sample-api-dev
+    workdir: examples/sample-stack/api
+    command: node --watch server.js
+    port: 3000
+    host: api
+    env:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/${SESSION_DB}
+      SESSION_ID: ${SESSION_ID}
+    healthcheck: GET /health
+    depends_on: [temporal]
+    deps_volume: npm-cache
+
+  web:
+    repo: app
+    image: spinner/sample-api-dev
+    workdir: examples/sample-stack/web
+    command: node --watch server.js
+    port: 8080
+    host: web
+    env:
+      API_URL: http://api:3000
+      SESSION_ID: ${SESSION_ID}
+      PUBLIC_API_URL: http://api.${SESSION_ID}.localhost
+    healthcheck: GET /
+    depends_on: [api]
+
+  temporal:
+    image: temporalio/temporal:1.6.1
+    command: server start-dev --ip 0.0.0.0 --log-level warn --db-filename /data/temporal.db
+    port: 8233
+    host: temporal
+    volumes: [temporal-data:/data]
+
+database:
+  mode: template
+  server: spinner-postgres
+  version: "16"
+  template: sample_seed
+  seed:
+    dump: seed.sql
+
+proxy:
+  http_port: 80
+  strip_frame_headers: [temporal]

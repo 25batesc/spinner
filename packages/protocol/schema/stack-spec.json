@@ -1,0 +1,287 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$ref": "#/definitions/StackSpec",
+    "definitions": {
+        "StackSpec": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "base": {
+                    "type": "string",
+                    "description": "The branch PRs land in, unless a repo overrides it."
+                },
+                "repos": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/StackRepo"
+                    }
+                },
+                "services": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/StackService"
+                    }
+                },
+                "database": {
+                    "$ref": "#/definitions/StackDatabase"
+                },
+                "proxy": {
+                    "$ref": "#/definitions/StackProxy"
+                },
+                "pass_env": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Host environment variables copied into every service."
+                },
+                "harness": {
+                    "$ref": "#/definitions/HarnessConfig"
+                },
+                "pipeline": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            },
+            "required": [
+                "name",
+                "base",
+                "repos",
+                "services"
+            ],
+            "additionalProperties": false,
+            "description": "The whole of `spinner.yaml`. `pipeline` is typed by the board's `pipeline.ts`."
+        },
+        "StackRepo": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path of the repo on this machine. May start with `~`, or be relative to the spec file."
+                },
+                "base": {
+                    "type": "string",
+                    "description": "Branch the worktree starts from and the PR targets. Overrides the top-level `base`."
+                }
+            },
+            "required": [
+                "path"
+            ],
+            "additionalProperties": false
+        },
+        "StackService": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Name under `repos`. When set, the session's worktree is bind-mounted at `/app`."
+                },
+                "image": {
+                    "type": "string",
+                    "description": "Image name. Built from the repo's `Dockerfile.dev` when the repo has one, else pulled."
+                },
+                "runtime": {
+                    "$ref": "#/definitions/ServiceRuntime"
+                },
+                "wrapper": {
+                    "type": "string",
+                    "description": "Command prefix run before `command`, for a secrets injector. Relative to the worktree."
+                },
+                "workdir": {
+                    "type": "string",
+                    "description": "Directory inside the worktree where `command` runs."
+                },
+                "command": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "number",
+                    "description": "The port the process listens on inside the container."
+                },
+                "host": {
+                    "type": "string",
+                    "description": "Hostname label: `<host>.<session>.localhost`. Services without one are internal only."
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Environment for the process. Values may use `${SESSION_ID}` and the other variables."
+                },
+                "env_file": {
+                    "type": "string",
+                    "description": "Path inside the worktree where the runner writes `env` before start, for frontends that read their environment at build time from a dotenv file."
+                },
+                "healthcheck": {
+                    "type": "string",
+                    "description": "`GET /path`: polled through the service port until it answers 2xx."
+                },
+                "depends_on": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "deps_volume": {
+                    "$ref": "#/definitions/DepsVolume"
+                },
+                "volumes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Extra compose volumes, `name:/path` or `/host:/path`."
+                }
+            },
+            "required": [
+                "image"
+            ],
+            "additionalProperties": false
+        },
+        "ServiceRuntime": {
+            "type": "string",
+            "enum": [
+                "node",
+                "python"
+            ],
+            "description": "Where the services run from: picks the dev image base and the kind of dependency volume."
+        },
+        "DepsVolume": {
+            "type": "string",
+            "enum": [
+                "pnpm-store",
+                "npm-cache",
+                "yarn-cache",
+                "venv"
+            ],
+            "description": "The kind of dependency volume a service mounts. The volume name is keyed by the hash of the repo's lockfile, so sessions with the same lockfile share one install."
+        },
+        "StackDatabase": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/DatabaseMode"
+                },
+                "server": {
+                    "$ref": "#/definitions/DatabaseServer"
+                },
+                "external": {
+                    "$ref": "#/definitions/ExternalDatabase"
+                },
+                "version": {
+                    "type": "string",
+                    "description": "Postgres major version for the `spinner-postgres` container."
+                },
+                "template": {
+                    "type": "string",
+                    "description": "Name of the template database. Defaults to `<name>_seed`."
+                },
+                "seed": {
+                    "$ref": "#/definitions/DatabaseSeed"
+                }
+            },
+            "required": [
+                "mode"
+            ],
+            "additionalProperties": false
+        },
+        "DatabaseMode": {
+            "type": "string",
+            "enum": [
+                "template",
+                "per-session"
+            ]
+        },
+        "DatabaseServer": {
+            "type": "string",
+            "enum": [
+                "spinner-postgres",
+                "external"
+            ],
+            "description": "`spinner-postgres` is a container Spinner starts; `external` is a server it never manages."
+        },
+        "ExternalDatabase": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "number"
+                },
+                "user": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string",
+                    "description": "Password, when the server needs one. Defaults to the user name, as local stacks do."
+                }
+            },
+            "required": [
+                "host",
+                "port",
+                "user"
+            ],
+            "additionalProperties": false
+        },
+        "DatabaseSeed": {
+            "type": "object",
+            "properties": {
+                "migrate": {
+                    "type": "string",
+                    "description": "Host command that applies migrations. Runs in the first repo's primary checkout."
+                },
+                "fixtures": {
+                    "type": "string",
+                    "description": "Host command that loads fixtures, after `migrate`."
+                },
+                "dump": {
+                    "type": "string",
+                    "description": "A SQL file or a gzip-compressed SQL file, relative to the spec file, loaded instead."
+                }
+            },
+            "additionalProperties": false
+        },
+        "StackProxy": {
+            "type": "object",
+            "properties": {
+                "http_port": {
+                    "type": "number",
+                    "description": "Host port Traefik listens on."
+                },
+                "strip_frame_headers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Services whose responses lose `X-Frame-Options` and `frame-ancestors`, to embed them."
+                }
+            },
+            "additionalProperties": false
+        },
+        "HarnessConfig": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "type": "string",
+                    "const": "pi"
+                },
+                "pi": {
+                    "type": "object",
+                    "properties": {
+                        "trust_projects": {
+                            "type": "boolean"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "$id": "https://spinner.dev/schema/stack-spec.json",
+    "title": "Spinner spinner.yaml"
+}
