@@ -160,6 +160,11 @@ describe("log_shows_traceback", () => {
         ].join("\n");
         expect(log_shows_traceback(crash)).toBe(true);
         expect(log_shows_traceback("INFO started\nWARNING retrying (gaierror)\n")).toBe(false);
+        const json = '{"level": "ERROR", "exc_info": "Traceback (most recent call last):\\n' +
+            '  File \\"x\\"\\nRuntimeError: generator didn\'t yield\\n"}';
+        expect(log_shows_traceback(json)).toBe(true);
+        const uvicorn = '{"message": "Application startup failed. Exiting."}';
+        expect(log_shows_traceback(uvicorn)).toBe(true);
         expect(log_shows_traceback("Traceback (most recent call last):\n  File x\n")).toBe(false);
     });
 });

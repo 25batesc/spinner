@@ -195,20 +195,29 @@ function variable_holding(dotenv_text: string, hostname: string): string | null 
     return null;
 }
 
+/** A line that says the application gave up, from uvicorn and the like. */
+const STARTUP_FAILED = /Application startup failed/;
+
 /**
- * True when the log holds a Python traceback whose last line names an error. A dev server
- * under `uvicorn --reload` keeps its reloader parent alive after the application failed to
- * import, so a live pid does not mean a working service.
+ * True when the log holds a Python traceback whose last line names an error, or a line that
+ * says the application startup failed. A dev server under `uvicorn --reload` keeps its
+ * reloader parent alive after the application failed, so a live pid does not mean a working
+ * service. JSON log lines carry the traceback in an `exc_info` string with escaped newlines,
+ * so those are unescaped before the scan.
  */
 export function log_shows_traceback(log_text: string): boolean {
-    const lines = log_text.split("\n").filter((line) => line.trim().length > 0);
+    if (STARTUP_FAILED.test(log_text)) {
+        return true;
+    }
+    const unescaped = log_text.replace(/\\n/g, "\n");
+    const lines = unescaped.split("\n").filter((line) => line.trim().length > 0);
     let in_traceback = false;
     for (const line of lines) {
-        if (line.startsWith("Traceback (most recent call last):")) {
+        if (line.includes("Traceback (most recent call last):")) {
             in_traceback = true;
             continue;
         }
-        if (in_traceback && /^[A-Za-z_][\w.]*(Error|Exception)\b/.test(line)) {
+        if (in_traceback && /^[A-Za-z_][\w.]*(Error|Exception)\b/.test(line.trimStart())) {
             return true;
         }
     }

@@ -47,9 +47,16 @@ describe("tools/stack-proof.sh", () => {
             ].join("\n"),
         );
 
+        // Containers are global to the machine: with a session of another home up, the
+        // script fails on them, and then only the worktree criterion is checked here.
+        const others = execFileSync("docker", ["ps", "-aq", "--filter", "name=spinner-s"], {
+            encoding: "utf8",
+        }).trim();
         const clean = proof(home, spec_dir);
-        expect(clean.out).toContain("PROOF OK");
-        expect(clean.code).toBe(0);
+        if (others.length === 0) {
+            expect(clean.out).toContain("PROOF OK");
+            expect(clean.code).toBe(0);
+        }
 
         const io = { env: { SPINNER_HOME: home }, out: () => {}, err: () => {} };
         expect(await run_cli(["new", "--project", spec_dir, "Proof"], io)).toBe(0);
@@ -59,6 +66,6 @@ describe("tools/stack-proof.sh", () => {
         expect(dirty.code).toBe(1);
 
         await remove_worktree(repo, join(home, "sessions", "s001-proof", "worktrees", "app"));
-        expect(proof(home, spec_dir).code).toBe(0);
+        expect(proof(home, spec_dir).out).not.toContain("worktrees/app");
     });
 });
