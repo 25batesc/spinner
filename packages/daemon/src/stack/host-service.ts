@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync, writeFileSync } from "node:fs";
+import { lookup } from "node:dns/promises";
 import { request as http_request } from "node:http";
 import { dirname, join } from "node:path";
 import type { HostProcess, StackService } from "@spinner/protocol";
@@ -118,6 +119,80 @@ export async function run_preflight(input: HostServiceInput): Promise<PreflightR
 export function tail_lines(text: string): string {
     const lines = text.split("\n").filter((line) => line.trim().length > 0);
     return lines.slice(-TAIL_LINES).join("\n");
+}
+
+/** Lines that mean a hostname did not resolve, across Python, Node and libc. */
+const RESOLVE_FAILURE = /gaierror|Name or service not known|nodename nor servname|ENOTFOUND/;
+
+/** Upper bound on hostnames looked up from one log. */
+const HOSTNAMES_MAX = 50;
+
+export interface ExitDiagnosis {
+    /** The last lines of the log. */
+    tail: string;
+    /** The first hostname in the log that does not resolve, or null. */
+    unresolved: string | null;
+    /** The variable that holds that hostname in the service's dotenv file, or null. */
+    variable: string | null;
+}
+
+/**
+ * Why a host service died: the log tail, and when the log says a name did not resolve, the
+ * first hostname mentioned anywhere in the log that DNS cannot find. The name usually comes
+ * from the injector or a dotenv file, not from the spec, so the variable that carries it in
+ * `<workdir>/.env` is named when found.
+ */
+export async function diagnose_host_exit(
+    log_text: string,
+    dotenv_text: string,
+): Promise<ExitDiagnosis> {
+    const tail = tail_lines(log_text);
+    if (!RESOLVE_FAILURE.test(log_text)) {
+        return { tail, unresolved: null, variable: null };
+    }
+    const unresolved = await first_unresolved(hostnames_in(log_text));
+    const variable = unresolved === null ? null : variable_holding(dotenv_text, unresolved);
+    return { tail, unresolved, variable };
+}
+
+/** Hostnames in URLs (`://user:pw@host:port`) and `host=`/`host:` fields, in order, unique. */
+function hostnames_in(text: string): string[] {
+    const found: string[] = [];
+    const url_host = `\\/\\/(?:[^\\s/@'"]*@)?`;
+    const field_host = `\\bhost(?:name)?\\s*[=:]\\s*['"]?`;
+    const name = "([a-zA-Z][a-zA-Z0-9.-]*[a-zA-Z0-9])";
+    const pattern = new RegExp(`(?:${url_host}|${field_host})${name}`, "g");
+    for (const match of text.matchAll(pattern)) {
+        const name = match[1];
+        if (name !== undefined && name.includes(".") && !found.includes(name)) {
+            found.push(name);
+        }
+        if (found.length >= HOSTNAMES_MAX) {
+            break;
+        }
+    }
+    return found;
+}
+
+async function first_unresolved(names: string[]): Promise<string | null> {
+    for (const name of names) {
+        try {
+            await lookup(name);
+        } catch {
+            return name;
+        }
+    }
+    return null;
+}
+
+function variable_holding(dotenv_text: string, hostname: string): string | null {
+    for (const line of dotenv_text.split("\n")) {
+        const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+        if (match?.[1] !== undefined && line.includes(hostname)) {
+            return match[1];
+        }
+    }
+    return null;
 }
 
 export function process_alive(pid: number): boolean {

@@ -15,7 +15,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { request as http_request } from "node:http";
-import { dirname, join, normalize } from "node:path";
+import { dirname, join, normalize, relative } from "node:path";
 import { stringify } from "yaml";
 import type {
     DatabaseSeed,
@@ -62,6 +62,7 @@ import {
     type ComposeTarget,
 } from "./docker.js";
 import {
+    diagnose_host_exit,
     host_answers,
     process_alive,
     proxy_dir,
@@ -312,7 +313,7 @@ async function start_stack(
         await compose(target, ["up", "--detach", "--remove-orphans", "--quiet-pull"]);
     }
     const processes = await start_host_services(home, summary, spec, rendered, log);
-    await wait_healthy(target, spec, processes, log);
+    await wait_healthy(summary, target, spec, processes, log);
     const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
     await wait_routes(route_probes(spec, rendered.hosts), http_port);
     return { hosts: rendered.hosts, processes };
@@ -582,11 +583,41 @@ function lockfile_info(service: StackService, worktree: string, workdir: string)
     throw new Error(`no lockfile (${names.join(", ")}) in ${join(worktree, workdir)} or above`);
 }
 
+/** The error for a host service that died: log tail, unresolved hostname and the hint. */
+async function describe_host_exit(
+    summary: SessionSummary,
+    spec: StackSpec,
+    name: string,
+    process_info: HostProcess,
+): Promise<string> {
+    const log_text = readFileSync(join(summary.path, process_info.log), "utf8");
+    const service = spec.services[name];
+    const repo = service?.repo === undefined ? undefined : summary.session.repos[service.repo];
+    const dotenv = join(summary.path, repo?.worktree ?? ".", service?.workdir ?? ".", ".env");
+    const dotenv_text = existsSync(dotenv) ? readFileSync(dotenv, "utf8") : "";
+    const diagnosis = await diagnose_host_exit(log_text, dotenv_text);
+    const lines = [`${name} exited on the host; last lines of ${process_info.log}:`];
+    lines.push(diagnosis.tail);
+    if (diagnosis.unresolved !== null) {
+        const holder =
+            diagnosis.variable === null
+                ? "a value from the wrapper's injector or a dotenv file"
+                : `${diagnosis.variable} in ${relative(summary.path, dotenv)}`;
+        lines.push(
+            `hostname ${diagnosis.unresolved} does not resolve on the host (${holder}). ` +
+                `A host service needs host-side addresses: set that variable under ` +
+                `services.${name}.env in spinner.yaml; Spinner's env wins over the injector.`,
+        );
+    }
+    return lines.join("\n");
+}
+
 /**
  * Polls until every service with a healthcheck is healthy: `compose ps` for containers, an
  * HTTP probe on the port for host services. Bounded.
  */
 async function wait_healthy(
+    summary: SessionSummary,
     target: ComposeTarget,
     spec: StackSpec,
     processes: Record<string, HostProcess>,
@@ -603,8 +634,7 @@ async function wait_healthy(
             const process_info = processes[entry.name];
             assert.ok(process_info !== undefined);
             if (!process_alive(process_info.pid)) {
-                const tail = readFileSync(join(target.file, "..", "..", process_info.log), "utf8");
-                throw new Error(`${entry.name} exited on the host:\n${tail.slice(-2000)}`);
+                throw new Error(await describe_host_exit(summary, spec, entry.name, process_info));
             }
         }
         const statuses = checked.length > 0 ? await compose_status(target) : [];

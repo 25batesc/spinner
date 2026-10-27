@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+    diagnose_host_exit,
     host_command_line,
     process_alive,
     run_preflight,
@@ -123,5 +124,25 @@ describe("preflight", () => {
         expect(lines).toHaveLength(20);
         expect(lines[0]).toBe("line 12");
         expect(lines[19]).toBe("ImportError: nope");
+    });
+});
+
+describe("diagnose_host_exit", () => {
+    it("names the first unresolvable hostname and the dotenv variable that holds it", async () => {
+        const log = [
+            "connecting to postgresql://u:p@127.0.0.1:54322/spinner_s17",
+            'INFO pool host="db.internal.knit.invalid" attempt 1',
+            "socket.gaierror: [Errno 8] nodename nor servname provided, or not known",
+        ].join("\n");
+        const dotenv = "AGENTS_DATABASE_URL=postgresql://u:p@db.internal.knit.invalid:5432/x\n";
+        const diagnosis = await diagnose_host_exit(log, dotenv);
+        expect(diagnosis.unresolved).toBe("db.internal.knit.invalid");
+        expect(diagnosis.variable).toBe("AGENTS_DATABASE_URL");
+        expect(diagnosis.tail.split("\n")).toHaveLength(3);
+    });
+
+    it("reports nothing unresolved for an ordinary crash", async () => {
+        const diagnosis = await diagnose_host_exit("ImportError: nope\n", "");
+        expect(diagnosis).toEqual({ tail: "ImportError: nope", unresolved: null, variable: null });
     });
 });
