@@ -465,13 +465,14 @@ function render_healthcheck(check: string, port: number, runtime?: ServiceRuntim
     const probe = runtime === "python" ? ["python", "-c", python] : ["node", "-e", node];
     // Docker probes every `start_interval` during `start_period` (its default is 5 s, which
     // alone costs 5 s per dependency level), then every `interval`. A success at any time
-    // marks the service healthy; failures during the start period do not count.
+    // marks the service healthy; failures during the start period do not count, and a first
+    // webpack compile of a large frontend takes minutes, hence the long start period.
     return {
         test: ["CMD", ...probe],
         interval: "2s",
         timeout: "3s",
         retries: 30,
-        start_period: "60s",
+        start_period: "5m",
         start_interval: "250ms",
     };
 }

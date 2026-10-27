@@ -26,7 +26,7 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-      start_period: 60s
+      start_period: 5m
       start_interval: 250ms
     depends_on:
       temporal:
@@ -56,7 +56,7 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-      start_period: 60s
+      start_period: 5m
       start_interval: 250ms
     depends_on:
       api:

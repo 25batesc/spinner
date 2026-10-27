@@ -652,7 +652,8 @@ async function wait_healthy(
                 throw new Error(await describe_host_exit(summary, spec, entry.name, process_info));
             }
         }
-        const statuses = checked.length > 0 ? await compose_status(target) : [];
+        const has_containers = Object.values(spec.services).some((s) => s.runtime !== "host");
+        const statuses = has_containers ? await compose_status(target) : [];
         const dead = statuses.find(
             (status) => status.state === "exited" || status.health === "unhealthy",
         );
