@@ -46,6 +46,16 @@ pi --session-dir ~/.spinner/sessions/s001-bootstrap/agents/ui/pi --session-id s0
 
 Your user-level pi skills, extensions and `AGENTS.md` load as usual, because pi reads them from `~/.pi/agent`.
 
+## Alternative: run the agents as pi subagents
+
+This is how s001 ran on 2026-10-26. One parent pi session at the repo root launches each agent as a child with the `pi-subagents` extension. The agent definition is `spinner-agent` in your pi agent directory; its task names the agent and its brief. The parent is the message bus.
+
+1. Launch engine first. Wait for the Log line `Plan 1 done`.
+2. Launch ui.
+3. Relay a message with `steer` to a running child, or `resume` to a finished one. Count each relay.
+4. A child asks the operator through `contact_supervisor`. Answer in `MISSION.md`, then reply.
+5. Transcripts live in the parent session's directory, not under `agents/<name>/pi/`.
+
 ## While they run
 
 1. Keep `~/.spinner/sessions/s001-bootstrap/MISSION.md` open.

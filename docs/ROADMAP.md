@@ -4,7 +4,7 @@ Ordered by what is riskiest and most useful at work soonest. Each milestone has 
 
 The 10/26 notes reset the priorities: implementation is cheap, the loop *after* implementation (bot review → fix → verify → peer review → approvals → queue → land) is where the day goes. Spinner stays both things, a multi-agent editor and the organizer that pushes the agents' output into the codebase, but the organizer half is what pays off first: the pipeline board moved up to M1 alongside the stack runner, and M2 ships the fixer, approvals and re-queue loop together with the agent plumbing.
 
-## M0 · Bootstrap by hand (now)
+## M0 · Bootstrap by hand (done 2026-10-26)
 
 Prove the coordination model with zero code.
 
@@ -13,6 +13,8 @@ Prove the coordination model with zero code.
 - Run both as plain `pi` terminals, each with `cwd` at the repo root, each told to read `examples/sessions/s001-bootstrap/MISSION.md` first. You are the daemon: relay messages, answer questions, tick the plan.
 
 Exit: the two agents finish the `packages/protocol` contract and a walking skeleton of each package without editing the same file twice, and the protocol doc gets its first revision from things that went wrong.
+
+Record: 17 minutes of wall clock for the agent commits, $5.80 of agent cost, 2 operator relays, 37 tests. The two agents never edited the same file; the lockfile was the one shared write. See *Lessons from s001* in [SESSION_PROTOCOL.md](SESSION_PROTOCOL.md#lessons-from-s001).
 
 ## M1 · Pipeline board + stack runner (session s002, two agents in parallel)
 

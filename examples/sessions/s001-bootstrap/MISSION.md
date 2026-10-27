@@ -20,6 +20,7 @@ Stand up the Spinner monorepo skeleton and the shared `protocol` package, then a
 - [ ] 6. `packages/ui`: Vite + React, three-pane layout from the sketch, WS client, fixture server emitting the event types (ui)
 - [ ] 7. Run cli → daemon → ui end to end; create a session from the UI (both)
 - [ ] 8. Write "Lessons from s001" into docs/SESSION_PROTOCOL.md (Cullen)
+- [ ] 9. (found during the run, M2) Type the `agent.event` payload in `@spinner/protocol` from pi's RPC event types, so the UI can render text and tool calls (engine, M2, when the agent manager exists)
 
 ## Roster
 | Agent  | Owns                                                  | Doing              | Blocked? | Updated |
@@ -30,9 +31,12 @@ Stand up the Spinner monorepo skeleton and the shared `protocol` package, then a
 ## Contracts & decisions
 - (date) Cullen: TypeScript, pnpm workspace, Node 24, Vitest. Daemon HTTP on `localhost:7777`, WS at `/events`. `packages/protocol` is the only thing both agents import; it is published to the workspace as `@spinner/protocol`.
 - (date) Cullen: the ui agent does not wait for the daemon. It builds against `@spinner/protocol` types and a fixture server (`packages/ui/fixture/`) that replays canned events.
+- (date) Cullen: the daemon uses Hono (`@hono/node-server`) and the `ws` package.
+- (date) Cullen: engine does Plan item 1 first and logs `Plan 1 done`. The ui agent starts when that Log line appears, because `pnpm install` needs the root workspace. Item 1 creates a placeholder `packages/ui/package.json`; ui owns it from then on.
+- (date) Cullen: a request to the other agent goes into `inbox/` as a message, not under Open questions. Open questions are for the operator.
 
 ## Open questions
-- Fastify or Hono for the daemon? (engine will pick Hono unless told otherwise)
+- (none yet)
 
 ## Log
-- (start) Cullen: session opened; two pi terminals at the repo root, briefs in agents/*/BRIEF.md
+- (start) Cullen: session opened; two pi terminals (or two subagents) at the repo root, briefs in agents/*/BRIEF.md

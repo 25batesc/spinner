@@ -6,7 +6,7 @@ Spinner is a local, open-source workbench. It is two things joined at the hip. T
 
 Spinner does not make one feature faster by adding agents to it. Communication cost grows with the square of the agent count, and the review-to-merge loop is sequential. It lets you run four features at once because the mission doc and the board carry the communication, not you.
 
-> Status: **planning**. Nothing runs yet. Start with [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
+> Status: **M0 done** (2026-10-26). `spinner new / show`, `spinnerd` with `GET /sessions` and a WebSocket, and the three-pane UI shell run against each other; nothing talks to GitHub or Docker yet. Run `pnpm install && pnpm -r build && pnpm daemon`, then `pnpm --filter ui dev`. Start with [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
 
 ## The problem
 
@@ -123,7 +123,7 @@ A local daemon (`spinnerd`) owns sessions, stacks, agent processes and the pipel
 
 - **Architect:** Cullen Bates. The architect owns conceptual integrity: what a session is, what the protocol says, what the operator sees. Agents and contributors implement.
 - **Precedence** when documents disagree: `SESSION_PROTOCOL.md` > `STACK_SPEC.md` > `ARCHITECTURE.md` > `ROADMAP.md` > session files. Fix the lower one.
-- A change to the protocol needs a dated entry under *Decisions* in the protocol's changelog (coming with M1) before code follows it.
+- A change to the protocol needs a dated entry under *Decisions* at the end of `docs/SESSION_PROTOCOL.md` before code follows it.
 - Docs are checked with `python3 tools/doc-metrics.py --fail`. Briefs and run sheets must pass.
 
 ## License

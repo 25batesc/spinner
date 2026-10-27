@@ -18,20 +18,23 @@ Role: backend and infrastructure engineer for session s001 of the Spinner repo. 
 
 ## Protocol
 1. Update your Roster row when your task changes or when you become blocked or unblocked.
-2. Append one Log line for each change: `HH:MM engine: <what happened>`.
+2. Append one Log line for each change: `HH:MM engine: <what happened>`. Take `HH:MM` from `date +%H:%M` in the same turn.
 3. Put each type, route, or file layout that the UI will use under Contracts before you build it.
 4. Tick only your own Plan items.
 5. If you find new work, add a Plan item and name an owner.
 6. Put questions for the operator under Open questions. Continue with other work while you wait.
-7. Edit `MISSION.md` in place with the edit tool. Do not rewrite the file.
+7. Put a request for the other agent in `inbox/` as `<HHMMSS>-engine-<to>.md`, first line the subject. Do not put it under Open questions.
+8. Edit `MISSION.md` in place with the edit tool. Do not rewrite the file.
 
 ## Engineering
 1. Use TypeScript in strict mode, Node 24, a pnpm workspace, and Vitest.
-2. Make small commits. Start each commit message with `engine:`.
-3. Keep `packages/protocol` free of dependencies. It holds types and JSON schema only.
-4. Create session directories exactly as `docs/SESSION_PROTOCOL.md` describes.
-5. Write a test that creates a session directory and checks its layout.
-6. Keep the daemon stateless. It must rebuild everything it knows from `~/.spinner/sessions`.
+2. Make small commits. Start each commit message with `engine:`. Stage by path; never `git add -A`.
+3. Commit `pnpm-lock.yaml` in the same commit as the `package.json` change that caused it. Run `pnpm install --frozen-lockfile` before each commit.
+4. Keep `packages/protocol` free of dependencies. It holds types and JSON schema only.
+5. Create session directories exactly as `docs/SESSION_PROTOCOL.md` describes.
+6. Write a test that creates a session directory and checks its layout.
+7. Keep the daemon stateless. It must rebuild everything it knows from `~/.spinner/sessions`.
+8. Create scratch directories with `mktemp -d` and report the path in the Log. Do not delete them.
 
 ## Finish
 1. Tick all your Plan items.

@@ -16,10 +16,11 @@ Role: frontend engineer for session s001 of the Spinner repo. The operator is Cu
 
 ## Protocol
 1. Update your Roster row when your task changes or when you become blocked or unblocked.
-2. Append one Log line for each change: `HH:MM ui: <what happened>`.
+2. Append one Log line for each change: `HH:MM ui: <what happened>`. Take `HH:MM` from `date +%H:%M` in the same turn.
 3. Tick only your own Plan items.
 4. Put questions for the operator under Open questions. Continue with other work while you wait.
-5. Edit `MISSION.md` in place with the edit tool. Do not rewrite the file.
+5. Put a request for the other agent in `inbox/` as `<HHMMSS>-ui-<to>.md`, first line the subject. Do not put it under Open questions.
+6. Edit `MISSION.md` in place with the edit tool. Do not rewrite the file.
 
 ## Engineering
 1. Do not wait for the daemon. Build against the `@spinner/protocol` types.
@@ -30,7 +31,9 @@ Role: frontend engineer for session s001 of the Spinner repo. The operator is Cu
 6. Put all preview embedding in one component, `Preview`. Implement it with an iframe now.
 7. Keep every other component ignorant of how a preview is embedded.
 8. Keep no state in the UI that the daemon does not send. Render everything from the event stream.
-9. Start each commit message with `ui:`.
+9. Start each commit message with `ui:`. Stage by path (`git add packages/ui`); never `git add -A`.
+10. Commit `pnpm-lock.yaml` in the same commit as the `package.json` change that caused it. Run `pnpm install --frozen-lockfile` before each commit.
+11. Create scratch directories with `mktemp -d` and report the path in the Log. Do not delete them.
 
 ## Finish
 1. Make `pnpm --filter ui dev` show the three panes, fed by the fixture server.

@@ -370,3 +370,27 @@ So that agents follow the protocol without being told every turn, `spinnerd` loa
 - **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first.
 
 Until then, the brief carries these instructions, and the operator serializes by running only two or three agents at once.
+
+## Lessons from s001
+
+Session s001 built the workspace, `@spinner/protocol`, `spinner new / show`, `spinnerd` and the three-pane UI. Two agents ran as pi subagents from one parent pi session at the repo root; the operator (through that parent) relayed messages. Commits ran from 17:11 to 17:28 on 2026-10-26: 17 minutes of wall clock, 8 agent commits, 37 tests. Agent cost: engine $5.15 (claude-fable-5-1, 54 turns), ui $0.65 (claude-sonnet-5-5, two runs). Operator relays: 2 (one steer, one resume). Agent-to-operator notifications: 5. Blocking decisions: 0.
+
+What went wrong, and the rule that follows:
+
+1. **Agents guess the time.** The ui agent logged `17:35` and `17:50` for commits made at 17:25 and 17:28; engine's `17:24` line came after ui's `17:28` line. Rule: a Log line's time comes from `date +%H:%M`, run in the same turn as the edit. The daemon stamps lines itself in M2.
+2. **Shared files have no owner.** `pnpm-lock.yaml` changed under both agents' installs, and ui's commit carried engine's uncommitted lock changes. Rule: stage by path, never `git add -A` or `git add .`. The agent that changes a `package.json` commits the lockfile in the same commit. Run `pnpm install --frozen-lockfile` before every commit; if it fails, stop and log it.
+3. **Placeholders inside another agent's area.** Plan item 1 made engine create `packages/ui/package.json` so the workspace would install. It worked because engine announced the handover under Contracts, but it was a judgment call. Rule: a Plan item that creates files in another agent's paths says so and names the handover moment.
+4. **Agent-to-agent requests hid under Open questions.** Both agents wrote `ui → engine` and `engine → ui` requests there. The protocol already has `inbox/` for this; neither brief said to use it, so no relay fired until the operator read the file. Rule: *Open questions* is for the operator only. A request to another agent is an `inbox/` message, which the operator (now) or the daemon (M2) delivers.
+5. **Sequencing beats relaying.** The only hard dependency, the workspace skeleton before the ui agent could install, was handled by starting ui after engine logged item 1. Nothing blocked after that. Rule: the operator starts the second agent when the first shared prerequisite lands, and the first Plan item names that prerequisite.
+6. **The UI agent needs a browser.** It improvised headless Chrome over the DevTools protocol with a script in `/tmp` to verify the panes and the end-to-end flow. The s002 briefs give the UI-facing agent a browser tool.
+7. **Agents leave temp directories.** Recursive delete is blocked for agents by the operator's damage-control rules, so `/tmp/spinner-smoke-*` and `/tmp/spinner-e2e` stayed behind. Rule: agents create scratch directories with `mktemp -d` and report the path; the operator deletes them.
+
+Protocol wishes recorded for M2 (not changed yet): a typed `agent.event` payload built from pi's RPC event types, so the UI renders text and tool calls instead of raw JSON (Plan item 9 in s001); a URL field per entry in `StackState.hosts`, because the UI should not assume `http://`.
+
+Deviation from `RUN.md`: transcripts live in the parent pi session's directory, not under `agents/<name>/pi/`, because the subagent runner owns them. `session.yaml`'s `process` and `needs_human` were updated by hand and drifted twice.
+
+## Decisions
+
+The protocol freezes at each milestone exit. A change needs a dated entry here before code follows it.
+
+- 2026-10-26 M0 exit. Protocol v1 as written above plus the rules in *Lessons from s001* (Log times from `date`, stage by path, lockfile with its `package.json`, placeholders named in the Plan, `inbox/` for agent-to-agent requests, scratch directories reported). `session.yaml` version stays 1; `@spinner/protocol` v0 (commit 175c1e6) implements it, and the JSON schema test fails on drift.
