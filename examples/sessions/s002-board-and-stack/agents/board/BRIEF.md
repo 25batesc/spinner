@@ -31,7 +31,7 @@ Role: engineer for the pipeline tracker and the board, session s002 of the Spinn
 2. Scrub secrets from every fixture before you save it.
 
 ## Stage function
-1. Write `deriveStage(facts)` as a pure function. Facts go in; `stage`, `needsHuman`, and `stale` come out.
+1. Write `derive_stage(facts)` as a pure function. Facts go in; `stage`, `needs_human`, and `stale` come out. Use the repo's snake_case.
 2. Write one fixture test per row of the stage table in `docs/SESSION_PROTOCOL.md`.
 3. Add a test for a merge-queue pop-out.
 4. Add a test that a new push clears `verified_locally`.

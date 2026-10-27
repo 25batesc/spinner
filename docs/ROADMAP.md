@@ -16,7 +16,7 @@ Exit: the two agents finish the `packages/protocol` contract and a walking skele
 
 Record: 17 minutes of wall clock for the agent commits, $5.80 of agent cost, 2 operator relays, 37 tests. The two agents never edited the same file; the lockfile was the one shared write. See *Lessons from s001* in [SESSION_PROTOCOL.md](SESSION_PROTOCOL.md#lessons-from-s001).
 
-## M1 · Pipeline board + stack runner (session s002, two agents in parallel)
+## M1 · Pipeline board + stack runner (session s002, two agents in parallel; partial on 2026-10-27, see [STATUS.md](STATUS.md))
 
 Two independent tracks with no shared files beyond `packages/protocol`, so they run as two agents in one session.
 

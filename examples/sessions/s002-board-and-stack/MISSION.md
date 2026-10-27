@@ -37,6 +37,8 @@ Make Spinner useful at work before any agent plumbing exists. Two independent tr
 - (date) Cullen: template-clone is the only DB mode in M1. The server is `spinner-postgres` (a container Spinner starts) for `examples/sample-stack`, or `external` (a server Spinner does not manage; for Knit, the Postgres inside `supabase start` on :54322) per the Decisions entry of 2026-10-26. Spinner creates and drops databases there and nothing else.
 - (date) Cullen: a service may set `runtime: python`, `wrapper:` and `workdir:` (STACK_SPEC). Frontends that read env at build time through `dotenv-webpack` get an `env_file: <path in the worktree>`; the runner writes the service's `env` block to that file before start. stack: add `env_file` to `StackSpec` and announce it under Contracts.
 - (date) Cullen: rules from s001 (protocol, *Lessons from s001*): Log times from `date +%H:%M`; stage by path, never `git add -A`; commit `pnpm-lock.yaml` with the `package.json` that changed it; a request for the other agent is an `inbox/` message, not an Open question; scratch directories from `mktemp -d`, reported, never deleted.
+- (date) Cullen: `packages/cli/src/cli.ts` and `packages/daemon/src/index.ts` are shared-append files. Each is a registry; each agent adds one import and one line for its own commands or exports. Nothing else in them changes.
+- (date) Cullen: a long-lived child process that a command starts is detached, with its stdio on a log file under `<session>/log/`, before the command waits for health.
 - (date) Cullen: a fixture already exists: `packages/daemon/test/fixtures/github/pr-approving.json` (bot-authored PR, bot threads resolved, every check green except the approval check) and the query that produced it, `pr-facts.graphql`.
 
 ## Open questions

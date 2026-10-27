@@ -57,6 +57,18 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 2. Test against `examples/sample-stack` first. Touch the Knit repos under `~/knit` only through `spinner new` worktrees, never their primary checkouts.
 3. Build the sample stack's images small. The 15-second target is for warm images.
 
+## Host services
+1. A service with `runtime: host` runs on the host, in the worktree's `workdir`, with `wrapper` in front of `command`.
+2. Detach the process. Put its stdout and stderr on `<session>/log/<service>.log`. Record the pid and the port in `session.yaml`.
+3. Make `up` return when the healthcheck passes or the bounded wait ends. Test this with a fake service that never exits.
+4. Put Spinner's `env` inside the wrapper, after it: `wrapper -- env K=V command`. The session's values must win over an injector's values.
+5. Route `<host>.<id>.localhost` through Traefik to `host.docker.internal:<port>`.
+
+## Cleanup
+1. Run cleanup only through your own `spinner close` and `spinner down`.
+2. Put the proof commands in `tools/stack-proof.sh` and run that script. The shell guard blocks `git branch -D` and recursive deletes in a bash call.
+3. When an acceptance test fails on something outside this repo, record the finding under Open questions and stop. Do not retry more than once.
+
 ## Quality
 1. Measure and print the `up` time. The target is under 15 seconds when images are warm.
 2. Key dependency volumes by lockfile hash.
@@ -65,7 +77,7 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 5. Start each commit message with `stack:`.
 
 ## Finish
-1. Make *Done when* items 4 and 5 true on `examples/sample-stack`, then on the operator's project once `local/<project>/spinner.yaml` is filled.
+1. Make *Done when* items 4 and 5 true on `examples/sample-stack`, then on the operator's project. `local/knit/spinner.yaml` is filled.
 2. Tick all your Plan items.
 3. Set your Roster row: Doing = `done`, Blocked? = `no`.
 4. Append a final Log line: what exists, and what `STACK_SPEC.md` got wrong.

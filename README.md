@@ -6,7 +6,7 @@ Spinner is a local, open-source workbench. It is two things joined at the hip. T
 
 Spinner does not make one feature faster by adding agents to it. Communication cost grows with the square of the agent count, and the review-to-merge loop is sequential. It lets you run four features at once because the mission doc and the board carry the communication, not you.
 
-> Status: **M0 done** (2026-10-26). `spinner new / show`, `spinnerd` with `GET /sessions` and a WebSocket, and the three-pane UI shell run against each other; nothing talks to GitHub or Docker yet. Run `pnpm install && pnpm -r build && pnpm daemon`, then `pnpm --filter ui dev`. Start with [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
+> Status: **M1 partial** (2026-10-27). The board works on real PRs (`spinner adopt`, `spinner board`). The stack runner brings up `examples/sample-stack` in 3 s. The operator's own stack does not come up yet. Details in [docs/STATUS.md](docs/STATUS.md). Run `pnpm install && pnpm -r build && pnpm daemon`, then `pnpm --filter ui dev`. Start with [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
 
 ## The problem
 
@@ -112,6 +112,8 @@ A local daemon (`spinnerd`) owns sessions, stacks, agent processes and the pipel
 - [docs/STACK_SPEC.md](docs/STACK_SPEC.md): how a project describes its stack (`spinner.yaml`), with a three-repo example.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): daemon, pipeline tracker, CLI, UI, agent adapter, stack runner, hostnames, web vs desktop.
 - [docs/ROADMAP.md](docs/ROADMAP.md): milestones, in order, with exit criteria.
+- [docs/STATUS.md](docs/STATUS.md): what exists, what is proven, what is open, and what it cost. Updated when a session closes.
+- [docs/sessions/](docs/sessions/): the full mission record of each closed session, Log included.
 - [docs/WRITING.md](docs/WRITING.md): the house writing rules and the glossary. One word, one meaning.
 - [docs/audits/](docs/audits/): dated reviews of the docs against outside yardsticks.
 - [examples/sample-stack/](examples/sample-stack/): a tiny API + web + Postgres stack anyone can run; the test vehicle for the stack runner.
