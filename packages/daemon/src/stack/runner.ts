@@ -531,9 +531,15 @@ async function stop_host_services(
         await kill_pids(stray);
         log(`stopped ${stray.length} stray processes in the session: ${stray.join(", ")}`);
     }
-    const routes = proxy_routes_path(await current_proxy_dir(home), summary.session.id);
-    if (existsSync(routes)) {
-        rmSync(routes);
+    // The running proxy may watch a different directory than the one this home writes to
+    // (a proxy started before the machine directory existed). Remove the session's file
+    // from both, or the routes keep answering after close.
+    const watched = await current_proxy_dir(home);
+    for (const dir of new Set([watched, home.proxy])) {
+        const routes = proxy_routes_path(dir, summary.session.id);
+        if (existsSync(routes)) {
+            rmSync(routes);
+        }
     }
 }
 
@@ -979,10 +985,11 @@ export async function shared_down(
     // proxy directory and the host services those homes started all count, not only this
     // home's session.yaml.
     const proxy_dir = await current_proxy_dir(home);
+    const homes = [home.root, ...homes_in_route_files(proxy_dir)];
     const lines = shared_use_lines({
         projects: await spinner_projects(),
         route_files: route_files_in(proxy_dir),
-        live_pids: live_pid_files([home.root, ...homes_in_route_files(proxy_dir)]),
+        live_pids: live_pid_files(homes),
     });
     if (lines.length > 0 && options.force !== true) {
         throw new Error(
@@ -996,9 +1003,15 @@ export async function shared_down(
         const removed = await remove_container(name);
         log(`${name}: ${removed ? "removed" : "absent"}`);
     }
-    const stray = await processes_with_cwd_under(home.sessions);
+    // `--force` named these homes in the lines above, so their host processes stop too.
+    // Without it the function has already thrown.
+    const roots = options.force === true ? homes : [home.root];
+    const stray: number[] = [];
+    for (const root of new Set(roots)) {
+        stray.push(...(await processes_with_cwd_under(join(root, "sessions"))));
+    }
     await kill_pids(stray);
-    log(`host processes in ${home.sessions}: ${stray.length === 0 ? "none" : stray.join(", ")}`);
+    log(`host processes: ${stray.length === 0 ? "none" : stray.join(", ")}`);
 }
 
 export interface SeedOptions {
