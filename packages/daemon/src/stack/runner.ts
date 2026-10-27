@@ -674,7 +674,13 @@ export async function stack_close(
     }
     if (existsSync(join(summary.path, SESSION_SPEC))) {
         const { spec } = read_session_spec(summary);
+        if (spec.database?.server !== "external") {
+            // After `down --shared` the managed server is gone but its data volume, and the
+            // session database in it, remain; start it again to drop the database.
+            await ensure_postgres_container(spec.database?.version ?? POSTGRES_VERSION_DEFAULT);
+        }
         const server = new DatabaseServer(server_address(spec.database));
+        await server.wait_ready(spec.database?.server !== "external");
         const db = session_db(session.id);
         log(`database ${db}: ${await server.drop_database(db)}`);
     }
