@@ -8,6 +8,7 @@ import { parse, stringify } from "yaml";
 import type { Session, SessionSummary } from "@spinner/protocol";
 import { SESSION_VERSION } from "@spinner/protocol";
 import { is_inside_git_repo, type SpinnerHome } from "../home.js";
+import { SESSION_PORT_MAX } from "../stack/compose.js";
 import { session_numbers_of, spinner_projects_sync } from "../stack/docker.js";
 import { session_numbers_in_route_files } from "../stack/host-service.js";
 import { render_agents_file, render_mission } from "./mission-template.js";
@@ -179,8 +180,11 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
     return check.summary;
 }
 
-/** Upper bound on the numeric part of a session id. Three digits keep ids short and sortable. */
-const SESSION_NUMBER_MAX = 999;
+/**
+ * Upper bound on the numeric part of a session id. The port range ends at `s455`
+ * (65500-65599); a higher id would be told to bind a port that does not exist.
+ */
+const SESSION_NUMBER_MAX = SESSION_PORT_MAX;
 
 /**
  * `s001`, `s002`, ...: one more than the highest id among live and archived sessions, the

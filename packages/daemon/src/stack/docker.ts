@@ -127,9 +127,30 @@ export async function ensure_proxy(http_port: number, proxy_dir: string): Promis
     return { started, dir: proxy_dir, note: null };
 }
 
+/**
+ * The error when a running Postgres is a different major version, or null. A stopped
+ * container may be recreated; a running one holds other homes' template databases, and the
+ * data directory cannot move across major versions.
+ */
+export function postgres_version_conflict(info: ContainerInfo, version: string): string | null {
+    if (info.state !== "running" || info.image === "" || info.image === `postgres:${version}`) {
+        return null;
+    }
+    return `${POSTGRES_CONTAINER} is running ${info.image}, not postgres:${version}; ` +
+        "stop it with spinner down --shared once no session uses it";
+}
+
 /** The managed Postgres server. Its data volume survives `close` of every session. */
-export function ensure_postgres_container(version: string): Promise<boolean> {
+export async function ensure_postgres_container(version: string): Promise<boolean> {
     assert.ok(/^\d+$/.test(version), `postgres version must be a major number: ${version}`);
+    // A running server holds every home's template databases. Recreating it for another
+    // version would drop those sessions, and the data directory cannot be reused across
+    // major versions, so a different version is refused instead of applied.
+    const info = await container_info(POSTGRES_CONTAINER);
+    const conflict = postgres_version_conflict(info, version);
+    if (conflict !== null) {
+        throw new Error(conflict);
+    }
     return ensure_container(POSTGRES_CONTAINER, `postgres:${version}`, [
         "-p",
         `127.0.0.1:${POSTGRES_HOST_PORT}:5432`,

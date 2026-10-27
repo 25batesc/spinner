@@ -157,6 +157,8 @@ export function render_compose(input: RenderInput): Rendered {
 /** First port of a session's range; session n owns `20000 + 100 * n` to `+ 99`. */
 const PORT_BASE = 20_000;
 const PORTS_PER_SESSION = 100;
+/** Highest session number whose range ends at or below 65535. `s455` owns 65500-65599. */
+export const SESSION_PORT_MAX = Math.floor((65535 - PORT_BASE) / PORTS_PER_SESSION);
 /** Host services take the first half of the range, published container ports the second. */
 const PUBLISHED_OFFSET = 50;
 
@@ -172,7 +174,12 @@ interface AssignedPorts {
 function assign_ports(spec: StackSpec, session_id: string): AssignedPorts {
     const match = /^s(\d+)$/.exec(session_id);
     assert.ok(match?.[1] !== undefined);
-    const base = PORT_BASE + PORTS_PER_SESSION * Number.parseInt(match[1], 10);
+    const number = Number.parseInt(match[1], 10);
+    assert.ok(
+        number <= SESSION_PORT_MAX,
+        `session ${session_id} has no port range: s${SESSION_PORT_MAX} is the last`,
+    );
+    const base = PORT_BASE + PORTS_PER_SESSION * number;
     const host: Record<string, number> = {};
     const published: Record<string, number> = {};
     let host_index = 0;

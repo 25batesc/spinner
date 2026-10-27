@@ -7,7 +7,13 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import type { StackSpec } from "@spinner/protocol";
-import { render_compose, render_dotenv, substitute_env, type RenderInput } from "./compose.js";
+import {
+    render_compose,
+    render_dotenv,
+    SESSION_PORT_MAX,
+    substitute_env,
+    type RenderInput,
+} from "./compose.js";
 import { load_spec } from "./spec.js";
 
 const repo_root = resolve(import.meta.dirname, "..", "..", "..", "..");
@@ -148,6 +154,21 @@ describe("substitute_env", () => {
             [],
         );
         expect(out).toEqual({ A: "20100", B: "s17-${UNKNOWN}" });
+    });
+});
+
+describe("session port ranges", () => {
+    it("refuses a session whose range would pass port 65535", () => {
+        const input = sample_input();
+        const over = `s${SESSION_PORT_MAX + 1}`;
+        expect(() => render_compose({ ...input, session: { ...input.session, id: over } }))
+            .toThrow(/no port range/);
+        expect(() =>
+            render_compose({
+                ...input,
+                session: { ...input.session, id: `s${SESSION_PORT_MAX}` },
+            }),
+        ).not.toThrow();
     });
 });
 

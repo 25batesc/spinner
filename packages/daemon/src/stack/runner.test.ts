@@ -7,7 +7,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolve_home } from "../home.js";
 import { next_session_id } from "../store/session-store.js";
-import { proxy_mount_of, session_numbers_of, shared_use_lines } from "./docker.js";
+import {
+    postgres_version_conflict,
+    proxy_mount_of,
+    session_numbers_of,
+    shared_use_lines,
+} from "./docker.js";
 import { homes_in_route_files, session_numbers_in_route_files } from "./host-service.js";
 import { link_seed_dirs } from "./runner.js";
 
@@ -61,6 +66,14 @@ describe("shared containers are machine-global", () => {
         expect(proxy_mount_of("traefik:v3.6|--log.level=WARN")).toBeNull();
         const projects = ["spinner-s016", "spinner-proxy", "spinner-s3"];
         expect(session_numbers_of(projects)).toEqual([16, 3]);
+    });
+
+    it("refuses to recreate a running Postgres for another major version", () => {
+        const running = { state: "running" as const, image: "postgres:16", config: "" };
+        expect(postgres_version_conflict(running, "16")).toBeNull();
+        expect(postgres_version_conflict(running, "17")).toMatch(/postgres:16/);
+        const stopped = { state: "stopped" as const, image: "postgres:16", config: "" };
+        expect(postgres_version_conflict(stopped, "17")).toBeNull();
     });
 
     it("next_session_id counts the proxy directory's route files and the home's own", () => {
