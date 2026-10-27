@@ -2,7 +2,9 @@
 // template, drop it, and rebuild the template. Spinner creates and drops databases and
 // nothing else, whether the server is its own `spinner-postgres` container or an external one.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import pg from "pg";
 import type { StackDatabase } from "@spinner/protocol";
@@ -182,24 +184,46 @@ export class DatabaseServer {
         return `copied with pg_dump and pg_restore${report}`;
     }
 
-    /** Returns a note about restore errors, or an empty string when there were none. */
+    /**
+     * Returns a note about restore errors, or an empty string when there were none. The dump
+     * goes through a file, not through the child's stdout: a seeded database is gigabytes,
+     * and `run` caps captured output at a few tens of megabytes. Privileges are kept: a
+     * Supabase application runs `SET LOCAL ROLE authenticated` per request, so the clone
+     * needs the grants to `anon`, `authenticated` and `service_role`. Ownership is not kept,
+     * because the `postgres` role on a Supabase server cannot give objects to `supabase_admin`.
+     */
     private async dump_restore(source: string, target: string): Promise<string> {
         const env = { ...process.env, PGPASSWORD: this.address.password };
         const common = ["--host", this.address.host, "--port", String(this.address.port)];
-        const dump = await run(
-            "pg_dump",
-            [...common, "--username", this.address.user, "--format", "custom", "--no-owner",
-                "--no-privileges", source],
-            { env, timeout_ms: DUMP_TIMEOUT_MS, encoding: "buffer" },
-        );
-        if (dump.code !== 0) {
-            throw new Error(`pg_dump ${source} failed: ${dump.stderr}`);
+        const scratch = mkdtempSync(join(tmpdir(), "spinner-dump-"));
+        const dump_file = join(scratch, `${source}.dump`);
+        try {
+            const dump = await run(
+                "pg_dump",
+                [...common, "--username", this.address.user, "--format", "custom",
+                    "--no-owner", "--file", dump_file, source],
+                { env, timeout_ms: DUMP_TIMEOUT_MS },
+            );
+            if (dump.code !== 0) {
+                throw new Error(`pg_dump ${source} failed: ${dump.stderr}`);
+            }
+            return await this.restore_file(dump_file, target, common, env);
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
         }
+    }
+
+    private async restore_file(
+        dump_file: string,
+        target: string,
+        common: string[],
+        env: NodeJS.ProcessEnv,
+    ): Promise<string> {
         const restore = await run(
             "pg_restore",
-            [...common, "--username", this.address.user, "--no-owner", "--no-privileges",
-                "--dbname", target],
-            { env, timeout_ms: DUMP_TIMEOUT_MS, input: dump.stdout },
+            [...common, "--username", this.address.user, "--no-owner",
+                "--dbname", target, dump_file],
+            { env, timeout_ms: DUMP_TIMEOUT_MS },
         );
         // pg_restore exits 1 when some objects failed (extension-owned schemas on a Supabase
         // server, for example) and still restores the rest; a failed connection exits 2.
