@@ -140,6 +140,27 @@ describe("render_compose options", () => {
     });
 });
 
+describe("render_compose with an install override", () => {
+    it("runs the service's install command instead of the lockfile's", () => {
+        const input = sample_input();
+        const spec: StackSpec = structuredClone(input.spec);
+        const api = spec.services["api"];
+        if (api === undefined) {
+            throw new Error("sample has an api service");
+        }
+        api.install = "npm install --legacy-peer-deps";
+        const rendered = render_compose({ ...input, spec });
+        const document = parse(rendered.compose) as {
+            services: Record<string, { command: string[] }>;
+        };
+        const guard = document.services["api"]?.command[2] ?? "";
+        expect(guard).toContain(
+            "(cd /app/examples/sample-stack/api && npm install --legacy-peer-deps)",
+        );
+        expect(guard).not.toContain("npm ci");
+    });
+});
+
 describe("render_compose with a host service", () => {
     it("leaves it out of the compose file, assigns ports and merges env_file", () => {
         const input = sample_input();

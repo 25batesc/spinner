@@ -414,10 +414,11 @@ function render_deps(name: string, service: StackService, input: RenderInput): D
     assert.ok(info !== undefined, `services.${name} has deps_volume but no lockfile hash`);
     assert.ok(/^[0-9a-f]{12,}$/.test(info.hash), `lockfile hash must be hex: ${info.hash}`);
     const lock_dir = posix.normalize(posix.join(APP_DIR, info.dir));
+    const install = service.install ?? deps_install(service.deps_volume, info.lockfile);
     return {
         volume: `spinner-deps-${service.deps_volume}-${info.hash.slice(0, 12)}`,
         mount: posix.join(lock_dir, DEPS_DIR[service.deps_volume]),
-        install: `cd ${lock_dir} && ${deps_install(service.deps_volume, info.lockfile)}`,
+        install: `cd ${lock_dir} && ${install}`,
     };
 }
 

@@ -150,6 +150,10 @@
                 "deps_volume": {
                     "$ref": "#/definitions/DepsVolume"
                 },
+                "install": {
+                    "type": "string",
+                    "description": "The install command for the dependency volume, run once in the lockfile's directory, instead of the one the lockfile implies (`npm ci`, `pnpm install --frozen-lockfile`). For a repo that needs `npm install --legacy-peer-deps`."
+                },
                 "volumes": {
                     "type": "array",
                     "items": {

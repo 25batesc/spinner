@@ -76,6 +76,12 @@ export interface StackService {
     healthcheck?: string;
     depends_on?: string[];
     deps_volume?: DepsVolume;
+    /**
+     * The install command for the dependency volume, run once in the lockfile's directory,
+     * instead of the one the lockfile implies (`npm ci`, `pnpm install --frozen-lockfile`).
+     * For a repo that needs `npm install --legacy-peer-deps`.
+     */
+    install?: string;
     /** Extra compose volumes, `name:/path` or `/host:/path`. */
     volumes?: string[];
     /**
