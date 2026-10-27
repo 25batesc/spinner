@@ -134,14 +134,18 @@ function check_service_shape(
     if (!/^[a-z0-9-]+$/.test(name)) {
         return `services.${name}: names are lower-case letters, digits and dashes`;
     }
-    if (typeof service["image"] !== "string") {
+    const on_host = service["runtime"] === "host";
+    if (!on_host && typeof service["image"] !== "string") {
         return `services.${name} needs an \`image\``;
     }
     const repo = service["repo"];
     if (repo !== undefined && !(typeof repo === "string" && repo in repos)) {
         return `services.${name}.repo "${String(repo)}" is not under repos`;
     }
-    if (service["host"] !== undefined && typeof service["port"] !== "number") {
+    if (on_host && (repo === undefined || typeof service["command"] !== "string")) {
+        return `services.${name}: runtime host needs a repo and a command`;
+    }
+    if (!on_host && service["host"] !== undefined && typeof service["port"] !== "number") {
         return `services.${name} has a host but no port`;
     }
     const depends_on = service["depends_on"];

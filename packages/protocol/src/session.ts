@@ -101,6 +101,17 @@ export interface StackState {
     hosts?: Record<string, string>;
     /** Database name cloned from the seed template. */
     db?: string;
+    /** Services with `runtime: host`, by name: the process Spinner started for them. */
+    processes?: Record<string, HostProcess>;
+}
+
+/** A `runtime: host` service's process, as `spinner up` started it. */
+export interface HostProcess {
+    pid: number;
+    /** The port the service listens on; the proxy routes its hostname here. */
+    port: number;
+    /** Log file, relative to the session directory. */
+    log: string;
 }
 
 export type AgentProcessState = "running" | "idle" | "exited";

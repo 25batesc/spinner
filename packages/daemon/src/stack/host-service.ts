@@ -1,0 +1,154 @@
+// Services with `runtime: host`: Spinner starts their command on the host, in the worktree,
+// with a per-session port, and routes their hostname through the proxy to
+// `host.docker.internal`. For a backend whose dependencies have no wheel for the container
+// platform. The process outlives the CLI; `down` and `close` stop it by pid.
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdirSync, openSync, writeFileSync } from "node:fs";
+import { request as http_request } from "node:http";
+import { dirname, join } from "node:path";
+import type { HostProcess, StackService } from "@spinner/protocol";
+import { stringify } from "yaml";
+import { compose_project, hostname } from "./compose.js";
+
+export interface HostServiceInput {
+    name: string;
+    service: StackService;
+    /** Absolute worktree path of the service's repo. */
+    worktree: string;
+    /** Absolute session directory. */
+    session_dir: string;
+    port: number;
+    /** The service's `env` after substitution. */
+    env: Record<string, string>;
+}
+
+/**
+ * Starts the service detached, stdout and stderr appended to `log/<name>.log`, and returns
+ * the record for `session.yaml`. The wrapper, when set, is a path relative to the worktree.
+ */
+export function start_host_service(input: HostServiceInput): HostProcess {
+    const { service } = input;
+    assert.ok(service.command !== undefined, `services.${input.name}: host needs a command`);
+    const cwd = join(input.worktree, service.workdir ?? ".");
+    const wrapper =
+        service.wrapper === undefined ? "" : `${host_wrapper(service.wrapper, input.worktree)} `;
+    const log = join("log", `${input.name}.log`);
+    const log_path = join(input.session_dir, log);
+    mkdirSync(dirname(log_path), { recursive: true });
+    const fd = openSync(log_path, "a");
+    const child = spawn("sh", ["-c", `exec ${wrapper}${service.command.trim()}`], {
+        cwd,
+        env: { ...process.env, ...input.env, PORT: String(input.port) },
+        stdio: ["ignore", fd, fd],
+        detached: true,
+    });
+    child.unref();
+    assert.ok(child.pid !== undefined, `could not start ${input.name}`);
+    return { pid: child.pid, port: input.port, log };
+}
+
+function host_wrapper(wrapper: string, worktree: string): string {
+    const [first, ...rest] = wrapper.trim().split(/\s+/);
+    assert.ok(first !== undefined && first.length > 0, "wrapper must not be empty");
+    const on_path = first.startsWith("/") || !first.includes("/");
+    return [on_path ? first : join(worktree, first), ...rest].join(" ");
+}
+
+export function process_alive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Polls of 100 ms after SIGTERM before SIGKILL: 5 s. */
+const STOP_POLLS_MAX = 50;
+
+/** Stops a process group: SIGTERM, then SIGKILL after the bound. A dead pid is fine. */
+export async function stop_host_process(pid: number): Promise<"stopped" | "absent"> {
+    if (!process_alive(pid)) {
+        return "absent";
+    }
+    // The process was started as its own group leader (`detached`), so the negative pid
+    // reaches the wrapper and the command it exec'd into, and any children.
+    signal_group(pid, "SIGTERM");
+    for (let poll = 0; poll < STOP_POLLS_MAX; poll += 1) {
+        if (!process_alive(pid)) {
+            return "stopped";
+        }
+        await sleep(100);
+    }
+    signal_group(pid, "SIGKILL");
+    return "stopped";
+}
+
+function signal_group(pid: number, signal: NodeJS.Signals): void {
+    try {
+        process.kill(-pid, signal);
+    } catch {
+        try {
+            process.kill(pid, signal);
+        } catch {
+            // Already gone between the check and the signal.
+        }
+    }
+}
+
+/** True when `http://127.0.0.1:<port><path>` answers with a status below 500. */
+export function host_answers(port: number, path: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const request = http_request({ host: "127.0.0.1", port, path }, (response) => {
+            response.resume();
+            resolve((response.statusCode ?? 500) < 500);
+        });
+        request.setTimeout(3_000, () => request.destroy());
+        request.on("error", () => resolve(false));
+        request.end();
+    });
+}
+
+/** The service directory the proxy watches; `<home>/proxy`, mounted into `spinner-proxy`. */
+export function proxy_dir(home_root: string): string {
+    return join(home_root, "proxy");
+}
+
+/**
+ * Writes the Traefik dynamic-configuration file for a session's host services, which the
+ * proxy picks up through its file provider. Routes go to `host.docker.internal`, which
+ * Docker Desktop resolves to the host.
+ */
+export function write_proxy_routes(
+    home_root: string,
+    session_id: string,
+    routes: { name: string; host: string; port: number }[],
+): string {
+    const project = compose_project(session_id);
+    const routers: Record<string, unknown> = {};
+    const services: Record<string, unknown> = {};
+    for (const route of routes) {
+        const key = `${project}-${route.name}`;
+        routers[key] = {
+            rule: `Host(\`${hostname(route.host, session_id)}\`)`,
+            entryPoints: ["web"],
+            service: key,
+        };
+        services[key] = {
+            loadBalancer: { servers: [{ url: `http://host.docker.internal:${route.port}` }] },
+        };
+    }
+    const path = join(proxy_dir(home_root), `${project}.yaml`);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, stringify({ http: { routers, services } }));
+    return path;
+}
+
+export function proxy_routes_path(home_root: string, session_id: string): string {
+    return join(proxy_dir(home_root), `${compose_project(session_id)}.yaml`);
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}

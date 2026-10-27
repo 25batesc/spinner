@@ -3,12 +3,21 @@
 // step is idempotent so a retry after a failure continues where the last run stopped.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+    copyFileSync,
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { request as http_request } from "node:http";
 import { dirname, join, normalize } from "node:path";
 import { stringify } from "yaml";
 import type {
     DatabaseSeed,
+    HostProcess,
     Session,
     SessionSummary,
     StackService,
@@ -21,7 +30,10 @@ import {
     compose_network,
     compose_project,
     hostname,
+    port_variables,
     render_compose,
+    session_variables,
+    substitute_env,
     type DepsInfo,
     type Rendered,
 } from "./compose.js";
@@ -47,6 +59,15 @@ import {
     remove_project_containers,
     type ComposeTarget,
 } from "./docker.js";
+import {
+    host_answers,
+    process_alive,
+    proxy_dir,
+    proxy_routes_path,
+    start_host_service,
+    stop_host_process,
+    write_proxy_routes,
+} from "./host-service.js";
 import { DatabaseServer, server_address } from "./postgres.js";
 import { run_attached, run_ok } from "./shell.js";
 import { load_spec, type LoadedSpec } from "./spec.js";
@@ -109,6 +130,11 @@ export async function attach_project(
             session_dir: summary.path,
         });
         log(`worktree ${worktree} ${outcome} (${repo.path} on ${session.branch})`);
+        const files = repo.seed_files ?? [];
+        const copied = copy_seed_files(repo.path, join(summary.path, worktree), files);
+        if (copied.length > 0) {
+            log(`  copied from the primary checkout: ${copied.join(", ")}`);
+        }
         session.repos[name] = { path: repo.path, worktree, changed: false, pr: null };
     }
     session.stack = {
@@ -119,6 +145,27 @@ export async function attach_project(
     };
     write_session(summary);
     return summary;
+}
+
+/**
+ * Copies untracked files (`.npmrc`, `.env.local`) from the primary checkout into the worktree
+ * when the worktree lacks them. Returns the paths it copied. A file the primary checkout
+ * does not have is skipped, not an error, so a fresh clone still works.
+ */
+function copy_seed_files(repo_path: string, worktree: string, files: string[]): string[] {
+    const copied: string[] = [];
+    for (const file of files) {
+        assert.ok(!file.startsWith("/") && !file.includes(".."), `seed_files entry: ${file}`);
+        const source = join(repo_path, file);
+        const target = join(worktree, file);
+        if (!existsSync(source) || existsSync(target)) {
+            continue;
+        }
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(source, target);
+        copied.push(file);
+    }
+    return copied;
 }
 
 /**
@@ -155,6 +202,7 @@ export interface UpResult {
 
 /** Brings the session's stack up and waits until every healthcheck passes. */
 export async function stack_up(
+    home: SpinnerHome,
     summary: SessionSummary,
     options: UpOptions,
     log: Log,
@@ -162,10 +210,10 @@ export async function stack_up(
     const started = Date.now();
     set_stack_state(summary, "starting");
     try {
-        const hosts = await start_stack(summary, options, log);
+        const { hosts, processes } = await start_stack(home, summary, options, log);
         const db = session_db(summary.session.id);
         const project = compose_project(summary.session.id);
-        summary.session.stack = { project, state: "up", hosts, db };
+        summary.session.stack = { project, state: "up", hosts, db, processes };
         write_session(summary);
         return { hosts, db, elapsed_ms: Date.now() - started };
     } catch (error) {
@@ -176,18 +224,24 @@ export async function stack_up(
     }
 }
 
+interface Started {
+    hosts: Record<string, string>;
+    processes: Record<string, HostProcess>;
+}
+
 async function start_stack(
+    home: SpinnerHome,
     summary: SessionSummary,
     options: UpOptions,
     log: Log,
-): Promise<Record<string, string>> {
+): Promise<Started> {
     const { spec } = read_session_spec(summary);
     const session = summary.session;
     const target = compose_target(summary);
     const network = compose_network(session.id);
     const db = session_db(session.id);
 
-    await ensure_shared_containers(spec, log);
+    await ensure_shared_containers(home, spec, log);
     const server = new DatabaseServer(server_address(spec.database));
     await server.wait_ready(spec.database?.server !== "external");
     log(`database ${db}: ${await server.clone_from_template(db, template_name(spec))}`);
@@ -202,6 +256,9 @@ async function start_stack(
     }
 
     const rendered = render_stack(summary, spec, db);
+    const services = Object.fromEntries(
+        Object.entries(spec.services).filter(([, service]) => service.runtime !== "host"),
+    );
     for (const volume of rendered.deps_volumes) {
         await ensure_volume(volume);
     }
@@ -209,11 +266,84 @@ async function start_stack(
         mkdirSync(dirname(file.path), { recursive: true });
         writeFileSync(file.path, file.content);
     }
-    await compose(target, ["up", "--detach", "--remove-orphans", "--quiet-pull"]);
-    await wait_healthy(target, spec, log);
+    if (Object.keys(services).length > 0) {
+        await compose(target, ["up", "--detach", "--remove-orphans", "--quiet-pull"]);
+    }
+    const processes = start_host_services(home, summary, spec, rendered, log);
+    await wait_healthy(target, spec, processes, log);
     const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
     await wait_routes(route_probes(spec, rendered.hosts), http_port);
-    return rendered.hosts;
+    return { hosts: rendered.hosts, processes };
+}
+
+/**
+ * Starts each `runtime: host` service that is not already running, on its deterministic
+ * port, and writes the proxy routes for them. Returns the records for `session.yaml`.
+ */
+function start_host_services(
+    home: SpinnerHome,
+    summary: SessionSummary,
+    spec: StackSpec,
+    rendered: Rendered,
+    log: Log,
+): Record<string, HostProcess> {
+    const session = summary.session;
+    const current = session.stack.processes ?? {};
+    const processes: Record<string, HostProcess> = {};
+    const routes: { name: string; host: string; port: number }[] = [];
+    const db = session_db(session.id);
+    const variables = {
+        ...session_variables({ id: session.id, branch: session.branch, dir: summary.path, db }),
+        ...port_variables(rendered.published),
+    };
+    for (const [name, service] of Object.entries(spec.services)) {
+        if (service.runtime !== "host") {
+            continue;
+        }
+        const port = rendered.host_ports[name];
+        assert.ok(port !== undefined, `no port for host service ${name}`);
+        const existing = current[name];
+        if (existing !== undefined && existing.port === port && process_alive(existing.pid)) {
+            processes[name] = existing;
+        } else {
+            assert.ok(service.repo !== undefined, `services.${name}: host runtime needs a repo`);
+            const repo = session.repos[service.repo];
+            assert.ok(repo?.worktree !== undefined, `repo ${service.repo} has no worktree`);
+            const env = substitute_env(service.env ?? {}, variables, []);
+            processes[name] = start_host_service({
+                name,
+                service,
+                worktree: join(summary.path, repo.worktree),
+                session_dir: summary.path,
+                port,
+                env,
+            });
+            log(`started ${name} on the host (pid ${processes[name].pid}, port ${port})`);
+        }
+        if (service.host !== undefined) {
+            routes.push({ name, host: service.host, port });
+        }
+    }
+    if (routes.length > 0) {
+        write_proxy_routes(home.root, session.id, routes);
+    }
+    return processes;
+}
+
+async function stop_host_services(
+    home: SpinnerHome,
+    summary: SessionSummary,
+    log: Log,
+): Promise<void> {
+    const processes = summary.session.stack.processes ?? {};
+    for (const [name, process_info] of Object.entries(processes)) {
+        const outcome = await stop_host_process(process_info.pid);
+        log(`${name} on the host (pid ${process_info.pid}): ${outcome}`);
+    }
+    const routes = proxy_routes_path(home.root, summary.session.id);
+    if (existsSync(routes)) {
+        rmSync(routes);
+    }
 }
 
 /** Bound on the wait for Traefik to publish the routes: 120 polls of 250 ms is 30 s. */
@@ -229,10 +359,13 @@ function route_probes(spec: StackSpec, hosts: Record<string, string>): RouteProb
     const probes: RouteProbe[] = [];
     for (const [name, host] of Object.entries(hosts)) {
         const check = spec.services[name]?.healthcheck;
-        const path = check === undefined ? "/" : check.replace(/^GET\s+/, "");
-        probes.push({ host, path });
+        probes.push({ host, path: check === undefined ? "/" : health_path(check) });
     }
     return probes;
+}
+
+function health_path(check: string): string {
+    return check.replace(/^GET\s+/, "");
 }
 
 /**
@@ -277,8 +410,13 @@ function route_answers(probe: RouteProbe, http_port: number): Promise<boolean> {
     });
 }
 
-async function ensure_shared_containers(spec: StackSpec, log: Log): Promise<void> {
-    if (await ensure_proxy(spec.proxy?.http_port ?? PROXY_PORT_DEFAULT)) {
+async function ensure_shared_containers(
+    home: SpinnerHome,
+    spec: StackSpec,
+    log: Log,
+): Promise<void> {
+    const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
+    if (await ensure_proxy(http_port, proxy_dir(home.root))) {
         log(`started ${PROXY_CONTAINER}`);
     }
     if (spec.database?.server !== "external") {
@@ -293,7 +431,7 @@ async function ensure_shared_containers(spec: StackSpec, log: Log): Promise<void
 async function ensure_images(spec: StackSpec, force: boolean, log: Log): Promise<void> {
     const built = new Set<string>();
     for (const service of Object.values(spec.services)) {
-        if (built.has(service.image)) {
+        if (service.image === undefined || built.has(service.image)) {
             continue;
         }
         const dockerfile = service_dockerfile(spec, service);
@@ -338,11 +476,21 @@ function render_stack(summary: SessionSummary, spec: StackSpec, db: string): Ren
             deps[name] = lockfile_info(service, worktree, service.workdir ?? ".");
         }
     }
+    const env_file_current: Record<string, string> = {};
+    for (const [name, service] of Object.entries(spec.services)) {
+        if (service.env_file !== undefined && service.repo !== undefined) {
+            const worktree = worktrees[service.repo];
+            assert.ok(worktree !== undefined);
+            const path = join(worktree, service.env_file);
+            env_file_current[name] = existsSync(path) ? readFileSync(path, "utf8") : "";
+        }
+    }
     const rendered = render_compose({
         spec,
         session: { id: session.id, branch: session.branch, dir: summary.path, db },
         worktrees,
         deps,
+        env_file_current,
     });
     writeFileSync(join(summary.path, COMPOSE_FILE), rendered.compose);
     writeFileSync(join(summary.path, ENV_FILE), rendered.env);
@@ -384,13 +532,32 @@ function lockfile_info(service: StackService, worktree: string, workdir: string)
     throw new Error(`no lockfile (${names.join(", ")}) in ${join(worktree, workdir)} or above`);
 }
 
-/** Polls `compose ps` until every service with a healthcheck is healthy. Bounded. */
-async function wait_healthy(target: ComposeTarget, spec: StackSpec, log: Log): Promise<void> {
+/**
+ * Polls until every service with a healthcheck is healthy: `compose ps` for containers, an
+ * HTTP probe on the port for host services. Bounded.
+ */
+async function wait_healthy(
+    target: ComposeTarget,
+    spec: StackSpec,
+    processes: Record<string, HostProcess>,
+    log: Log,
+): Promise<void> {
     const checked = Object.entries(spec.services)
-        .filter(([, service]) => service.healthcheck !== undefined)
+        .filter(([name, service]) => service.healthcheck !== undefined && !(name in processes))
         .map(([name]) => name);
+    const on_host = Object.entries(spec.services)
+        .filter(([name, service]) => service.healthcheck !== undefined && name in processes)
+        .map(([name, service]) => ({ name, path: health_path(service.healthcheck ?? "GET /") }));
     for (let poll = 0; poll < HEALTH_POLLS_MAX; poll += 1) {
-        const statuses = await compose_status(target);
+        for (const entry of on_host) {
+            const process_info = processes[entry.name];
+            assert.ok(process_info !== undefined);
+            if (!process_alive(process_info.pid)) {
+                const tail = readFileSync(join(target.file, "..", "..", process_info.log), "utf8");
+                throw new Error(`${entry.name} exited on the host:\n${tail.slice(-2000)}`);
+            }
+        }
+        const statuses = checked.length > 0 ? await compose_status(target) : [];
         const dead = statuses.find(
             (status) => status.state === "exited" || status.health === "unhealthy",
         );
@@ -401,7 +568,15 @@ async function wait_healthy(target: ComposeTarget, spec: StackSpec, log: Log): P
         const healthy = statuses
             .filter((status) => status.health === "healthy")
             .map((status) => status.name);
-        if (checked.every((name) => healthy.includes(name))) {
+        for (const entry of on_host) {
+            const process_info = processes[entry.name];
+            assert.ok(process_info !== undefined);
+            if (await host_answers(process_info.port, entry.path)) {
+                healthy.push(entry.name);
+            }
+        }
+        const wanted = [...checked, ...on_host.map((entry) => entry.name)];
+        if (wanted.every((name) => healthy.includes(name))) {
             return;
         }
         await sleep(HEALTH_INTERVAL_MS);
@@ -412,13 +587,20 @@ async function wait_healthy(target: ComposeTarget, spec: StackSpec, log: Log): P
 }
 
 /** `compose stop`: containers and volumes stay, so `up` is fast afterwards. */
-export async function stack_down(summary: SessionSummary, log: Log): Promise<void> {
+export async function stack_down(
+    home: SpinnerHome,
+    summary: SessionSummary,
+    log: Log,
+): Promise<void> {
     const target = compose_target(summary);
     if (existsSync(target.file)) {
         await compose(target, ["stop", "--timeout", "5"]);
         log(`stopped ${target.project}`);
     }
-    set_stack_state(summary, "down");
+    await stop_host_services(home, summary, log);
+    summary.session.stack = { ...summary.session.stack, state: "down" };
+    delete summary.session.stack.processes;
+    write_session(summary);
 }
 
 export interface CloseResult {
@@ -443,6 +625,7 @@ export async function stack_close(
         await remove_project_containers(target.project);
     }
     log(`removed containers of ${target.project}`);
+    await stop_host_services(home, summary, log);
     await disconnect_network(network, PROXY_CONTAINER);
     await disconnect_network(network, POSTGRES_CONTAINER);
     if (await network_exists(network)) {
@@ -510,6 +693,7 @@ export interface SeedOptions {
 
 /** Rebuilds the template database from the spec's seed: a dump, or host commands. */
 export async function seed_rebuild(
+    home: SpinnerHome,
     loaded: LoadedSpec,
     options: SeedOptions,
     log: Log,
@@ -519,7 +703,7 @@ export async function seed_rebuild(
     if (seed === undefined) {
         throw new Error("the spec has no database.seed");
     }
-    await ensure_shared_containers(spec, log);
+    await ensure_shared_containers(home, spec, log);
     const server = new DatabaseServer(server_address(spec.database));
     await server.wait_ready(spec.database?.server !== "external");
     const template = template_name(spec);
@@ -594,4 +778,10 @@ function sleep(ms: number): Promise<void> {
 /** Runs a compose subcommand on the session's project with the terminal attached. */
 export function compose_attached_for(summary: SessionSummary, args: string[]): Promise<number> {
     return compose_attached(compose_target(summary), args);
+}
+
+/** The log file of a host service, for `spinner logs`, or null when it is a container. */
+export function host_service_log(summary: SessionSummary, service: string): string | null {
+    const process_info = summary.session.stack.processes?.[service];
+    return process_info === undefined ? null : join(summary.path, process_info.log);
 }

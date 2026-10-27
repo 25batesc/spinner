@@ -26,7 +26,7 @@ async function run_down(args: string[], home: SpinnerHome, io: CliIo): Promise<n
         return 1;
     }
     try {
-        await stack_down(summary, io.out);
+        await stack_down(home, summary, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner down: ${describe_error(error)}`);

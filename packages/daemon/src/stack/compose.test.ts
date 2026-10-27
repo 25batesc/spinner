@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import type { StackSpec } from "@spinner/protocol";
-import { render_compose, type RenderInput } from "./compose.js";
+import { render_compose, render_dotenv, type RenderInput } from "./compose.js";
 import { load_spec } from "./spec.js";
 
 const repo_root = resolve(import.meta.dirname, "..", "..", "..", "..");
@@ -137,5 +137,56 @@ describe("render_compose options", () => {
         );
         expect(document.services["temporal"]?.command).toMatch(/^server start-dev --ip/);
         expect(document.services["api"]?.environment["OPENAI_API_KEY"]).toBe("${OPENAI_API_KEY}");
+    });
+});
+
+describe("render_compose with a host service", () => {
+    it("leaves it out of the compose file, assigns ports and merges env_file", () => {
+        const input = sample_input();
+        const spec: StackSpec = structuredClone(input.spec);
+        spec.services["backend"] = {
+            repo: "app",
+            runtime: "host",
+            workdir: "examples/sample-stack/api",
+            command: "node server.js",
+            host: "backend",
+            env: { TEMPORAL_HOST: "127.0.0.1:${TEMPORAL_7233_HOST_PORT}" },
+            env_file: "examples/sample-stack/api/.env.local",
+            healthcheck: "GET /health",
+            depends_on: ["temporal"],
+        };
+        const temporal = spec.services["temporal"];
+        if (temporal === undefined) {
+            throw new Error("sample has temporal");
+        }
+        temporal.publish = [7233];
+        const web = spec.services["web"];
+        if (web === undefined) {
+            throw new Error("sample has web");
+        }
+        web.depends_on = ["api", "backend"];
+        const current = "REACT_APP_X=keep\nTEMPORAL_HOST=old\n";
+        const rendered = render_compose({ ...input, spec, env_file_current: { backend: current } });
+        const document = parse(rendered.compose) as {
+            services: Record<string, Record<string, unknown>>;
+        };
+        expect(document.services["backend"]).toBeUndefined();
+        expect(document.services["web"]?.["depends_on"]).toEqual({
+            api: { condition: "service_healthy" },
+        });
+        expect(rendered.host_ports).toEqual({ backend: 21700 });
+        expect(rendered.published).toEqual({ "temporal:7233": 21750 });
+        expect(document.services["temporal"]?.["ports"]).toEqual(["127.0.0.1:21750:7233"]);
+        expect(rendered.hosts["backend"]).toBe("backend.s17.localhost");
+        expect(rendered.env_files[0]?.content).toBe(
+            "REACT_APP_X=keep\nTEMPORAL_HOST=127.0.0.1:21750\n",
+        );
+    });
+
+    it("render_dotenv replaces keys in place and appends new ones", () => {
+        expect(render_dotenv("A=1\nB=2\n", { B: "x", C: "y" })).toBe(
+            "A=1\nB=x\n# Added by spinner for this session. Edit spinner.yaml, not this file.\nC=y\n",
+        );
+        expect(render_dotenv("", { A: "1" })).toMatch(/^# Added by spinner.*\nA=1\n$/);
     });
 });

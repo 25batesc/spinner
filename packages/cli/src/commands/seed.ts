@@ -42,7 +42,8 @@ async function run_seed(args: string[], home: SpinnerHome, io: CliIo): Promise<n
             }
             loaded = read_session_spec(summary);
         }
-        await seed_rebuild(loaded, { copy_only: parsed.values["copy-only"] === true }, io.out);
+        const copy_only = parsed.values["copy-only"] === true;
+        await seed_rebuild(home, loaded, { copy_only }, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner seed: ${describe_error(error)}`);

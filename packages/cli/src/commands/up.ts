@@ -24,7 +24,8 @@ async function run_up(args: string[], home: SpinnerHome, io: CliIo): Promise<num
         return 1;
     }
     try {
-        const result = await stack_up(summary, { build: parsed.values.build === true }, io.out);
+        const build = parsed.values.build === true;
+        const result = await stack_up(home, summary, { build }, io.out);
         for (const [service, host] of Object.entries(result.hosts)) {
             io.out(`${service.padEnd(12)} http://${host}`);
         }

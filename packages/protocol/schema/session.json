@@ -358,6 +358,13 @@
                 "db": {
                     "type": "string",
                     "description": "Database name cloned from the seed template."
+                },
+                "processes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HostProcess"
+                    },
+                    "description": "Services with `runtime: host`, by name: the process Spinner started for them."
                 }
             },
             "required": [
@@ -375,6 +382,29 @@
                 "failed"
             ],
             "description": "Stack state, as the daemon observes it. `none` means the session has no stack."
+        },
+        "HostProcess": {
+            "type": "object",
+            "properties": {
+                "pid": {
+                    "type": "number"
+                },
+                "port": {
+                    "type": "number",
+                    "description": "The port the service listens on; the proxy routes its hostname here."
+                },
+                "log": {
+                    "type": "string",
+                    "description": "Log file, relative to the session directory."
+                }
+            },
+            "required": [
+                "pid",
+                "port",
+                "log"
+            ],
+            "additionalProperties": false,
+            "description": "A `runtime: host` service's process, as `spinner up` started it."
         },
         "AgentSpec": {
             "type": "object",

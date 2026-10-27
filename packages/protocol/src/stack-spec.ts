@@ -3,8 +3,13 @@
 // `pnpm --filter @spinner/protocol schema` after an edit. The stack runner in the daemon
 // renders one of these, plus a session, into `stack/compose.yaml` and `stack/.env`.
 
-/** Where the services run from: picks the dev image base and the kind of dependency volume. */
-export type ServiceRuntime = "node" | "python";
+/**
+ * Where the service runs. `node` and `python` run in a container and pick the healthcheck
+ * probe and the kind of dependency volume. `host` runs the command on the host, in the
+ * worktree, for a service whose dependencies have no wheel for the container platform;
+ * Spinner assigns it a port and routes its hostname to it.
+ */
+export type ServiceRuntime = "node" | "python" | "host";
 
 /**
  * The kind of dependency volume a service mounts. The volume name is keyed by the hash of the
@@ -17,6 +22,11 @@ export interface StackRepo {
     path: string;
     /** Branch the worktree starts from and the PR targets. Overrides the top-level `base`. */
     base?: string;
+    /**
+     * Untracked files (`.npmrc`, `.env.local`) that `spinner new` copies from the primary
+     * checkout into the worktree when they are absent there. Paths relative to the repo.
+     */
+    seed_files?: string[];
 }
 
 export interface StackService {
@@ -24,9 +34,10 @@ export interface StackService {
     repo?: string;
     /**
      * Image name. Built from `dockerfile` when set, else from the repo's `Dockerfile.dev`
-     * (next to `workdir`, then at the repo root) when one exists, else pulled.
+     * (next to `workdir`, then at the repo root) when one exists, else pulled. Required
+     * unless `runtime` is `host`.
      */
-    image: string;
+    image?: string;
     /**
      * A dev Dockerfile outside the repo, relative to the spec file; its directory is the
      * build context. For private multi-repo setups whose repos must stay untouched.
@@ -38,7 +49,7 @@ export interface StackService {
     /** Directory inside the worktree where `command` runs. */
     workdir?: string;
     command?: string;
-    /** The port the process listens on inside the container. */
+    /** The port the process listens on inside the container. A host service gets one assigned. */
     port?: number;
     /** Hostname label: `<host>.<session>.localhost`. Services without one are internal only. */
     host?: string;
@@ -55,6 +66,12 @@ export interface StackService {
     deps_volume?: DepsVolume;
     /** Extra compose volumes, `name:/path` or `/host:/path`. */
     volumes?: string[];
+    /**
+     * Container ports a `runtime: host` service must reach, published on loopback at a
+     * per-session port. `env` may refer to it as `${<SERVICE>_<PORT>_HOST_PORT}`, for
+     * example `${TEMPORAL_7233_HOST_PORT}`.
+     */
+    publish?: number[];
 }
 
 export type DatabaseMode = "template" | "per-session";

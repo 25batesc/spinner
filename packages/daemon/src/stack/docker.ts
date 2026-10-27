@@ -2,7 +2,7 @@
 // `spinner-postgres`), session networks, image builds and `docker compose` on a session's
 // project. Everything here is idempotent, so `up` twice and `close` after a failed `up` work.
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { run, run_attached, run_ok } from "./shell.js";
 
@@ -22,21 +22,29 @@ export interface ContainerInfo {
     state: ContainerState;
     /** The image the container was created from; empty when missing. */
     image: string;
+    /** The `spinner.config` label: what the container was created with, for recreation. */
+    config: string;
 }
 
+/** The label that records how a shared container was created. */
+const CONFIG_LABEL = "spinner.config";
+
 export async function container_info(name: string): Promise<ContainerInfo> {
-    const format = "{{.State.Running}} {{.Config.Image}}";
+    const label = `{{index .Config.Labels "${CONFIG_LABEL}"}}`;
+    const format = `{{.State.Running}} {{.Config.Image}} ${label}`;
     const result = await run("docker", ["inspect", "--format", format, name]);
     if (result.code !== 0) {
-        return { state: "missing", image: "" };
+        return { state: "missing", image: "", config: "" };
     }
-    const [running, image] = String(result.stdout).trim().split(" ");
-    return { state: running === "true" ? "running" : "stopped", image: image ?? "" };
+    const [running, image, config] = String(result.stdout).trim().split(" ");
+    const state = running === "true" ? "running" : "stopped";
+    return { state, image: image ?? "", config: config ?? "" };
 }
 
 /**
  * Starts a long-lived container if it is not running, and recreates it when it was created
- * from another image (an upgrade of Traefik or Postgres). Returns true when it started one.
+ * from another image or with other options (an upgrade of Traefik, another proxy directory).
+ * Returns true when it started one.
  */
 async function ensure_container(
     name: string,
@@ -45,10 +53,12 @@ async function ensure_container(
     command: string[] = [],
 ): Promise<boolean> {
     const info = await container_info(name);
-    if (info.state !== "missing" && info.image !== image) {
+    const config = `${image}|${[...options, ...command].join("|")}`.replace(/\s/g, "_");
+    if (info.state !== "missing" && (info.image !== image || info.config !== config)) {
         await run_ok("docker", ["rm", "--force", name]);
         info.state = "missing";
     }
+    options = ["--label", `${CONFIG_LABEL}=${config}`, ...options];
     if (info.state === "running") {
         return false;
     }
@@ -61,16 +71,29 @@ async function ensure_container(
     return true;
 }
 
-/** One Traefik for every session, routing by the labels the renderer puts on services. */
-export function ensure_proxy(http_port: number): Promise<boolean> {
+/**
+ * One Traefik for every session: the Docker provider routes by the labels the renderer puts
+ * on services; the file provider watches `proxy_dir` for the routes of host services.
+ */
+export function ensure_proxy(http_port: number, proxy_dir: string): Promise<boolean> {
     assert.ok(http_port > 0 && http_port < 65536, `bad proxy port ${http_port}`);
+    mkdirSync(proxy_dir, { recursive: true });
     return ensure_container(
         PROXY_CONTAINER,
         TRAEFIK_IMAGE,
-        ["-p", `${http_port}:80`, "-v", "/var/run/docker.sock:/var/run/docker.sock:ro"],
+        [
+            "-p",
+            `${http_port}:80`,
+            "-v",
+            "/var/run/docker.sock:/var/run/docker.sock:ro",
+            "-v",
+            `${proxy_dir}:/dynamic:ro`,
+        ],
         [
             "--providers.docker=true",
             "--providers.docker.exposedbydefault=false",
+            "--providers.file.directory=/dynamic",
+            "--providers.file.watch=true",
             "--entrypoints.web.address=:80",
             "--log.level=WARN",
         ],

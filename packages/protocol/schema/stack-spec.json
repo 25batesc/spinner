@@ -64,6 +64,13 @@
                 "base": {
                     "type": "string",
                     "description": "Branch the worktree starts from and the PR targets. Overrides the top-level `base`."
+                },
+                "seed_files": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Untracked files (`.npmrc`, `.env.local`) that `spinner new` copies from the primary checkout into the worktree when they are absent there. Paths relative to the repo."
                 }
             },
             "required": [
@@ -80,7 +87,7 @@
                 },
                 "image": {
                     "type": "string",
-                    "description": "Image name. Built from `dockerfile` when set, else from the repo's `Dockerfile.dev` (next to `workdir`, then at the repo root) when one exists, else pulled."
+                    "description": "Image name. Built from `dockerfile` when set, else from the repo's `Dockerfile.dev` (next to `workdir`, then at the repo root) when one exists, else pulled. Required unless `runtime` is `host`."
                 },
                 "dockerfile": {
                     "type": "string",
@@ -102,7 +109,7 @@
                 },
                 "port": {
                     "type": "number",
-                    "description": "The port the process listens on inside the container."
+                    "description": "The port the process listens on inside the container. A host service gets one assigned."
                 },
                 "host": {
                     "type": "string",
@@ -138,20 +145,25 @@
                         "type": "string"
                     },
                     "description": "Extra compose volumes, `name:/path` or `/host:/path`."
+                },
+                "publish": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "Container ports a `runtime: host` service must reach, published on loopback at a per-session port. `env` may refer to it as `${<SERVICE>_<PORT>_HOST_PORT}`, for example `${TEMPORAL_7233_HOST_PORT}`."
                 }
             },
-            "required": [
-                "image"
-            ],
             "additionalProperties": false
         },
         "ServiceRuntime": {
             "type": "string",
             "enum": [
                 "node",
-                "python"
+                "python",
+                "host"
             ],
-            "description": "Where the services run from: picks the dev image base and the kind of dependency volume."
+            "description": "Where the service runs. `node` and `python` run in a container and pick the healthcheck probe and the kind of dependency volume. `host` runs the command on the host, in the worktree, for a service whose dependencies have no wheel for the container platform; Spinner assigns it a port and routes its hostname to it."
         },
         "DepsVolume": {
             "type": "string",
