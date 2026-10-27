@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-27, after session s002 round 2.
+Updated: 2026-10-27, during session s002 round 3.
 
 ## Summary
 
@@ -65,8 +65,8 @@ Fixtures from real PRs, scrubbed, under `packages/daemon/test/fixtures/github/`:
 | `examples/sample-stack` comes up with `spinner new/up/down/close` | done | `07cf8c8`; `up` 3.2 s warm for a fresh session, 2.4 s after `down`; `up` twice succeeds; `close` after a failed `up` succeeds |
 | `examples/sample-stack` comes up in CI | open | CI runs the unit tests only. A compose run in GitHub Actions is not wired |
 | Two sessions of the sample stack side by side on their own hostnames | done | `api.s003.localhost` and `api.s004.localhost` answered `GET /health` with their own session id through Traefik; `X-Frame-Options` stripped through the proxy |
-| Two sessions of the operator's project side by side, both logged in, Temporal UI per session | partial | one session: the backend answers `GET /health/ready` → 200 through Traefik (`api.s003.localhost`) with `database: ok` on the clone `spinner_s003` (`pg_stat_activity` shows 4 backend connections) and `temporal: ok` on the session's Temporal; the worker started with 49 workflows; admin and Temporal UI answer 200. Open: `web` (finding 6), `copilot` (finding 7), the second session (finding 8), login (finding 5) |
-| `spinner up` under 15 s warm | partial | 3.2 s on the sample stack. 59 s on Knit with cold images, measured once; the backend preflight and start take most of it |
+| Two sessions of the operator's project side by side, both logged in, Temporal UI per session | partial | two sessions (s005, s006 on 2026-10-27): `api`, `web`, `admin`, `temporal` answer 200 on both through Traefik; `web` compiles on the host; the login page renders; Google SSO is blocked by Cognito (finding 12); password login under test. Round 2 state for one session: the backend answers `GET /health/ready` → 200 through Traefik (`api.s003.localhost`) with `database: ok` on the clone `spinner_s003` (`pg_stat_activity` shows 4 backend connections) and `temporal: ok` on the session's Temporal; the worker started with 49 workflows; admin and Temporal UI answer 200. Open: `web` (finding 6), `copilot` (finding 7), the second session (finding 8), login (finding 5) |
+| `spinner up` under 15 s warm | partial | 3.2 s on the sample stack. Knit: 20.0 s and 25.9 s with everything warm, with `web` on the host (the backend preflight and start take most of it) |
 | `spinner close` leaves no containers, worktrees or databases behind | partial | `tools/stack-proof.sh` passes for containers, worktrees, databases and branches. Host processes: after round 2 the operator found 5 strays (the s003 worker, the s004 copilot) that the proof missed (finding 9) |
 | `pnpm -r build && pnpm -r test` green | done | 108 tests at `fc83d1c` (protocol 11, daemon 75, ui 9, cli 13) |
 
@@ -82,7 +82,13 @@ Fixtures from real PRs, scrubbed, under `packages/daemon/test/fixtures/github/`:
 | 6 | `web` (knit-insights) fails to install in the node dev image: `npm ci` hits ERESOLVE, and with the team's `npm install --legacy-peer-deps` (now `install:` in the spec) `node-sass` needs `python3` and build tools in the image | stack agent | add `python3`, `make`, `g++` to `local/knit/images/Dockerfile.node`; one `up` |
 | 7 | `copilot` on the host fails with `Cannot find module '@tiptap/extension-unique-id'`: the linked primary `node_modules` of `apps/copilot-runtime` is behind its lockfile | operator | `pnpm install` in `~/knit/knit-3.0`; then `preflight: test -d node_modules` is not enough, use `pnpm exec tsc --noEmit` or a require of the entry module |
 | 8 | The worker's health server binds a fixed port 8080 (`WORKER_HEALTH_PORT`), so a second session collides | done in the spec | `WORKER_HEALTH_PORT: "${PORT}"` on the worker |
-| 9 | Stray host processes survive `close`: uvicorn's reload child and the multiprocessing resource tracker leave the process group, and `tools/stack-proof.sh` and `down` match processes by argv, which a relative `.venv/bin/python worker.py` does not contain | stack agent | track each service by its pid file and process group (`setsid`, kill the group), and match strays by cwd (`lsof -d cwd`), not argv |
+| 9 | Stray host processes survived `close` and escaped the argv-based sweep | done in `437adf5` | process groups, pid files, strays matched by cwd |
+| 10 | `spinner new` branches from the local base branch. The operator's local `dev` in knit-insights was 482 commits behind `origin/dev`, so the worktree still imported antd, which `dev` retired in August | stack agent | `new` fetches and branches from `origin/<base>`, as the team's `wt` tool does; the operator fast-forwarded `dev` by hand for now |
+| 11 | `seed_links: [KnitUI/node_modules]` links the primary checkout's install, which belongs to the primary's branch, not the worktree's. `dev` added `fractional-indexing`; the link lacks it | stack agent | link only when the lockfile hash matches the primary's; otherwise run `install:` in the worktree |
+| 12 | Google SSO fails with `redirect_mismatch`: the app sends `window.location.origin + '/auth/sso'` and the `knitdev` Cognito app client accepts a fixed list of callback URLs, no wildcards | operator, Cognito admin | add `http://web.s001.localhost/auth/sso` to `s020` to the app client once; Spinner reserves ids in that range. Email and password sign-in works without it |
+| 13 | A full webpack build of KnitUI does not fit in the Docker VM (7.7 GB): Node OOM at the default heap, then exit 137 at 6 GB. Lazy compilation (`WEBPACK_LAZY=true`) serves modules from a random `localhost` port, unreachable through Traefik from a container | done in the spec | `web` runs on the host (`runtime: host`), with `--port $PORT` and `--client-web-socket-url auto://0.0.0.0:0/ws` |
+| 14 | The seed template was copied without migrations: the backend logs `relation "questionnaire_chat_sessions" does not exist` every minute | stack agent | `seed rebuild` applies `seed.migrate` on the template after the copy |
+| 15 | The copied `envs/.env.local` points copilot at `localhost:4100`; each session's copilot has its own host port | stack agent | a `copilot` hostname and `env_file` overrides for the two `REACT_APP_COPILOTKIT_*` keys |
 
 ### Record
 
