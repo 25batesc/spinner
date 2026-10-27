@@ -25,3 +25,4 @@ export {
 export { render_compose, compose_project, hostname, type Rendered } from "./stack/compose.js";
 export * from "./stack/runner.js";
 export { add_worktree, remove_worktree, list_worktrees } from "./git/worktree.js";
+export * from "./pipeline/index.js";

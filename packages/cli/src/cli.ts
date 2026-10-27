@@ -4,11 +4,12 @@
 // directly through the daemon's library, so no daemon needs to run for it.
 import { resolve_home } from "@spinner/daemon";
 import type { CliIo, Command } from "./commands/command.js";
+import { PIPELINE_COMMANDS } from "./commands/pipeline.js";
 import { STACK_COMMANDS } from "./commands/stack.js";
 
 export type { CliIo } from "./commands/command.js";
 
-const COMMANDS: Command[] = [...STACK_COMMANDS];
+const COMMANDS: Command[] = [...STACK_COMMANDS, ...PIPELINE_COMMANDS];
 
 export const USAGE = render_usage(COMMANDS);
 
