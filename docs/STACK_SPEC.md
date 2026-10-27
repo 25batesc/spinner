@@ -26,6 +26,7 @@ base: main                                   # the branch PRs land in
 repos:
   backend:
     path: ~/code/acme-backend
+    base: develop                            # optional: overrides the top-level base for this repo
   admin:
     path: ~/code/acme-admin
   web:
@@ -35,6 +36,9 @@ services:
   backend:
     repo: backend
     image: spinner/acme-backend-dev          # built once from repos.backend/Dockerfile.dev
+    runtime: node                            # node (default) | python; picks the dev image base and deps volume kind
+    wrapper: bin/doppler-run.sh acme         # optional: prefix for `command`, run from the worktree (secrets injection)
+    workdir: .                               # optional: directory inside the worktree where `command` runs
     command: pnpm dev                        # TODO
     port: 3000                               # the port the dev server listens on
     host: api                                # → api.<session>.localhost
@@ -84,7 +88,8 @@ services:
 
 database:
   mode: template                             # template | per-session
-  server: spinner-postgres                   # shared container, started once by spinnerd
+  server: spinner-postgres                   # shared container, started once by spinnerd; or `external`
+  # external: { host: 127.0.0.1, port: 54322, user: postgres }   # a server Spinner does not manage
   version: "16"
   template: acme_seed
   seed:
@@ -108,13 +113,13 @@ A monorepo needs one entry under `repos` and `path: .`. A single-service project
 
 ## Semantics
 
-**Repos.** Each entry becomes a git worktree per session at `worktrees/<name>` on the session branch. A repo with no commits ahead of `base` at `spinner pr` time gets no PR.
+**Repos.** Each entry becomes a git worktree per session at `worktrees/<name>` on the session branch. A repo with no commits ahead of its base at `spinner pr` time gets no PR. The base is `repos.<name>.base` when set, otherwise the top-level `base`; worktrees start from it, PRs target it, and the pipeline watches merges into it.
 
-**Services.** Each becomes a compose service in project `spinner-<id>`. If `repo` is set, the worktree is bind-mounted at `/app` and `command` runs there, so edits hot-reload. `spinner build` builds `image` from the repo's dev Dockerfile and caches it; it rebuilds when the Dockerfile or lockfile changes. `port` + `host` produce Traefik labels (`Host(\`<host>.<id>.localhost\`)`); services without `host` are internal only. `healthcheck` gates the preview panes and the `up` command's exit.
+**Services.** Each becomes a compose service in project `spinner-<id>`. If `repo` is set, the worktree is bind-mounted at `/app` and `command` runs there (in `workdir` when set), so edits hot-reload. `runtime: python` selects a Python dev image base and a `venv` dependency volume instead of a package-manager store; the lockfile hash that keys the volume comes from `uv.lock`, `poetry.lock` or `requirements*.txt`. `wrapper` is a command prefix that runs every `command` of that service, for a secrets injector such as Doppler; Spinner never reads or stores the secrets it injects. `spinner build` builds `image` from the repo's dev Dockerfile and caches it; it rebuilds when the Dockerfile or lockfile changes. `port` + `host` produce Traefik labels (`Host(\`<host>.<id>.localhost\`)`); services without `host` are internal only. `healthcheck` gates the preview panes and the `up` command's exit.
 
 **Variables available in `env`.** `${SESSION_ID}` (e.g. `s17`), `${SESSION_DB}` (`spinner_s17`), `${SESSION_BRANCH}`, `${SESSION_DIR}`, plus anything in the host environment allow-listed under a `pass_env:` key (API keys for third-party services the backend needs).
 
-**Database, `template` mode.** `spinnerd` keeps one Postgres container alive. `spinner seed rebuild` creates the template database from scratch (migrations, then fixtures or a dump) and marks it as a template. `spinner up` clones it into the session's database; `spinner db reseed <session>` drops and re-clones; `spinner close` drops it. Cloning is a file copy inside Postgres, so a few hundred MB takes a couple of seconds. The daemon prompts for a rebuild when the migration directory hash changes on `base`.
+**Database, `template` mode.** `spinnerd` keeps one Postgres container alive, or, with `server: external`, connects to a server it does not manage (for example the Postgres inside a local Supabase stack). With an external server Spinner only creates and drops databases there; `spinner doctor` checks that the server answers and refuses `up` otherwise. Services that use the server's other APIs (auth, storage) keep sharing them across sessions; only the database is per session. `spinner seed rebuild` creates the template database from scratch (migrations, then fixtures or a dump) and marks it as a template. `spinner up` clones it into the session's database; `spinner db reseed <session>` drops and re-clones; `spinner close` drops it. Cloning is a file copy inside Postgres, so a few hundred MB takes a couple of seconds. The daemon prompts for a rebuild when the migration directory hash changes on `base`.
 
 **Database, `per-session` mode.** A `postgres` service is added to the session's compose project from a prebuilt image whose data directory already contains the seed (`spinner seed rebuild` builds that image). Slower to start, fully isolated, lets a branch run a different Postgres version.
 
