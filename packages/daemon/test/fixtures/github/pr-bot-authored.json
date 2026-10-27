@@ -1,0 +1,243 @@
+{
+  "_source": "gh api graphql, 2026-10-27, scrubbed: logins, bodies, title, head ref, URLs",
+  "_shape": "open PR, bot-authored (devin-ai-integration), bot reviewed an earlier head, no threads, every check green except the approval check. Stage: verifying until the operator ticks.",
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "number": 4815,
+        "url": "https://github.com/acme/backend/pull/4815",
+        "title": "feat: example feature from a real PR, title scrubbed",
+        "isDraft": false,
+        "state": "OPEN",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "author": {
+          "login": "devin-ai-integration"
+        },
+        "baseRefName": "develop",
+        "headRefName": "feat/example-feature",
+        "headRefOid": "3f1fbd3159e6097b33e9b0c0c7d3cf2d0892d6a4",
+        "updatedAt": "2026-10-26T21:09:45Z",
+        "mergeQueueEntry": null,
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "3f1fbd3159e6097b33e9b0c0c7d3cf2d0892d6a4",
+                "statusCheckRollup": {
+                  "state": "FAILURE",
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "deploy-flyio",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750443/job/121849107518"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Devin Review Gate tests",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750466/job/121849105200"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750724/job/121849106374"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401876623/job/121849551451"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750916/job/121849106280"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750609/job/121849105057"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Sonar Quality Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750434/job/121849105345"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849105581"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "test",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750392/job/121849104274"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "deploy-copilotkit",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750443/job/121849108761"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Devin Review Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750466/job/121849107591"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "migration-info / apply-migrations",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750916/job/121849285801"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "ORM vs Migrations",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750609/job/121849280225"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Lint & Format (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849290494"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "migration-info / notify-on-failure",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750916/job/121849286405"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Build AI Test Image (build)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849290892"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Schema Drift Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750609/job/121849277937"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Build AI Test Image",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849289513"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Type Check (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849291234"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Move Snapshot (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849292362"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) — ${{ matrix.shard }}",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849292681"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "PPTX Render Backstop (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849292064"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "All Checks Passed (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40401750678/job/121849290546"
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "Independent approval",
+                        "state": "FAILURE",
+                        "targetUrl": "https://github.com/acme/backend/actions/runs/40401876623"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Supabase Preview",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://supabase.com/scrubbed"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "SonarCloud Code Analysis",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://sonarcloud.io/scrubbed"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "author": {
+                "login": "devin-ai-integration"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-26T20:57:29Z",
+              "commit": {
+                "oid": "f60061f52682cb55b9ba067a8003c3e0260e3719"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "totalCount": 0,
+          "nodes": []
+        },
+        "timelineItems": {
+          "nodes": []
+        }
+      }
+    }
+  }
+}
