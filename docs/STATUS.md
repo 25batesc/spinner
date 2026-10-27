@@ -8,20 +8,20 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-27, after session s002.
+Updated: 2026-10-27, after session s002 round 2.
 
 ## Summary
 
 | Milestone | State | Sessions | Agent cost | Wall clock | Tests |
 |---|---|---|---|---|---|
 | M0 · Bootstrap | done | s001 | $5.80 | 17 min | 37 |
-| M1 · Board + stack runner | partial | s002 | $33.43 | 75 min | 108 |
+| M1 · Board + stack runner | partial | s002 (2 rounds) | $44.66 | 105 min | 117 |
 | M2 · Agents drive PRs home | open | | | | |
 | M3 · Web UI | open | | | | |
 | M4 · Desktop | open | | | | |
 | M5 · Release | open | | | | |
 
-The repo holds 26 commits, 6 by the operator and 20 by agents. The code is 6,537 lines of TypeScript in `packages/*/src`, plus 1,831 lines of tests. `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `fc83d1c`.
+The repo holds 37 commits, 9 by the operator and 28 by agents. `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `6afc823` with 117 tests.
 
 ## What exists
 
@@ -65,9 +65,9 @@ Fixtures from real PRs, scrubbed, under `packages/daemon/test/fixtures/github/`:
 | `examples/sample-stack` comes up with `spinner new/up/down/close` | done | `07cf8c8`; `up` 3.2 s warm for a fresh session, 2.4 s after `down`; `up` twice succeeds; `close` after a failed `up` succeeds |
 | `examples/sample-stack` comes up in CI | open | CI runs the unit tests only. A compose run in GitHub Actions is not wired |
 | Two sessions of the sample stack side by side on their own hostnames | done | `api.s003.localhost` and `api.s004.localhost` answered `GET /health` with their own session id through Traefik; `X-Frame-Options` stripped through the proxy |
-| Two sessions of the operator's project side by side, both logged in, Temporal UI per session | open | see *Open findings* 1 to 3. `spinner new --project knit` creates the three worktrees with the seeded local files; `seed rebuild --copy-only` built the `knit_seed` template (83 tables); `admin.s009.localhost` and `temporal.s009.localhost` answered 200; the backend did not start |
-| `spinner up` under 15 s warm | done | 3.2 s on the sample stack. Not measured on Knit |
-| `spinner close` leaves no containers, worktrees or databases behind | done | after the run, the operator checked: `docker ps -a --filter name=spinner` empty, `git worktree list` in the three Knit repos shows only the operator's own trees, no `spinner_*` database on the Supabase Postgres, no host processes, no `feat/knit-*` branches |
+| Two sessions of the operator's project side by side, both logged in, Temporal UI per session | partial | one session: the backend answers `GET /health/ready` → 200 through Traefik (`api.s003.localhost`) with `database: ok` on the clone `spinner_s003` (`pg_stat_activity` shows 4 backend connections) and `temporal: ok` on the session's Temporal; the worker started with 49 workflows; admin and Temporal UI answer 200. Open: `web` (finding 6), `copilot` (finding 7), the second session (finding 8), login (finding 5) |
+| `spinner up` under 15 s warm | partial | 3.2 s on the sample stack. 59 s on Knit with cold images, measured once; the backend preflight and start take most of it |
+| `spinner close` leaves no containers, worktrees or databases behind | partial | `tools/stack-proof.sh` passes for containers, worktrees, databases and branches. Host processes: after round 2 the operator found 5 strays (the s003 worker, the s004 copilot) that the proof missed (finding 9) |
 | `pnpm -r build && pnpm -r test` green | done | 108 tests at `fc83d1c` (protocol 11, daemon 75, ui 9, cli 13) |
 
 ### Open findings from the Knit run
@@ -75,19 +75,23 @@ Fixtures from real PRs, scrubbed, under `packages/daemon/test/fixtures/github/`:
 | # | Finding | Owner | Next action |
 |---|---|---|---|
 | 1 | The backend cannot run in a linux/arm64 container: `mediapipe` has no aarch64 wheel. Decided: `runtime: host` (Decisions entry 4) | done | none |
-| 2 | knit-3.0 does not install from `apps/ai/uv.lock`; that file is stale. The real pins are `requirements-ci.txt` (litellm 1.103.7, sentry-sdk 2.68.1) and `make setup` / `make venv-sync`. The stack agent's `uv run --frozen` built a venv from the wrong lock. The operator's primary venv also drifts from the pins (`make venv-check` fails: litellm 1.103.2) | operator (`make venv-sync` in `apps/ai`), then stack agent | Spinner: `seed_links: [apps/ai/.venv]` reuses the primary venv, never `uv run`; a `preflight:` command per host service fails `up` fast with the import error |
-| 3 | The Doppler wrapper applies its `dev_local` values after Spinner's env, so a Doppler value wins over `DATABASE_URL` and `PORT`, and the worker fails with `socket.gaierror` on a hostname that comes from Doppler or `apps/ai/.env`, not from the spec. The spec's own `env` keys already get host-side addresses for `runtime: host` | stack agent, then operator | apply Spinner's env inside the wrapper (`wrapper -- env K=V command`) so it wins; log the first unresolvable hostname with the variable that holds it, so the operator can override it in the spec's `env` |
-| 4 | A host service inherited the caller's stdio, so `spinner up` hung until the operator killed the process by hand, twice | done in `57421b6` | a test now checks that `up` returns while a host service lives |
-| 5 | Login on two sessions at once is untested. Supabase auth is shared, so a token from one session is valid on the other | operator | test after finding 3 |
+| 2 | knit-3.0 installs from `requirements-ci.txt`, not `uv.lock`. The operator ran `make venv-sync`; `seed_links: [apps/ai/.venv]` reuses that venv; `preflight: .venv/bin/python -c "import api"` fails `up` fast on drift (`import main` loads nothing; uvicorn imports `api` in its child) | done | none |
+| 3 | Doppler's values won over Spinner's env | done in `c6b3495` | none |
+| 4 | A host service inherited the caller's stdio | done in `57421b6` | none |
+| 5 | Login on two sessions at once is untested. Auth and storage are on the team's cloud dev Supabase (Doppler `dev_local` and `apps/ai/.env` point there); only Postgres is local. The spec no longer overrides `SUPABASE_URL` (a cloud key against the local server gave `403 Invalid Compact JWS`) | operator | test after findings 6 to 8 |
+| 6 | `web` (knit-insights) fails to install in the node dev image: `npm ci` hits ERESOLVE, and with the team's `npm install --legacy-peer-deps` (now `install:` in the spec) `node-sass` needs `python3` and build tools in the image | stack agent | add `python3`, `make`, `g++` to `local/knit/images/Dockerfile.node`; one `up` |
+| 7 | `copilot` on the host fails with `Cannot find module '@tiptap/extension-unique-id'`: the linked primary `node_modules` of `apps/copilot-runtime` is behind its lockfile | operator | `pnpm install` in `~/knit/knit-3.0`; then `preflight: test -d node_modules` is not enough, use `pnpm exec tsc --noEmit` or a require of the entry module |
+| 8 | The worker's health server binds a fixed port 8080 (`WORKER_HEALTH_PORT`), so a second session collides | done in the spec | `WORKER_HEALTH_PORT: "${PORT}"` on the worker |
+| 9 | Stray host processes survive `close`: uvicorn's reload child and the multiprocessing resource tracker leave the process group, and `tools/stack-proof.sh` and `down` match processes by argv, which a relative `.venv/bin/python worker.py` does not contain | stack agent | track each service by its pid file and process group (`setsid`, kill the group), and match strays by cwd (`lsof -d cwd`), not argv |
 
 ### Record
 
-Board agent $8.83 (claude-fable-5-1, 22 min). Stack agent $24.60 (claude-fable-5-1, 75 min). Operator relays 3 (one decision, two steers). Agent-to-operator calls 2. Full mission record: [sessions/s002-MISSION.md](sessions/s002-MISSION.md).
+Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 min); operator relays 3 (one decision, two steers); agent-to-operator calls 2. Round 2: stack agent $11.23 (30 min); operator relays 4 (steers); the operator killed hung backends by hand three times (reloader parents that survive a failed startup) and found the Supabase and install facts from the logs. Full mission record: [sessions/s002-MISSION.md](sessions/s002-MISSION.md).
 
 ### Next
 
-1. Stack agent, round 2 of s002: finding 3, then the Knit `up` on one session. Exit: `api.s1.localhost/health/ready` answers 200 through Traefik with the backend on the host and `DATABASE_URL` pointing at `spinner_s1`.
-2. Operator: finding 2 in knit-3.0; the seed project UUIDs for the slim template; the live pop-out test (Plan item 9); one day of `spinner board` against real work (Plan item 9).
+1. Operator: `pnpm install` in `~/knit/knit-3.0` (finding 7); the seed project UUIDs for the slim template; the live pop-out test (Plan item 9); one day of `spinner board` against real work (Plan item 9).
+2. Stack agent, round 3 of s002: findings 6 and 9, then two Knit sessions side by side. Exit: `web.s1.localhost` and `web.s2.localhost` both serve the app, logged in, with `api` 200 on each, and `tools/stack-proof.sh` passes with host processes included.
 3. Then the soak week before M2 (ROADMAP).
 
 ## Budget
@@ -97,8 +101,9 @@ Estimates before the work were "days 1 to 3" for s001 and "weeks 2 to 3" for s00
 | Session | Agents | Agent cost | Agent wall clock | Operator relays |
 |---|---|---|---|---|
 | s001 | engine, ui | $5.80 | 17 min | 2 |
-| s002 | board, stack | $33.43 | 75 min | 3 |
-| Total | | $39.23 | 92 min | 5 |
+| s002 round 1 | board, stack | $33.43 | 75 min | 3 |
+| s002 round 2 | stack | $11.23 | 30 min | 4 |
+| Total | | $50.46 | 122 min | 9 |
 
 Space per session, measured on the sample stack: 3 containers, one database clone, one network. Not yet measured on Knit.
 
