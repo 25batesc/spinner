@@ -58,6 +58,8 @@ export interface PullRequest {
     /** Head SHA of the latest bot review, or null before the first one. */
     bot_reviewed_head: string | null;
     queue: QueueState;
+    /** Why the merge queue removed the PR, from `RemovedFromMergeQueueEvent.reason`. */
+    queue_reason?: string | null;
     /** ISO 8601 timestamp of the last activity on the PR. */
     last_activity: string;
 }
@@ -81,6 +83,9 @@ export interface Pipeline {
     verified_locally: boolean;
     /** Repo name to head SHA that the operator verified. */
     verified_heads?: Record<string, string>;
+    /** When and by whom `spinner verify` recorded the tick. Absent until the first tick. */
+    verified_at?: string;
+    verified_by?: string;
     slack_post: string | null;
     reviewer?: string | null;
 }
@@ -116,6 +121,8 @@ export interface Session {
     /** URL-safe slug; the directory is `<id>-<slug>`. */
     slug: string;
     title: string;
+    /** Project name whose `spinner.yaml` configures the stack and the pipeline tracker. */
+    project?: string;
     /** ISO 8601 date or timestamp. */
     created: string;
     stage: Stage;
