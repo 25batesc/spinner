@@ -60,9 +60,11 @@ describe("spinner show", () => {
         await run_cli(["new", "Two"], io);
         out = [];
         expect(await run_cli(["show"], io)).toBe(0);
-        expect(out).toHaveLength(2);
-        expect(out[0]).toMatch(/^s001-one\s+planned\s+none\s+write Goal/);
-        expect(out[1]).toMatch(/^s002-two\s+planned\s+/);
+        expect(out).toHaveLength(1);
+        const lines = out[0]?.split("\n") ?? [];
+        expect(lines[0]).toMatch(/^id\s+title\s+stage\s+stack\s+needs you$/);
+        expect(lines[1]).toMatch(/^s001\s+One\s+planned\s+none\s+write Goal/);
+        expect(lines[2]).toMatch(/^s002\s+Two\s+planned\s+none/);
     });
 
     it("shows one session by dir or id and fails for an unknown one", async () => {
@@ -70,7 +72,8 @@ describe("spinner show", () => {
         out = [];
         expect(await run_cli(["show", "s001-one"], io)).toBe(0);
         expect(out[0]).toContain("s001 · One");
-        expect(out[0]).toContain("stage:       planned");
+        expect(out[0]).toContain("planned · stack none");
+        expect(out[0]).toContain("needs you: write Goal");
         expect(await run_cli(["show", "s001"], io)).toBe(0);
         expect(await run_cli(["show", "nope"], io)).toBe(1);
         expect(err[0]).toMatch(/no session "nope"/);

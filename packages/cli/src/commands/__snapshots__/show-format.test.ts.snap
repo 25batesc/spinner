@@ -1,0 +1,39 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`spinner show > lists sessions as a table, the ones that need the operator first 1`] = `
+"id    title  stage    stack  needs you
+s017  b      planned  down   log in and check the report page
+s016  a      planned  up"
+`;
+
+exports[`spinner show > renders one session with muted colors on a TTY without NO_COLOR 1`] = `
+"s016 · a                                [2mplanned · stack up · feat/a from develop[22m
+[2mneeds you:[22m [33mwrite Goal and Done when in MISSION.md[39m
+
+[2mservice   where        status  url[22m
+backend   host :21600  [32mup[39m        http://api.s016.localhost
+worker    host :21601  [31mexited[39m
+admin     container    [32mhealthy[39m   http://admin.s016.localhost
+temporal  container    [33mstarting[39m  http://temporal.s016.localhost
+
+[2mdatabase:[22m  spinner_s016
+[2mworktrees:[22m backend → /home/me/.spinner/sessions/s016-a/worktrees/backend
+[2msession:[22m   /home/me/.spinner/sessions/s016-a
+[2mlogs:[22m      spinner logs s016 [<service>]"
+`;
+
+exports[`spinner show > renders one session without color 1`] = `
+"s016 · a                                planned · stack up · feat/a from develop
+needs you: write Goal and Done when in MISSION.md
+
+service   where        status  url
+backend   host :21600  up        http://api.s016.localhost
+worker    host :21601  exited
+admin     container    healthy   http://admin.s016.localhost
+temporal  container    starting  http://temporal.s016.localhost
+
+database:  spinner_s016
+worktrees: backend → /home/me/.spinner/sessions/s016-a/worktrees/backend
+session:   /home/me/.spinner/sessions/s016-a
+logs:      spinner logs s016 [<service>]"
+`;
