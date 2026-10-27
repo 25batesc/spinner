@@ -32,6 +32,9 @@ describe("tools/stack-proof.sh", () => {
         const home = join(root, "home");
         const repo = join(root, "repo");
         execFileSync("git", ["init", "--quiet", "--initial-branch", "main", repo]);
+        // CI runners have no global git identity; a commit needs one.
+        execFileSync("git", ["-C", repo, "config", "user.email", "t@example.com"]);
+        execFileSync("git", ["-C", repo, "config", "user.name", "t"]);
         execFileSync("git", ["-C", repo, "commit", "--quiet", "--allow-empty", "-m", "init"]);
         const spec_dir = join(root, "project");
         mkdirSync(spec_dir);
