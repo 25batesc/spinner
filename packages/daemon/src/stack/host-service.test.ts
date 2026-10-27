@@ -55,6 +55,11 @@ describe("host services", () => {
 
         expect(await stop_host_process(record.pid)).toBe("stopped");
         expect(process_alive(record.pid)).toBe(false);
+        // The group leader is gone; a member may still be between SIGKILL and its reaping
+        // under load, so the group's end is waited for before the second call.
+        for (let poll = 0; poll < 50 && group_alive(record.pid); poll += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
         expect(await stop_host_process(record.pid)).toBe("absent");
     });
 
