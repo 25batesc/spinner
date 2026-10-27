@@ -195,6 +195,26 @@ function variable_holding(dotenv_text: string, hostname: string): string | null 
     return null;
 }
 
+/**
+ * True when the log holds a Python traceback whose last line names an error. A dev server
+ * under `uvicorn --reload` keeps its reloader parent alive after the application failed to
+ * import, so a live pid does not mean a working service.
+ */
+export function log_shows_traceback(log_text: string): boolean {
+    const lines = log_text.split("\n").filter((line) => line.trim().length > 0);
+    let in_traceback = false;
+    for (const line of lines) {
+        if (line.startsWith("Traceback (most recent call last):")) {
+            in_traceback = true;
+            continue;
+        }
+        if (in_traceback && /^[A-Za-z_][\w.]*(Error|Exception)\b/.test(line)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export function process_alive(pid: number): boolean {
     try {
         process.kill(pid, 0);

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
     diagnose_host_exit,
     host_command_line,
+    log_shows_traceback,
     process_alive,
     run_preflight,
     start_host_service,
@@ -144,5 +145,21 @@ describe("diagnose_host_exit", () => {
     it("reports nothing unresolved for an ordinary crash", async () => {
         const diagnosis = await diagnose_host_exit("ImportError: nope\n", "");
         expect(diagnosis).toEqual({ tail: "ImportError: nope", unresolved: null, variable: null });
+    });
+});
+
+describe("log_shows_traceback", () => {
+    it("is true for a traceback that ends in an error line, false otherwise", () => {
+        const crash = [
+            "INFO starting",
+            "Traceback (most recent call last):",
+            '  File "api.py", line 83, in <module>',
+            "    from gateway import create_gateway_app",
+            "ImportError: cannot import name 'ModelNotMappedError' from 'litellm.exceptions'",
+            "INFO reloader waiting",
+        ].join("\n");
+        expect(log_shows_traceback(crash)).toBe(true);
+        expect(log_shows_traceback("INFO started\nWARNING retrying (gaierror)\n")).toBe(false);
+        expect(log_shows_traceback("Traceback (most recent call last):\n  File x\n")).toBe(false);
     });
 });

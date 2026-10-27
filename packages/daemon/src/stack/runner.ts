@@ -64,6 +64,7 @@ import {
 import {
     diagnose_host_exit,
     host_answers,
+    log_shows_traceback,
     process_alive,
     proxy_dir,
     proxy_routes_path,
@@ -84,6 +85,12 @@ const COMPOSE_FILE = join("stack", "compose.yaml");
 const ENV_FILE = join("stack", ".env");
 const PROXY_PORT_DEFAULT = 80;
 const POSTGRES_VERSION_DEFAULT = "16";
+
+/**
+ * After this many polls (15 s) a host service whose log shows a traceback and whose port does
+ * not answer counts as failed, even with a live pid (a reloader parent survives the crash).
+ */
+const HOST_TRACEBACK_GRACE_POLLS = 60;
 
 /** Bound on the wait for healthchecks: 2400 polls of 250 ms is 10 minutes, for a first install. */
 const HEALTH_POLLS_MAX = 2400;
@@ -596,7 +603,8 @@ async function describe_host_exit(
     const dotenv = join(summary.path, repo?.worktree ?? ".", service?.workdir ?? ".", ".env");
     const dotenv_text = existsSync(dotenv) ? readFileSync(dotenv, "utf8") : "";
     const diagnosis = await diagnose_host_exit(log_text, dotenv_text);
-    const lines = [`${name} exited on the host; last lines of ${process_info.log}:`];
+    const state = process_alive(process_info.pid) ? "failed to start" : "exited";
+    const lines = [`${name} ${state} on the host; last lines of ${process_info.log}:`];
     lines.push(diagnosis.tail);
     if (diagnosis.unresolved !== null) {
         const holder =
@@ -634,6 +642,13 @@ async function wait_healthy(
             const process_info = processes[entry.name];
             assert.ok(process_info !== undefined);
             if (!process_alive(process_info.pid)) {
+                throw new Error(await describe_host_exit(summary, spec, entry.name, process_info));
+            }
+            const crashed =
+                poll >= HOST_TRACEBACK_GRACE_POLLS &&
+                log_shows_traceback(readFileSync(join(summary.path, process_info.log), "utf8"));
+            if (crashed && !(await host_answers(process_info.port, entry.path))) {
+                await stop_host_process(process_info.pid);
                 throw new Error(await describe_host_exit(summary, spec, entry.name, process_info));
             }
         }
