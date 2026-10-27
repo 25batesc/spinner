@@ -111,16 +111,29 @@ async function branch_exists(repo_path: string, branch: string): Promise<boolean
 }
 
 /** The local base branch, or its remote-tracking branch when only that exists. */
+/**
+ * The session branch starts from `origin/<base>` after a fetch, because the local base
+ * branch is often behind (the operator's `dev` was 482 commits behind) and stays untouched.
+ * Without a remote, or when the fetch fails (offline), the local branch is the start point.
+ */
 async function start_point(input: WorktreeInput): Promise<string> {
+    const remote = `origin/${input.base}`;
+    const fetch_args = ["-C", input.repo_path, "fetch", "--quiet", "origin", input.base];
+    const fetched = await run("git", fetch_args, { timeout_ms: FETCH_TIMEOUT_MS });
+    if (fetched.code === 0 && (await ref_exists(input.repo_path, remote))) {
+        return remote;
+    }
     if (await branch_exists(input.repo_path, input.base)) {
         return input.base;
     }
-    const remote = `origin/${input.base}`;
     if (await ref_exists(input.repo_path, remote)) {
         return remote;
     }
     throw new Error(`base branch ${input.base} does not exist in ${input.repo_path}`);
 }
+
+/** Upper bound on one fetch of the base branch. */
+const FETCH_TIMEOUT_MS = 60_000;
 
 async function ref_exists(repo_path: string, ref: string): Promise<boolean> {
     const result = await run("git", ["-C", repo_path, "rev-parse", "--verify", "--quiet", ref]);

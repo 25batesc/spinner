@@ -79,3 +79,32 @@ describe("worktrees", () => {
         ).rejects.toThrow(/base branch missing/);
     });
 });
+
+describe("start point", () => {
+    it("branches from origin/<base> after a fetch, leaving the local base behind", async () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-wt-"));
+        const origin = await make_repo(root);
+        const clone = join(root, "clone");
+        await run_ok("git", ["clone", "--quiet", origin, clone]);
+        // The origin moves on; the clone's local `develop` stays one commit behind.
+        writeFileSync(join(origin, "new.txt"), "new\n");
+        await run_ok("git", ["-C", origin, "add", "new.txt"]);
+        await run_ok("git", ["-C", origin, "commit", "--quiet", "-m", "ahead"]);
+        const ahead = (await run_ok("git", ["-C", origin, "rev-parse", "HEAD"])).trim();
+        const local = (await run_ok("git", ["-C", clone, "rev-parse", "develop"])).trim();
+        expect(local).not.toBe(ahead);
+
+        const worktree_path = join(root, "session", "worktrees", "app");
+        await add_worktree({
+            repo_path: clone,
+            worktree_path,
+            branch: "feat/from-origin",
+            base: "develop",
+            session_dir: join(root, "session"),
+        });
+        const head = (await run_ok("git", ["-C", worktree_path, "rev-parse", "HEAD"])).trim();
+        expect(head).toBe(ahead);
+        const after = (await run_ok("git", ["-C", clone, "rev-parse", "develop"])).trim();
+        expect(after).toBe(local);
+    });
+});

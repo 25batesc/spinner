@@ -206,6 +206,17 @@ function variable_holding(dotenv_text: string, hostname: string): string | null 
     return null;
 }
 
+/** The first line of a log that names a missing Python or Node module, or null. */
+export function import_error_line(log_text: string): string | null {
+    const unescaped = log_text.replace(/\\n/g, "\n");
+    for (const line of unescaped.split("\n")) {
+        if (/ImportError|ModuleNotFoundError|Cannot find module/.test(line)) {
+            return line.trim();
+        }
+    }
+    return null;
+}
+
 /** A line that says the application gave up, from uvicorn and the like. */
 const STARTUP_FAILED = /Application startup failed/;
 

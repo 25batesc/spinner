@@ -64,6 +64,7 @@ import {
 import {
     diagnose_host_exit,
     host_answers,
+    import_error_line,
     kill_pids,
     log_shows_traceback,
     pid_file,
@@ -152,9 +153,22 @@ export async function attach_project(
             log(`  copied from the primary checkout: ${copied.join(", ")}`);
         }
         const links = repo.seed_links ?? [];
-        const linked = link_seed_dirs(repo.path, join(summary.path, worktree), links);
-        if (linked.length > 0) {
-            log(`  linked to the primary checkout: ${linked.join(", ")}`);
+        const links_done = link_seed_dirs(repo.path, join(summary.path, worktree), links);
+        if (links_done.linked.length > 0) {
+            log(`  linked to the primary checkout: ${links_done.linked.join(", ")}`);
+        }
+        for (const skipped of links_done.skipped) {
+            log(`  not linked: ${skipped.dir}; ${skipped.lockfile} differs from the primary`);
+            const install = install_command_for(spec, name, skipped.dir);
+            if (install === null) {
+                log(`    no install: command for it; install by hand in the worktree`);
+                continue;
+            }
+            log(`    running ${install} in ${skipped.cwd}`);
+            const code = await run_attached("sh", ["-c", install], skipped.cwd);
+            if (code !== 0) {
+                throw new Error(`install for ${name}/${skipped.dir} failed with exit code ${code}`);
+            }
         }
         session.repos[name] = { path: repo.path, worktree, changed: false, pr: null };
     }
@@ -193,13 +207,36 @@ function copy_seed_files(repo_path: string, worktree: string, files: string[]): 
     return copied;
 }
 
+interface SkippedLink {
+    dir: string;
+    lockfile: string;
+    /** The worktree directory the install must run in. */
+    cwd: string;
+}
+
+interface LinkOutcome {
+    linked: string[];
+    skipped: SkippedLink[];
+}
+
+/** Lockfiles that pin what a linked directory holds, next to it, in lookup order. */
+const LINK_LOCKFILES = [
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+    "requirements-ci.txt",
+    "uv.lock",
+    "requirements.txt",
+];
+
 /**
- * Symlinks heavy local directories (`.venv`) to the primary checkout's copy when the
- * worktree has nothing at that path. Returns the paths it linked. A directory the primary
- * checkout lacks is skipped.
+ * Symlinks heavy local directories (`.venv`, `node_modules`) to the primary checkout's copy
+ * when the worktree has nothing at that path and the lockfile next to the directory is the
+ * same in both; a branch that changed the lockfile gets its own install instead. A
+ * directory the primary checkout lacks is skipped.
  */
-function link_seed_dirs(repo_path: string, worktree: string, dirs: string[]): string[] {
-    const linked: string[] = [];
+export function link_seed_dirs(repo_path: string, worktree: string, dirs: string[]): LinkOutcome {
+    const outcome: LinkOutcome = { linked: [], skipped: [] };
     for (const dir of dirs) {
         assert.ok(!dir.startsWith("/") && !dir.includes(".."), `seed_links entry: ${dir}`);
         const source = join(repo_path, dir);
@@ -207,11 +244,40 @@ function link_seed_dirs(repo_path: string, worktree: string, dirs: string[]): st
         if (!existsSync(source) || existsSync(target) || lstat_exists(target)) {
             continue;
         }
+        const parent = dirname(dir);
+        const lockfile = LINK_LOCKFILES.find((name) => existsSync(join(repo_path, parent, name)));
+        const same =
+            lockfile === undefined ||
+            same_file(join(repo_path, parent, lockfile), join(worktree, parent, lockfile));
+        if (!same && lockfile !== undefined) {
+            outcome.skipped.push({ dir, lockfile, cwd: join(worktree, parent) });
+            continue;
+        }
         mkdirSync(dirname(target), { recursive: true });
         symlinkSync(source, target);
-        linked.push(dir);
+        outcome.linked.push(dir);
     }
-    return linked;
+    return outcome;
+}
+
+function same_file(a: string, b: string): boolean {
+    if (!existsSync(a) || !existsSync(b)) {
+        return false;
+    }
+    const hash = (path: string): string =>
+        createHash("sha256").update(readFileSync(path)).digest("hex");
+    return hash(a) === hash(b);
+}
+
+/** The `install:` of the service of `repo` whose workdir holds `dir`, or null. */
+function install_command_for(spec: StackSpec, repo: string, dir: string): string | null {
+    const parent = normalize(dirname(dir));
+    for (const service of Object.values(spec.services)) {
+        if (service.repo === repo && normalize(service.workdir ?? ".") === parent) {
+            return service.install ?? null;
+        }
+    }
+    return null;
 }
 
 function lstat_exists(path: string): boolean {
@@ -694,7 +760,20 @@ async function wait_healthy(
     const on_host = Object.entries(spec.services)
         .filter(([name, service]) => service.healthcheck !== undefined && name in processes)
         .map(([name, service]) => ({ name, path: health_path(service.healthcheck ?? "GET /") }));
+    const noted = new Set<string>();
     for (let poll = 0; poll < HEALTH_POLLS_MAX; poll += 1) {
+        if (poll === HOST_TRACEBACK_GRACE_POLLS) {
+            // A preflight can pass while the service itself cannot import a module (venv or
+            // node_modules drift): one note per service, with the line, healthcheck or not.
+            for (const [name, process_info] of Object.entries(processes)) {
+                const text = readFileSync(join(summary.path, process_info.log), "utf8");
+                const line = import_error_line(text);
+                if (line !== null && !noted.has(name)) {
+                    noted.add(name);
+                    log(`${name}: import error in ${process_info.log} (drift?): ${line}`);
+                }
+            }
+        }
         for (const entry of on_host) {
             const process_info = processes[entry.name];
             assert.ok(process_info !== undefined);

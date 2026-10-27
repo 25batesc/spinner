@@ -20,6 +20,7 @@ import {
     processes_with_cwd_under,
     read_pid_files,
     host_command_line,
+    import_error_line,
     log_shows_traceback,
     process_alive,
     run_preflight,
@@ -221,5 +222,19 @@ describe("log_shows_traceback", () => {
         const uvicorn = '{"message": "Application startup failed. Exiting."}';
         expect(log_shows_traceback(uvicorn)).toBe(true);
         expect(log_shows_traceback("Traceback (most recent call last):\n  File x\n")).toBe(false);
+    });
+});
+
+describe("import_error_line", () => {
+    it("finds the first missing-module line, plain or inside JSON", () => {
+        expect(import_error_line("INFO ok\nModuleNotFoundError: No module named 'x'\n")).toBe(
+            "ModuleNotFoundError: No module named 'x'",
+        );
+        const json = '{"exc_info": "Traceback\\nImportError: cannot import y\\n"}';
+        expect(import_error_line(json)).toBe("ImportError: cannot import y");
+        expect(import_error_line("Error: Cannot find module 'fractional-indexing'\n")).toContain(
+            "Cannot find module",
+        );
+        expect(import_error_line("all good\n")).toBeNull();
     });
 });
