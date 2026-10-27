@@ -90,6 +90,16 @@ export function ensure_postgres_container(version: string): Promise<boolean> {
     ]);
 }
 
+/** Removes a container, running or not. Returns false when there was none. */
+export async function remove_container(name: string): Promise<boolean> {
+    const info = await container_info(name);
+    if (info.state === "missing") {
+        return false;
+    }
+    await run_ok("docker", ["rm", "--force", name]);
+    return true;
+}
+
 export async function network_exists(network: string): Promise<boolean> {
     const result = await run("docker", ["network", "inspect", network, "--format", "{{.Name}}"]);
     return result.code === 0;

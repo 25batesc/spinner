@@ -10,7 +10,7 @@ import { stringify } from "yaml";
 import type { Session, SessionSummary, StackService, StackSpec } from "@spinner/protocol";
 import { add_worktree, remove_worktree } from "../git/worktree.js";
 import type { SpinnerHome } from "../home.js";
-import { write_session } from "../store/session-store.js";
+import { list_sessions, write_session } from "../store/session-store.js";
 import {
     compose_network,
     compose_project,
@@ -37,6 +37,7 @@ import {
     image_exists,
     network_exists,
     project_has_containers,
+    remove_container,
     remove_project_containers,
     type ComposeTarget,
 } from "./docker.js";
@@ -427,9 +428,43 @@ export async function stack_close(
     session.stage = "closed";
     write_session(summary);
     mkdirSync(home.archive, { recursive: true });
-    const archived_path = join(home.archive, summary.dir);
+    const archived_path = free_archive_path(home, summary.dir);
     renameSync(summary.path, archived_path);
     return { archived_path };
+}
+
+/** Upper bound on same-named archive entries; ids are unique, so this is a safety net. */
+const ARCHIVE_SUFFIX_MAX = 100;
+
+/** `<archive>/<dir>`, or `<dir>-2`, `<dir>-3`, ... when that name was archived before. */
+function free_archive_path(home: SpinnerHome, dir: string): string {
+    const first = join(home.archive, dir);
+    if (!existsSync(first)) {
+        return first;
+    }
+    for (let suffix = 2; suffix <= ARCHIVE_SUFFIX_MAX; suffix += 1) {
+        const candidate = `${first}-${suffix}`;
+        if (!existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    throw new Error(`more than ${ARCHIVE_SUFFIX_MAX} archived sessions named ${dir}`);
+}
+
+/**
+ * Stops and removes the shared containers, `spinner-proxy` and `spinner-postgres`, once no
+ * session stack is up. The Postgres data volume stays, so the template databases survive.
+ */
+export async function shared_down(home: SpinnerHome, log: Log): Promise<void> {
+    const up = list_sessions(home).sessions.filter((entry) => entry.session.stack.state === "up");
+    if (up.length > 0) {
+        const names = up.map((entry) => entry.dir).join(", ");
+        throw new Error(`stacks are still up: ${names}; run spinner down or close first`);
+    }
+    for (const name of [PROXY_CONTAINER, POSTGRES_CONTAINER]) {
+        const removed = await remove_container(name);
+        log(`${name}: ${removed ? "removed" : "absent"}`);
+    }
 }
 
 /** Rebuilds the template database from the spec's seed: a dump, or host commands. */
