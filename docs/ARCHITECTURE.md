@@ -70,7 +70,7 @@ GitHub does not let a PR's author approve it. Spinner therefore opens PRs as **y
 
 ```yaml
 github:
-  bot_logins: [devin-ai-integration[bot], sonarqubecloud[bot]]   # review-thread bucketing; empty = no bot stage
+  bot_logins: ["devin-ai-integration[bot]", "sonarqubecloud[bot]"]   # quoted: brackets are YAML syntax
   approval_check: "Independent Approval"   # name of the check that encodes the approval policy; unset = none
   approval_policy:
     human_author: [peer]                   # PRs Spinner opens as you
