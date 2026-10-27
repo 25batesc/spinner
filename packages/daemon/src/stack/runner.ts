@@ -363,7 +363,10 @@ async function start_host_services(
             assert.ok(service.repo !== undefined, `services.${name}: host runtime needs a repo`);
             const repo = session.repos[service.repo];
             assert.ok(repo?.worktree !== undefined, `repo ${service.repo} has no worktree`);
-            const env = substitute_env(service.env ?? {}, variables, []);
+            // `${PORT}` is the service's own port, for a second listener (a health server)
+            // that the spec wants on the same session port.
+            const own = { ...variables, PORT: String(port) };
+            const env = substitute_env(service.env ?? {}, own, []);
             const input = {
                 name,
                 service,

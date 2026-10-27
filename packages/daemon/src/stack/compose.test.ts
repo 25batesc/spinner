@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import type { StackSpec } from "@spinner/protocol";
-import { render_compose, render_dotenv, type RenderInput } from "./compose.js";
+import { render_compose, render_dotenv, substitute_env, type RenderInput } from "./compose.js";
 import { load_spec } from "./spec.js";
 
 const repo_root = resolve(import.meta.dirname, "..", "..", "..", "..");
@@ -137,6 +137,17 @@ describe("render_compose options", () => {
         );
         expect(document.services["temporal"]?.command).toMatch(/^server start-dev --ip/);
         expect(document.services["api"]?.environment["OPENAI_API_KEY"]).toBe("${OPENAI_API_KEY}");
+    });
+});
+
+describe("substitute_env", () => {
+    it("replaces known variables and leaves unknown ones for compose", () => {
+        const out = substitute_env(
+            { A: "${PORT}", B: "${SESSION_ID}-${UNKNOWN}" },
+            { SESSION_ID: "s17", PORT: "20100" },
+            [],
+        );
+        expect(out).toEqual({ A: "20100", B: "s17-${UNKNOWN}" });
     });
 });
 
