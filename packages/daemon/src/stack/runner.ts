@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { request as http_request } from "node:http";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { stringify } from "yaml";
 import type {
     DatabaseSeed,
@@ -335,7 +335,7 @@ function render_stack(summary: SessionSummary, spec: StackSpec, db: string): Ren
         if (service.deps_volume !== undefined && service.repo !== undefined) {
             const worktree = worktrees[service.repo];
             assert.ok(worktree !== undefined);
-            deps[name] = lockfile_info(service, join(worktree, service.workdir ?? "."));
+            deps[name] = lockfile_info(service, worktree, service.workdir ?? ".");
         }
     }
     const rendered = render_compose({
@@ -357,15 +357,31 @@ const LOCKFILES = {
     venv: ["uv.lock", "poetry.lock", "requirements.txt", "requirements-dev.txt"],
 } as const;
 
-function lockfile_info(service: StackService, dir: string): DepsInfo {
+/** Upper bound on directories between a workdir and the worktree root. */
+const WORKDIR_LEVELS_MAX = 16;
+
+/**
+ * Finds the lockfile in the workdir or, for a workspace package, in a directory above it
+ * up to the worktree root. The volume mounts next to the lockfile, where the installer puts
+ * the dependencies.
+ */
+function lockfile_info(service: StackService, worktree: string, workdir: string): DepsInfo {
     assert.ok(service.deps_volume !== undefined);
     const names = LOCKFILES[service.deps_volume];
-    const lockfile = names.find((name) => existsSync(join(dir, name)));
-    if (lockfile === undefined) {
-        throw new Error(`no lockfile (${names.join(", ")}) in ${dir} for deps_volume`);
+    let dir = normalize(workdir);
+    for (let level = 0; level < WORKDIR_LEVELS_MAX; level += 1) {
+        const lockfile = names.find((name) => existsSync(join(worktree, dir, name)));
+        if (lockfile !== undefined) {
+            const bytes = readFileSync(join(worktree, dir, lockfile));
+            const hash = createHash("sha256").update(bytes).digest("hex");
+            return { hash, lockfile, dir };
+        }
+        if (dir === "." || dir === "") {
+            break;
+        }
+        dir = dirname(dir);
     }
-    const hash = createHash("sha256").update(readFileSync(join(dir, lockfile))).digest("hex");
-    return { hash, lockfile };
+    throw new Error(`no lockfile (${names.join(", ")}) in ${join(worktree, workdir)} or above`);
 }
 
 /** Polls `compose ps` until every service with a healthcheck is healthy. Bounded. */

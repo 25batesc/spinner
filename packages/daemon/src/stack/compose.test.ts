@@ -28,7 +28,13 @@ function sample_input(): RenderInput {
             db: "spinner_s17",
         },
         worktrees: { app: "/home/me/.spinner/sessions/s17-try-it/worktrees/app" },
-        deps: { api: { hash: "0123456789abcdef0123456789abcdef", lockfile: "package-lock.json" } },
+        deps: {
+            api: {
+                hash: "0123456789abcdef0123456789abcdef",
+                lockfile: "package-lock.json",
+                dir: "examples/sample-stack/api",
+            },
+        },
     };
 }
 

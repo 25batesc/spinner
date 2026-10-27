@@ -10,7 +10,7 @@ services:
     command:
       - sh
       - -c
-      - if [ ! -f node_modules/.spinner-ready ]; then npm ci && touch node_modules/.spinner-ready; fi && exec node --watch server.js
+      - if [ ! -f /app/examples/sample-stack/api/node_modules/.spinner-ready ]; then (cd /app/examples/sample-stack/api && npm ci) && touch /app/examples/sample-stack/api/node_modules/.spinner-ready; fi && exec node --watch server.js
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/spinner_s17
       SESSION_ID: s17

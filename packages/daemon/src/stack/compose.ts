@@ -25,6 +25,12 @@ export interface DepsInfo {
     hash: string;
     /** File name of the lockfile, which picks the install command. */
     lockfile: string;
+    /**
+     * Directory of the lockfile relative to the worktree root, `.` at the root. In a pnpm or
+     * npm workspace that is the root even when `workdir` is a package below it, and the
+     * dependency volume mounts there.
+     */
+    dir: string;
 }
 
 export interface RenderInput {
@@ -158,7 +164,7 @@ function render_service(
     const deps = render_deps(name, service, input);
     if (deps !== null) {
         deps_volume = deps.volume;
-        mounts.push(`${deps.volume}:${posix.join(workdir, deps.dir)}`);
+        mounts.push(`${deps.volume}:${deps.mount}`);
     }
     for (const volume of service.volumes ?? []) {
         mounts.push(volume);
@@ -168,7 +174,7 @@ function render_service(
         }
     }
     if (service.command !== undefined) {
-        out["command"] = render_command(service, deps?.install ?? null);
+        out["command"] = render_command(service, deps);
     }
     if (Object.keys(env).length > 0) {
         out["environment"] = env;
@@ -246,9 +252,9 @@ function render_dotenv(env: Record<string, string>): string {
 
 interface DepsRender {
     volume: string;
-    /** Directory under the workdir that the volume covers, for example `node_modules`. */
-    dir: string;
-    /** Shell command that installs into that directory. */
+    /** Absolute container path the volume covers, for example `/app/node_modules`. */
+    mount: string;
+    /** Shell command that installs into that directory, run from the lockfile's directory. */
     install: string;
 }
 
@@ -286,10 +292,11 @@ function render_deps(name: string, service: StackService, input: RenderInput): D
     const info = input.deps[name];
     assert.ok(info !== undefined, `services.${name} has deps_volume but no lockfile hash`);
     assert.ok(/^[0-9a-f]{12,}$/.test(info.hash), `lockfile hash must be hex: ${info.hash}`);
+    const lock_dir = posix.normalize(posix.join(APP_DIR, info.dir));
     return {
         volume: `spinner-deps-${service.deps_volume}-${info.hash.slice(0, 12)}`,
-        dir: DEPS_DIR[service.deps_volume],
-        install: deps_install(service.deps_volume, info.lockfile),
+        mount: posix.join(lock_dir, DEPS_DIR[service.deps_volume]),
+        install: `cd ${lock_dir} && ${deps_install(service.deps_volume, info.lockfile)}`,
     };
 }
 
@@ -300,16 +307,15 @@ function render_deps(name: string, service: StackService, input: RenderInput): D
  * in front. A marker file in the volume says the install finished, so a volume shared by
  * many sessions installs once.
  */
-function render_command(service: StackService, install: string | null): string | string[] {
+function render_command(service: StackService, deps: DepsRender | null): string | string[] {
     assert.ok(service.command !== undefined);
     const wrapper = service.wrapper === undefined ? "" : `${wrapper_path(service.wrapper)} `;
     const command = `${wrapper}${service.command.trim()}`;
-    if (install === null || service.deps_volume === undefined) {
+    if (deps === null) {
         return command;
     }
-    const dir = DEPS_DIR[service.deps_volume];
-    const marker = `${dir}/.spinner-ready`;
-    const guard = `if [ ! -f ${marker} ]; then ${install} && touch ${marker}; fi`;
+    const marker = `${deps.mount}/.spinner-ready`;
+    const guard = `if [ ! -f ${marker} ]; then (${deps.install}) && touch ${marker}; fi`;
     return ["sh", "-c", `${guard} && exec ${command}`];
 }
 
