@@ -64,8 +64,11 @@ import {
 import {
     diagnose_host_exit,
     host_answers,
-    kill_processes_under,
+    kill_pids,
     log_shows_traceback,
+    pid_file,
+    processes_with_cwd_under,
+    read_pid_files,
     process_alive,
     proxy_dir,
     proxy_routes_path,
@@ -394,16 +397,26 @@ async function stop_host_services(
     summary: SessionSummary,
     log: Log,
 ): Promise<void> {
-    const processes = summary.session.stack.processes ?? {};
-    for (const [name, process_info] of Object.entries(processes)) {
-        const outcome = await stop_host_process(process_info.pid);
-        log(`${name} on the host (pid ${process_info.pid}): ${outcome}`);
+    // The pid files are the record; session.yaml's `processes` is the same set unless a
+    // failed `up` never wrote it. Each pid is the leader of its own process group.
+    const groups = { ...read_pid_files(summary.path) };
+    for (const [name, process_info] of Object.entries(summary.session.stack.processes ?? {})) {
+        groups[name] = process_info.pid;
     }
-    // Resource trackers and reloader children of a Python service leave the process group;
-    // their command lines name the worktree, which is under the session directory.
-    const stray = await kill_processes_under(`${summary.path}/`);
+    for (const [name, pgid] of Object.entries(groups)) {
+        const outcome = await stop_host_process(pgid);
+        log(`${name} on the host (process group ${pgid}): ${outcome}`);
+        const file = pid_file(summary.path, name);
+        if (existsSync(file)) {
+            rmSync(file);
+        }
+    }
+    // Whatever left the group (a resource tracker, a reloader child, a daemonised injector
+    // child) still runs in the worktree: match by working directory, not argv.
+    const stray = await processes_with_cwd_under(summary.path);
     if (stray.length > 0) {
-        log(`stopped ${stray.length} stray processes of the session: ${stray.join(", ")}`);
+        await kill_pids(stray);
+        log(`stopped ${stray.length} stray processes in the session: ${stray.join(", ")}`);
     }
     const routes = proxy_routes_path(home.root, summary.session.id);
     if (existsSync(routes)) {
@@ -793,8 +806,9 @@ export async function shared_down(home: SpinnerHome, log: Log): Promise<void> {
         const removed = await remove_container(name);
         log(`${name}: ${removed ? "removed" : "absent"}`);
     }
-    const stray = await kill_processes_under(`${home.sessions}/`);
-    log(`host processes under ${home.sessions}: ${stray.length === 0 ? "none" : stray.join(", ")}`);
+    const stray = await processes_with_cwd_under(home.sessions);
+    await kill_pids(stray);
+    log(`host processes in ${home.sessions}: ${stray.length === 0 ? "none" : stray.join(", ")}`);
 }
 
 export interface SeedOptions {

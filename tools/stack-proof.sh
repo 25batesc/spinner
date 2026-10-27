@@ -87,8 +87,13 @@ for project in "$@"; do
     done <<<"$facts"
 done
 
-echo "== host-service processes (commands under $home)"
-pids="$(pgrep -fl "$home/" || true)"
+echo "== host-service processes (working directory under $home, or its /private twin)"
+# Match by working directory, not argv: a service's relative command names no session path,
+# and children that left the process group still run in the worktree.
+pids="$(lsof -a -u "$(id -u)" -d cwd -Fpn 2>/dev/null | awk -v home="$home/" -v twin="/private$home/" '
+    /^p/ { pid = substr($0, 2) }
+    /^n/ { cwd = substr($0, 2) "/"; if (index(cwd, home) == 1 || index(cwd, twin) == 1) print pid, cwd }
+')"
 if [[ -n "$pids" ]]; then
     echo "$pids"
     remaining=1

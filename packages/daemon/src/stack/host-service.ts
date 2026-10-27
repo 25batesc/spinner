@@ -4,7 +4,15 @@
 // platform. The process outlives the CLI; `down` and `close` stop it by pid.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync, writeFileSync } from "node:fs";
+import {
+    closeSync,
+    existsSync,
+    mkdirSync,
+    openSync,
+    readdirSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { lookup } from "node:dns/promises";
 import { request as http_request } from "node:http";
 import { dirname, join } from "node:path";
@@ -52,6 +60,9 @@ export function start_host_service(input: HostServiceInput): HostProcess {
     // `spinner up` keeps no handle on the log and exits as soon as its work is done.
     closeSync(fd);
     assert.ok(child.pid !== undefined, `could not start ${input.name}`);
+    // `detached` made the child a session and process-group leader, so its pid is the pgid.
+    // The pid file survives a lost session.yaml and lets a later `down` find the group.
+    write_pid_file(input.session_dir, input.name, child.pid);
     return { pid: child.pid, port: input.port, log };
 }
 
@@ -237,35 +248,97 @@ export function process_alive(pid: number): boolean {
 const STOP_POLLS_MAX = 50;
 
 /** Stops a process group: SIGTERM, then SIGKILL after the bound. A dead pid is fine. */
-export async function stop_host_process(pid: number): Promise<"stopped" | "absent"> {
-    if (!process_alive(pid)) {
+export function pid_file(session_dir: string, name: string): string {
+    return join(session_dir, "stack", "pids", `${name}.pid`);
+}
+
+function write_pid_file(session_dir: string, name: string, pid: number): void {
+    const path = pid_file(session_dir, name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${pid}\n`);
+}
+
+/** The pid files of a session, by service name. */
+export function read_pid_files(session_dir: string): Record<string, number> {
+    const dir = join(session_dir, "stack", "pids");
+    const found: Record<string, number> = {};
+    if (!existsSync(dir)) {
+        return found;
+    }
+    for (const entry of readdirSync(dir)) {
+        if (!entry.endsWith(".pid")) {
+            continue;
+        }
+        const pid = Number.parseInt(readFileSync(join(dir, entry), "utf8"), 10);
+        if (Number.isInteger(pid) && pid > 1) {
+            found[entry.slice(0, -".pid".length)] = pid;
+        }
+    }
+    return found;
+}
+
+/** True while any member of the process group is alive. */
+export function group_alive(pgid: number): boolean {
+    try {
+        process.kill(-pgid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Stops a whole process group: SIGTERM to the group, a bounded wait until no member is
+ * left, then SIGKILL to the group. The group is the one the service leads (pgid = pid).
+ * Returns `absent` when nothing of it was alive.
+ */
+export async function stop_host_process(pgid: number): Promise<"stopped" | "absent"> {
+    if (!group_alive(pgid)) {
         return "absent";
     }
-    // The process was started as its own group leader (`detached`), so the negative pid
-    // reaches the wrapper and the command it exec'd into, and any children.
-    signal_group(pid, "SIGTERM");
+    signal_group(pgid, "SIGTERM");
     for (let poll = 0; poll < STOP_POLLS_MAX; poll += 1) {
-        if (!process_alive(pid)) {
+        if (!group_alive(pgid)) {
             return "stopped";
         }
         await sleep(100);
     }
-    signal_group(pid, "SIGKILL");
+    signal_group(pgid, "SIGKILL");
+    for (let poll = 0; poll < STOP_POLLS_MAX && group_alive(pgid); poll += 1) {
+        await sleep(100);
+    }
     return "stopped";
 }
 
 /**
- * Ends every process whose command line names `path`: children a service spawned outside
- * its process group (Python's multiprocessing resource trackers and spawned workers under a
- * reloader). Returns the pids it signalled. `pgrep` is bounded by the process table.
+ * Pids of this user's processes whose working directory is `path` or below it. A host
+ * service and everything it forks run in the worktree, so this finds strays that left the
+ * process group and whose argv names no session path (`.venv/bin/python worker.py`). One
+ * `lsof` call for the whole process table; the table bounds it.
  */
-export async function kill_processes_under(path: string): Promise<number[]> {
+export async function processes_with_cwd_under(path: string): Promise<number[]> {
     assert.ok(path.length > 1, "path must not be empty");
-    const result = await run("pgrep", ["-f", path]);
-    const pids = String(result.stdout)
-        .split("\n")
-        .map((line) => Number.parseInt(line, 10))
-        .filter((pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid);
+    const prefix = path.endsWith("/") ? path : `${path}/`;
+    const user = String(process.getuid?.() ?? 0);
+    const result = await run("lsof", ["-a", "-u", user, "-d", "cwd", "-Fpn"]);
+    const pids: number[] = [];
+    let current = 0;
+    for (const line of String(result.stdout).split("\n")) {
+        if (line.startsWith("p")) {
+            current = Number.parseInt(line.slice(1), 10);
+        } else if (line.startsWith("n") && current > 1 && current !== process.pid) {
+            const cwd = `${line.slice(1)}/`;
+            // macOS reports `/private/tmp` for `/tmp`; compare both spellings.
+            if (cwd.startsWith(prefix) || cwd.startsWith(`/private${prefix}`)) {
+                pids.push(current);
+            }
+        }
+    }
+    return pids;
+}
+
+/** Ends the given processes: SIGTERM, a bounded wait, then SIGKILL for the ones left. */
+export async function kill_pids(pids: number[]): Promise<void> {
     for (const pid of pids) {
         try {
             process.kill(pid, "SIGTERM");
@@ -283,7 +356,6 @@ export async function kill_processes_under(path: string): Promise<number[]> {
             // Gone already.
         }
     }
-    return pids;
 }
 
 function signal_group(pid: number, signal: NodeJS.Signals): void {

@@ -2,14 +2,23 @@
 // never held open by it: `start_host_service` returns at once with a live pid, the log file
 // receives the output, and `stop_host_process` ends it. Method: a fake service that is a
 // shell loop writing to stdout, in a temporary session directory.
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { spawn } from "node:child_process";
 import {
     diagnose_host_exit,
-    kill_processes_under,
+    group_alive,
+    kill_pids,
+    processes_with_cwd_under,
+    read_pid_files,
     host_command_line,
     log_shows_traceback,
     process_alive,
@@ -58,16 +67,38 @@ describe("host services", () => {
     });
 });
 
-describe("kill_processes_under", () => {
-    it("ends a process whose command line names the path", async () => {
-        const marker = mkdtempSync(join(tmpdir(), "spinner-stray-"));
-        const line = `sleep 600; echo ${marker}/worktrees/x`;
-        const child = spawn("sh", ["-c", line], { detached: true, stdio: "ignore" });
-        child.unref();
-        const pid = child.pid ?? 0;
-        expect(process_alive(pid)).toBe(true);
-        expect(await kill_processes_under(`${marker}/`)).toContain(pid);
-        expect(process_alive(pid)).toBe(false);
+describe("process groups and strays", () => {
+    it("stops the group of a relative, forking command and finds strays by cwd", async () => {
+        const session_dir = mkdtempSync(join(tmpdir(), "spinner-group-"));
+        const worktree = join(session_dir, "worktrees", "app");
+        mkdirSync(worktree, { recursive: true });
+        // A relative command (no session path in its argv) that forks: one child stays in
+        // the group, one escapes it with setsid, as a resource tracker does.
+        const escape = "import os; os.setsid(); os.execvp('sleep', ['sleep', '600'])";
+        const record = start_host_service({
+            name: "forky",
+            service: {
+                runtime: "host",
+                repo: "app",
+                command: `python3 -c "${escape}" & sleep 600 & wait`,
+            },
+            worktree,
+            session_dir,
+            port: 23459,
+            env: {},
+        });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(read_pid_files(session_dir)).toEqual({ forky: record.pid });
+        expect(group_alive(record.pid)).toBe(true);
+        const before = await processes_with_cwd_under(session_dir);
+        expect(before.length).toBeGreaterThanOrEqual(3);
+
+        expect(await stop_host_process(record.pid)).toBe("stopped");
+        expect(group_alive(record.pid)).toBe(false);
+        const strays = await processes_with_cwd_under(session_dir);
+        expect(strays).toHaveLength(1);
+        await kill_pids(strays);
+        expect(await processes_with_cwd_under(session_dir)).toEqual([]);
     });
 });
 
