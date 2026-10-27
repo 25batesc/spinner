@@ -29,7 +29,7 @@ export interface StackRepo {
     seed_files?: string[];
     /**
      * Local directories (`.venv`, `node_modules`) that the worktree symlinks to the primary
-     * checkout's copy instead of installing again, as the Knit team's `wt` tool does. Paths
+     * checkout's copy instead of installing again, as a team's worktree tool does. Paths
      * relative to the repo. The link is excluded from git through `info/exclude`.
      */
     seed_links?: string[];
@@ -86,8 +86,8 @@ export interface StackService {
     volumes?: string[];
     /**
      * Path prefix on this service's hostname to an outside URL, proxied by Traefik with the
-     * prefix stripped: `/upstream/goknit: https://api.goknit.us` makes
-     * `http://<host>.<id>.localhost/upstream/goknit/x` fetch `https://api.goknit.us/x` from the
+     * prefix stripped: `/upstream/legacy: https://api.acme.example` makes
+     * `http://<host>.<id>.localhost/upstream/legacy/x` fetch `https://api.acme.example/x` from the
      * page's own origin, for an API whose CORS allows only fixed origins.
      */
     upstreams?: Record<string, string>;

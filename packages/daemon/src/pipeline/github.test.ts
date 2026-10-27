@@ -2,7 +2,7 @@
 // of session.yaml the way docs/ARCHITECTURE.md describes: checks split from the approval
 // check, threads bucketed by first author, approvals on the current head, bot_reviewed_head,
 // merge-queue state. Method: load each fixture under test/fixtures/github, run the pure
-// `pr_facts_from_response` with the Knit-like configuration, assert the facts, then feed the
+// `pr_facts_from_response` with the acme configuration, assert the facts, then feed the
 // facts to `derive_stage` and assert the stage the fixture's `_shape` note claims.
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

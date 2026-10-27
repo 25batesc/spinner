@@ -17,25 +17,25 @@ describe("link_seed_dirs", () => {
         const primary = join(root, "primary");
         const worktree = join(root, "worktree");
         for (const base of [primary, worktree]) {
-            mkdirSync(join(base, "KnitUI"), { recursive: true });
-            mkdirSync(join(base, "apps", "ai"), { recursive: true });
-            writeFileSync(join(base, "apps", "ai", "requirements-ci.txt"), "litellm==1\n");
+            mkdirSync(join(base, "web"), { recursive: true });
+            mkdirSync(join(base, "apps", "api"), { recursive: true });
+            writeFileSync(join(base, "apps", "api", "requirements-ci.txt"), "litellm==1\n");
         }
-        mkdirSync(join(primary, "KnitUI", "node_modules"));
-        mkdirSync(join(primary, "apps", "ai", ".venv"));
-        writeFileSync(join(primary, "KnitUI", "package-lock.json"), '{"a":1}');
-        writeFileSync(join(worktree, "KnitUI", "package-lock.json"), '{"a":1,"b":1}');
+        mkdirSync(join(primary, "web", "node_modules"));
+        mkdirSync(join(primary, "apps", "api", ".venv"));
+        writeFileSync(join(primary, "web", "package-lock.json"), '{"a":1}');
+        writeFileSync(join(worktree, "web", "package-lock.json"), '{"a":1,"b":1}');
 
-        const outcome = link_seed_dirs(primary, worktree, ["KnitUI/node_modules", "apps/ai/.venv"]);
-        expect(outcome.linked).toEqual(["apps/ai/.venv"]);
+        const outcome = link_seed_dirs(primary, worktree, ["web/node_modules", "apps/api/.venv"]);
+        expect(outcome.linked).toEqual(["apps/api/.venv"]);
         expect(outcome.skipped).toEqual([
             {
-                dir: "KnitUI/node_modules",
+                dir: "web/node_modules",
                 lockfile: "package-lock.json",
-                cwd: join(worktree, "KnitUI"),
+                cwd: join(worktree, "web"),
             },
         ]);
-        expect(lstatSync(join(worktree, "apps", "ai", ".venv")).isSymbolicLink()).toBe(true);
+        expect(lstatSync(join(worktree, "apps", "api", ".venv")).isSymbolicLink()).toBe(true);
     });
 });
 

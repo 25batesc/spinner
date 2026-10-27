@@ -408,7 +408,7 @@ export interface HostRoute {
 export interface UpstreamRoute {
     name: string;
     host: string;
-    /** Path prefix on the hostname, for example `/upstream/goknit`. */
+    /** Path prefix on the hostname, for example `/upstream/legacy`. */
     prefix: string;
     /** The outside URL the prefix maps to. */
     url: string;

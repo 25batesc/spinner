@@ -69,16 +69,16 @@ describe("host services", () => {
             home,
             "s17",
             [{ name: "api", host: "api", port: 21700 }],
-            [{ name: "web", host: "web", prefix: "/upstream/goknit", url: "https://api.goknit.us" }],
+            [{ name: "web", host: "web", prefix: "/upstream/legacy", url: "https://api.acme.example" }],
         );
         expect(existsSync(path)).toBe(true);
         const text = readFileSync(path, "utf8");
         expect(text).toContain("Host(`api.s17.localhost`)");
         expect(text).toContain("http://host.docker.internal:21700");
-        expect(text).toContain("Host(`web.s17.localhost`) && PathPrefix(`/upstream/goknit`)");
-        expect(text).toContain("prefixes:\n          - /upstream/goknit");
+        expect(text).toContain("Host(`web.s17.localhost`) && PathPrefix(`/upstream/legacy`)");
+        expect(text).toContain("prefixes:\n          - /upstream/legacy");
         expect(text).toContain("passHostHeader: false");
-        expect(text).toContain("url: https://api.goknit.us");
+        expect(text).toContain("url: https://api.acme.example");
     });
 });
 
@@ -145,8 +145,8 @@ describe("Spinner's env inside the wrapper", () => {
 
     it("renders env after the wrapper and quotes values", () => {
         const command = { command: "python main.py" };
-        const line = host_command_line("/w/run.sh knit3 ", { A: "x y" }, 5, command);
-        expect(line).toBe("/w/run.sh knit3 env A='x y' PORT='5' sh -c 'python main.py'");
+        const line = host_command_line("/w/run.sh acme ", { A: "x y" }, 5, command);
+        expect(line).toBe("/w/run.sh acme env A='x y' PORT='5' sh -c 'python main.py'");
     });
 });
 
@@ -193,12 +193,12 @@ describe("diagnose_host_exit", () => {
     it("names the first unresolvable hostname and the dotenv variable that holds it", async () => {
         const log = [
             "connecting to postgresql://u:p@127.0.0.1:54322/spinner_s17",
-            'INFO pool host="db.internal.knit.invalid" attempt 1',
+            'INFO pool host="db.internal.acme.invalid" attempt 1',
             "socket.gaierror: [Errno 8] nodename nor servname provided, or not known",
         ].join("\n");
-        const dotenv = "AGENTS_DATABASE_URL=postgresql://u:p@db.internal.knit.invalid:5432/x\n";
+        const dotenv = "AGENTS_DATABASE_URL=postgresql://u:p@db.internal.acme.invalid:5432/x\n";
         const diagnosis = await diagnose_host_exit(log, dotenv);
-        expect(diagnosis.unresolved).toBe("db.internal.knit.invalid");
+        expect(diagnosis.unresolved).toBe("db.internal.acme.invalid");
         expect(diagnosis.variable).toBe("AGENTS_DATABASE_URL");
         expect(diagnosis.tail.split("\n")).toHaveLength(3);
     });

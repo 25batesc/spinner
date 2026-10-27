@@ -1,9 +1,9 @@
 // Goal: `spinner new` and `spinner show` behave as docs/SESSION_PROTOCOL.md says, through the
 // public `run_cli` entry. Method: run the commands against a temporary SPINNER_HOME and check
 // the exit code, the captured output and the files on disk.
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { run_cli, type CliIo } from "./cli.js";
 
@@ -87,5 +87,16 @@ describe("usage", () => {
         expect(out[0]).toContain("spinner up ");
         expect(await run_cli(["frobnicate"], io)).toBe(1);
         expect(err[0]).toMatch(/unknown command/);
+    });
+});
+
+describe("the built entry point", () => {
+    it("is executable, so a symlink into a bin directory runs it", () => {
+        const main = resolve(import.meta.dirname, "..", "dist", "main.js");
+        if (!existsSync(main)) {
+            return;
+        }
+        const mode = statSync(main).mode;
+        expect(mode & 0o111).not.toBe(0);
     });
 });

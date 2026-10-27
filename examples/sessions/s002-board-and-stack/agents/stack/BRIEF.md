@@ -56,6 +56,7 @@ Role: engineer for the stack runner, session s002 of the Spinner repo. The opera
 1. The operator's shell guard blocks some bash commands: recursive or forced `rm`, `docker compose down -v`, `supabase db reset`, and `psql` with DDL or writes. A child session cannot answer its prompt. Run those actions through your own CLI code and its tests, never by hand in bash.
 2. Test against `examples/sample-stack` first. Touch the operator's repos only through `spinner new` worktrees, never their primary checkouts.
 3. Build the sample stack's images small. The 15-second target is for warm images.
+4. Never print these files, in whole or in part: `.npmrc`, `.env`, `.env.*`, `auth.json`, and any file with `token`, `key` or `secret` in its name. Read their variable names only (`cut -d= -f1`, or a grep for `^[A-Z_]+=` with the values dropped). A value that reaches the transcript is a leaked secret, whatever the redaction pattern was meant to do.
 
 ## Host services
 1. A service with `runtime: host` runs on the host, in the worktree's `workdir`, with `wrapper` in front of `command`.
