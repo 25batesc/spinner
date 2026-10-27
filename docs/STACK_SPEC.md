@@ -119,7 +119,7 @@ A monorepo needs one entry under `repos` and `path: .`. A single-service project
 
 **Variables available in `env`.** `${SESSION_ID}` (e.g. `s17`), `${SESSION_DB}` (`spinner_s17`), `${SESSION_BRANCH}`, `${SESSION_DIR}`, plus anything in the host environment allow-listed under a `pass_env:` key (API keys for third-party services the backend needs).
 
-**Database, `template` mode.** `spinnerd` keeps one Postgres container alive, or, with `server: external`, connects to a server it does not manage (for example the Postgres inside a local Supabase stack). With an external server Spinner only creates and drops databases there; `spinner doctor` checks that the server answers and refuses `up` otherwise. Services that use the server's other APIs (auth, storage) keep sharing them across sessions; only the database is per session. `spinner seed rebuild` creates the template database from scratch (migrations, then fixtures or a dump) and marks it as a template. `spinner up` clones it into the session's database; `spinner db reseed <session>` drops and re-clones; `spinner close` drops it. Cloning is a file copy inside Postgres, so a few hundred MB takes a couple of seconds. The daemon prompts for a rebuild when the migration directory hash changes on `base`.
+**Database, `template` mode.** `spinnerd` keeps one Postgres container alive, or, with `server: external`, connects to a server it does not manage (for example the Postgres inside a local Supabase stack). With an external server Spinner only creates and drops databases there; `spinner doctor` checks that the server answers and refuses `up` otherwise. Services that use the server's other APIs (auth, storage) keep sharing them across sessions; only the database is per session. `spinner seed rebuild` creates the template database from scratch (migrations, then fixtures or a dump) and marks it as a template. `spinner up` clones it into the session's database; `spinner db reseed <session>   # planned; today: close and new` drops and re-clones; `spinner close` drops it. Cloning is a file copy inside Postgres, so a few hundred MB takes a couple of seconds. The daemon prompts for a rebuild when the migration directory hash changes on `base`.
 
 **Database, `per-session` mode.** A `postgres` service is added to the session's compose project from a prebuilt image whose data directory already contains the seed (`spinner seed rebuild` builds that image). Slower to start, fully isolated, lets a branch run a different Postgres version.
 
@@ -140,7 +140,7 @@ spinner up <session>          # clone DB, compose up -d, wait for healthchecks, 
 spinner down <session>        # compose stop (volumes kept)
 spinner logs <session> [svc]  # compose logs -f
 spinner exec <session> <svc> -- <cmd>
-spinner db reseed <session>
+spinner db reseed <session>   # planned; today: close and new
 spinner close <session>       # compose down -v, drop DB, remove worktrees
 ```
 

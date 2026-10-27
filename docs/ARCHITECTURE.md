@@ -175,7 +175,7 @@ Nothing private can reach the public repo by accident:
 - Each worktree's `.spinner` symlink is listed in that repo's `.git/info/exclude`, which is per-clone and never committed.
 - A Spinner checkout ignores `.spinner` and `local/` through `.gitignore`; `local/` is where private stack specs live.
 - `examples/sessions/` holds templates. Running one copies it out to `~/.spinner/sessions/`; transcripts never exist inside the repo.
-- `spinner doctor` refuses a `~/.spinner` that sits inside a git repository and warns if a worktree contains session files.
+- `spinner doctor` (planned for M2; today `spinner new` does the first check) refuses a `~/.spinner` that sits inside a git repository and warns if a worktree contains session files.
 
 ### Stack runner (packages/daemon/src/stack)
 
@@ -190,7 +190,7 @@ api.s17.localhost       → spinner-s17 / backend:3000
 temporal.s17.localhost  → spinner-s17 / temporal:8233
 ```
 
-This solves three things at once: port collisions vanish (only Traefik binds a host port); **cookies stop colliding** (browsers scope cookies by host, not port, so two branches on `localhost:3000` and `localhost:3001` share a cookie jar and log each other out; `admin.s17.localhost` and `admin.s18.localhost` do not); and URLs become predictable enough to put in agent briefs and PR descriptions. Traefik middleware also strips `X-Frame-Options` / `frame-ancestors` from any service we want to embed, so third-party UIs like Temporal's work in a preview pane without changes.
+This solves three things at once: port collisions vanish (only Traefik binds a host port); **cookies stop colliding** (browsers scope cookies by host, not port, so two branches on `localhost:3000` and `localhost:3001` share a cookie jar and log each other out; `admin.s17.localhost` and `admin.s18.localhost` do not; checked on 2026-10-27 with two sessions of a stack whose auth service is shared: each origin keeps its own token); and URLs become predictable enough to put in agent briefs and PR descriptions. Traefik middleware also strips `X-Frame-Options` / `frame-ancestors` from any service we want to embed, so third-party UIs like Temporal's work in a preview pane without changes.
 
 `*.localhost` resolves to loopback without configuration in Chromium and Firefox. Safari and `curl` use the system resolver, which on macOS does not resolve subdomains of `localhost`; `spinner doctor` offers to add `/etc/hosts` entries per session (or a `dnsmasq` resolver) for those.
 
