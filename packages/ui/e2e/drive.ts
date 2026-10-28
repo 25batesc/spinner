@@ -223,7 +223,10 @@ await until(
         .some((r) => r.innerText.includes("healthy"))`,
 );
 await click(".preview-pane .tab", "web");
-await new Promise((resolve) => setTimeout(resolve, 1500));
+// The proxy picks up a new route a moment after the service is healthy; reload like a user.
+await new Promise((resolve) => setTimeout(resolve, 2500));
+await click(".preview-bar button", "reload");
+await new Promise((resolve) => setTimeout(resolve, 2000));
 await until("preview frame", `document.querySelector(".preview-frame") !== null`);
 await until("job finished", `${text(".drawer")}.includes("ok")`);
 await shot("04-previews");
