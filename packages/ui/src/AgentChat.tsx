@@ -110,7 +110,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
 
     return (
         <>
-            <p className="muted">
+            <p className="muted agent-status">
                 {running ? (transcript.running ? "working" : "idle") : "not running"} · cost $
                 {transcript.cost.toFixed(4)}
             </p>

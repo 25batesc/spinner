@@ -138,16 +138,20 @@ if (flow === "real-agent") {
     if (repo !== undefined) {
         await evaluate(`(() => {
             const select = document.querySelector("select[aria-label=Repo]");
-            const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+            const proto = HTMLSelectElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
             setter.call(select, ${JSON.stringify(repo)});
             select.dispatchEvent(new Event("change", { bubbles: true }));
             return true;
         })()`);
     }
     await shot("09-add-agent");
-    await click("form[aria-label='Add agent'] button");
+    if (process.env["E2E_SKIP_ADD"] === undefined) {
+        await click("form[aria-label='Add agent'] button");
+    }
     const tabs = text(".agents-pane .tabs");
-    await until("scribe tab", `${tabs}.includes(${JSON.stringify(agent)})`);
+    await until("agent tab", `${tabs}.includes(${JSON.stringify(agent)})`);
+    await click(".agents-pane .tab", agent);
     await until(
         "prompt enabled",
         `document.querySelector("input[aria-label=Prompt]")?.disabled === false`,
@@ -156,8 +160,8 @@ if (flow === "real-agent") {
     await click(".prompt-form button[type=submit]");
     await until("answer streams", `document.querySelectorAll(".entry-assistant").length > 0`);
     await shot("10-agent-streaming");
-    const pane = text(".agents-pane");
-    await until("agent settled", `${pane}.includes("idle ·") && !${pane}.includes("working")`);
+    const pane = text(".agent-status");
+    await until("agent settled", `${pane}.includes("idle ·")`);
     await shot("11-agent-done");
     const before = await evaluate(`document.querySelector(".transcript").innerText`);
     console.log("transcript before reload:", JSON.stringify(before));
