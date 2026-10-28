@@ -60,7 +60,7 @@ export function AgentsPane({ view, busy, run, transcripts, feed, children }: Age
                             />
                         </>
                     )}
-                    {view !== undefined && <AddAgent dir={view.summary.dir} />}
+                    {view !== undefined && <AddAgent view={view} />}
                     {view !== undefined && <ServiceTable view={view} />}
                     {children}
                 </div>

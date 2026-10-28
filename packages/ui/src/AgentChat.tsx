@@ -2,8 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import type { ModelView, SessionView } from "@spinner/protocol";
 
-import { fetchModels, postAgent } from "./events-client.ts";
-import { emptyTranscript, type Entry, type Transcript } from "./transcript.ts";
+import { fetchAgentHistory, fetchModels, postAgent } from "./events-client.ts";
+import { emptyTranscript, foldEvent, type Entry, type Transcript } from "./transcript.ts";
 
 function short(value: unknown): string {
     const text = typeof value === "string" ? value : JSON.stringify(value) ?? "";
@@ -47,6 +47,28 @@ function TranscriptView({ transcript }: { transcript: Transcript }) {
     );
 }
 
+/**
+ * The agent's past turns from the daemon, loaded once per tab. Live events then add to them.
+ * An event that arrives while the request is in flight can show twice; the daemon sends turns
+ * as `message_end` records, so this is rare and only cosmetic.
+ */
+function useHistory(base: string): Transcript {
+    const [loaded, setLoaded] = useState<{ base: string; transcript: Transcript } | null>(null);
+    useEffect(() => {
+        const abort = new AbortController();
+        fetchAgentHistory(base, abort.signal).then(
+            (events) => {
+                if (events !== null) {
+                    setLoaded({ base, transcript: events.reduce(foldEvent, emptyTranscript) });
+                }
+            },
+            () => undefined,
+        );
+        return () => abort.abort();
+    }, [base]);
+    return loaded?.base === base ? loaded.transcript : emptyTranscript;
+}
+
 export interface AgentChatProps {
     view: SessionView;
     agent: string;
@@ -54,10 +76,17 @@ export interface AgentChatProps {
 }
 
 /** Transcript, cost, and the prompt, steer and abort controls for one agent. */
-export function AgentChat({ view, agent, transcript = emptyTranscript }: AgentChatProps) {
+export function AgentChat({ view, agent, transcript: live = emptyTranscript }: AgentChatProps) {
     const [text, setText] = useState("");
     const [error, setError] = useState<string | null>(null);
     const base = `/sessions/${view.summary.dir}/agents/${agent}`;
+    const history = useHistory(base);
+    const transcript: Transcript = {
+        entries: [...history.entries, ...live.entries],
+        cost: history.cost + live.cost,
+        running: live.running,
+        open: null,
+    };
     const running = view.agents_running.includes(agent);
 
     const send = (action: "prompt" | "steer" | "abort") => {
@@ -108,7 +137,10 @@ export function AgentChat({ view, agent, transcript = emptyTranscript }: AgentCh
 }
 
 /** Starts an agent from `agents/<name>/BRIEF.md`, with a model from `GET /models`. */
-export function AddAgent({ dir }: { dir: string }) {
+export function AddAgent({ view }: { view: SessionView }) {
+    const dir = view.summary.dir;
+    const repos = Object.keys(view.summary.session.repos);
+    const [repo, setRepo] = useState("");
     const [models, setModels] = useState<ModelView[]>([]);
     const [name, setName] = useState("");
     const [model, setModel] = useState("");
@@ -122,7 +154,11 @@ export function AddAgent({ dir }: { dir: string }) {
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
-        const body = model === "" ? { name } : { name, model };
+        const body = {
+            name,
+            ...(model === "" ? {} : { model }),
+            ...(repo === "" ? {} : { repo }),
+        };
         postAgent(`/sessions/${dir}/agents`, body).then(
             () => {
                 setName("");
@@ -145,6 +181,14 @@ export function AddAgent({ dir }: { dir: string }) {
                 {models.map((m) => (
                     <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
                         {m.provider}/{m.id}
+                    </option>
+                ))}
+            </select>
+            <select value={repo} onChange={(e) => setRepo(e.target.value)} aria-label="Repo">
+                <option value="">session dir</option>
+                {repos.map((key) => (
+                    <option key={key} value={key}>
+                        worktree: {key}
                     </option>
                 ))}
             </select>

@@ -1,6 +1,11 @@
 // Folds pi's `agent.event` stream into what the agent tab shows: messages, tool calls, cost.
 // It is a pure function of the events, so a reload that replays them gives the same tab.
-import type { PiAssistantMessage, PiEvent, PiMessage } from "@spinner/protocol";
+import type {
+    PiAssistantMessage,
+    PiEvent,
+    PiMessage,
+    PiToolResultMessage,
+} from "@spinner/protocol";
 
 export const ENTRIES_LIMIT = 500;
 
@@ -25,9 +30,11 @@ export interface Transcript {
     cost: number;
     /** True between `agent_start` and `agent_settled`. */
     running: boolean;
+    /** Role of the message between `message_start` and `message_end`, else null. */
+    open: "user" | "assistant" | null;
 }
 
-export const emptyTranscript: Transcript = { entries: [], cost: 0, running: false };
+export const emptyTranscript: Transcript = { entries: [], cost: 0, running: false, open: null };
 
 function textOf(content: unknown): string {
     if (typeof content === "string") {
@@ -61,28 +68,59 @@ function withLastAssistant(entries: Entry[], change: (last: AssistantEntry) => E
     return [...entries.slice(0, index), change(found), ...entries.slice(index + 1)];
 }
 
-function startMessage(entries: Entry[], message: PiMessage): Entry[] {
+function startMessage(state: Transcript, message: PiMessage): Transcript {
     if (message.role === "user") {
-        return [...entries, { kind: "user", text: textOf(message.content) }];
+        const user: Entry = { kind: "user", text: textOf(message.content) };
+        const entries = [...state.entries, user];
+        return { ...state, entries, open: "user" };
     }
     if (message.role === "assistant") {
-        return [...entries, { kind: "assistant", text: "", thinking: "", done: false }];
+        const entry: Entry = { kind: "assistant", text: "", thinking: "", done: false };
+        return { ...state, entries: [...state.entries, entry], open: "assistant" };
     }
-    return entries;
+    return state;
 }
 
+function toolEntry(id: string, name: string, args: unknown): Entry {
+    return { kind: "tool", id, name, args, state: "running" };
+}
+
+/**
+ * Handles `message_end`. A live message was opened by `message_start`. A message in the
+ * daemon's history has only `message_end`, so it is appended whole, with its tool calls.
+ */
 function endMessage(state: Transcript, message: PiMessage): Transcript {
+    const opened = state.open === message.role;
+    const closed = { ...state, open: null };
+    if (message.role === "user") {
+        const entry: Entry = { kind: "user", text: textOf(message.content) };
+        return opened ? closed : { ...closed, entries: [...state.entries, entry] };
+    }
+    if (message.role === "toolResult") {
+        const result = message as PiToolResultMessage;
+        const entries = toolEnd(state.entries, {
+            toolCallId: result.toolCallId,
+            result: textOf(result.content),
+            isError: result.isError,
+        });
+        return { ...closed, entries };
+    }
     if (message.role !== "assistant") {
-        return state;
+        return closed;
     }
     const assistant = message as PiAssistantMessage;
     const parts = assistantParts(assistant);
-    const entries = withLastAssistant(state.entries, () => ({
-        kind: "assistant",
-        ...parts,
-        done: true,
-    }));
-    return { ...state, entries, cost: state.cost + (assistant.usage?.cost?.total ?? 0) };
+    const done: Entry = { kind: "assistant", ...parts, done: true };
+    const cost = state.cost + (assistant.usage?.cost?.total ?? 0);
+    if (opened) {
+        return { ...closed, entries: withLastAssistant(state.entries, () => done), cost };
+    }
+    const tools: Entry[] = assistant.content.flatMap((part) =>
+        part.type === "toolCall"
+            ? [toolEntry(part.id, part.name, part.arguments)]
+            : [],
+    );
+    return { ...closed, entries: [...state.entries, done, ...tools], cost };
 }
 
 type Update = Extract<PiEvent, { type: "message_update" }>;
@@ -101,7 +139,10 @@ function updateMessage(entries: Entry[], event: Update): Entry[] {
     });
 }
 
-function toolEnd(entries: Entry[], event: ToolEnd): Entry[] {
+function toolEnd(
+    entries: Entry[],
+    event: Pick<ToolEnd, "toolCallId" | "result" | "isError">,
+): Entry[] {
     return entries.map((entry) =>
         entry.kind === "tool" && entry.id === event.toolCallId
             ? { ...entry, state: event.isError ? "error" : "ok", result: event.result }
@@ -119,7 +160,7 @@ export function foldEvent(state: Transcript, event: PiEvent): Transcript {
             next = { ...state, running: false };
             break;
         case "message_start":
-            next = { ...state, entries: startMessage(state.entries, event.message) };
+            next = startMessage(state, event.message);
             break;
         case "message_update":
             next = { ...state, entries: updateMessage(state.entries, event) };

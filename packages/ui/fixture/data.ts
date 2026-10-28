@@ -102,6 +102,7 @@ export function view(
         summary: { dir, path: `/home/fixture/.spinner/sessions/${dir}`, session: base },
         board,
         stack,
+        can_verify: stack.state === "up",
         agents_running: agentsRunning,
     };
 }

@@ -82,6 +82,8 @@ class FixtureDaemon {
     jobs = new Map<string, Job>();
     sockets = new Set<WebSocket>();
     counter = 0;
+    /** `message_end` events per `<dir>/<agent>`, what `GET .../events` returns. */
+    history = new Map<string, PiEvent[]>();
 
     constructor() {
         for (const item of initialSessions()) {
@@ -169,6 +171,10 @@ class FixtureDaemon {
         const name = match[2] ?? String(body["name"]);
         const emit = (event: PiEvent) => {
             const ts = new Date().toISOString();
+            if (event.type === "message_end") {
+                const key = `${dir}/${name}`;
+                this.history.set(key, [...(this.history.get(key) ?? []), event]);
+            }
             this.emit({ type: "agent.event", ts, session: dir, agent: name, event });
         };
         if (match[3] === undefined) {
@@ -185,6 +191,9 @@ class FixtureDaemon {
             const next = { ...current, summary, agents_running: [...current.agents_running, name] };
             this.update(next);
             sendJson(response, { name, pi_session_id: "pi-1" }, 201);
+        } else if (!current.agents_running.includes(name)) {
+            const process = current.summary.session.agents[name]?.process ?? "exited";
+            sendJson(response, { error: `agent ${name} is not running`, process }, 409);
         } else if (match[3] === "prompt") {
             const script = replyScript(String(body["text"]));
             script.forEach((event, index) => setTimeout(() => emit(event), index * STEP_DELAY_MS));
@@ -268,6 +277,10 @@ class FixtureDaemon {
             sendJson(response, { sessions: [...this.sessions.values()] });
         } else if (method === "GET" && dir !== undefined && this.sessions.has(dir)) {
             sendJson(response, { session: this.sessions.get(dir) });
+        } else if (method === "GET" && /\/agents\/[^/]+\/events$/.test(path)) {
+            const parts = path.split("/");
+            const events = this.history.get(`${parts[2]}/${parts[4]}`) ?? [];
+            sendJson(response, { events });
         } else if (method === "GET" && path === "/models") {
             const models = [
                 { provider: "fixture", id: "small", contextWindow: 1000, reasoning: false },

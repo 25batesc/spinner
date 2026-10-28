@@ -94,6 +94,85 @@ await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !=
 await until("daemon connected", `${text(".status")}.includes("open")`);
 await shot("01-sessions");
 
+if (flow === "previews") {
+    await click(".session", process.env["E2E_SESSION"] ?? "");
+    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
+    await click(".preview-pane .tab", "web");
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await shot("04b-web-preview");
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "history") {
+    const session = process.env["E2E_SESSION"] ?? "";
+    const listed = text(".session-list");
+    await until("session listed", `${listed}.includes(${JSON.stringify(session)})`);
+    await click(".session", session);
+    await until("history", `document.querySelectorAll(".entry-assistant").length > 0`);
+    await shot("12-after-reload");
+    const after = await evaluate(`document.querySelector(".transcript").innerText`);
+    console.log("transcript after reload:", JSON.stringify(after));
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "real-agent") {
+    // The session must exist and its `agents/scribe/BRIEF.md` must be written first.
+    const session = process.env["E2E_SESSION"] ?? "";
+    const model = process.env["E2E_MODEL"] ?? "claude-haiku-4-5";
+    const prompt = process.env["E2E_PROMPT"] ?? "Read the brief and reply with one line.";
+    await click(".session", session);
+    const agent = process.env["E2E_AGENT"] ?? "scribe";
+    await fill("input[aria-label='Agent name']", agent);
+    await evaluate(`(() => {
+        const select = document.querySelector("select[aria-label=Model]");
+        const wanted = ${JSON.stringify(model)};
+        const option = [...select.options].find((o) => o.value.includes(wanted));
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+        setter.call(select, option.value);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+    })()`);
+    const repo = process.env["E2E_REPO"];
+    if (repo !== undefined) {
+        await evaluate(`(() => {
+            const select = document.querySelector("select[aria-label=Repo]");
+            const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+            setter.call(select, ${JSON.stringify(repo)});
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+            return true;
+        })()`);
+    }
+    await shot("09-add-agent");
+    await click("form[aria-label='Add agent'] button");
+    const tabs = text(".agents-pane .tabs");
+    await until("scribe tab", `${tabs}.includes(${JSON.stringify(agent)})`);
+    await until(
+        "prompt enabled",
+        `document.querySelector("input[aria-label=Prompt]")?.disabled === false`,
+    );
+    await fill("input[aria-label=Prompt]", prompt);
+    await click(".prompt-form button[type=submit]");
+    await until("answer streams", `document.querySelectorAll(".entry-assistant").length > 0`);
+    await shot("10-agent-streaming");
+    const pane = text(".agents-pane");
+    await until("agent settled", `${pane}.includes("idle ·") && !${pane}.includes("working")`);
+    await shot("11-agent-done");
+    const before = await evaluate(`document.querySelector(".transcript").innerText`);
+    console.log("transcript before reload:", JSON.stringify(before));
+    await send("Page.reload");
+    const listed = text(".session-list");
+    await until("session listed", `${listed}.includes(${JSON.stringify(session)})`);
+    await click(".session", session);
+    await until("history", `document.querySelectorAll(".entry-assistant").length > 0`);
+    await shot("12-after-reload");
+    const after = await evaluate(`document.querySelector(".transcript").innerText`);
+    console.log("transcript after reload:", JSON.stringify(after));
+    socket.close();
+    process.exit(0);
+}
+
 if (flow === "agents") {
     await click(".session", "Refund flow");
     await until("agent tab", `document.querySelector(".agents-pane .tab") !== null`);
@@ -139,18 +218,15 @@ await until(
     `[...document.querySelectorAll(".services tbody tr")]
         .some((r) => r.innerText.includes("healthy"))`,
 );
+await click(".preview-pane .tab", "web");
+await new Promise((resolve) => setTimeout(resolve, 1500));
 await until("preview frame", `document.querySelector(".preview-frame") !== null`);
 await until("job finished", `${text(".drawer")}.includes("ok")`);
 await shot("04-previews");
 
-// The daemon refuses `verify` on a session with no PR, and the UI disables the tick then.
-const verifiable = await evaluate(`document.querySelector(".verified input")?.disabled === false`);
-if (verifiable === true) {
-    await click(".verified input");
-    await until("verified ticked", `document.querySelector(".verified input")?.checked === true`);
-} else {
-    console.log("verify tick is disabled: the session has no PR");
-}
+await until("verify enabled", `document.querySelector(".verified input")?.disabled === false`);
+await click(".verified input");
+await until("verified ticked", `document.querySelector(".verified input")?.checked === true`);
 await shot("05-verified");
 
 await click(".actions button", "close");

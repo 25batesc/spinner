@@ -3,10 +3,12 @@
 import {
     EVENT_TYPES,
     EVENTS_WS_URL,
+    type AgentEventsResponse,
     type Job,
     type JobResponse,
     type ModelsResponse,
     type ModelView,
+    type PiEvent,
     type ProjectsResponse,
     type ProjectView,
     type SessionsResponse,
@@ -105,6 +107,18 @@ export async function postAgent(path: string, body: unknown): Promise<void> {
     if (!response.ok) {
         throw new Error(`POST ${path} failed (${response.status}): ${await response.text()}`);
     }
+}
+
+/** The agent's past turns; null when the daemon has none (an agent it never hosted). */
+export async function fetchAgentHistory(
+    path: string,
+    signal: AbortSignal,
+): Promise<PiEvent[] | null> {
+    const response = await fetch(`${path}/events`, { signal });
+    if (!response.ok) {
+        return null;
+    }
+    return ((await response.json()) as AgentEventsResponse).events;
 }
 
 export interface EventsHandlers {
