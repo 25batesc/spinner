@@ -6,14 +6,22 @@ import { userInfo } from "node:os";
 import type {
     AdoptRequest,
     NewSessionRequest,
+    PrRequest,
     SessionSummary,
+    ThreadsView,
     UpRequest,
     VerifyRequest,
 } from "@spinner/protocol";
 import type { SpinnerHome } from "./home.js";
 import { adopt_prs } from "./pipeline/adopt.js";
 import type { GhRunner } from "./pipeline/github.js";
+import {
+    gh_write_runner,
+    git_runner,
+    type GithubWriter,
+} from "./pipeline/github-write.js";
 import { config_for } from "./pipeline/poller.js";
+import { open_prs, type PrOutcome } from "./pipeline/pr.js";
 import { verify_session } from "./pipeline/verify.js";
 import {
     attach_project,
@@ -28,11 +36,30 @@ import { list_projects } from "./projects.js";
 import { find_spec, load_spec } from "./stack/spec.js";
 import { create_session } from "./store/session-store.js";
 
+/**
+ * The fixer agent, as `src/agents/` (ext) exports it: `fix` renders the threads and hands
+ * them over. Absent until ext wires it; `fix` then logs that no fixer is wired.
+ */
+export interface FixerDriver {
+    start_or_steer(summary: SessionSummary, threads: ThreadsView, log: Log): Promise<void>;
+}
+
 export interface ActionContext {
     home: SpinnerHome;
     /** Directory `find_spec` searches for a `spinner.yaml` when none is named. */
     cwd: string;
+    /** Read-only `gh`; it refuses writes. */
     gh: GhRunner;
+    /** `gh` and `git` for GitHub writes, behind the allow-list. The real ones when absent. */
+    writer?: GithubWriter;
+    fixer?: FixerDriver;
+    /** Where `SLACK_USER_TOKEN` is read from. `process.env` when absent. */
+    env?: NodeJS.ProcessEnv;
+}
+
+/** The context's writer, or the real `gh` and `git`. */
+export function writer_of(ctx: ActionContext): GithubWriter {
+    return ctx.writer ?? { gh: gh_write_runner, git: git_runner };
 }
 
 /**
@@ -128,6 +155,25 @@ export async function close(
     const result = await stack_close(ctx.home, summary, log);
     log(`archived to ${result.archived_path}`);
     return result;
+}
+
+/** `spinner pr`: push every changed repo and open one PR per repo as the operator. */
+export async function pr(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: PrRequest,
+    log: Log,
+): Promise<PrOutcome[]> {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const result = await open_prs(ctx.home, summary, input, {
+        gh: ctx.gh,
+        writer: writer_of(ctx),
+        config,
+        log,
+    });
+    const needs = result.summary.session.needs_human ?? "-";
+    log(`stage: ${result.summary.session.stage}; needs_human: ${needs}`);
+    return result.outcomes;
 }
 
 export function verify(

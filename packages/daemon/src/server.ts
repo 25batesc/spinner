@@ -44,6 +44,7 @@ import { JobRunner, type JobWork } from "./jobs/jobs.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { start_poller, type Poller } from "./pipeline/poller.js";
+import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { list_projects } from "./projects.js";
 import {
     parse_add_agent,
@@ -111,6 +112,7 @@ export interface AppDeps {
     ui_dir: string | null;
     agents: AgentManager;
     models: () => Promise<ModelView[]>;
+    bus: EventBus;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -345,6 +347,7 @@ export function create_app(deps: AppDeps): Hono {
         return c.json(body);
     });
 
+    mount_pipeline_routes(app, deps); // engine: pr, fix, threads, post, approve, land, reset
     mount_ui(app, deps.ui_dir);
     return app;
 }
@@ -473,6 +476,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         ui_dir: options.ui_dir === undefined ? default_ui_dir() : options.ui_dir,
         agents,
         models: models_source(pi, home.root),
+        bus,
     });
     const server = await listen(app, host, port);
     const address = server.address();
