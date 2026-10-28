@@ -3,7 +3,9 @@
 // section "Event model". Events the walking skeleton does not emit yet still have a type so the
 // fixture server and the UI can agree on the shape before the daemon fills it in.
 
-import type { AgentProcessState, PullRequest, Session, Stage, StackStateName } from "./session.js";
+import type { PiEvent } from "./agent-event.js";
+import type { Job, SessionView } from "./api.js";
+import type { AgentProcessState, PullRequest, Stage, StackStateName } from "./session.js";
 
 /** Fields every event carries. `ts` is an ISO 8601 timestamp set by the daemon. */
 export interface EventBase {
@@ -14,12 +16,13 @@ export interface EventBase {
 
 export interface SessionCreatedEvent extends EventBase {
     type: "session.created";
-    data: Session;
+    data: SessionView;
 }
 
+/** The whole view again, on every change the daemon sees: a file write, a poll, a job step. */
 export interface SessionUpdatedEvent extends EventBase {
     type: "session.updated";
-    data: Session;
+    data: SessionView;
 }
 
 export interface SessionClosedEvent extends EventBase {
@@ -77,7 +80,7 @@ export interface AgentSpawnedEvent extends EventBase {
 export interface AgentEventEvent extends EventBase {
     type: "agent.event";
     agent: string;
-    event: unknown;
+    event: PiEvent;
 }
 
 export interface AgentSettledEvent extends EventBase {
@@ -132,7 +135,38 @@ export interface InboxMessageEvent extends EventBase {
     subject: string;
 }
 
+/**
+ * Job events carry the job's session, which is null for `adopt` until the job created it.
+ * Every other event names an existing session.
+ */
+export interface JobEventBase {
+    ts: string;
+    session: string | null;
+    job: string;
+}
+
+export interface JobStartedEvent extends JobEventBase {
+    type: "job.started";
+    data: Job;
+}
+
+/** One log line of a running job; the same line the CLI prints. */
+export interface JobLogEvent extends JobEventBase {
+    type: "job.log";
+    line: string;
+}
+
+export interface JobFinishedEvent extends JobEventBase {
+    type: "job.finished";
+    ok: boolean;
+    error?: string;
+    data: Job;
+}
+
 export type SpinnerEvent =
+    | JobStartedEvent
+    | JobLogEvent
+    | JobFinishedEvent
     | SessionCreatedEvent
     | SessionUpdatedEvent
     | SessionClosedEvent
@@ -172,4 +206,7 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "stack.log",
     "mission.changed",
     "inbox.message",
+    "job.started",
+    "job.log",
+    "job.finished",
 ];

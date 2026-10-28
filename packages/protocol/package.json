@@ -13,7 +13,9 @@
             "default": "./dist/index.js"
         },
         "./schema/session.json": "./schema/session.json",
-        "./schema/stack-spec.json": "./schema/stack-spec.json"
+        "./schema/stack-spec.json": "./schema/stack-spec.json",
+        "./schema/session-view.json": "./schema/session-view.json",
+        "./schema/job.json": "./schema/job.json"
     },
     "files": [
         "dist",

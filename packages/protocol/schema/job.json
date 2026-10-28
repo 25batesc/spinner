@@ -1,0 +1,85 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$ref": "#/definitions/Job",
+    "definitions": {
+        "Job": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique within one daemon process, for example `j-17`."
+                },
+                "action": {
+                    "$ref": "#/definitions/JobAction"
+                },
+                "session": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Session directory name. Null for `adopt` until the job created the session; the `job.finished` event then names it."
+                },
+                "state": {
+                    "$ref": "#/definitions/JobState"
+                },
+                "started": {
+                    "type": "string",
+                    "description": "ISO 8601 timestamps."
+                },
+                "finished": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "log": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "The log lines so far, bounded; the same lines the CLI prints."
+                },
+                "error": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The failure message when `state` is `failed`."
+                }
+            },
+            "required": [
+                "id",
+                "action",
+                "session",
+                "state",
+                "started",
+                "finished",
+                "log",
+                "error"
+            ],
+            "additionalProperties": false
+        },
+        "JobAction": {
+            "type": "string",
+            "enum": [
+                "new",
+                "adopt",
+                "up",
+                "down",
+                "close",
+                "verify"
+            ],
+            "description": "The actions the daemon runs as jobs."
+        },
+        "JobState": {
+            "type": "string",
+            "enum": [
+                "running",
+                "ok",
+                "failed"
+            ]
+        }
+    },
+    "$id": "https://spinner.dev/schema/job.json",
+    "title": "Spinner Job (POST actions, GET /jobs/:id)"
+}

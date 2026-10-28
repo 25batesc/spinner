@@ -100,6 +100,25 @@ describe("session.json schema", () => {
         expect(validate.errors ?? []).toEqual([]);
     });
 
+    it.each([
+        ["session-view.json", "SessionView"],
+        ["job.json", "Job"],
+    ])("schema/%s matches the %s type (run `pnpm schema` when this fails)", (file, type) => {
+        const committed = JSON.parse(
+            readFileSync(resolve(package_root, "schema", file), "utf8"),
+        ) as Record<string, unknown>;
+        const generated = createGenerator({
+            path: resolve(package_root, "src", "index.ts"),
+            tsconfig: resolve(package_root, "tsconfig.json"),
+            type,
+            additionalProperties: false,
+            skipTypeCheck: true,
+        }).createSchema(type);
+        generated.$id = committed.$id as string;
+        generated.title = committed.title as string;
+        expect(generated).toEqual(committed);
+    });
+
     it("rejects an unknown stage and a missing id", () => {
         const bad = { version: 1, slug: "x", title: "x", created: "x", stage: "flying" };
         expect(validate(bad)).toBe(false);
