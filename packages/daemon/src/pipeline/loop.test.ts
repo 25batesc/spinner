@@ -106,19 +106,23 @@ async function post(path: string, body?: unknown): Promise<Response> {
     });
 }
 
+const JOB_POLL_MS = 50;
+const JOB_POLLS_MAX = 600;
+
 async function job(path: string, body?: unknown): Promise<Job> {
     const response = await post(path, body);
     expect(response.status).toBe(202);
     const { job: started } = (await response.json()) as { job: Job };
-    for (let i = 0; i < 100; i += 1) {
+    // A reset runs git fetch, branch and worktree moves; a CI runner needs well over 3 s.
+    for (let i = 0; i < JOB_POLLS_MAX; i += 1) {
         const current = ((await (await fetch(`${base}/jobs/${started.id}`)).json()) as { job: Job })
             .job;
         if (current.state !== "running") {
             return current;
         }
-        await new Promise((r) => setTimeout(r, 30));
+        await new Promise((r) => setTimeout(r, JOB_POLL_MS));
     }
-    throw new Error(`job ${started.id} still running`);
+    throw new Error(`job ${started.id} still running after ${JOB_POLLS_MAX * JOB_POLL_MS} ms`);
 }
 
 async function get(path: string): Promise<unknown> {
