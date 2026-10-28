@@ -32,3 +32,6 @@ export * as actions from "./actions.js";
 export type { ActionContext } from "./actions.js";
 export { list_projects } from "./projects.js";
 export { build_session_view, build_stack, service_url } from "./views/session-view.js";
+export { PiRpcHarness, type AgentHandle, type AgentHarness } from "./agents/harness.js";
+export { AgentManager } from "./agents/manager.js";
+export { resolve_pi_binary, spawn_pi } from "./agents/pi-rpc.js";

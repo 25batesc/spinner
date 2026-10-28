@@ -3,14 +3,18 @@
 // appears, and serves the UI build at `/`, all without state of its own. Method: start a
 // daemon on an ephemeral port against a temporary SPINNER_HOME with the poller off, call it
 // with fetch and a ws client, and create sessions on disk the way the CLI does.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
+    AgentCommandResponse,
+    AgentResponse,
     JobResponse,
     JobsResponse,
+    ModelsResponse,
     ProjectsResponse,
     SessionResponse,
     SessionsResponse,
@@ -24,6 +28,9 @@ let home: SpinnerHome;
 let daemon: Daemon;
 let base: string;
 
+const here = dirname(fileURLToPath(import.meta.url));
+const FAKE_PI = resolve(here, "..", "test", "fixtures", "fake-pi.ts");
+
 /** No GitHub, no banners, no UI, no docker rounds: the tests exercise the routes alone. */
 function test_options(ui_dir: string | null = null): DaemonOptions {
     return {
@@ -35,10 +42,12 @@ function test_options(ui_dir: string | null = null): DaemonOptions {
         notify: async () => undefined,
         ui_dir,
         observe_interval_ms: 60_000,
+        pi: FAKE_PI,
     };
 }
 
 beforeEach(async () => {
+    chmodSync(FAKE_PI, 0o755);
     home = resolve_home({ SPINNER_HOME: mkdtempSync(join(tmpdir(), "spinner-daemon-")) });
     daemon = await start_daemon(test_options());
     base = `http://127.0.0.1:${daemon.port}`;
@@ -223,6 +232,62 @@ describe("REST", () => {
             headers: { origin: "http://localhost:5173", "access-control-request-method": "GET" },
         });
         expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    });
+});
+
+describe("agents", () => {
+    it("adds, prompts, steers, aborts and stops an agent; GET /models lists models", async () => {
+        const summary = create_session(home, { title: "Alpha" });
+        const post = (path: string, body?: unknown): Promise<Response> =>
+            fetch(`${base}${path}`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            });
+        expect((await post("/sessions/s001/agents", { name: "Bad Name" })).status).toBe(400);
+        expect((await post("/sessions/nope/agents", { name: "backend" })).status).toBe(404);
+        const no_brief = await post("/sessions/s001/agents", { name: "backend" });
+        expect(no_brief.status).toBe(409);
+        expect(await no_brief.json()).toMatchObject({ error: expect.stringMatching(/BRIEF/) });
+
+        mkdirSync(join(summary.path, "agents", "backend"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "backend", "BRIEF.md"), "# backend\n");
+        const client = await connect("http://localhost:5173");
+        const events: SpinnerEvent[] = [];
+        client.on("message", (raw) => events.push(JSON.parse(String(raw)) as SpinnerEvent));
+        const added = await post("/sessions/s001/agents", { name: "backend" });
+        expect(added.status).toBe(201);
+        expect((await added.json()) as AgentResponse).toEqual({
+            name: "backend",
+            pi_session_id: "backend",
+        });
+        const view = (await (await fetch(`${base}/sessions/s001-alpha`)).json()) as SessionResponse;
+        expect(view.session.agents_running).toEqual(["backend"]);
+
+        const prompted = await post("/sessions/s001-alpha/agents/backend/prompt", { text: "hi" });
+        expect(prompted.status).toBe(200);
+        expect((await prompted.json()) as AgentCommandResponse).toEqual({
+            ok: true,
+            disposition: "started",
+        });
+        await until(() => events.some((event) => event.type === "agent.settled"));
+        expect(events.some((event) => event.type === "agent.event")).toBe(true);
+        expect((await post("/sessions/s001-alpha/agents/backend/steer", {})).status).toBe(400);
+        const steered = await post("/sessions/s001-alpha/agents/backend/steer", { text: "go" });
+        expect((await steered.json()) as AgentCommandResponse).toEqual({
+            ok: true,
+            disposition: "queued",
+        });
+        expect((await post("/sessions/s001-alpha/agents/backend/abort")).status).toBe(200);
+        expect((await post("/sessions/s001-alpha/agents/nobody/abort")).status).toBe(404);
+        expect((await post("/sessions/s001-alpha/agents/backend/stop")).status).toBe(200);
+        await until(() => events.some((event) => event.type === "agent.exited"));
+        const gone = await post("/sessions/s001-alpha/agents/backend/prompt", { text: "x" });
+        expect(gone.status).toBe(404);
+
+        const models = (await (await fetch(`${base}/models`)).json()) as ModelsResponse;
+        expect(models.models.map((model) => model.id)).toEqual(["claude-x", "gpt-y"]);
+        client.close();
     });
 });
 

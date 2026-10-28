@@ -14,11 +14,15 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
+    AgentCommandResponse,
+    AgentResponse,
     ErrorResponse,
     HealthResponse,
     JobAction,
     JobResponse,
     JobsResponse,
+    ModelsResponse,
+    ModelView,
     ProjectsResponse,
     SessionResponse,
     SessionsResponse,
@@ -27,6 +31,10 @@ import type {
 import { DAEMON_HOST, DAEMON_PORT, EVENTS_PATH } from "@spinner/protocol";
 import * as actions from "./actions.js";
 import type { ActionContext } from "./actions.js";
+import { PiRpcHarness, type AgentHandle } from "./agents/harness.js";
+import { AgentManager } from "./agents/manager.js";
+import { models_source } from "./agents/models.js";
+import { resolve_pi_binary } from "./agents/pi-rpc.js";
 import { EventBus } from "./event-bus.js";
 import type { SpinnerHome } from "./home.js";
 import { JobRunner, type JobWork } from "./jobs/jobs.js";
@@ -34,7 +42,14 @@ import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { start_poller, type Poller } from "./pipeline/poller.js";
 import { list_projects } from "./projects.js";
-import { parse_adopt, parse_new_session, parse_up, parse_verify } from "./requests.js";
+import {
+    parse_add_agent,
+    parse_adopt,
+    parse_agent_message,
+    parse_new_session,
+    parse_up,
+    parse_verify,
+} from "./requests.js";
 import { find_session, list_sessions, read_session } from "./store/session-store.js";
 import {
     build_session_view,
@@ -65,6 +80,8 @@ export interface DaemonOptions {
     /** The built UI. Null means none; `GET /` then says how to build it. */
     ui_dir?: string | null;
     observe_interval_ms?: number;
+    /** The pi executable; `SPINNER_PI` or `pi` on PATH when absent. Tests pass a fake. */
+    pi?: string;
 }
 
 export interface Daemon {
@@ -73,6 +90,7 @@ export interface Daemon {
     home: SpinnerHome;
     bus: EventBus;
     jobs: JobRunner;
+    agents: AgentManager;
     watcher: SessionWatcher;
     close(): Promise<void>;
 }
@@ -88,6 +106,8 @@ export interface AppDeps {
     /** Called after a job on `dir` finished, so the view carries fresh stack facts. */
     refresh: (dir: string) => Promise<void>;
     ui_dir: string | null;
+    agents: AgentManager;
+    models: () => Promise<ModelView[]>;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -214,6 +234,74 @@ export function create_app(deps: AppDeps): Hono {
         });
     });
 
+    app.post("/sessions/:dir/agents", async (c) => {
+        const request = parse_add_agent(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        try {
+            const handle = await deps.agents.add(summary, request);
+            const body: AgentResponse = { name: request.name, pi_session_id: handle.pi_session_id };
+            return c.json(body, 201);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 409);
+        }
+    });
+
+    for (const command of ["prompt", "steer"] as const) {
+        app.post(`/sessions/:dir/agents/:name/${command}`, async (c) => {
+            const request = parse_agent_message(await json_body(c));
+            if (typeof request === "string") {
+                return c.json(error_body(request), 400);
+            }
+            const handle = running_agent(deps, c.req.param("dir"), c.req.param("name"));
+            if (handle === null) {
+                return c.json(error_body(`agent ${c.req.param("name")} is not running`), 404);
+            }
+            try {
+                const disposition = await handle[command](request.text);
+                const body: AgentCommandResponse = { ok: true, disposition };
+                return c.json(body);
+            } catch (error) {
+                return c.json(error_body(describe_error(error)), 500);
+            }
+        });
+    }
+
+    app.post("/sessions/:dir/agents/:name/abort", async (c) => {
+        const handle = running_agent(deps, c.req.param("dir"), c.req.param("name"));
+        if (handle === null) {
+            return c.json(error_body(`agent ${c.req.param("name")} is not running`), 404);
+        }
+        await handle.abort();
+        const body: AgentCommandResponse = { ok: true };
+        return c.json(body);
+    });
+
+    app.post("/sessions/:dir/agents/:name/stop", async (c) => {
+        try {
+            const summary = find_session(deps.home, c.req.param("dir"));
+            await deps.agents.stop(summary?.dir ?? c.req.param("dir"), c.req.param("name"));
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 404);
+        }
+        const body: AgentCommandResponse = { ok: true };
+        return c.json(body);
+    });
+
+    app.get("/models", async (c) => {
+        try {
+            const body: ModelsResponse = { models: await deps.models() };
+            return c.json(body);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 503);
+        }
+    });
+
     app.get("/jobs", (c) => {
         const body: JobsResponse = { jobs: deps.jobs.recent() };
         return c.json(body);
@@ -230,6 +318,15 @@ export function create_app(deps: AppDeps): Hono {
 
     mount_ui(app, deps.ui_dir);
     return app;
+}
+
+/** The agent of `:dir/:name`; `:dir` is a directory name or a session id. */
+function running_agent(deps: AppDeps, dir: string, name: string): AgentHandle | null {
+    const summary = find_session(deps.home, dir);
+    if (summary === null) {
+        return null;
+    }
+    return deps.agents.get(summary.dir, name);
 }
 
 /** Starts the job and answers 202, or 409 when the session is busy. */
@@ -296,12 +393,19 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const jobs = new JobRunner(bus);
     const ctx: ActionContext = { home, cwd, gh: options.gh ?? gh_runner };
 
+    const pi = (): string => options.pi ?? resolve_pi_binary();
+    const harness = new PiRpcHarness({
+        pi,
+        on_stderr: (agent, line) => log(`pi ${agent}: ${line}`),
+    });
+    const agents = new AgentManager(home, harness, bus, { log });
+
     let observer: StackObserver | null = null;
     const view_ctx: ViewContext = {
         home,
         cwd,
         observation: (dir) => observer?.get(dir) ?? null,
-        agents_running: () => [],
+        agents_running: (dir) => agents.running(dir),
         now: () => new Date(),
         log,
     };
@@ -338,6 +442,8 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         view,
         refresh,
         ui_dir: options.ui_dir === undefined ? default_ui_dir() : options.ui_dir,
+        agents,
+        models: models_source(pi, home.root),
     });
     const server = await listen(app, host, port);
     const address = server.address();
@@ -355,8 +461,10 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         home,
         bus,
         jobs,
+        agents,
         watcher,
         close: async () => {
+            await agents.stop_all();
             poller?.stop();
             observer?.stop();
             await watcher.close();
