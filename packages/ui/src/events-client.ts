@@ -3,7 +3,10 @@
 import {
     EVENT_TYPES,
     EVENTS_WS_URL,
-    type NewSessionRequest,
+    type Job,
+    type JobResponse,
+    type ProjectsResponse,
+    type ProjectView,
     type SessionsResponse,
     type SpinnerEvent,
     type SpinnerEventType,
@@ -15,7 +18,8 @@ export const RECONNECT_DELAY_MS_MAX = 8000;
 const KNOWN_TYPES: ReadonlySet<string> = new Set<SpinnerEventType>(EVENT_TYPES);
 
 /**
- * Checks the envelope only (`type`, `ts`, `session`). The daemon owns the per-type fields, so
+ * Checks the envelope only (`type`, `ts`, `session`; `session` is null for some job events).
+ * The daemon owns the per-type fields, so
  * the UI trusts them; a stricter check here would fork the protocol.
  */
 function hasEnvelope(value: unknown): value is SpinnerEvent {
@@ -27,7 +31,7 @@ function hasEnvelope(value: unknown): value is SpinnerEvent {
         typeof type === "string" &&
         KNOWN_TYPES.has(type) &&
         typeof ts === "string" &&
-        typeof session === "string"
+        (typeof session === "string" || (session === null && type.startsWith("job.")))
     );
 }
 
@@ -48,20 +52,37 @@ export async function fetchSessions(signal: AbortSignal): Promise<SessionsRespon
     return (await response.json()) as SessionsResponse;
 }
 
+export async function fetchJobs(signal: AbortSignal): Promise<Job[]> {
+    const response = await fetch("/jobs", { signal });
+    if (!response.ok) {
+        throw new Error(`GET /jobs failed with status ${response.status}`);
+    }
+    return ((await response.json()) as { jobs: Job[] }).jobs;
+}
+
+export async function fetchProjects(signal: AbortSignal): Promise<ProjectView[]> {
+    const response = await fetch("/projects", { signal });
+    if (!response.ok) {
+        throw new Error(`GET /projects failed with status ${response.status}`);
+    }
+    return ((await response.json()) as ProjectsResponse).projects;
+}
+
 /**
- * Asks the daemon to create a session. The UI does not add the session itself: it appears when
- * the daemon sends `session.created`, so the screen cannot show a session that does not exist.
+ * Runs an action: POSTs the route and returns the job the daemon accepted. The UI never changes
+ * a session itself; the change arrives as `session.updated` and `job.*` events.
  */
-export async function createSession(title: string): Promise<void> {
-    const body: NewSessionRequest = { title };
-    const response = await fetch("/sessions", {
+export async function postAction(path: string, body?: unknown): Promise<Job> {
+    const response = await fetch(path, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(body ?? {}),
     });
-    if (!response.ok) {
-        throw new Error(`POST /sessions failed with status ${response.status}`);
+    if (response.status !== 202) {
+        const text = await response.text();
+        throw new Error(`POST ${path} failed (${response.status}): ${text}`);
     }
+    return ((await response.json()) as JobResponse).job;
 }
 
 export interface EventsHandlers {

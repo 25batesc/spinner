@@ -9,6 +9,8 @@ export default defineConfig({
     plugins: [react()],
     server: {
         port: 5173,
-        proxy: { "/sessions": DAEMON_URL, "/health": DAEMON_URL },
+        proxy: Object.fromEntries(
+            ["/sessions", "/projects", "/jobs", "/health"].map((path) => [path, DAEMON_URL]),
+        ),
     },
 });

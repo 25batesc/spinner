@@ -1,10 +1,31 @@
 // Canned data for the fixture server. It uses the real protocol types, so a change to
 // `@spinner/protocol` that breaks the fixture also breaks `pnpm --filter ui typecheck`.
-import type { Session, SessionSummary, SpinnerEvent } from "@spinner/protocol";
+import type {
+    BoardView,
+    PrFacts,
+    ProjectView,
+    ServiceStatus,
+    ServiceView,
+    Session,
+    SessionView,
+    StackView,
+} from "@spinner/protocol";
 
 export const FIXTURE_PORT = 7777;
 
-function session(partial: Partial<Session> & Pick<Session, "id" | "slug" | "title">): Session {
+export const PROJECTS: ProjectView[] = [
+    {
+        name: "sample-stack",
+        path: "/home/fixture/spinner/examples/sample-stack/spinner.yaml",
+        source: "examples",
+        repos: ["web", "api"],
+        services: ["web", "api", "db"],
+    },
+];
+
+export function session(
+    partial: Partial<Session> & Pick<Session, "id" | "slug" | "title">,
+): Session {
     return {
         version: 1,
         created: "2026-10-26T17:15:00Z",
@@ -15,78 +36,98 @@ function session(partial: Partial<Session> & Pick<Session, "id" | "slug" | "titl
         repos: {},
         stack: { state: "none" },
         agents: {},
+        pipeline: { verified_locally: false, slack_post: null },
         ...partial,
     };
 }
 
-export const SESSIONS: SessionSummary[] = [
-    {
-        dir: "s17-refund-flow",
-        path: "/home/fixture/.spinner/sessions/s17-refund-flow",
-        session: session({
-            id: "s17",
-            slug: "refund-flow",
-            title: "Refund flow",
-            stage: "peer-review",
-            needs_human: "Approve the refund copy in PR #412",
-            stack: {
-                state: "up",
-                project: "spinner-s17",
-                hosts: {
-                    admin: `admin.s17.localhost:${FIXTURE_PORT}`,
-                    api: `api.s17.localhost:${FIXTURE_PORT}`,
-                },
-            },
-            agents: {
-                backend: { harness: "pi", model: "anthropic/claude-fable-5-1", process: "running" },
-                frontend: { harness: "pi", model: "anthropic/claude-sonnet-5-5", process: "idle" },
-            },
-        }),
-    },
-    {
-        dir: "s001-bootstrap",
-        path: "/home/fixture/.spinner/sessions/s001-bootstrap",
-        session: session({
-            id: "s001",
-            slug: "bootstrap",
-            title: "Bootstrap: Spinner builds Spinner",
-            agents: {
-                engine: { harness: "pi", model: "anthropic/claude-fable-5-1", process: "running" },
-                ui: { harness: "pi", model: "anthropic/claude-sonnet-5-5", process: "running" },
-            },
-        }),
-    },
-];
+export function pr(number: number, repo: string, partial: Partial<PrFacts> = {}): PrFacts {
+    return {
+        repo,
+        number,
+        url: `https://github.com/example/${repo}/pull/${number}`,
+        author: "operator",
+        state: "open",
+        head: "a1b2c3d",
+        checks: "green",
+        approval_check: "pending",
+        approvals: { required: ["peer"], peer: [], owner: false },
+        threads: { bots_open: 0, humans_open: 2, resolved: 1 },
+        review: "none",
+        bot_reviewed_head: null,
+        queue: "none",
+        last_activity: "2026-10-26T17:40:00Z",
+        ...partial,
+    };
+}
 
-/** The events replayed on each connection, in order. Timestamps are set when it is built. */
-export function buildScript(now: Date = new Date()): SpinnerEvent[] {
-    const ts = now.toISOString();
-    const created = session({
-        id: "s18",
-        slug: "csv-export",
-        title: "CSV export",
-        stage: "planned",
+export function serviceViews(id: string, status: ServiceStatus): ServiceView[] {
+    const url = (host: string) => `http://${host}.${id}.localhost:${FIXTURE_PORT}`;
+    return [
+        { name: "web", where: "host", status, host: `web.${id}.localhost`, url: url("web"),
+          process: null },
+        { name: "api", where: "container", status, host: `api.${id}.localhost`, url: url("api"),
+          process: null },
+        { name: "db", where: "container", status, host: null, url: null, process: null },
+    ];
+}
+
+const STACK_STATUS = { up: "healthy", starting: "starting", down: "stopped" } as const;
+
+export function stackView(id: string, state: "none" | keyof typeof STACK_STATUS): StackView {
+    if (state === "none") {
+        return { state, project: null, database: null, services: [], observed: null };
+    }
+    return {
+        state,
+        project: `spinner-${id}`,
+        database: `spinner_${id}`,
+        services: serviceViews(id, STACK_STATUS[state]),
+        observed: new Date().toISOString(),
+    };
+}
+
+export function view(
+    dir: string,
+    base: Session,
+    stack: StackView,
+    prs: PrFacts[] = [],
+    agentsRunning: string[] = [],
+): SessionView {
+    const board: BoardView | null =
+        prs.length === 0
+            ? null
+            : { stage: base.stage, needs_human: base.needs_human, stale: false, prs };
+    return {
+        summary: { dir, path: `/home/fixture/.spinner/sessions/${dir}`, session: base },
+        board,
+        stack,
+        agents_running: agentsRunning,
+    };
+}
+
+export function initialSessions(): SessionView[] {
+    const refund = session({
+        id: "s17",
+        slug: "refund-flow",
+        title: "Refund flow",
+        stage: "peer-review",
+        needs_human: "Approve the refund copy in PR #412",
+        agents: {
+            backend: { harness: "pi", model: "anthropic/claude-fable-5-1", process: "running" },
+            frontend: { harness: "pi", model: "anthropic/claude-sonnet-5-5", process: "idle" },
+        },
+    });
+    const boot = session({
+        id: "s001",
+        slug: "bootstrap",
+        title: "Bootstrap: Spinner builds Spinner",
+        created: "2026-10-27T09:00:00Z",
     });
     return [
-        { type: "session.created", ts, session: "s18-csv-export", data: created },
-        { type: "agent.spawned", ts, session: "s18-csv-export", agent: "backend", pid: 4242 },
-        {
-            type: "agent.event",
-            ts,
-            session: "s17-refund-flow",
-            agent: "backend",
-            event: { type: "message_update", text: "Reading the refund service." },
-        },
-        {
-            type: "pipeline.transition",
-            ts,
-            session: "s17-refund-flow",
-            from: "peer-review",
-            to: "addressing",
-            why: "A human left 2 threads",
-        },
-        { type: "stack.state", ts, session: "s17-refund-flow", state: "up", services: {} },
-        { type: "agent.settled", ts, session: "s17-refund-flow", agent: "backend" },
-        { type: "session.closed", ts, session: "s18-csv-export" },
+        view("s001-bootstrap", boot, stackView("s001", "none")),
+        view("s17-refund-flow", refund, stackView("s17", "up"), [pr(412, "web"), pr(87, "api")], [
+            "backend",
+        ]),
     ];
 }

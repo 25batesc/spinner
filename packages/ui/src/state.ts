@@ -1,12 +1,15 @@
 // The UI's whole model. It is a pure function of the daemon's snapshot and event stream:
-// nothing here is invented by the UI. View choices (which tab is selected, pane widths) live
-// in components, not in this state, because the daemon never sends them.
-import type { AgentSpec, Session, SessionSummary, SpinnerEvent } from "@spinner/protocol";
+// nothing here is invented by the UI. View choices (which session, tab or job is selected, pane
+// widths) live in components, not in this state, because the daemon never sends them.
+// A session changes only through `session.created` and `session.updated`, which carry the whole
+// `SessionView`; partial events such as `stack.state` show up in the feed but do not edit it.
+import type { Job, SessionView, SpinnerEvent } from "@spinner/protocol";
 
 import { describeEvent } from "./describe.ts";
 
 export const FEED_LIMIT = 100;
 export const TRANSCRIPT_LIMIT = 200;
+export const JOB_LOG_LIMIT = 500;
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
@@ -17,7 +20,9 @@ export interface FeedLine {
 }
 
 export interface UiState {
-    sessions: Record<string, Session>;
+    sessions: Record<string, SessionView>;
+    /** Jobs by id, from `job.*` events and the jobs snapshot. */
+    jobs: Record<string, Job>;
     feed: FeedLine[];
     /** Raw pi events per `<session dir>/<agent>`, newest last. */
     transcripts: Record<string, unknown[]>;
@@ -25,12 +30,14 @@ export interface UiState {
 }
 
 export type Action =
-    | { kind: "snapshot"; sessions: SessionSummary[] }
+    | { kind: "snapshot"; sessions: SessionView[] }
+    | { kind: "jobs"; jobs: Job[] }
     | { kind: "event"; event: SpinnerEvent }
     | { kind: "connection"; status: ConnectionStatus };
 
 export const initialState: UiState = {
     sessions: {},
+    jobs: {},
     feed: [],
     transcripts: {},
     connection: "connecting",
@@ -44,59 +51,41 @@ function keepLast<T>(items: T[], limit: number): T[] {
     return items.length > limit ? items.slice(items.length - limit) : items;
 }
 
-function patchAgent(
-    state: UiState,
-    dir: string,
-    agent: string,
-    patch: Partial<AgentSpec>,
-): UiState {
-    const session = state.sessions[dir];
-    const spec = session?.agents[agent];
-    if (session === undefined || spec === undefined) {
-        return state;
+function applyJobEvent(state: UiState, event: SpinnerEvent): UiState {
+    switch (event.type) {
+        case "job.started":
+            return { ...state, jobs: { ...state.jobs, [event.job]: event.data } };
+        case "job.log": {
+            const job = state.jobs[event.job];
+            if (job === undefined) {
+                return state;
+            }
+            const log = keepLast([...job.log, event.line], JOB_LOG_LIMIT);
+            return { ...state, jobs: { ...state.jobs, [event.job]: { ...job, log } } };
+        }
+        case "job.finished":
+            return { ...state, jobs: { ...state.jobs, [event.job]: event.data } };
+        default:
+            return state;
     }
-    const agents = { ...session.agents, [agent]: { ...spec, ...patch } };
-    const next: Session = { ...session, agents };
-    return { ...state, sessions: { ...state.sessions, [dir]: next } };
-}
-
-function patchSession(state: UiState, dir: string, patch: Partial<Session>): UiState {
-    const session = state.sessions[dir];
-    if (session === undefined) {
-        return state;
-    }
-    return { ...state, sessions: { ...state.sessions, [dir]: { ...session, ...patch } } };
 }
 
 function applyEvent(state: UiState, event: SpinnerEvent): UiState {
-    const dir = event.session;
     switch (event.type) {
         case "session.created":
         case "session.updated":
-            return { ...state, sessions: { ...state.sessions, [dir]: event.data } };
+            return { ...state, sessions: { ...state.sessions, [event.session]: event.data } };
         case "session.closed": {
             const sessions = { ...state.sessions };
-            delete sessions[dir];
+            delete sessions[event.session];
             return { ...state, sessions };
         }
-        case "pipeline.updated":
-            return patchSession(state, dir, { stage: event.stage, needs_human: event.needs_human });
-        case "pipeline.transition":
-            return patchSession(state, dir, { stage: event.to });
-        case "stack.state": {
-            const stack = state.sessions[dir]?.stack;
-            return stack === undefined
-                ? state
-                : patchSession(state, dir, { stack: { ...stack, state: event.state } });
-        }
-        case "agent.spawned":
-            return patchAgent(state, dir, event.agent, { process: "running", pid: event.pid });
-        case "agent.settled":
-            return patchAgent(state, dir, event.agent, { process: "idle" });
-        case "agent.exited":
-            return patchAgent(state, dir, event.agent, { process: event.process });
+        case "job.started":
+        case "job.log":
+        case "job.finished":
+            return applyJobEvent(state, event);
         case "agent.event": {
-            const key = transcriptKey(dir, event.agent);
+            const key = transcriptKey(event.session, event.agent);
             const earlier = state.transcripts[key] ?? [];
             const lines = keepLast([...earlier, event.event], TRANSCRIPT_LIMIT);
             return { ...state, transcripts: { ...state.transcripts, [key]: lines } };
@@ -108,26 +97,36 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
 
 function appendFeed(state: UiState, event: SpinnerEvent): UiState {
     const text = describeEvent(event);
-    if (text === null) {
+    if (text === null || event.session === null) {
         return state;
     }
     const line: FeedLine = { ts: event.ts, session: event.session, text };
     return { ...state, feed: keepLast([...state.feed, line], FEED_LIMIT) };
 }
 
-/** Adds sessions the stream has not told us about yet; an event is never older than a snapshot. */
-function applySnapshot(state: UiState, summaries: SessionSummary[]): UiState {
+/** Adds what the stream has not told us about yet; an event is never older than a snapshot. */
+function applySnapshot(state: UiState, views: SessionView[]): UiState {
     const sessions = { ...state.sessions };
-    for (const summary of summaries) {
-        sessions[summary.dir] ??= summary.session;
+    for (const view of views) {
+        sessions[view.summary.dir] ??= view;
     }
     return { ...state, sessions };
+}
+
+function applyJobs(state: UiState, jobs: Job[]): UiState {
+    const merged = { ...state.jobs };
+    for (const job of jobs) {
+        merged[job.id] ??= job;
+    }
+    return { ...state, jobs: merged };
 }
 
 export function reduce(state: UiState, action: Action): UiState {
     switch (action.kind) {
         case "snapshot":
             return applySnapshot(state, action.sessions);
+        case "jobs":
+            return applyJobs(state, action.jobs);
         case "event":
             return appendFeed(applyEvent(state, action.event), action.event);
         case "connection":
@@ -135,10 +134,26 @@ export function reduce(state: UiState, action: Action): UiState {
     }
 }
 
-/** Sessions waiting on the operator first, then newest first. Returns `[dir, session]` pairs. */
-export function sortedSessions(state: UiState): [string, Session][] {
-    const waiting = (session: Session) => (session.needs_human === null ? 1 : 0);
+/** The stage the board shows: the tracker's when there is a PR, else the stored one. */
+export function stageOf(view: SessionView): string {
+    return view.board?.stage ?? view.summary.session.stage;
+}
+
+export function needsHuman(view: SessionView): string | null {
+    return view.board === null ? view.summary.session.needs_human : view.board.needs_human;
+}
+
+/** Sessions waiting on the operator first, then newest first. Returns `[dir, view]` pairs. */
+export function sortedSessions(state: UiState): [string, SessionView][] {
+    const waiting = (view: SessionView) => (needsHuman(view) === null ? 1 : 0);
     return Object.entries(state.sessions).sort(
-        ([, a], [, b]) => waiting(a) - waiting(b) || b.created.localeCompare(a.created),
+        ([, a], [, b]) =>
+            waiting(a) - waiting(b) ||
+            b.summary.session.created.localeCompare(a.summary.session.created),
     );
+}
+
+/** The job that is running on a session, if any. Used to disable that session's buttons. */
+export function runningJob(state: UiState, dir: string): Job | undefined {
+    return Object.values(state.jobs).find((job) => job.session === dir && job.state === "running");
 }

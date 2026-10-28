@@ -1,14 +1,22 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { FeedLine } from "./state.ts";
+import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
-import type { Session } from "@spinner/protocol";
+import type { SessionView } from "@spinner/protocol";
+
+import type { RunAction } from "./SessionsPane.tsx";
 
 export interface AgentsPaneProps {
-    session: Session | undefined;
+    view: SessionView | undefined;
+    /** True while a job runs on this session; the action buttons wait. */
+    busy: boolean;
+    run: RunAction;
     /** Raw pi events per agent name for the selected session. */
     transcripts: Record<string, unknown[]>;
     feed: FeedLine[];
+    /** The job drawer, drawn above the prompt. */
+    children?: ReactNode;
 }
 
 function Transcript({ events }: { events: unknown[] }) {
@@ -26,19 +34,22 @@ function Transcript({ events }: { events: unknown[] }) {
     );
 }
 
-function Actions() {
-    const reason = "Needs daemon routes that do not exist yet.";
+function Actions({ dir, busy, run }: { dir: string | undefined; busy: boolean; run: RunAction }) {
+    const off = dir === undefined || busy;
+    const post = (action: string) => () => void run(`/sessions/${dir}/${action}`);
     return (
         <div className="actions">
-            <button disabled title={reason}>create PR</button>
-            <button disabled title={reason}>run local</button>
-            <button disabled title={reason}>stop local</button>
+            <button disabled title="Needs the PR flow (M2).">create PR</button>
+            <button disabled={off} onClick={post("up")}>run local</button>
+            <button disabled={off} onClick={post("down")}>stop local</button>
+            <button disabled={off} onClick={post("close")}>close</button>
         </div>
     );
 }
 
-export function AgentsPane({ session, transcripts, feed }: AgentsPaneProps) {
+export function AgentsPane({ view, busy, run, transcripts, feed, children }: AgentsPaneProps) {
     const [picked, setPicked] = useState<string | undefined>(undefined);
+    const session = view?.summary.session;
     const names = session === undefined ? [] : Object.keys(session.agents);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
     const agent = selected === undefined ? undefined : session?.agents[selected];
@@ -58,9 +69,11 @@ export function AgentsPane({ session, transcripts, feed }: AgentsPaneProps) {
                             <Transcript events={transcripts[selected ?? ""] ?? []} />
                         </>
                     )}
+                    {view !== undefined && <ServiceTable view={view} />}
+                    {children}
                     <input className="prompt" disabled placeholder="Prompt (needs the daemon)" />
                 </div>
-                <Actions />
+                <Actions dir={view?.summary.dir} busy={busy} run={run} />
             </div>
             <div className="feed" aria-label="Activity">
                 <h2>Activity</h2>

@@ -9,7 +9,7 @@ function assertNever(value: never): never {
 export function describeEvent(event: SpinnerEvent): string | null {
     switch (event.type) {
         case "session.created":
-            return `created "${event.data.title}"`;
+            return `created "${event.data.summary.session.title}"`;
         case "session.updated":
             return "session updated";
         case "session.closed":
@@ -41,8 +41,13 @@ export function describeEvent(event: SpinnerEvent): string | null {
             return `${event.author} changed ${event.sections.join(", ")}`;
         case "inbox.message":
             return `${event.from} \u2192 ${event.to}: ${event.subject}`;
+        case "job.started":
+            return `${event.data.action} started`;
+        case "job.finished":
+            return event.ok ? `${event.data.action} finished` : `${event.data.action} failed`;
         case "agent.event":
         case "stack.log":
+        case "job.log":
             return null;
         default:
             return assertNever(event);

@@ -15,3 +15,13 @@ describe("parseEvent", () => {
         expect(parseEvent("null")).toBeNull();
     });
 });
+
+describe("parseEvent for jobs", () => {
+    it("accepts a job event with a null session and rejects it for other types", () => {
+        const log = { type: "job.log", ts: "t", session: null, job: "j", line: "x" };
+        const job = JSON.stringify(log);
+        expect(parseEvent(job)?.type).toBe("job.log");
+        const closed = JSON.stringify({ type: "session.closed", ts: "t", session: null });
+        expect(parseEvent(closed)).toBeNull();
+    });
+});
