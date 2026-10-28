@@ -9,6 +9,8 @@ import {
     EVENTS_PATH,
     type Job,
     type JobAction,
+    type PiAssistantMessage,
+    type PiEvent,
     type SessionView,
     type SpinnerEvent,
 } from "@spinner/protocol";
@@ -28,6 +30,40 @@ function sendPreview(request: IncomingMessage, response: ServerResponse): void {
     const host = (request.headers.host ?? "unknown host").replace(/[<>&]/g, "");
     response.writeHead(200, { "content-type": "text/html" });
     response.end(`<h1>Fixture preview</h1><p>${host}</p>`);
+}
+
+const USAGE = {
+    input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15,
+    cost: { input: 0.001, output: 0.002, cacheRead: 0, cacheWrite: 0, total: 0.003 },
+};
+
+/** The events pi sends for one prompt: a user message, a streamed answer and one tool call. */
+export function replyScript(prompt: string): PiEvent[] {
+    const answer: PiAssistantMessage = {
+        role: "assistant", content: [{ type: "text", text: `Done: ${prompt}` }],
+        api: "fixture", provider: "fixture", model: "fixture", usage: USAGE,
+        stopReason: "stop", timestamp: 0,
+    };
+    const user = { role: "user" as const, content: prompt, timestamp: 0 };
+    const delta = (text: string): PiEvent => ({
+        type: "message_update", usage: USAGE,
+        assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text },
+    });
+    return [
+        { type: "agent_start" },
+        { type: "message_start", message: user },
+        { type: "message_end", message: user },
+        { type: "message_start", message: { ...answer, content: [] } },
+        delta("Done: "),
+        { type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: "ls" },
+        {
+            type: "tool_execution_end", toolCallId: "t1", toolName: "bash",
+            result: "README.md", isError: false,
+        },
+        delta(prompt),
+        { type: "message_end", message: answer },
+        { type: "agent_settled", aborted: false },
+    ];
 }
 
 async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -105,6 +141,9 @@ class FixtureDaemon {
             const title = String(body["title"] ?? "Adopted");
             return this.accepted(response, this.create("adopt", title, urls, body["project"]));
         }
+        if (await this.agentRoute(response, path, body)) {
+            return true;
+        }
         const match = /^\/sessions\/([^/]+)\/(up|down|close|verify)$/.exec(path);
         const current = match === null ? undefined : this.sessions.get(match[1] ?? "");
         if (match === null || current === undefined) {
@@ -112,6 +151,51 @@ class FixtureDaemon {
         }
         const action = match[2] as "up" | "down" | "close" | "verify";
         return this.accepted(response, this.act(action, current));
+    }
+
+    /** `POST /sessions/:dir/agents` and `.../agents/:name/{prompt,steer,abort,stop}`. */
+    async agentRoute(
+        response: ServerResponse,
+        path: string,
+        body: Record<string, unknown>,
+    ): Promise<boolean> {
+        const route = /^\/sessions\/([^/]+)\/agents(?:\/([^/]+)\/(prompt|steer|abort|stop))?$/;
+        const match = route.exec(path);
+        const current = this.sessions.get(match?.[1] ?? "");
+        if (match === null || current === undefined) {
+            return false;
+        }
+        const dir = current.summary.dir;
+        const name = match[2] ?? String(body["name"]);
+        const emit = (event: PiEvent) => {
+            const ts = new Date().toISOString();
+            this.emit({ type: "agent.event", ts, session: dir, agent: name, event });
+        };
+        if (match[3] === undefined) {
+            const base = current.summary.session;
+            const agents = {
+                ...base.agents,
+                [name]: {
+                    harness: "pi" as const,
+                    model: String(body["model"] ?? "fixture/default"),
+                    process: "idle" as const,
+                },
+            };
+            const summary = { ...current.summary, session: { ...base, agents } };
+            const next = { ...current, summary, agents_running: [...current.agents_running, name] };
+            this.update(next);
+            sendJson(response, { name, pi_session_id: "pi-1" }, 201);
+        } else if (match[3] === "prompt") {
+            const script = replyScript(String(body["text"]));
+            script.forEach((event, index) => setTimeout(() => emit(event), index * STEP_DELAY_MS));
+            sendJson(response, { ok: true, disposition: "started" });
+        } else {
+            if (match[3] === "abort") {
+                emit({ type: "agent_settled", aborted: true });
+            }
+            sendJson(response, { ok: true });
+        }
+        return true;
     }
 
     accepted(response: ServerResponse, job: Job): true {
@@ -184,6 +268,11 @@ class FixtureDaemon {
             sendJson(response, { sessions: [...this.sessions.values()] });
         } else if (method === "GET" && dir !== undefined && this.sessions.has(dir)) {
             sendJson(response, { session: this.sessions.get(dir) });
+        } else if (method === "GET" && path === "/models") {
+            const models = [
+                { provider: "fixture", id: "small", contextWindow: 1000, reasoning: false },
+            ];
+            sendJson(response, { models });
         } else if (method === "GET" && path === "/projects") {
             sendJson(response, { projects: PROJECTS });
         } else if (method === "GET" && path === "/jobs") {

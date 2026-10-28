@@ -6,9 +6,9 @@
 import type { Job, SessionView, SpinnerEvent } from "@spinner/protocol";
 
 import { describeEvent } from "./describe.ts";
+import { emptyTranscript, foldEvent, type Transcript } from "./transcript.ts";
 
 export const FEED_LIMIT = 100;
-export const TRANSCRIPT_LIMIT = 200;
 export const JOB_LOG_LIMIT = 500;
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
@@ -24,8 +24,8 @@ export interface UiState {
     /** Jobs by id, from `job.*` events and the jobs snapshot. */
     jobs: Record<string, Job>;
     feed: FeedLine[];
-    /** Raw pi events per `<session dir>/<agent>`, newest last. */
-    transcripts: Record<string, unknown[]>;
+    /** What each agent tab shows, folded from `agent.event`, per `<session dir>/<agent>`. */
+    transcripts: Record<string, Transcript>;
     connection: ConnectionStatus;
 }
 
@@ -86,9 +86,9 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
             return applyJobEvent(state, event);
         case "agent.event": {
             const key = transcriptKey(event.session, event.agent);
-            const earlier = state.transcripts[key] ?? [];
-            const lines = keepLast([...earlier, event.event], TRANSCRIPT_LIMIT);
-            return { ...state, transcripts: { ...state.transcripts, [key]: lines } };
+            const earlier = state.transcripts[key] ?? emptyTranscript;
+            const folded = foldEvent(earlier, event.event);
+            return { ...state, transcripts: { ...state.transcripts, [key]: folded } };
         }
         default:
             return state;

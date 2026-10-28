@@ -6,11 +6,12 @@ import { JobDrawer } from "./JobDrawer.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { runningJob, sortedSessions } from "./state.ts";
+import type { Transcript } from "./transcript.ts";
 import { useResizable } from "./useResizable.ts";
 import { useSpinner } from "./useSpinner.ts";
 
-function transcriptsFor(dir: string | undefined, all: Record<string, unknown[]>) {
-    const result: Record<string, unknown[]> = {};
+function transcriptsFor(dir: string | undefined, all: Record<string, Transcript>) {
+    const result: Record<string, Transcript> = {};
     if (dir === undefined) {
         return result;
     }

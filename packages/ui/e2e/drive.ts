@@ -1,12 +1,13 @@
 // Drives the UI in headless Chrome over the DevTools protocol and saves a screenshot per step.
 // Usage: node e2e/drive.ts <ui url> <screenshot dir> [flow]. Chrome must already listen on
 // port 9333 (`--remote-debugging-port=9333`). The flow `lifecycle` runs: new session, up,
-// previews, verify, close. It works against the fixture server or the real daemon.
+// previews, verify, close. The flow `agents` prompts the first running agent of the first
+// session with a pi agent. It works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
 
-const [uiUrl, outDir] = process.argv.slice(2);
+const [uiUrl, outDir, flow = "lifecycle"] = process.argv.slice(2);
 if (uiUrl === undefined || outDir === undefined) {
     throw new Error("Usage: drive.ts <ui url> <screenshot dir>");
 }
@@ -92,6 +93,21 @@ await send("Page.navigate", { url: uiUrl });
 await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
 await until("daemon connected", `${text(".status")}.includes("open")`);
 await shot("01-sessions");
+
+if (flow === "agents") {
+    await click(".session", "Refund flow");
+    await until("agent tab", `document.querySelector(".agents-pane .tab") !== null`);
+    await fill("input[aria-label=Prompt]", "say hello");
+    await click(".prompt-form button[type=submit]");
+    await until("tool call shown", `${text(".transcript")}.includes("bash")`);
+    await shot("07-agent-working");
+    await until("answer shown", `${text(".transcript")}.includes("Done: say hello")`);
+    await until("agent idle", `${text(".agents-pane")}.includes("idle ·")`);
+    await shot("08-agent-done");
+    console.log("agents ok");
+    socket.close();
+    process.exit(0);
+}
 
 const title = `E2E ${Date.now() % 100000}`;
 await fill("[aria-label='New session title']", title);

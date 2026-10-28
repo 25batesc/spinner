@@ -10,7 +10,10 @@ export default defineConfig({
     server: {
         port: 5173,
         proxy: Object.fromEntries(
-            ["/sessions", "/projects", "/jobs", "/health"].map((path) => [path, DAEMON_URL]),
+            ["/sessions", "/projects", "/jobs", "/models", "/health"].map((path) => [
+                path,
+                DAEMON_URL,
+            ]),
         ),
     },
 });

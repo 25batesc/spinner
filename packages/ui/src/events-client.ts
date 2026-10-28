@@ -5,6 +5,8 @@ import {
     EVENTS_WS_URL,
     type Job,
     type JobResponse,
+    type ModelsResponse,
+    type ModelView,
     type ProjectsResponse,
     type ProjectView,
     type SessionsResponse,
@@ -83,6 +85,26 @@ export async function postAction(path: string, body?: unknown): Promise<Job> {
         throw new Error(`POST ${path} failed (${response.status}): ${text}`);
     }
     return ((await response.json()) as JobResponse).job;
+}
+
+export async function fetchModels(signal: AbortSignal): Promise<ModelView[]> {
+    const response = await fetch("/models", { signal });
+    if (!response.ok) {
+        throw new Error(`GET /models failed with status ${response.status}`);
+    }
+    return ((await response.json()) as ModelsResponse).models;
+}
+
+/** Agent routes answer at once; the effect arrives as `agent.*` events, not in this result. */
+export async function postAgent(path: string, body: unknown): Promise<void> {
+    const response = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        throw new Error(`POST ${path} failed (${response.status}): ${await response.text()}`);
+    }
 }
 
 export interface EventsHandlers {

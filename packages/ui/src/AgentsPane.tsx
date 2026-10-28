@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from "react";
 
 import type { FeedLine } from "./state.ts";
+import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
+import type { Transcript } from "./transcript.ts";
 import type { SessionView } from "@spinner/protocol";
 
 import type { RunAction } from "./SessionsPane.tsx";
@@ -12,26 +14,11 @@ export interface AgentsPaneProps {
     /** True while a job runs on this session; the action buttons wait. */
     busy: boolean;
     run: RunAction;
-    /** Raw pi events per agent name for the selected session. */
-    transcripts: Record<string, unknown[]>;
+    /** Folded `agent.event` stream per agent name for the selected session. */
+    transcripts: Record<string, Transcript>;
     feed: FeedLine[];
     /** The job drawer, drawn above the prompt. */
     children?: ReactNode;
-}
-
-function Transcript({ events }: { events: unknown[] }) {
-    if (events.length === 0) {
-        return <p className="muted">No messages yet.</p>;
-    }
-    return (
-        <ol className="transcript">
-            {events.map((event, index) => (
-                <li key={index}>
-                    <code>{JSON.stringify(event)}</code>
-                </li>
-            ))}
-        </ol>
-    );
 }
 
 function Actions({ dir, busy, run }: { dir: string | undefined; busy: boolean; run: RunAction }) {
@@ -59,19 +46,23 @@ export function AgentsPane({ view, busy, run, transcripts, feed, children }: Age
             <div className="agents-top">
                 <div className="chat">
                     <Tabs labels={names} selected={selected} onSelect={setPicked} />
-                    {agent === undefined ? (
+                    {agent === undefined || view === undefined || selected === undefined ? (
                         <p className="muted">This session has no agents.</p>
                     ) : (
                         <>
                             <p className="muted">
                                 {agent.harness} · {agent.model} · {agent.process}
                             </p>
-                            <Transcript events={transcripts[selected ?? ""] ?? []} />
+                            <AgentChat
+                                view={view}
+                                agent={selected}
+                                transcript={transcripts[selected]}
+                            />
                         </>
                     )}
+                    {view !== undefined && <AddAgent dir={view.summary.dir} />}
                     {view !== undefined && <ServiceTable view={view} />}
                     {children}
-                    <input className="prompt" disabled placeholder="Prompt (needs the daemon)" />
                 </div>
                 <Actions dir={view?.summary.dir} busy={busy} run={run} />
             </div>
