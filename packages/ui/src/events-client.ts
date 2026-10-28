@@ -2,7 +2,7 @@
 // The socket opens first so no event is missed while the snapshot loads.
 import {
     EVENT_TYPES,
-    EVENTS_WS_URL,
+    EVENTS_PATH,
     type AgentEventsResponse,
     type Job,
     type JobResponse,
@@ -135,7 +135,7 @@ export function connectEvents(handlers: EventsHandlers): () => void {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const open = () => {
-        socket = new WebSocket(EVENTS_WS_URL);
+        socket = new WebSocket(`ws://${location.host}${EVENTS_PATH}`);
         socket.onopen = () => {
             delay = RECONNECT_DELAY_MS_MIN;
             handlers.onOpen();

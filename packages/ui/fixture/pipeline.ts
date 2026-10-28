@@ -65,7 +65,11 @@ export class PipelineFixture {
     posted: string | null = null;
     approved = false;
 
-    constructor(private readonly host: Host) {}
+    private readonly host: Host;
+
+    constructor(host: Host) {
+        this.host = host;
+    }
 
     mission(dir: string): string {
         return this.missions.get(dir) ?? MISSION;

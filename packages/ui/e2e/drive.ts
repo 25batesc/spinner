@@ -177,6 +177,59 @@ if (flow === "real-agent") {
     process.exit(0);
 }
 
+if (flow === "pipeline") {
+    // Mission edit, threads, then pr, fix, post (with its confirm), approve (with its confirm),
+    // land and reset, on the first session that has a PR. Runs against the fixture or the daemon.
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await click(".agents-pane .tab", "mission");
+    await until("mission shown", `${text(".mission")}.includes("Roster")`);
+    await click(".mission-section .link", "edit");
+    await fill("textarea[aria-label='Edit goal']", "Let a customer ask for a refund. Edited.");
+    await click(".section-edit button", "save");
+    await until("goal changed", `${text(".mission")}.includes("Edited.")`);
+    await shot("13-mission-edited");
+    await click(".agents-pane .tab", "threads");
+    await until("threads shown", `document.querySelectorAll(".thread").length > 0`);
+    await shot("14-threads");
+    await fill("input[aria-label='Reply to T1']", "Fixed in the next push.");
+    await click(".thread-actions button", "reply");
+    await until("reply shown", `${text(".threads")}.includes("Fixed in the next push.")`);
+    await click(".thread-actions button", "flag");
+    await until("flag shown", `${text(".threads")}.includes("Flag:")`);
+    await shot("15-thread-replied-flagged");
+    for (const action of ["create PR", "fix"]) {
+        await click(".actions button", action);
+        await until(`${action} finished`, `${text(".drawer")}.includes("ok")`);
+        await click(".drawer button", "close");
+    }
+    await shot("16-pr-and-fix");
+    await click(".actions button", "post");
+    await until("post preview", `document.querySelector("[aria-label=Message]") !== null`);
+    await shot("17-post-confirm");
+    await click(".confirm button", "post this message");
+    await until("post finished", `${text(".drawer")}.includes("post · ok")`);
+    await click(".drawer button", "close");
+    await click(".actions button", "approve");
+    await until("approve preview", `${text(".confirm")}.includes("open threads")`);
+    await shot("18-approve-confirm");
+    await click(".confirm button", "approve");
+    await until("approve finished", `${text(".drawer")}.includes("approve · ok")`);
+    await click(".drawer button", "close");
+    for (const action of ["land", "reset"]) {
+        await click(".actions button", action);
+        await until(`${action} finished`, `${text(".drawer")}.includes("${action} · ok")`);
+        await click(".drawer button", "close");
+    }
+    await shot("19-landed-reset");
+    await click(".agents-pane .tab", "agents");
+    await click(".agents-pane .tab", "context");
+    await until("context shown", `document.querySelectorAll(".context-file").length > 0`);
+    await shot("20-context");
+    console.log("pipeline ok");
+    socket.close();
+    process.exit(0);
+}
+
 if (flow === "agents") {
     await click(".session", "Refund flow");
     await until("agent tab", `document.querySelector(".agents-pane .tab") !== null`);
