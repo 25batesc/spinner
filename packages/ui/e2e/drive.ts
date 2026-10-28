@@ -11,7 +11,7 @@ const [uiUrl, outDir, flow = "lifecycle"] = process.argv.slice(2);
 if (uiUrl === undefined || outDir === undefined) {
     throw new Error("Usage: drive.ts <ui url> <screenshot dir>");
 }
-const TIMEOUT_MS = 60_000;
+const TIMEOUT_MS = 120_000;
 
 const target = (await (
     await fetch("http://127.0.0.1:9333/json/new?about:blank", { method: "PUT" })
@@ -243,6 +243,151 @@ if (flow === "real-panels") {
     await until("post preview", `document.querySelector("[aria-label=Message]") !== null`);
     await shot("23-real-post-blocked");
     console.log("real panels ok");
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "m2-real") {
+    // Plan 6 and 7 on the real daemon with the GitHub fixture. E2E_SESSION names the session,
+    // E2E_MISSION the path of its MISSION.md, E2E_AGENTS the path of its session AGENTS.md.
+    const session = process.env["E2E_SESSION"] ?? "";
+    const { readFileSync } = await import("node:fs");
+    const finished = async (action: string) => {
+        await until(`${action} finished`, `${text(".drawer")}.includes("${action} · ok")`);
+        await click(".drawer button", "close");
+    };
+    await click(".session", session);
+    await click(".agents-pane .tab", "mission");
+    await until("mission shown", `${text(".mission")}.includes("Roster")`);
+    await click(".mission-section .link", "edit");
+    await fill("textarea[aria-label='Edit goal']", "Let a customer ask for a refund.");
+    await click(".section-edit button", "save");
+    await until("goal rendered", `${text(".mission")}.includes("ask for a refund")`);
+    const disk = readFileSync(process.env["E2E_MISSION"] ?? "", "utf8");
+    if (!disk.includes("Let a customer ask for a refund.")) {
+        throw new Error("MISSION.md on disk does not hold the edited Goal");
+    }
+    console.log("goal on disk ok");
+    await shot("24-m2-goal-edited");
+    await click(".actions button", "create PR");
+    await finished("pr");
+    await shot("25-m2-pr");
+    await click(".agents-pane .tab", "threads");
+    await until("threads shown", `document.querySelectorAll(".thread").length > 1`);
+    await shot("26-m2-threads");
+    const first = await evaluate(`document.querySelector(".thread-open")?.dataset.thread`);
+    const second = await evaluate(`document.querySelectorAll(".thread-open")[1]?.dataset.thread`);
+    await fill(`input[aria-label='Reply to ${String(first)}']`, "Fixed in the next push.");
+    await click(".thread-actions button", "reply");
+    await until("reply shown", `${text(".threads")}.includes("Fixed in the next push.")`);
+    await click(`[data-thread='${String(second)}'] .thread-actions button`, "flag");
+    await until("flag shown", `${text(".threads")}.includes("Flag:")`);
+    await shot("27-m2-reply-flag");
+    // The operator answers the flagged thread too, then both are resolved from the UI.
+    await fill(`input[aria-label='Reply to ${String(second)}']`, "Agreed, handled.");
+    await click(`[data-thread='${String(second)}'] .thread-actions button`, "reply");
+    await until("second reply", `${text(".threads")}.includes("Agreed, handled.")`);
+    for (const label of [first, second]) {
+        await click(`[data-thread='${String(label)}'] .thread-actions button`, "resolve");
+        await until(
+            `${String(label)} resolved`,
+            `document.querySelector("[data-thread='${String(label)}']")` +
+                `?.classList.contains("thread-resolved") === true`,
+        );
+    }
+    await click(".actions button", "fix");
+    await finished("fix");
+    await shot("28-m2-fix");
+    if (process.env["E2E_VERIFY_URL"] !== undefined) {
+        // The sample session has no running stack, so the tick is disabled; use the same route.
+        await fetch(process.env["E2E_VERIFY_URL"], { method: "POST", body: "{}" });
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    await click(".actions button", "post");
+    await until("post preview", `document.querySelector("[aria-label=Message]") !== null`);
+    await shot("29-m2-post-dialog");
+    const blocked = await evaluate(`document.querySelector(".confirm .needs-human")?.innerText`);
+    console.log("post blocked:", JSON.stringify(blocked));
+    if (blocked === undefined) {
+        await click(".confirm button", "post this message");
+        await finished("post");
+    } else {
+        await click(".confirm button", "cancel");
+    }
+    await click(".actions button", "approve");
+    await until("approve preview", `${text(".confirm")}.includes("open threads")`);
+    await shot("30-m2-approve-dialog");
+    const stuck = await evaluate(`document.querySelector(".confirm .needs-human")?.innerText`);
+    console.log("approve blocked:", JSON.stringify(stuck));
+    if (stuck === undefined) {
+        await click(".confirm button", "approve");
+        await finished("approve");
+    } else {
+        await click(".confirm button", "cancel");
+    }
+    await click(".actions button", "land");
+    await finished("land");
+    await shot("31-m2-landed");
+    await click(".actions button", "reset");
+    await finished("reset");
+    await shot("32-m2-reset");
+    await click(".agents-pane .tab", "agents");
+    await fill("input[aria-label='Agent name']", "scribe");
+    await evaluate(`(() => {
+        const select = document.querySelector("select[aria-label=Model]");
+        const option = [...select.options].find((o) => o.value.includes("claude-haiku-4-5"));
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+        setter.call(select, option.value);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+    })()`);
+    await click("form[aria-label='Add agent'] button");
+    await until(
+        "agent tab",
+        `[...document.querySelectorAll(".agents-pane .tab")].some((t) => t.textContent === "scribe")`,
+    );
+    await click(".agents-pane .tab", "scribe");
+    await click(".agents-pane .tab", "context");
+    await until("context shown", `document.querySelectorAll(".context-file").length > 0`);
+    await shot("33-m2-context");
+    const agents = process.env["E2E_AGENTS"] ?? "";
+    await click(`.context-file[data-scope='session'] .link`, "edit");
+    await fill(`textarea[aria-label='Edit ${agents}']`, "# Session rules\nEdited from the UI.\n");
+    await click(".section-edit button", "save");
+    await until("saved", `${text(".context")}.includes("saved")`);
+    const written = readFileSync(agents, "utf8");
+    if (!written.includes("Edited from the UI.")) {
+        throw new Error("session AGENTS.md on disk does not hold the edit");
+    }
+    console.log("agents file on disk ok");
+    await shot("34-m2-context-edited");
+    console.log("m2-real ok");
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "m2-context") {
+    // The agent tail of m2-real, for a session whose agent `scribe` already exists.
+    const session = process.env["E2E_SESSION"] ?? "";
+    const { readFileSync } = await import("node:fs");
+    await click(".session", session);
+    await click(".agents-pane .tab", "agents");
+    await click(".agents-pane .tab", "scribe");
+    await click(".agents-pane .tab", "context");
+    await until("context shown", `document.querySelectorAll(".context-file").length > 0`);
+    await shot("33-m2-context");
+    const agents = process.env["E2E_AGENTS"] ?? "";
+    await click(`.context-file[data-scope='session'] .link`, "edit");
+    await fill(`textarea[aria-label='Edit ${agents}']`, "# Session rules\nEdited from the UI.\n");
+    await click(".section-edit button", "save");
+    await until("saved", `${text(".context")}.includes("saved")`);
+    const written = readFileSync(agents, "utf8");
+    if (!written.includes("Edited from the UI.")) {
+        throw new Error("session AGENTS.md on disk does not hold the edit");
+    }
+    console.log("agents file on disk ok");
+    await shot("34-m2-context-edited");
+    console.log("m2-context ok");
     socket.close();
     process.exit(0);
 }
