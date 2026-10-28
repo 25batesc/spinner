@@ -1,0 +1,29 @@
+# Maintained by hand until the daemon owns it (this session builds that).
+version: 1
+id: s003
+slug: daemon-api-and-ui
+title: "Daemon API + web UI, then the pi adapter"
+created: 2026-10-27
+stage: planned
+needs_human: "start the two agents (RUN.md)"
+branch: main
+base: main
+repos:
+  spinner:
+    path: .
+    changed: true
+    pr: null
+pipeline:
+  verified_locally: false
+  slack_post: null
+stack:
+  state: none
+agents:
+  engine:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
+  ui:
+    harness: pi
+    model: anthropic/claude-sonnet-5-5
+    process: idle
