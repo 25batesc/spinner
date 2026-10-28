@@ -4,11 +4,16 @@
 // the same spawn: pi opens the transcript with that id when it exists. The brief goes in
 // through `--append-system-prompt`, the session's `AGENTS.md` through pi's own context-file
 // chain. pi reads both at startup only (see MISSION.md Contracts), so a context edit means
-// `stop` then `resume`.
+// `stop` then `resume`. The Spinner pi extension (`packages/pi-extension`) goes in through
+// `--extension` with the session directory, the agent name, the daemon URL and the role in
+// the environment (`EXTENSION_ENV`); it adds the mission to the prompt, the tools and
+// `/spinner-reload`, which makes a context edit a reload instead of a restart.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PiEvent, SessionSummary } from "@spinner/protocol";
+import { EXTENSION_ENV, type ExtensionRole } from "@spinner/protocol";
 import { model_args, spawn_pi, type PiProcess } from "./pi-rpc.js";
 
 export interface AgentSpawnSpec {
@@ -17,6 +22,16 @@ export interface AgentSpawnSpec {
     model: string | undefined;
     /** The agent's working directory: a worktree, or the session directory. */
     cwd: string;
+    /** `fixer` registers the `thread_*` tools. The agent named `fixer` gets it by default. */
+    role?: ExtensionRole;
+}
+
+/** A command pi lists through `get_commands`: a skill, a prompt template or an extension. */
+export interface PiCommand {
+    name: string;
+    description?: string;
+    source: "extension" | "prompt" | "skill";
+    sourceInfo?: { path?: string };
 }
 
 export interface AgentHandle {
@@ -28,6 +43,8 @@ export interface AgentHandle {
     /** Queues a steer; it enters after the current turn and its tool calls. */
     steer(text: string): Promise<string>;
     abort(): Promise<void>;
+    /** The commands pi loaded, for the Context tab. */
+    commands(): Promise<PiCommand[]>;
     on_event(listener: (event: PiEvent) => void): () => void;
     exited: Promise<number | null>;
     stop(): Promise<number | null>;
@@ -43,6 +60,20 @@ export interface PiRpcHarnessOptions {
     pi: () => string;
     /** Receives pi's stderr lines, tagged with the agent name. */
     on_stderr?: (agent: string, line: string) => void;
+    /** The daemon's base URL for the extension's tools, known once the server listens. */
+    daemon_url?: () => string;
+    /** The extension entry; `default_extension_path()` when absent, none when null. */
+    extension?: string | null;
+}
+
+/**
+ * `packages/pi-extension/src/index.ts`, from `packages/daemon/{src,dist}/agents/harness.{ts,js}`.
+ * pi loads TypeScript through jiti, so the source is the entry; the extension resolves
+ * `@spinner/protocol` from its own `node_modules`, which the workspace links.
+ */
+export function default_extension_path(): string {
+    const here = dirname(fileURLToPath(import.meta.url));
+    return resolve(here, "..", "..", "..", "pi-extension", "src", "index.ts");
 }
 
 /** Where an agent's pi transcripts live, relative to the session directory. */
@@ -77,6 +108,20 @@ export class PiRpcHarness implements AgentHarness {
         if (existsSync(skills) && has_entries(skills)) {
             extra_args.push("--skill", skills);
         }
+        const extension =
+            this.options.extension === undefined
+                ? default_extension_path()
+                : this.options.extension;
+        if (extension !== null && existsSync(extension)) {
+            extra_args.push("--extension", extension);
+        }
+        const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
+        const env: Record<string, string> = {
+            [EXTENSION_ENV.session_dir]: session.path,
+            [EXTENSION_ENV.agent]: agent.name,
+            [EXTENSION_ENV.daemon_url]: this.options.daemon_url?.() ?? "",
+            [EXTENSION_ENV.role]: role,
+        };
         const on_stderr = this.options.on_stderr;
         const process_ = await spawn_pi({
             pi: this.options.pi(),
@@ -85,6 +130,7 @@ export class PiRpcHarness implements AgentHarness {
             session_id: agent.name,
             ...(agent.model === undefined ? {} : { model: agent.model }),
             extra_args,
+            env,
             on_stderr: (line) => on_stderr?.(agent.name, line),
         });
         return new PiHandle(process_, agent.name);
@@ -122,6 +168,16 @@ class PiHandle implements AgentHandle {
 
     async abort(): Promise<void> {
         await this.process_.send({ type: "abort" });
+    }
+
+    async commands(): Promise<PiCommand[]> {
+        const response = await this.process_.send({ type: "get_commands" });
+        const data = response.data;
+        if (typeof data === "object" && data !== null && "commands" in data) {
+            const commands = (data as { commands: unknown }).commands;
+            return Array.isArray(commands) ? (commands as PiCommand[]) : [];
+        }
+        return [];
     }
 
     on_event(listener: (event: PiEvent) => void): () => void {

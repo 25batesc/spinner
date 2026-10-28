@@ -33,9 +33,12 @@ import type {
 import { DAEMON_HOST, DAEMON_PORT, EVENTS_PATH } from "@spinner/protocol";
 import * as actions from "./actions.js";
 import type { ActionContext } from "./actions.js";
+import { Deliverer } from "./agents/delivery.js";
+import { fixer_driver } from "./agents/fixer.js";
 import { PiRpcHarness, type AgentHandle } from "./agents/harness.js";
 import { agent_history } from "./agents/history.js";
 import { AgentManager } from "./agents/manager.js";
+import { mount_agent_routes } from "./agents/routes.js";
 import { models_source } from "./agents/models.js";
 import { resolve_pi_binary } from "./agents/pi-rpc.js";
 import { EventBus } from "./event-bus.js";
@@ -55,6 +58,7 @@ import {
     parse_up,
     parse_verify,
 } from "./requests.js";
+import { MissionWriter } from "./store/mission-writer.js";
 import { find_session, list_sessions, read_session } from "./store/session-store.js";
 import {
     build_session_view,
@@ -66,6 +70,7 @@ import {
     start_stack_observer,
     type StackObserver,
 } from "./views/stack-observer.js";
+import { watch_session_files } from "./watch/session-files.js";
 import { watch_sessions, type SessionWatcher, type ViewBuilder } from "./watcher.js";
 
 export interface DaemonOptions {
@@ -91,6 +96,8 @@ export interface DaemonOptions {
     observe_interval_ms?: number;
     /** The pi executable; `SPINNER_PI` or `pi` on PATH when absent. Tests pass a fake. */
     pi?: string;
+    /** The Spinner pi extension entry; the checkout's `packages/pi-extension` when absent. */
+    extension?: string | null;
 }
 
 export interface Daemon {
@@ -118,6 +125,9 @@ export interface AppDeps {
     agents: AgentManager;
     models: () => Promise<ModelView[]>;
     bus: EventBus;
+    /** ext: the mission writer and the deliverer; the agent routes mount when both are set. */
+    writer?: MissionWriter;
+    deliverer?: Deliverer;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -353,6 +363,10 @@ export function create_app(deps: AppDeps): Hono {
     });
 
     mount_pipeline_routes(app, deps); // engine: pr, fix, threads, post, approve, land, reset
+    if (deps.writer !== undefined && deps.deliverer !== undefined) {
+        // ext: mission section, inbox, context
+        mount_agent_routes(app, { ...deps, writer: deps.writer, deliverer: deps.deliverer });
+    }
     mount_ui(app, deps.ui_dir);
     return app;
 }
@@ -438,11 +452,17 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     };
 
     const pi = (): string => options.pi ?? resolve_pi_binary();
+    let bound_port = port;
     const harness = new PiRpcHarness({
         pi,
         on_stderr: (agent, line) => log(`pi ${agent}: ${line}`),
+        daemon_url: () => `http://${host}:${bound_port}`,
+        ...(options.extension === undefined ? {} : { extension: options.extension }),
     });
     const agents = new AgentManager(home, harness, bus, { log });
+    const writer = new MissionWriter(home, bus);
+    const deliverer = new Deliverer(home, agents, writer, bus, { log });
+    ctx.fixer = fixer_driver({ home, agents, cwd });
 
     let observer: StackObserver | null = null;
     const view_ctx: ViewContext = {
@@ -489,15 +509,25 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         agents,
         models: models_source(pi, home.root),
         bus,
+        writer,
+        deliverer,
     });
     const server = await listen(app, host, port);
     const address = server.address();
     assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
-    const bound_port = address.port;
+    bound_port = address.port;
 
     const sockets = attach_events_socket(server, bus, log);
     const watcher = watch_sessions(home, bus, view, { on_error: log });
     await watcher.ready;
+    deliverer.prime(list_sessions(home).sessions.map((summary) => summary.dir));
+    const files = watch_session_files(home, {
+        on_mission: (dir) => deliverer.on_mission_change(dir),
+        on_notes: (dir, agent) => deliverer.on_notes_change(dir, agent),
+        on_inbox: (dir, file) => void deliverer.deliver_inbox(dir, file),
+        on_error: log,
+    });
+    await files.ready;
     const poller = start_github_poller(options, ctx, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
 
@@ -512,6 +542,8 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             await agents.stop_all();
             poller?.stop();
             observer?.stop();
+            deliverer.close();
+            await files.close();
             await watcher.close();
             for (const socket of sockets.clients) {
                 socket.terminate();

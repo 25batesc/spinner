@@ -27,6 +27,8 @@ const refuse = (command: Command, error: string): void =>
     out({ id: command.id, type: "response", command: command.type, success: false, error });
 
 let running = false;
+/** Steers received; a `prompt` of `steers?` echoes them, so a test can see what arrived. */
+const steers: string[] = [];
 
 function handle(command: Command): void {
     switch (command.type) {
@@ -56,11 +58,29 @@ function handle(command: Command): void {
                 refuse(command, "no");
                 return;
             }
+            if (command.message?.startsWith("/") === true) {
+                // An extension command runs at once and starts no run, as pi does.
+                respond(command, { disposition: "handled" });
+                return;
+            }
             respond(command, { disposition: running ? "queued" : "started" });
             run(command.message ?? "");
             return;
         case "steer":
+            steers.push(command.message ?? "");
             respond(command, { disposition: "queued" });
+            return;
+        case "get_commands":
+            respond(command, {
+                commands: [
+                    {
+                        name: "spinner-reload",
+                        description: "Reload context",
+                        source: "extension",
+                        sourceInfo: { path: "/fake/ext.ts" },
+                    },
+                ],
+            });
             return;
         case "abort":
             respond(command, undefined);
@@ -70,13 +90,27 @@ function handle(command: Command): void {
     }
 }
 
+/**
+ * A prompt that starts with `slow` keeps the run open for 400 ms before it settles, so a
+ * test can steer a busy agent; every other prompt settles at once.
+ */
 function run(text: string): void {
     running = true;
+    out({ type: "agent_start" });
+    if (text.startsWith("slow")) {
+        setTimeout(() => finish(text), 400);
+        return;
+    }
+    finish(text);
+}
+
+function finish(text: string): void {
+    const echoed = text === "steers?" ? `steers: ${JSON.stringify(steers)}` : text;
     const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
     const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost };
     const message = {
         role: "assistant",
-        content: [{ type: "text", text: `echo: ${text}` }],
+        content: [{ type: "text", text: `echo: ${echoed}` }],
         api: "fake",
         provider: "fake",
         model: "fake",
@@ -84,10 +118,9 @@ function run(text: string): void {
         stopReason: "stop",
         timestamp: Date.now(),
     };
-    out({ type: "agent_start" });
     out({ type: "turn_start" });
     out({ type: "message_start", message });
-    const delta = { type: "text_delta", contentIndex: 0, delta: `echo: ${text}` };
+    const delta = { type: "text_delta", contentIndex: 0, delta: `echo: ${echoed}` };
     out({ type: "message_update", usage, assistantMessageEvent: delta });
     out({ type: "message_end", message });
     out({ type: "turn_end", message, toolResults: [] });

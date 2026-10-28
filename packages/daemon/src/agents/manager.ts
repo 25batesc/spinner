@@ -2,7 +2,9 @@
 // the handles (the daemon's only process state), records each agent in `session.yaml`
 // (`agents.<name>`: harness, model, process, pid), regenerates the session `AGENTS.md`, and
 // turns pi's events into `agent.spawned`, `agent.event`, `agent.settled` and `agent.exited`
-// on the bus. Nothing starts on its own: every spawn is a `POST` or a CLI call.
+// on the bus. Nothing starts on its own: every spawn is a `POST` or a CLI call. The manager
+// also holds the text waiting for an agent's next prompt (an inbox message or a mission-change
+// notice for an idle agent, docs/SESSION_PROTOCOL.md "Messages"), which `prompt` prepends.
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,12 +26,19 @@ export interface AgentManagerOptions {
 interface Hosted {
     dir: string;
     name: string;
+    cwd: string;
     handle: AgentHandle;
+    /** True between `agent_start` and `agent_settled`: a steer reaches this run. */
+    busy: boolean;
     unsubscribe: () => void;
 }
 
+/** Upper bound on texts waiting for one agent's next prompt. */
+const PENDING_MAX = 50;
+
 export class AgentManager {
     private readonly hosted = new Map<string, Hosted>();
+    private readonly pending = new Map<string, string[]>();
     private readonly now: () => Date;
     private readonly log: (line: string) => void;
 
@@ -58,6 +67,34 @@ export class AgentManager {
         return this.hosted.get(key_of(dir, name))?.handle ?? null;
     }
 
+    /** True while the agent's process runs a turn, so a steer enters before its next model call. */
+    is_busy(dir: string, name: string): boolean {
+        return this.hosted.get(key_of(dir, name))?.busy ?? false;
+    }
+
+    /** The agent's working directory while it runs, else null. */
+    cwd(dir: string, name: string): string | null {
+        return this.hosted.get(key_of(dir, name))?.cwd ?? null;
+    }
+
+    /**
+     * Queues text for the agent's next prompt. For an idle or stopped agent this is how a
+     * message or a mission-change notice arrives; `prompt` prepends every queued text.
+     */
+    queue_for_next_prompt(dir: string, name: string, text: string): void {
+        assert.ok(text.length > 0, "queued text must not be empty");
+        const key = key_of(dir, name);
+        const queue = this.pending.get(key) ?? [];
+        assert.ok(queue.length < PENDING_MAX, `${PENDING_MAX} texts wait for ${name}`);
+        queue.push(text);
+        this.pending.set(key, queue);
+    }
+
+    /** The texts waiting for the agent's next prompt, without taking them. */
+    pending_for(dir: string, name: string): string[] {
+        return [...(this.pending.get(key_of(dir, name)) ?? [])];
+    }
+
     /**
      * Adds an agent from its brief and starts it, or resumes one that `session.yaml` already
      * lists. Throws when the brief is missing, the agent runs already, or pi fails to start.
@@ -78,7 +115,8 @@ export class AgentManager {
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;
         const model = request.model ?? listed?.model;
         this.write_agents_file(summary);
-        const handle = await this.harness.spawn(summary, { name: request.name, model, cwd });
+        const spawned = await this.harness.spawn(summary, { name: request.name, model, cwd });
+        const handle = this.with_pending(key, spawned);
         const spec: AgentSpec = {
             harness: "pi",
             model: model ?? "default",
@@ -91,15 +129,29 @@ export class AgentManager {
         const unsubscribe = handle.on_event((event) => {
             const ts = this.now().toISOString();
             this.bus.publish({ type: "agent.event", ts, session: dir, agent, event });
+            const entry = this.hosted.get(key);
             if (event.type === "agent_start") {
+                if (entry !== undefined) {
+                    entry.busy = true;
+                }
                 this.record(dir, agent, { process: "running" });
             }
             if (event.type === "agent_settled") {
+                if (entry !== undefined) {
+                    entry.busy = false;
+                }
                 this.record(dir, agent, { process: "idle" });
                 this.bus.publish({ type: "agent.settled", ts, session: dir, agent });
             }
         });
-        this.hosted.set(key, { dir: summary.dir, name: request.name, handle, unsubscribe });
+        this.hosted.set(key, {
+            dir: summary.dir,
+            name: request.name,
+            cwd,
+            handle,
+            busy: false,
+            unsubscribe,
+        });
         this.bus.publish({
             type: "agent.spawned",
             ts: this.now().toISOString(),
@@ -123,6 +175,30 @@ export class AgentManager {
     /** Stops every agent, for daemon shutdown. */
     async stop_all(): Promise<void> {
         await Promise.all([...this.hosted.values()].map((entry) => entry.handle.stop()));
+    }
+
+    /** A handle whose `prompt` prepends the queued texts, each under its own heading. */
+    private with_pending(key: string, handle: AgentHandle): AgentHandle {
+        // The handle is a class instance; its methods live on the prototype, so each one is
+        // forwarded by name rather than spread.
+        return {
+            pid: handle.pid,
+            pi_session_id: handle.pi_session_id,
+            exited: handle.exited,
+            steer: (text) => handle.steer(text),
+            abort: () => handle.abort(),
+            commands: () => handle.commands(),
+            on_event: (listener) => handle.on_event(listener),
+            stop: () => handle.stop(),
+            prompt: (text: string) => {
+                const queued = this.pending.get(key) ?? [];
+                this.pending.delete(key);
+                if (queued.length === 0) {
+                    return handle.prompt(text);
+                }
+                return handle.prompt(`${queued.join("\n\n")}\n\n---\n\n${text}`);
+            },
+        };
     }
 
     private on_exit(key: string, code: number | null): void {
