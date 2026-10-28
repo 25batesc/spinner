@@ -1,0 +1,33 @@
+# Maintained by hand; the daemon owns it after this session.
+version: 1
+id: s005
+slug: drive-prs-home
+title: "Agents that drive PRs home"
+created: 2026-10-28
+stage: planned
+needs_human: "name the throwaway repo; start the three agents"
+branch: main
+base: main
+repos:
+  spinner:
+    path: .
+    changed: true
+    pr: null
+pipeline:
+  verified_locally: false
+  slack_post: null
+stack:
+  state: none
+agents:
+  engine:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
+  ext:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
+  ui:
+    harness: pi
+    model: anthropic/claude-sonnet-5-5
+    process: idle
