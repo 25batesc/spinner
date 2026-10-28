@@ -53,6 +53,7 @@ async function until(label: string, expression: string): Promise<void> {
         }
         await new Promise((resolve) => setTimeout(resolve, 200));
     }
+    await shot("failure");
     throw new Error(`Timed out waiting for: ${label}`);
 }
 
@@ -94,9 +95,10 @@ await shot("01-sessions");
 
 const title = `E2E ${Date.now() % 100000}`;
 await fill("[aria-label='New session title']", title);
+const project = process.env["E2E_PROJECT"] ?? "sample-stack";
 await evaluate(`(() => {
     const select = document.querySelector("form[aria-label='New session'] select");
-    const option = [...select.options].find((o) => o.value !== "");
+    const option = [...select.options].find((o) => o.textContent === ${JSON.stringify(project)});
     if (!option) return false;
     const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
     setter.call(select, option.value);
@@ -125,8 +127,14 @@ await until("preview frame", `document.querySelector(".preview-frame") !== null`
 await until("job finished", `${text(".drawer")}.includes("ok")`);
 await shot("04-previews");
 
-await click(".verified input");
-await until("verified ticked", `document.querySelector(".verified input")?.checked === true`);
+// The daemon refuses `verify` on a session with no PR, and the UI disables the tick then.
+const verifiable = await evaluate(`document.querySelector(".verified input")?.disabled === false`);
+if (verifiable === true) {
+    await click(".verified input");
+    await until("verified ticked", `document.querySelector(".verified input")?.checked === true`);
+} else {
+    console.log("verify tick is disabled: the session has no PR");
+}
 await shot("05-verified");
 
 await click(".actions button", "close");

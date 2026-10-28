@@ -42,7 +42,7 @@ function ProjectSelect(props: {
         >
             <option value="">no stack</option>
             {props.projects.map((project) => (
-                <option key={project.path} value={project.name}>
+                <option key={project.path} value={project.path}>
                     {project.name}
                 </option>
             ))}

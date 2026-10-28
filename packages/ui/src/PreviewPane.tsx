@@ -20,12 +20,14 @@ function isLive(service: ServiceView): boolean {
 function Verified({ view, busy, run }: PreviewPaneProps & { view: SessionView }) {
     const pipeline = view.summary.session.pipeline;
     const ticked = pipeline?.verified_locally === true;
+    // The daemon refuses to verify a session with no PR, so do not offer the tick yet.
+    const hasPr = (view.board?.prs.length ?? 0) > 0;
     return (
-        <label className="verified">
+        <label className="verified" title={hasPr ? "" : "Verify needs a PR (M1 rule)."}>
             <input
                 type="checkbox"
                 checked={ticked}
-                disabled={busy || ticked}
+                disabled={busy || ticked || !hasPr}
                 onChange={() => void run(`/sessions/${view.summary.dir}/verify`)}
             />
             verified
