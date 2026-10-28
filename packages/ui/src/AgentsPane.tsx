@@ -2,6 +2,11 @@ import { useState, type ReactNode } from "react";
 
 import type { FeedLine } from "./state.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
+import { ContextTab } from "./ContextTab.tsx";
+import { MissionPanel } from "./MissionPanel.tsx";
+import { PipelineActions } from "./PipelineActions.tsx";
+import type { Revisions } from "./state.ts";
+import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
@@ -17,16 +22,23 @@ export interface AgentsPaneProps {
     /** Folded `agent.event` stream per agent name for the selected session. */
     transcripts: Record<string, Transcript>;
     feed: FeedLine[];
+    revisions: Revisions;
     /** The job drawer, drawn above the prompt. */
     children?: ReactNode;
 }
 
-function Actions({ dir, busy, run }: { dir: string | undefined; busy: boolean; run: RunAction }) {
+function Actions(props: {
+    dir: string | undefined;
+    busy: boolean;
+    run: RunAction;
+    revision: number;
+}) {
+    const { dir, busy, run } = props;
     const off = dir === undefined || busy;
     const post = (action: string) => () => void run(`/sessions/${dir}/${action}`);
     return (
         <div className="actions">
-            <button disabled title="Needs the PR flow (M2).">create PR</button>
+            <PipelineActions dir={dir} busy={busy} run={run} revision={props.revision} />
             <button disabled={off} onClick={post("up")}>run local</button>
             <button disabled={off} onClick={post("down")}>stop local</button>
             <button disabled={off} onClick={post("close")}>close</button>
@@ -34,8 +46,17 @@ function Actions({ dir, busy, run }: { dir: string | undefined; busy: boolean; r
     );
 }
 
-export function AgentsPane({ view, busy, run, transcripts, feed, children }: AgentsPaneProps) {
+function agentBase(dir: string, agent: string): string {
+    return `/sessions/${dir}/agents/${agent}`;
+}
+
+const VIEWS = ["agents", "mission", "threads"];
+
+export function AgentsPane(props: AgentsPaneProps) {
+    const { view, busy, run, transcripts, feed, revisions, children } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
+    const [shown, setShown] = useState("agents");
+    const [agentTab, setAgentTab] = useState("chat");
     const session = view?.summary.session;
     const names = session === undefined ? [] : Object.keys(session.agents);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
@@ -45,26 +66,59 @@ export function AgentsPane({ view, busy, run, transcripts, feed, children }: Age
         <section className="pane agents-pane" aria-label="Agents">
             <div className="agents-top">
                 <div className="chat">
-                    <Tabs labels={names} selected={selected} onSelect={setPicked} />
-                    {agent === undefined || view === undefined || selected === undefined ? (
-                        <p className="muted">This session has no agents.</p>
-                    ) : (
+                    <Tabs labels={VIEWS} selected={shown} onSelect={setShown} />
+                    {view !== undefined && shown === "mission" && (
+                        <MissionPanel dir={view.summary.dir} revision={revisions.mission} />
+                    )}
+                    {view !== undefined && shown === "threads" && (
+                        <ThreadsPanel
+                            dir={view.summary.dir}
+                            revision={revisions.threads}
+                            busy={busy}
+                            run={run}
+                        />
+                    )}
+                    {shown === "agents" && (
                         <>
-                            <p className="muted">
-                                {agent.harness} · {agent.model} · {agent.process}
-                            </p>
-                            <AgentChat
-                                view={view}
-                                agent={selected}
-                                transcript={transcripts[selected]}
-                            />
+                            <Tabs labels={names} selected={selected} onSelect={setPicked} />
+                            {agent === undefined || view === undefined || selected === undefined ? (
+                                <p className="muted">This session has no agents.</p>
+                            ) : (
+                                <>
+                                    <p className="muted">
+                                        {agent.harness} · {agent.model} · {agent.process}
+                                    </p>
+                                    <Tabs
+                                        labels={["chat", "context"]}
+                                        selected={agentTab}
+                                        onSelect={setAgentTab}
+                                    />
+                                    {agentTab === "context" ? (
+                                        <ContextTab
+                                            base={agentBase(view.summary.dir, selected)}
+                                            revision={agent.process}
+                                        />
+                                    ) : (
+                                        <AgentChat
+                                            view={view}
+                                            agent={selected}
+                                            transcript={transcripts[selected]}
+                                        />
+                                    )}
+                                </>
+                            )}
+                            {view !== undefined && <AddAgent view={view} />}
+                            {view !== undefined && <ServiceTable view={view} />}
                         </>
                     )}
-                    {view !== undefined && <AddAgent view={view} />}
-                    {view !== undefined && <ServiceTable view={view} />}
                     {children}
                 </div>
-                <Actions dir={view?.summary.dir} busy={busy} run={run} />
+                <Actions
+                    dir={view?.summary.dir}
+                    busy={busy}
+                    run={run}
+                    revision={revisions.pipeline}
+                />
             </div>
             <div className="feed" aria-label="Activity">
                 <h2>Activity</h2>

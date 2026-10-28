@@ -64,3 +64,36 @@ html, body, #root { height: 100%; margin: 0; }
 .prompt-form { display: flex; gap: 4px; margin-top: auto; }
 .prompt-form .prompt { flex: 1; margin-top: 0; }
 .add-agent { display: flex; gap: 4px; flex-wrap: wrap; font-size: 12px; }
+.mission h2 { text-transform: none; }
+.mission h3, .pr-threads h3, .context h3 { font-size: 13px; margin: 8px 0 4px; }
+.section-body { white-space: pre-wrap; margin: 0; font-family: inherit; }
+.link { border: 0; background: transparent; color: #38f; cursor: pointer; margin-left: 8px; }
+.section-edit { display: flex; flex-direction: column; gap: 4px; }
+.roster { border-collapse: collapse; width: 100%; font-size: 12px; }
+.roster th, .roster td { border: 1px solid #8884; padding: 2px 6px; text-align: left; }
+.roster-row { background: #38f1; }
+.roster-blocked { background: #d803; }
+.flash { animation: flash 1.5s ease-out 1; }
+@keyframes flash { from { background: #fd03; } to { background: transparent; } }
+.thread { list-style: none; border: 1px solid #8886; border-radius: 4px; padding: 6px; margin-bottom: 6px; }
+.thread-list { padding: 0; margin: 6px 0; }
+.thread-resolved { opacity: 0.6; }
+.thread-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.thread-body, .thread-reply { margin: 4px 0; white-space: pre-wrap; }
+.thread-reply { margin-left: 12px; }
+.thread-actions { display: flex; gap: 4px; }
+.thread-actions input { flex: 1; }
+.thread-toolbar { display: flex; gap: 8px; align-items: center; }
+.flagged { background: #d806; }
+.tracked { background: #38f4; }
+.context-list { list-style: none; padding: 0; }
+.context-file { border: 1px solid #8886; border-radius: 4px; padding: 6px; margin-bottom: 6px; }
+.context-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.confirm {
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10;
+    width: 520px; max-height: 70vh; overflow: auto; padding: 12px;
+    background: Canvas; color: CanvasText; border: 2px solid #38f; border-radius: 6px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.confirm-text { white-space: pre-wrap; border: 1px solid #8886; padding: 6px; margin: 0; }
+.approve-list { list-style: none; padding: 0; margin: 0; }

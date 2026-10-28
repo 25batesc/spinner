@@ -27,7 +27,21 @@ export interface UiState {
     /** What each agent tab shows, folded from `agent.event`, per `<session dir>/<agent>`. */
     transcripts: Record<string, Transcript>;
     connection: ConnectionStatus;
+    /**
+     * Per session, how many events of each kind arrived. A view that loads a route on demand
+     * (mission, threads) reloads when its counter moves; the counter holds no data of its own.
+     */
+    revisions: Record<string, Revisions>;
 }
+
+export interface Revisions {
+    mission: number;
+    threads: number;
+    pipeline: number;
+    inbox: number;
+}
+
+const NO_REVISIONS: Revisions = { mission: 0, threads: 0, pipeline: 0, inbox: 0 };
 
 export type Action =
     | { kind: "snapshot"; sessions: SessionView[] }
@@ -41,6 +55,7 @@ export const initialState: UiState = {
     feed: [],
     transcripts: {},
     connection: "connecting",
+    revisions: {},
 };
 
 export function transcriptKey(dir: string, agent: string): string {
@@ -95,6 +110,39 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
     }
 }
 
+function revisionKind(event: SpinnerEvent): keyof Revisions | null {
+    switch (event.type) {
+        case "mission.changed":
+            return "mission";
+        case "threads.updated":
+            return "threads";
+        case "pipeline.updated":
+        case "pipeline.transition":
+        case "pr.updated":
+        case "slack.activity":
+            return "pipeline";
+        case "inbox.message":
+        case "message.delivered":
+            return "inbox";
+        default:
+            return null;
+    }
+}
+
+function bumpRevision(state: UiState, event: SpinnerEvent): UiState {
+    const kind = revisionKind(event);
+    if (kind === null || event.session === null) {
+        return state;
+    }
+    const before = state.revisions[event.session] ?? NO_REVISIONS;
+    const next = { ...before, [kind]: before[kind] + 1 };
+    return { ...state, revisions: { ...state.revisions, [event.session]: next } };
+}
+
+export function revisionsOf(state: UiState, dir: string | undefined): Revisions {
+    return (dir === undefined ? undefined : state.revisions[dir]) ?? NO_REVISIONS;
+}
+
 function appendFeed(state: UiState, event: SpinnerEvent): UiState {
     const text = describeEvent(event);
     if (text === null || event.session === null) {
@@ -128,7 +176,10 @@ export function reduce(state: UiState, action: Action): UiState {
         case "jobs":
             return applyJobs(state, action.jobs);
         case "event":
-            return appendFeed(applyEvent(state, action.event), action.event);
+            return appendFeed(
+                bumpRevision(applyEvent(state, action.event), action.event),
+                action.event,
+            );
         case "connection":
             return { ...state, connection: action.status };
     }

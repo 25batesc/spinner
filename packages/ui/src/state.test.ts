@@ -8,6 +8,7 @@ import {
     FEED_LIMIT,
     initialState,
     reduce,
+    revisionsOf,
     runningJob,
     sortedSessions,
     type UiState,
@@ -43,6 +44,22 @@ describe("reduce", () => {
         expect(state.sessions["s001-bootstrap"]?.stack.state).toBe("up");
         state = apply(state, { type: "session.closed", ts, session: "s001-bootstrap" });
         expect(Object.keys(state.sessions)).toEqual(["s17-refund-flow"]);
+    });
+
+    it("counts mission and threads events per session so views reload", () => {
+        const state = apply(
+            loaded,
+            { type: "mission.changed", ts, session: "s17-refund-flow", author: "ui", sections: [] },
+            { type: "mission.changed", ts, session: "s17-refund-flow", author: "ui", sections: [] },
+            {
+                type: "message.delivered", ts, session: "s17-refund-flow",
+                file: null, agent: "ui", how: "log",
+            },
+        );
+        expect(revisionsOf(state, "s17-refund-flow")).toEqual({
+            mission: 2, threads: 0, pipeline: 0, inbox: 1,
+        });
+        expect(revisionsOf(state, "s001-bootstrap").mission).toBe(0);
     });
 
     it("tracks a job from started through log lines to finished", () => {

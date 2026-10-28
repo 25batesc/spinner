@@ -5,7 +5,7 @@ import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
-import { runningJob, sortedSessions } from "./state.ts";
+import { revisionsOf, runningJob, sortedSessions } from "./state.ts";
 import type { Transcript } from "./transcript.ts";
 import { useResizable } from "./useResizable.ts";
 import { useSpinner } from "./useSpinner.ts";
@@ -68,6 +68,7 @@ export function App() {
                 run={run}
                 transcripts={transcriptsFor(selected, state.transcripts)}
                 feed={feed}
+                revisions={revisionsOf(state, selected)}
             >
                 <JobDrawer
                     job={job}

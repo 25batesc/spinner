@@ -16,6 +16,7 @@ import {
 } from "@spinner/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { PipelineFixture } from "./pipeline.ts";
 import { FIXTURE_PORT, initialSessions, PROJECTS, pr, session, stackView, view } from "./data.ts";
 
 export const STEP_DELAY_MS = 300;
@@ -66,7 +67,20 @@ export function replyScript(prompt: string): PiEvent[] {
     ];
 }
 
+const bodies = new WeakMap<IncomingMessage, Record<string, unknown>>();
+
+/** Reads the JSON body once; a second call for the same request returns the same object. */
 async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+    const known = bodies.get(request);
+    if (known !== undefined) {
+        return known;
+    }
+    const body = await parseBody(request);
+    bodies.set(request, body);
+    return body;
+}
+
+async function parseBody(request: IncomingMessage): Promise<Record<string, unknown>> {
     const chunks: Buffer[] = [];
     for await (const chunk of request) {
         chunks.push(chunk as Buffer);
@@ -84,6 +98,8 @@ class FixtureDaemon {
     counter = 0;
     /** `message_end` events per `<dir>/<agent>`, what `GET .../events` returns. */
     history = new Map<string, PiEvent[]>();
+
+    pipeline = new PipelineFixture(this);
 
     constructor() {
         for (const item of initialSessions()) {
@@ -268,9 +284,21 @@ class FixtureDaemon {
         });
     }
 
+    /** Mission, threads, previews, pipeline jobs and context files (see `pipeline.ts`). */
+    async m2(
+        request: IncomingMessage, response: ServerResponse, method: string, path: string,
+    ): Promise<boolean> {
+        const write = method === "POST" || method === "PUT";
+        const body = write ? await readBody(request) : {};
+        return this.pipeline.handle(method, path, body, response);
+    }
+
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const path = (request.url ?? "/").split("?")[0] ?? "/";
         const method = request.method ?? "GET";
+        if (await this.m2(request, response, method, path)) {
+            return;
+        }
         const dir = /^\/sessions\/([^/]+)$/.exec(path)?.[1];
         const jobId = /^\/jobs\/([^/]+)$/.exec(path)?.[1];
         if (method === "GET" && path === "/sessions") {

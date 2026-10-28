@@ -69,3 +69,29 @@ it("runs `up` as a job: 202, job.log lines, job.finished, then a healthy stack",
     const last = updated.at(-1);
     expect(last?.type === "session.updated" && last.data.stack.state).toBe("up");
 });
+
+it("refuses post and approve without confirm and runs them with it", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/s17-refund-flow`;
+    const send = (route: string, body: unknown) =>
+        fetch(`${base}/${route}`, { method: "POST", body: JSON.stringify(body) });
+    expect((await send("post", {})).status).toBe(400);
+    expect((await send("approve", {})).status).toBe(400);
+    expect((await send("post", { confirm: true })).status).toBe(202);
+    const preview = (await (await fetch(`${base}/post`)).json()) as { post: { text: string } };
+    expect(preview.post.text).toContain("web#412");
+});
+
+it("rewrites one mission section and keeps the rest", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/s17-refund-flow/mission`;
+    await fetch(`${base}/section`, {
+        method: "PUT",
+        body: JSON.stringify({
+            section: "goal", mode: "replace", text: "New goal.", author: "operator",
+        }),
+    });
+    const text = await (await fetch(base)).text();
+    expect(text).toContain("## Goal\nNew goal.\n\n## Done when");
+    expect(text).toContain("refund button works");
+});
