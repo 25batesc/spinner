@@ -21,7 +21,8 @@ await new Promise((resolve) => socket.on("open", resolve));
 let nextId = 0;
 const waiting = new Map<number, (value: Record<string, unknown>) => void>();
 socket.on("message", (data) => {
-    const message = JSON.parse(data.toString()) as { id?: number; result?: Record<string, unknown> };
+    const text = data.toString();
+    const message = JSON.parse(text) as { id?: number; result?: Record<string, unknown> };
     if (message.id !== undefined) {
         waiting.get(message.id)?.(message.result ?? {});
     }
@@ -79,7 +80,8 @@ const fill = (selector: string, value: string) =>
         return true;
     })()`);
 
-const text = (selector: string) => `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
+const text = (selector: string) =>
+    `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
 await send("Page.enable");
 await send("Emulation.setDeviceMetricsOverride", {
@@ -102,14 +104,23 @@ await evaluate(`(() => {
     return true;
 })()`);
 await click("form[aria-label='New session'] button");
-await until("new session selected", `${text(".session-selected")}.includes(${JSON.stringify(title)})`);
+const quoted = JSON.stringify(title);
+await until("new session selected", `${text(".session-selected")}.includes(${quoted})`);
 await shot("02-new-session");
 
-await until("run local enabled", `[...document.querySelectorAll(".actions button")].some((b) => b.textContent === "run local" && !b.disabled)`);
+await until(
+    "run local enabled",
+    `[...document.querySelectorAll(".actions button")]
+        .some((b) => b.textContent === "run local" && !b.disabled)`,
+);
 await click(".actions button", "run local");
 await until("job log shows", `${text(".drawer")}.includes("up")`);
 await shot("03-up-running");
-await until("service healthy", `[...document.querySelectorAll(".services tbody tr")].some((r) => r.innerText.includes("healthy"))`);
+await until(
+    "service healthy",
+    `[...document.querySelectorAll(".services tbody tr")]
+        .some((r) => r.innerText.includes("healthy"))`,
+);
 await until("preview frame", `document.querySelector(".preview-frame") !== null`);
 await until("job finished", `${text(".drawer")}.includes("ok")`);
 await shot("04-previews");
@@ -119,7 +130,7 @@ await until("verified ticked", `document.querySelector(".verified input")?.check
 await shot("05-verified");
 
 await click(".actions button", "close");
-await until("session gone", `!${text(".sessions-pane")}.includes(${JSON.stringify(title)})`);
+await until("session gone", `!${text(".sessions-pane")}.includes(${quoted})`);
 await shot("06-closed");
 console.log("lifecycle ok");
 socket.close();
