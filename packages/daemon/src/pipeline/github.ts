@@ -143,11 +143,21 @@ interface ReviewNode {
     commit: { oid: string } | null;
 }
 
-interface ThreadNode {
+export interface ThreadCommentNode {
+    id: string;
+    author: { login: string } | null;
+    body: string;
+    createdAt: string;
+}
+
+export interface ThreadNode {
     id: string;
     isResolved: boolean;
     isOutdated: boolean;
-    comments: { nodes: { author: { login: string } | null }[] };
+    /** Absent in fixtures saved before s005; the renderer treats both as "no location". */
+    path?: string | null;
+    line?: number | null;
+    comments: { nodes: ThreadCommentNode[] };
 }
 
 type TimelineNode =

@@ -13,7 +13,13 @@ import type {
     PostRequest,
     PrRequest,
     ResetRequest,
+    SessionSummary,
+    ThreadFlagRequest,
+    ThreadReplyRequest,
+    ThreadResponse,
+    ThreadsResponse,
 } from "@spinner/protocol";
+import { thread_file, type ThreadsDiff } from "./threads.js";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
 import type { EventBus } from "../event-bus.js";
@@ -45,7 +51,140 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
             actions.pr(deps.ctx, summary, request, log).then(() => {}),
         );
     });
+
+    app.post("/sessions/:dir/fix", async (c) => {
+        const request = parse_fix(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        return start_job(c, deps, "fix", summary.dir, async (log) => {
+            const result = await actions.fix(deps.ctx, summary, request, log);
+            publish_threads(deps, summary, result.diffs);
+        });
+    });
+
+    app.get("/sessions/:dir/threads", (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const body: ThreadsResponse = { threads: actions.threads(deps.ctx, summary) };
+        return c.json(body);
+    });
+
+    app.post("/sessions/:dir/threads/refresh", async (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        try {
+            const result = await actions.threads_refresh(deps.ctx, summary, no_log);
+            publish_threads(deps, summary, result.diffs);
+            await deps.refresh(summary.dir);
+            const body: ThreadsResponse = { threads: result.view };
+            return c.json(body);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 502);
+        }
+    });
+
+    app.post("/sessions/:dir/threads/:id/reply", async (c) => {
+        const request = parse_thread_reply(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        return thread_action(c, deps, params(c), (summary, thread, pr) =>
+            actions.thread_reply(deps.ctx, summary, { thread, ...pr, text: request.text }, no_log),
+        );
+    });
+
+    app.post("/sessions/:dir/threads/:id/resolve", (c) =>
+        thread_action(c, deps, params(c), (summary, thread, pr) =>
+            actions.thread_resolve(deps.ctx, summary, { thread, ...pr }, no_log),
+        ),
+    );
+
+    app.post("/sessions/:dir/threads/:id/flag", async (c) => {
+        const request = parse_thread_flag(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        return thread_action(c, deps, params(c), async (summary, thread, pr) =>
+            actions.thread_flag(
+                deps.ctx,
+                summary,
+                { thread, ...pr, reason: request.reason },
+                no_log,
+            ),
+        );
+    });
 }
+
+/**
+ * Runs one thread write and answers with the thread, or 409 when a rule refuses it (no
+ * reply yet, human thread, unknown label). `?pr=<repo>` disambiguates a label.
+ */
+function params(c: Context): { dir: string; id: string } {
+    return { dir: c.req.param("dir") ?? "", id: c.req.param("id") ?? "" };
+}
+
+type ThreadWork = (
+    summary: SessionSummary,
+    thread: string,
+    pr: { pr?: string },
+) => Promise<ThreadResponse>;
+
+async function thread_action(
+    c: Context,
+    deps: PipelineRouteDeps,
+    ids: { dir: string; id: string },
+    work: ThreadWork,
+): Promise<Response> {
+    const { dir, id } = ids;
+    const summary = find_session(deps.home, dir);
+    if (summary === null) {
+        return c.json(error_body(`no session ${dir}`), 404);
+    }
+    const repo = c.req.query("pr");
+    try {
+        const body = await work(summary, id, repo === undefined ? {} : { pr: repo });
+        publish_threads(deps, summary, [diff_for(body)]);
+        await deps.refresh(summary.dir);
+        return c.json(body);
+    } catch (error) {
+        return c.json(error_body(describe_error(error)), 409);
+    }
+}
+
+/** The event for one thread write: the thread's new state as a one-label diff. */
+function diff_for(body: ThreadResponse): ThreadsDiff {
+    return {
+        repo: body.repo,
+        number: body.number,
+        opened: [],
+        resolved: body.thread.state === "resolved" ? [body.thread.label] : [],
+        flagged: body.thread.flagged === null ? [] : [body.thread.label],
+        file: thread_file(body.repo, body.number),
+    };
+}
+
+function publish_threads(
+    deps: PipelineRouteDeps,
+    summary: SessionSummary,
+    diffs: ThreadsDiff[],
+): void {
+    const ts = new Date().toISOString();
+    for (const diff of diffs) {
+        deps.bus.publish({ type: "threads.updated", ts, session: summary.dir, ...diff });
+    }
+}
+
+/** Thread writes answer at once; their one-line log goes nowhere. */
+const no_log = (): void => {};
 
 /** Starts the job and answers 202, or 409 when the session is busy. */
 function start_job(
@@ -103,6 +242,24 @@ export function parse_fix(input: unknown): FixRequest | string {
         return { pr };
     }
     return pr === undefined ? {} : "`pr` must be a repo key";
+}
+
+export function parse_thread_reply(input: unknown): ThreadReplyRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const text = optional_string(record, "text");
+    return typeof text === "string" ? { text } : "`text` is required";
+}
+
+export function parse_thread_flag(input: unknown): ThreadFlagRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const reason = optional_string(record, "reason");
+    return typeof reason === "string" ? { reason } : "`reason` is required";
 }
 
 export function parse_post(input: unknown): PostRequest | string {

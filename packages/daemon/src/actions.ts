@@ -5,9 +5,11 @@ import assert from "node:assert/strict";
 import { userInfo } from "node:os";
 import type {
     AdoptRequest,
+    FixRequest,
     NewSessionRequest,
     PrRequest,
     SessionSummary,
+    ThreadResponse,
     ThreadsView,
     UpRequest,
     VerifyRequest,
@@ -22,6 +24,15 @@ import {
 } from "./pipeline/github-write.js";
 import { config_for } from "./pipeline/poller.js";
 import { open_prs, type PrOutcome } from "./pipeline/pr.js";
+import {
+    flag_thread,
+    read_threads,
+    refresh_threads,
+    reply_thread,
+    resolve_thread,
+    type ThreadsDeps,
+    type ThreadsDiff,
+} from "./pipeline/threads.js";
 import { verify_session } from "./pipeline/verify.js";
 import {
     attach_project,
@@ -174,6 +185,82 @@ export async function pr(
     const needs = result.summary.session.needs_human ?? "-";
     log(`stage: ${result.summary.session.stage}; needs_human: ${needs}`);
     return result.outcomes;
+}
+
+function threads_deps(ctx: ActionContext, summary: SessionSummary, log: Log): ThreadsDeps {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    return { gh: ctx.gh, writer: writer_of(ctx), config, log };
+}
+
+/** The threads from the last render; no GitHub call. */
+export function threads(ctx: ActionContext, summary: SessionSummary): ThreadsView {
+    assert.ok(ctx.home.root.length > 0);
+    return read_threads(summary);
+}
+
+/** Re-renders `threads/` from GitHub for every open PR. */
+export async function threads_refresh(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    log: Log,
+): Promise<{ view: ThreadsView; diffs: ThreadsDiff[] }> {
+    const result = await refresh_threads(ctx.home, summary, threads_deps(ctx, summary, log));
+    return { view: result.view, diffs: result.diffs };
+}
+
+export function thread_reply(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: { thread: string; pr?: string; text: string },
+    log: Log,
+): Promise<ThreadResponse> {
+    return reply_thread(ctx.home, summary, input, threads_deps(ctx, summary, log));
+}
+
+export function thread_resolve(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: { thread: string; pr?: string },
+    log: Log,
+): Promise<ThreadResponse> {
+    return resolve_thread(ctx.home, summary, input, threads_deps(ctx, summary, log));
+}
+
+export function thread_flag(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: { thread: string; pr?: string; reason: string },
+    log: Log,
+): ThreadResponse {
+    return flag_thread(ctx.home, summary, input, threads_deps(ctx, summary, log));
+}
+
+/**
+ * `spinner fix`: render the threads from GitHub, then start or steer the fixer agent on them.
+ * The fixer is ext's; until it is wired, the job stops after the render and says so.
+ */
+export async function fix(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: FixRequest,
+    log: Log,
+): Promise<{ view: ThreadsView; diffs: ThreadsDiff[] }> {
+    const result = await threads_refresh(ctx, summary, log);
+    const view =
+        input.pr === undefined
+            ? result.view
+            : { ...result.view, prs: result.view.prs.filter((pr) => pr.repo === input.pr) };
+    if (input.pr !== undefined && view.prs.length === 0) {
+        throw new Error(`no PR for repo "${input.pr}" in ${summary.dir}`);
+    }
+    const open = view.prs.reduce((sum, pr) => sum + pr.open_bot + pr.open_human, 0);
+    log(`${open} open thread(s) across ${view.prs.length} PR(s)`);
+    if (ctx.fixer === undefined) {
+        log("no fixer agent is wired into this daemon; threads/ is rendered, nothing started");
+        return { view, diffs: result.diffs };
+    }
+    await ctx.fixer.start_or_steer(summary, view, log);
+    return { view, diffs: result.diffs };
 }
 
 export function verify(

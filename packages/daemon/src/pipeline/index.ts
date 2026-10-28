@@ -33,3 +33,21 @@ export {
 } from "./poller.js";
 export { adopt_prs, type AdoptInput } from "./adopt.js";
 export { record_verify, verify_session, type VerifyInput } from "./verify.js";
+export {
+    github_write,
+    is_write_allowed,
+    repo_from_remote,
+    gh_write_runner,
+    git_runner,
+    type GithubWriter,
+    type GitRunner,
+} from "./github-write.js";
+export { open_prs, type PrDeps, type PrOutcome } from "./pr.js";
+export {
+    read_threads,
+    refresh_threads,
+    render_threads_markdown,
+    threads_from_response,
+    type ThreadsDeps,
+    type ThreadsDiff,
+} from "./threads.js";

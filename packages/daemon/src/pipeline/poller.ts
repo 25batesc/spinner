@@ -15,6 +15,12 @@ import {
     type GhRunner,
 } from "./github.js";
 import type { Notifier } from "./notify.js";
+import {
+    read_pr_threads,
+    threads_from_response,
+    with_flagged,
+    write_pr_threads,
+} from "./threads.js";
 import { apply_pr_facts, refresh_session, session_prs, type Transition } from "./tracker.js";
 
 export interface PollOptions {
@@ -98,8 +104,14 @@ async function poll_session(
         const ref = parse_pr_url(pr.url);
         assert.ok(ref !== null, `${entry.dir}: repo ${pr.repo} has a PR without a GitHub URL`);
         const response = await fetch_pr_response(options.gh, ref);
-        const facts = pr_facts_from_response(response, { config: config.github, owner_login });
-        session = apply_pr_facts(session, pr.repo, facts);
+        const context = { config: config.github, owner_login };
+        const facts = pr_facts_from_response(response, context);
+        // The same response renders `threads/`, so the fixer's file is as fresh as the board
+        // and no second call is made. Flags survive the render.
+        const previous = read_pr_threads(entry, pr.repo, pr.number);
+        const view = threads_from_response(pr.repo, response, context, previous);
+        write_pr_threads(entry, view, previous);
+        session = apply_pr_facts(session, pr.repo, with_flagged(facts, view.flagged));
     }
     const refreshed = refresh_session(entry.session, session, config, now);
     const changed = JSON.stringify(refreshed.session) !== JSON.stringify(entry.session);

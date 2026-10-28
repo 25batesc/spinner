@@ -29,7 +29,7 @@ export function derive_stage(facts: PipelineFacts): StageResult {
     if (open.length === 0) {
         return { stage: "building", needs_human: null, stale: false };
     }
-    const results = open.map((pr) => derive_pr(pr, facts));
+    const results = open.map((pr) => with_flags(pr, derive_pr(pr, facts)));
     const result = earliest(results);
     assert.ok(STAGES.includes(result.stage));
     return result;
@@ -72,6 +72,20 @@ function derive_pr(pr: PrFacts, facts: PipelineFacts): StageResult {
         return { stage: "approving", needs_human: `land ${ref}`, stale: false };
     }
     return { stage: "approving", needs_human: approving_action(pr), stale: false };
+}
+
+/**
+ * A thread the fixer flagged is the operator's decision, so it is the next action while the
+ * PR is in fixing or addressing and nothing else waits on them.
+ */
+function with_flags(pr: PrFacts, result: StageResult): StageResult {
+    const flagged = pr.threads.flagged ?? 0;
+    const in_threads = result.stage === "fixing" || result.stage === "addressing";
+    if (flagged === 0 || !in_threads || result.needs_human !== null) {
+        return result;
+    }
+    const noun = flagged === 1 ? "thread" : "threads";
+    return { ...result, needs_human: `${flagged} ${noun} flagged on ${pr.repo}#${pr.number}` };
 }
 
 /** The operator's tick counts only for the head it was given on. A push invalidates it. */
