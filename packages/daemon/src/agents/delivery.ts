@@ -166,6 +166,12 @@ export class Deliverer {
         if (summary === null) {
             return;
         }
+        // The writer rewrites NOTES.md with every Roster row; that change is already in the
+        // mission notice, so only an agent's own rewrite of its notes is announced.
+        const by_daemon = this.writer.last_notes_write(dir, agent);
+        if (by_daemon !== null && this.now().getTime() - by_daemon <= ATTRIBUTION_WINDOW_MS) {
+            return;
+        }
         for (const other of this.agent_names(summary)) {
             if (other !== agent) {
                 this.notice(dir, other, `agents/${agent}/NOTES.md changed.`);

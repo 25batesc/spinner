@@ -144,6 +144,33 @@ describe("MissionWriter", () => {
         expect(writer.last_write("s9-test")?.author).toBe("api");
     });
 
+    it("rewrites the agent's NOTES.md on a Roster row write", async () => {
+        const writer = new MissionWriter(home, bus, { now: () => new Date(2026, 9, 28, 11, 0) });
+        await writer.write("s9-test", {
+            section: "log",
+            mode: "append",
+            text: "began",
+            author: "api",
+        });
+        await writer.write("s9-test", {
+            section: "roster",
+            mode: "roster_row",
+            text: "the workflow",
+            author: "api",
+            blocked: "yes: a seed",
+        });
+        const notes = readFileSync(
+            join(home.sessions, "s9-test", "agents", "api", "NOTES.md"),
+            "utf8",
+        );
+        expect(notes).toContain("- Doing: the workflow\n- Blocked?: yes: a seed\n");
+        expect(notes).toContain("## Recent Log lines\n- 11:00 api: began\n");
+        expect(writer.last_notes_write("s9-test", "api")).toBe(
+            new Date(2026, 9, 28, 11, 0).getTime(),
+        );
+        expect(writer.last_notes_write("s9-test", "ui")).toBeNull();
+    });
+
     it("refuses a bad request and keeps serving the next one", async () => {
         const writer = new MissionWriter(home, bus);
         const bad = writer.write("s9-test", {

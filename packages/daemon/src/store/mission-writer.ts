@@ -6,8 +6,8 @@
 // daemon's clock (lesson 1 of s001: agents guess the time). A hand edit still works for an
 // agent without the extension; the watcher reports it as `author: unknown`.
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import type {
@@ -195,6 +195,7 @@ export interface LastWrite {
 export class MissionWriter {
     private readonly chains = new Map<string, Promise<unknown>>();
     private readonly last = new Map<string, LastWrite>();
+    private readonly last_notes = new Map<string, number>();
     private readonly now: () => Date;
 
     constructor(
@@ -225,6 +226,11 @@ export class MissionWriter {
         return this.last.get(dir) ?? null;
     }
 
+    /** When this writer last rewrote `agents/<agent>/NOTES.md`, in epoch ms; null if never. */
+    last_notes_write(dir: string, agent: string): number | null {
+        return this.last_notes.get(`${dir}/${agent}`) ?? null;
+    }
+
     private write_now(dir: string, request: MissionSectionRequest): MissionSectionResponse {
         const reason = validate_mission_write(request);
         if (reason !== null) {
@@ -236,6 +242,12 @@ export class MissionWriter {
         writeFileSync(file, result.text);
         const sections = result.sections;
         this.last.set(dir, { author: request.author, at: now.getTime(), sections });
+        if (request.mode === "roster_row") {
+            const notes = join(this.home.sessions, dir, "agents", request.author, "NOTES.md");
+            mkdirSync(dirname(notes), { recursive: true });
+            writeFileSync(notes, render_notes(result.text, request.author, hh_mm(now)));
+            this.last_notes.set(`${dir}/${request.author}`, now.getTime());
+        }
         this.bus.publish({
             type: "mission.changed",
             ts: now.toISOString(),
@@ -245,6 +257,42 @@ export class MissionWriter {
         });
         return { ok: true, sections: result.sections };
     }
+}
+
+/** Upper bound on the agent's Log lines NOTES.md keeps. */
+const NOTES_LOG_LINES_MAX = 20;
+
+/**
+ * `agents/<agent>/NOTES.md` (docs/SESSION_PROTOCOL.md, "Agent files"): the long form of the
+ * Roster row, rewritten when the row changes: the row's cells and the agent's recent Log
+ * lines, for the UI and the operator. An agent with more to say appends below the marker.
+ */
+export function render_notes(mission: string, agent: string, time: string): string {
+    const blocks = split_mission(mission);
+    const roster = blocks.find((block) => block.heading === SECTION_HEADINGS.roster)?.body ?? "";
+    const row = roster
+        .split("\n")
+        .filter((line) => line.startsWith("|"))
+        .map(split_row)
+        .find((cells) => cells[0] === agent);
+    const log = blocks.find((block) => block.heading === SECTION_HEADINGS.log)?.body ?? "";
+    const own = log
+        .split("\n")
+        .filter((line) => new RegExp(`^- \\d\\d:\\d\\d ${agent}: `).test(line))
+        .slice(-NOTES_LOG_LINES_MAX);
+    return [
+        `# ${agent}`,
+        "",
+        `Updated ${time} by the daemon from the Roster row.`,
+        "",
+        `- Doing: ${row?.[2] ?? "—"}`,
+        `- Blocked?: ${row?.[3] ?? "no"}`,
+        `- Owns: ${row?.[1] ?? "—"}`,
+        "",
+        "## Recent Log lines",
+        ...(own.length === 0 ? ["(none yet)"] : own),
+        "",
+    ].join("\n");
 }
 
 /** A refused request: the route answers 400 with the message. */
