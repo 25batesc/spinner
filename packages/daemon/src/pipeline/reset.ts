@@ -98,11 +98,17 @@ export async function reset_session(
     const refreshed = refresh_session(previous, session, deps.config, now());
     write_session({ ...summary, session: refreshed.session });
     if (deps.stack === true && existsSync(join(summary.path, SESSION_SPEC))) {
-        await recreate_database(summary, deps.log ?? (() => {}));
         if (was_up) {
+            // The server answered a moment ago (the stack was up), so the clone is dropped now
+            // and the stack comes back on a fresh one.
+            await recreate_database(summary, deps.log ?? (() => {}));
             const fresh = read_session(home, summary.dir);
             assert.ok(fresh.ok, fresh.ok ? "" : fresh.error);
             await stack_up(home, fresh.summary, { build: false }, deps.log ?? (() => {}));
+        } else {
+            // With the stack down the server may be absent; the next `up` drops the clone.
+            mark_database_stale(home, summary.dir);
+            deps.log?.(`database ${session_db(summary.session.id)}: re-cloned at the next up`);
         }
     }
     const check = read_session(home, summary.dir);
@@ -158,6 +164,15 @@ function archive_mission(summary: SessionSummary, previous: Session, round: numb
         .join(", ");
     const line = `${previous.branch} · PRs: ${prs.length > 0 ? prs : "none"}`;
     writeFileSync(path, archive_round(readFileSync(path, "utf8"), round, line));
+}
+
+/** Records that the clone is from a previous round; `stack_up` drops it before it clones. */
+function mark_database_stale(home: SpinnerHome, dir: string): void {
+    const current = read_session(home, dir);
+    assert.ok(current.ok, current.ok ? "" : current.error);
+    const session = current.summary.session;
+    const stack = { ...session.stack, db_stale: true };
+    write_session({ ...current.summary, session: { ...session, stack } });
 }
 
 /** Drops the session database so the next `up` clones the template again. */

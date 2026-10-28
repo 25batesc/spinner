@@ -121,6 +121,11 @@ export interface StackState {
     hosts?: Record<string, string>;
     /** Database name cloned from the seed template. */
     db?: string;
+    /**
+     * The clone belongs to a previous round: `reset` ran while the stack was down and did not
+     * touch the server. The next `up` drops it before it clones.
+     */
+    db_stale?: boolean;
     /** Services with `runtime: host`, by name: the process Spinner started for them. */
     processes?: Record<string, HostProcess>;
 }

@@ -481,6 +481,10 @@
                     "type": "string",
                     "description": "Database name cloned from the seed template."
                 },
+                "db_stale": {
+                    "type": "boolean",
+                    "description": "The clone belongs to a previous round: `reset` ran while the stack was down and did not touch the server. The next `up` drops it before it clones."
+                },
                 "processes": {
                     "type": "object",
                     "additionalProperties": {

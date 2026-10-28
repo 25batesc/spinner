@@ -393,6 +393,10 @@ async function start_stack(
     const [cloned] = await Promise.all([
         (async () => {
             await server.wait_ready(spec.database?.server !== "external");
+            if (session.stack.db_stale === true) {
+                // A reset ran while the stack was down; the clone holds the previous round.
+                log(`database ${db}: ${await server.drop_database(db)} (stale after reset)`);
+            }
             return server.clone_from_template(db, template_name(spec));
         })(),
         ensure_images(spec, options.build === true, log),
