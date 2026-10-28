@@ -24,6 +24,7 @@ export {
 } from "./tracker.js";
 export {
     config_for,
+    config_for_session,
     poll_once,
     start_poller,
     transition_message,

@@ -29,7 +29,7 @@ import {
     git_runner,
     type GithubWriter,
 } from "./pipeline/github-write.js";
-import { config_for } from "./pipeline/poller.js";
+import { config_for_session } from "./pipeline/poller.js";
 import { approve_prs, approve_view } from "./pipeline/approve.js";
 import { land_prs } from "./pipeline/land.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
@@ -198,7 +198,7 @@ export async function pr(
     input: PrRequest,
     log: Log,
 ): Promise<PrOutcome[]> {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
     const result = await open_prs(ctx.home, summary, input, {
         gh: ctx.gh,
         writer: writer_of(ctx),
@@ -216,7 +216,7 @@ export function post_preview(
     summary: SessionSummary,
     to: string | undefined,
 ): PostView {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, () => {});
+    const config = config_for_session(summary, ctx.home, ctx.cwd, () => {});
     return post_view(summary, config, slack_of(ctx, summary), to);
 }
 
@@ -227,7 +227,7 @@ export async function post(
     input: PostRequest,
     log: Log,
 ): Promise<PostView> {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
     const result = await post_message(ctx.home, summary, input, {
         config,
         slack: slack_of(ctx, summary),
@@ -243,7 +243,7 @@ export async function approve_preview(
     ctx: ActionContext,
     summary: SessionSummary,
 ): Promise<ApproveView> {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, () => {});
+    const config = config_for_session(summary, ctx.home, ctx.cwd, () => {});
     return approve_view(summary, { gh: ctx.gh, config });
 }
 
@@ -254,7 +254,7 @@ export async function approve(
     input: ApproveRequest,
     log: Log,
 ): Promise<string[]> {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
     const result = await approve_prs(ctx.home, summary, input, {
         gh: ctx.gh,
         writer: writer_of(ctx),
@@ -273,7 +273,7 @@ export async function land(
     input: LandRequest,
     log: Log,
 ): Promise<string[]> {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
     const result = await land_prs(ctx.home, summary, input, {
         gh: ctx.gh,
         writer: writer_of(ctx),
@@ -294,7 +294,7 @@ export async function reset(
     input: ResetRequest,
     log: Log,
 ): Promise<SessionSummary> {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
     return reset_session(ctx.home, summary, input, {
         git: writer_of(ctx).git,
         config,
@@ -304,7 +304,7 @@ export async function reset(
 }
 
 function threads_deps(ctx: ActionContext, summary: SessionSummary, log: Log): ThreadsDeps {
-    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
     return { gh: ctx.gh, writer: writer_of(ctx), config, log };
 }
 
@@ -387,7 +387,7 @@ export function verify(
 ): SessionSummary {
     // The "no spinner.yaml, defaults" note is a diagnostic; `adopt` already printed it once
     // for a session without a project, so the verify output stays the two lines it was.
-    const config = config_for(summary.session, ctx.home, ctx.cwd, () => undefined);
+    const config = config_for_session(summary, ctx.home, ctx.cwd, () => undefined);
     const by = input.by ?? userInfo().username;
     const verified = verify_session(ctx.home, { dir: summary.dir, by, config });
     const heads = Object.entries(verified.session.pipeline?.verified_heads ?? {})

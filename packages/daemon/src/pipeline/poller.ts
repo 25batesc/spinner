@@ -6,7 +6,11 @@ import assert from "node:assert/strict";
 import type { PipelineConfig, PrFacts, Session, SessionSummary } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { list_sessions, write_session } from "../store/session-store.js";
-import { load_pipeline_config } from "./config.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { SESSION_SPEC } from "../stack/runner.js";
+import { load_spec } from "../stack/spec.js";
+import { load_pipeline_config, pipeline_config_from_spec } from "./config.js";
 import {
     fetch_owner_login,
     fetch_pr_response,
@@ -65,7 +69,7 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
         fetches += open.length;
         assert.ok(fetches <= FETCHES_PER_ROUND_MAX, `over ${FETCHES_PER_ROUND_MAX} PRs per round`);
         try {
-            const config = config_for(entry.session, home, options.cwd, log);
+            const config = config_for_session(entry, home, options.cwd, log);
             owner_login ??= config.github.owner_login ?? (await fetch_owner_login(options.gh));
             const result = await poll_session(entry, open, config, owner_login, options, now());
             report.polled.push(entry.dir);
@@ -79,6 +83,24 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
         }
     }
     return report;
+}
+
+/**
+ * The session's pipeline configuration: the spec copy under `stack/spinner.yaml` when the
+ * session has one (so `write_repos` and the rest hold wherever the daemon runs), else the
+ * project's spec by name, else the defaults.
+ */
+export function config_for_session(
+    summary: SessionSummary,
+    home: SpinnerHome,
+    cwd: string,
+    log: (line: string) => void,
+): PipelineConfig {
+    const copy = join(summary.path, SESSION_SPEC);
+    if (existsSync(copy)) {
+        return pipeline_config_from_spec(load_spec(copy).spec);
+    }
+    return config_for(summary.session, home, cwd, log);
 }
 
 /** The project's pipeline configuration, or the defaults when no spec can be found. */
