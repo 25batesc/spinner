@@ -230,6 +230,23 @@ if (flow === "pipeline") {
     process.exit(0);
 }
 
+if (flow === "real-panels") {
+    // Read-only look at the M2 panes on a real daemon: mission, threads, the post preview.
+    await click(".session", process.env["E2E_SESSION"] ?? "");
+    await click(".agents-pane .tab", "mission");
+    await until("mission shown", `${text(".mission")}.includes("Roster")`);
+    await shot("21-real-mission");
+    await click(".agents-pane .tab", "threads");
+    await until("threads shown", `document.querySelector(".threads") !== null`);
+    await shot("22-real-threads");
+    await click(".actions button", "post");
+    await until("post preview", `document.querySelector("[aria-label=Message]") !== null`);
+    await shot("23-real-post-blocked");
+    console.log("real panels ok");
+    socket.close();
+    process.exit(0);
+}
+
 if (flow === "agents") {
     await click(".session", "Refund flow");
     await until("agent tab", `document.querySelector(".agents-pane .tab") !== null`);
