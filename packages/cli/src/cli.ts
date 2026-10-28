@@ -4,10 +4,13 @@
 // directly through the daemon's library, so no daemon needs to run for it.
 import { resolve_home } from "@spinner/daemon";
 import type { CliIo, Command } from "./commands/command.js";
+import { approve_command } from "./commands/approve.js";
 import { fix_command } from "./commands/fix.js";
+import { land_command } from "./commands/land.js";
 import { PIPELINE_COMMANDS } from "./commands/pipeline.js";
 import { post_command } from "./commands/post.js";
 import { pr_command } from "./commands/pr.js";
+import { reset_command } from "./commands/reset.js";
 import { STACK_COMMANDS } from "./commands/stack.js";
 
 export type { CliIo } from "./commands/command.js";
@@ -18,6 +21,9 @@ const COMMANDS: Command[] = [
     pr_command,
     fix_command,
     post_command,
+    approve_command,
+    land_command,
+    reset_command,
 ];
 
 export const USAGE = render_usage(COMMANDS);

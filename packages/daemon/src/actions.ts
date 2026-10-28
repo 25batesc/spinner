@@ -6,8 +6,12 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import type {
     AdoptRequest,
+    ApproveRequest,
+    ApproveView,
     FixRequest,
+    LandRequest,
     NewSessionRequest,
+    ResetRequest,
     PostRequest,
     PostView,
     PrRequest,
@@ -26,7 +30,11 @@ import {
     type GithubWriter,
 } from "./pipeline/github-write.js";
 import { config_for } from "./pipeline/poller.js";
+import { approve_prs, approve_view } from "./pipeline/approve.js";
+import { land_prs } from "./pipeline/land.js";
+import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { post_message, post_view } from "./pipeline/post.js";
+import { reset_session } from "./pipeline/reset.js";
 import { open_prs, type PrOutcome } from "./pipeline/pr.js";
 import { slack_client_from_env, type SlackClient } from "./pipeline/slack.js";
 import {
@@ -71,6 +79,10 @@ export interface ActionContext {
     fixer?: FixerDriver;
     /** Where `SLACK_USER_TOKEN` is read from. `process.env` when absent. */
     env?: NodeJS.ProcessEnv;
+    /** The notifier `land` uses on merge. The macOS banner when absent. */
+    notify?: Notifier;
+    /** `land`'s wait between looks at the queue, for tests. */
+    land_poll_ms?: number;
 }
 
 /** The Slack client for a session: real with `SLACK_USER_TOKEN`, else the fixture. */
@@ -224,6 +236,71 @@ export async function post(
     const needs = result.summary.session.needs_human ?? "-";
     log(`stage: ${result.summary.session.stage}; needs_human: ${needs}`);
     return result.view;
+}
+
+/** `GET .../approve`: head, diff stat and open threads per PR; no write. */
+export async function approve_preview(
+    ctx: ActionContext,
+    summary: SessionSummary,
+): Promise<ApproveView> {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, () => {});
+    return approve_view(summary, { gh: ctx.gh, config });
+}
+
+/** `spinner approve --yes` / `POST .../approve {confirm: true}`: submit the review. */
+export async function approve(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: ApproveRequest,
+    log: Log,
+): Promise<string[]> {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const result = await approve_prs(ctx.home, summary, input, {
+        gh: ctx.gh,
+        writer: writer_of(ctx),
+        config,
+        log,
+    });
+    const needs = result.summary.session.needs_human ?? "-";
+    log(`stage: ${result.summary.session.stage}; needs_human: ${needs}`);
+    return result.approved;
+}
+
+/** `spinner land`: enqueue with `expectedHeadOid`, watch, rebase and re-enqueue on pop-out. */
+export async function land(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: LandRequest,
+    log: Log,
+): Promise<string[]> {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const result = await land_prs(ctx.home, summary, input, {
+        gh: ctx.gh,
+        writer: writer_of(ctx),
+        config,
+        log,
+        notify: ctx.notify ?? macos_notifier,
+        ...(ctx.land_poll_ms === undefined ? {} : { poll_ms: ctx.land_poll_ms }),
+    });
+    const needs = result.summary.session.needs_human ?? "-";
+    log(`stage: ${result.summary.session.stage}; needs_human: ${needs}`);
+    return result.merged;
+}
+
+/** `spinner reset`: the next round on the same session. */
+export async function reset(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: ResetRequest,
+    log: Log,
+): Promise<SessionSummary> {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    return reset_session(ctx.home, summary, input, {
+        git: writer_of(ctx).git,
+        config,
+        log,
+        stack: true,
+    });
 }
 
 function threads_deps(ctx: ActionContext, summary: SessionSummary, log: Log): ThreadsDeps {

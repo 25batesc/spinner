@@ -5,6 +5,7 @@
 import type { Hono, Context } from "hono";
 import type {
     ApproveRequest,
+    ApproveResponse,
     ErrorResponse,
     FixRequest,
     JobAction,
@@ -131,6 +132,63 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
         }
         return start_job(c, deps, "post", summary.dir, (log) =>
             actions.post(deps.ctx, summary, request, log).then(() => {}),
+        );
+    });
+
+    app.get("/sessions/:dir/approve", async (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        try {
+            const body: ApproveResponse = {
+                approve: await actions.approve_preview(deps.ctx, summary),
+            };
+            return c.json(body);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 502);
+        }
+    });
+
+    app.post("/sessions/:dir/approve", async (c) => {
+        const request = parse_approve(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        return start_job(c, deps, "approve", summary.dir, (log) =>
+            actions.approve(deps.ctx, summary, request, log).then(() => {}),
+        );
+    });
+
+    app.post("/sessions/:dir/land", async (c) => {
+        const request = parse_land(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        return start_job(c, deps, "land", summary.dir, (log) =>
+            actions.land(deps.ctx, summary, request, log).then(() => {}),
+        );
+    });
+
+    app.post("/sessions/:dir/reset", async (c) => {
+        const request = parse_reset(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        return start_job(c, deps, "reset", summary.dir, (log) =>
+            actions.reset(deps.ctx, summary, request, log).then(() => {}),
         );
     });
 

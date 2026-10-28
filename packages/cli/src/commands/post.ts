@@ -1,10 +1,10 @@
 // `spinner post <session> [--to <reviewer>] [--yes]`: compose the Slack message for the PR
 // set, show it, and post it as the operator on confirmation. Without `--yes` the command
 // prints the message and asks on the terminal; a non-interactive run must pass `--yes`.
-import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { actions, gh_runner, type SpinnerHome } from "@spinner/daemon";
 import { describe_error, type CliIo, type Command } from "./command.js";
+import { confirm_on_terminal } from "./confirm.js";
 import { session_arg } from "./session-arg.js";
 
 export const post_command: Command = {
@@ -37,7 +37,7 @@ async function run_post(args: string[], home: SpinnerHome, io: CliIo): Promise<n
             io.err(`spinner post: ${preview.blocked}`);
             return 1;
         }
-        if (parsed.values.yes !== true && !(await confirm(io))) {
+        if (parsed.values.yes !== true && !(await confirm_on_terminal(io, "post it? [y/N] "))) {
             io.out("not posted");
             return 1;
         }
@@ -48,20 +48,5 @@ async function run_post(args: string[], home: SpinnerHome, io: CliIo): Promise<n
     } catch (error) {
         io.err(`spinner post: ${describe_error(error)}`);
         return 1;
-    }
-}
-
-/** Asks `post it? [y/N]` on the terminal. A non-TTY answers no, so nothing posts by accident. */
-async function confirm(io: CliIo): Promise<boolean> {
-    if (!process.stdin.isTTY) {
-        io.err("spinner post: stdin is not a terminal; pass --yes to post");
-        return false;
-    }
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-        const answer = await rl.question("post it? [y/N] ");
-        return /^y(es)?$/i.test(answer.trim());
-    } finally {
-        rl.close();
     }
 }
