@@ -38,6 +38,9 @@ Make the daemon the one place that knows every session's board facts and stack s
 - (date) Cullen: `packages/cli/src/cli.ts` and `packages/daemon/src/index.ts` are shared-append registries, one line per owner. `src/stack/**` and `src/pipeline/**` are called as they are; a needed change there is a Contracts line first, then a minimal edit by engine.
 - (date) Cullen: the ui agent verifies with a browser. `playwright-cli` is not installed; headless Chrome over the DevTools protocol, as in s001, is fine. Screenshots go to `<session>/artifacts/`.
 - (date) Cullen: rules from s001 and s002 (protocol, *Lessons*): Log times from `date +%H:%M`; stage by path, never `git add -A`; the lockfile with its `package.json`; a request for the other agent is an `inbox/` message; scratch directories from `mktemp -d`, reported, never deleted; one retry on a repo-side failure, then stop; never print `.npmrc`, `.env*`, `auth.json` or any file named with `token`, `key` or `secret`.
+- (date) Cullen: `verify` is allowed on a session with no PR; `SessionView.can_verify` says when the tick is enabled. Project names resolve under `local/`, `~/.spinner/projects/` and `examples/`.
+- (date) Cullen: every stream the UI renders has a history route; the tab loads it before it subscribes. A prompt to a stopped agent is a 409.
+- (date) Cullen: pi does not reload context files in RPC mode; the daemon stops and re-adds the agent after a context edit. The pi binary lives under the Node version that installed it; the daemon finds it on PATH or through `SPINNER_PI_BIN`.
 - (date) Cullen: a tracked file names no customer, employer, private repo, person or vendor project (WRITING.md rule 13). The operator's stack is "the operator's project"; its spec is under `local/`.
 
 ## Open questions

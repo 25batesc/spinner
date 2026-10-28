@@ -418,6 +418,14 @@ Rounds 3 to 5 of s002 (stack agent, 36 minutes of model time, $33.02, 0 relays; 
 13. **One retry, then the operator.** The rule from lesson 3 held on every repo-side failure (venv, grants, Cognito, node-sass) and kept the agents cheap: 36 minutes of model time for three rounds, against about 7 hours of operator time. The operator's time is the budget to watch.
 14. **Push after the doc check, not before.** The operator pushed a brief that failed `doc-metrics --fail` and turned CI red twice in one evening. Rule: `python3 tools/doc-metrics.py --fail` runs before every push, by hand or in a hook.
 
+## Lessons from s003
+
+Session s003 (directory `s004` in the operator's home) built the daemon API v1, the jobs runner, the web UI on the operator's sketch, and the pi RPC adapter: 13 agent commits in about 70 minutes of model time, $21.96, 2 operator relays, 2 inbox messages, 0 blocking decisions. Record: [sessions/s003-MISSION.md](sessions/s003-MISSION.md).
+
+15. **One `actions` module for the CLI and the routes.** A mid-session change to `verify` (a session without a PR) was a one-file edit because the CLI and the daemon call the same function. Rule: a command's logic lives in one module; the CLI and the route are two callers.
+16. **A reload needs history.** An agent tab that only folds live events shows nothing after a page reload. Rule: every stream the UI renders has a history route that returns the folded past, and the UI loads it before it subscribes.
+17. **The brief names the binaries.** pi is installed under one Node version and the daemon runs under another; the agent found it, but the brief should say where it is. Rule: the brief lists every external binary an agent spawns and its path.
+
 ## Decisions
 
 The protocol freezes at each milestone exit. A change needs a dated entry here before code follows it.
@@ -428,3 +436,4 @@ The protocol freezes at each milestone exit. A change needs a dated entry here b
 - 2026-10-27 M1 not exited. Protocol v1 unchanged. Rules from *Lessons from s002* apply to the briefs: shared-append files are named and become registries; long-lived children are detached; one retry on a repo-side failure; cleanup only through `close` and `down`; Spinner's env inside the wrapper. `StackSpec` gains `runtime: host`, `seed_files`, `seed_links`, `dockerfile`, `publish`, `env_file` (commits `f4a48e2`..`fc83d1c`).
 - 2026-10-27 Stack spec, s002 round 2: `StackSpec` gains `install:` (overrides the install command the lockfile selects) and `preflight:` (a command that must exit 0 before a host service starts). Commits `79c414d`, `67e5046`. M1 still not exited.
 - 2026-10-27 M1 exit. Protocol v1 unchanged; `session.yaml` version 1. `StackSpec` v1 frozen for the soak with: per-repo `base`, `seed_files`, `seed_links`, `install`, `runtime: node|python|host`, `wrapper`, `workdir`, `preflight`, `env_file`, `upstreams`, `publish`, `dockerfile`, `database.server: external` with `external.admin_user`, `seed.after`. The proxy directory is per machine (`~/.spinner/proxy`). A change to any of these during the soak gets a dated entry here first.
+- 2026-10-28 s003 close. API v1 frozen (`packages/protocol/src/api.ts`, commit ea0600c): `SessionView`, `Job`, `ProjectView`, the `job.*` and `session.*` events, the agent routes, `GET /models`, `PiEvent` restated from pi 1.4.0. pi does not reload context files in RPC mode and has no RPC command for it; in v1 the daemon stops and re-adds the agent after a context edit, which resumes the transcript by id. The Spinner pi extension (M2) adds a reload command. `verify` is allowed on a session with no PR.

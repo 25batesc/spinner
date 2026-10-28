@@ -46,7 +46,7 @@ Local testing between branches without touching your main checkout.
 
 Exit: `examples/sample-stack` comes up in CI; two feature branches of your own project run side by side on one laptop, both logged in at once in two Chrome tabs (`admin.s1.localhost`, `admin.s2.localhost`), Temporal UI per session, `spinner up` under 15 s warm, `spinner close` leaves nothing behind (`docker ps`, `git worktree list`, `psql \l` all clean).
 
-## M2 · Agents that drive PRs home
+## M2 · Agents that drive PRs home (partial since s003, 2026-10-28; see [STATUS.md](STATUS.md))
 
 Replace yourself as the message bus and as the person who relays review comments.
 
@@ -64,7 +64,7 @@ Replace yourself as the message bus and as the person who relays review comments
 
 Exit: one real feature of your own project goes `pr → fix → verify → post → approve → land` where your only actions were ticking *verify*, confirming the Slack post, and approving; and session s001's next round runs through the daemon instead of by hand.
 
-## M3 · Web UI
+## M3 · Web UI (pulled forward: the panes without agents landed in s003; see [STATUS.md](STATUS.md))
 
 The sketch, working, with the board as the left pane.
 

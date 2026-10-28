@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-27, M1 exit.
+Updated: 2026-10-28, after session s003.
 
 ## Summary
 
@@ -16,21 +16,21 @@ Updated: 2026-10-27, M1 exit.
 |---|---|---|---|---|---|
 | M0 · Bootstrap | done | s001 | $5.80 | 17 min | 37 |
 | M1 · Board + stack runner | done, 2026-10-27 | s002 (5 rounds) | $77.68 | 161 min | 132 |
-| M2 · Agents drive PRs home | open | | | | |
-| M3 · Web UI | open | | | | |
+| M2 · Agents drive PRs home | partial | s003 | $21.96 | 70 min | 162 |
+| M3 · Web UI | partial | s003 | (in s003) | | |
 | M4 · Desktop | open | | | | |
 | M5 · Release | open | | | | |
 
-The repo holds 60 commits, 17 by the operator and 43 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `dd3a377` with 132 tests.
+The repo holds 74 commits, 18 by the operator and 56 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `99fa2d7` with 162 tests.
 
 ## What exists
 
 | Package | Contents | Hides |
 |---|---|---|
 | `@spinner/protocol` | `Session` (session.yaml), `SpinnerEvent` (17 types), `ROUTES`, `PipelineFacts`, `StackSpec` (spinner.yaml); generated JSON schemas for both files, with a drift test | the file formats |
-| `@spinner/daemon` | session store; Hono server on `127.0.0.1:7777` with a WebSocket at `/events`; chokidar watcher; `pipeline/` (GitHub collector, `derive_stage`, poller, notifier, adopt, verify); `stack/` (spec loader, compose renderer, Docker and Traefik, Postgres template clone, host services, runner); `git/` (worktrees) | GitHub, Docker, Postgres, git |
-| `@spinner/cli` | `spinner new`, `show`, `adopt`, `board`, `verify`, `seed`, `up`, `down`, `logs`, `exec`, `close` | the daemon's internals |
-| `ui` | three resizable panes, WebSocket client, reducer-only state, fixture server, `new session` form | how a preview is embedded (`Preview.tsx`) |
+| `@spinner/daemon` | session store; Hono server on `127.0.0.1:7777` with a WebSocket at `/events`; serves the UI at `/`; `jobs/` (one job per action, bounded log); `actions.ts` (shared by the CLI and the routes); `views/` (`SessionView` from the store, the tracker and a stack observer); the poller and the notifier as a daemon loop; `pipeline/` (GitHub collector, `derive_stage`, adopt, verify); `stack/` (spec loader, compose renderer, Docker and Traefik, Postgres template clone, host services, runner); `git/` (worktrees); `agents/` (`PiRpcHarness` over pi's RPC mode, manager, models, history) | GitHub, Docker, Postgres, git, pi |
+| `@spinner/cli` | `spinner new`, `show`, `adopt`, `board`, `verify`, `seed`, `up`, `down`, `logs`, `exec`, `close`; the actions call the daemon's `actions` module | the daemon's internals |
+| `ui` | the sketch: sessions and board pane (sorted by `needs_human`, stage badge, per-PR lines, new and adopt forms), session view (service table, action buttons, job log drawer), previews (grey until healthy, open-in-tab, reload, the verified tick), agent tabs (transcript from `agent.event`, history on reload, prompt, steer, abort, model and repo pickers); fixture server; a DevTools-protocol driver for end-to-end runs | how a preview is embedded (`Preview.tsx`) |
 | `examples/sample-stack` | API with `GET /items` and `GET /health`, one web page, Postgres in template mode, Temporal, `seed.sql`, `spinner.yaml` | nothing; it is the test vehicle |
 
 ## M0 · Bootstrap (done, 2026-10-26)
@@ -106,6 +106,34 @@ Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 mi
 2. Stack agent, round 3 of s002: findings 6 and 9, then two the operator's project sessions side by side. Exit: `web.s1.localhost` and `web.s2.localhost` both serve the app, logged in, with `api` 200 on each, and `tools/stack-proof.sh` passes with host processes included.
 3. Then the soak week before M2 (ROADMAP).
 
+## M2 · Agents that drive PRs home (partial)
+
+| Exit criterion or item | State | Evidence |
+|---|---|---|
+| `spinnerd` as a real daemon with the REST/WS API from `packages/protocol` | done | API v1 (`ea0600c`); every CLI action is a job with `job.*` events; `GET /sessions` returns `SessionView` with board facts and stack state; the poller and the notifier run in the daemon |
+| `PiRpcHarness`: spawn / resume / prompt / steer / abort per agent, event passthrough | done | `170586b`; a real pi 1.4.0 agent wrote a file in a worktree from a UI prompt, the daemon restarted, the transcript resumed by id ($0.004) |
+| Session `AGENTS.md` generated per session | done | regenerated with hostnames and paths at `new` and `up` |
+| Spinner pi extension (mission tools, out-of-area guard, reload) | open | s005 |
+| File watcher → steers; `inbox/` delivery | open | s005 |
+| `spinner pr / fix / post / approve / land / reset` | open | s005 |
+
+## M3 · Web UI (partial)
+
+| Exit criterion or item | State | Evidence |
+|---|---|---|
+| Sessions and board pane, new-session form, activity feed | done | `945d444`; sorted by `needs_human`, stage badge, per-PR lines, project select, adopt form |
+| Agent tabs rendering the pi event stream, prompt / steer / abort, model picker | done | `45f3e86`, `241c8ed`; history on reload from `GET .../agents/:name/events` |
+| Preview pane: iframe tabs per hostname, grey until healthy, open-in-tab, reload, the verified tick | done | the sample stack from new to close in headless Chrome, screenshots in the session's `artifacts/` |
+| Mission panel, Context tab, `threads/` rendering, `create PR / fix / post / land` buttons | open | s005 and after |
+| A feature goes from new session to merged PRs without a terminal; a new user follows the README on their own stack in under an hour | open | after M2 |
+
+Record: engine $19.40 (claude-fable-5-1, 38 min), ui $2.56 (claude-sonnet-5-5, 30 min in two runs). Operator relays 2, inbox messages 2, blocking decisions 0. The operator deferred the two-session run of his own stack from the UI; the stack side is proven in s002. Full record: [sessions/s003-MISSION.md](sessions/s003-MISSION.md).
+
+### Next
+
+1. s005 (M2, the rest): the Spinner pi extension, inbox delivery and file-watcher steers, `spinner pr / fix / post / approve / land / reset`, and the UI's mission panel, threads and PR buttons. Decisions taken for it: Spinner posts to Slack as the operator (user token, read from the environment); after any push the operator's approval is asked again, never re-applied by Spinner.
+2. Open from M1: `examples/sample-stack` in CI; `up` under 15 s on a stack with host services; finding 21.
+
 ## Budget
 
 Estimates before the work were "days 1 to 3" for s001 and "weeks 2 to 3" for s002. The actual wall clock was 17 minutes and 75 minutes of agent time, plus the operator's time to relay, verify and write. The cost driver is not implementation. It is the acceptance test against the real project, which needs the operator's repos, logins and data.
@@ -118,7 +146,8 @@ Estimates before the work were "days 1 to 3" for s001 and "weeks 2 to 3" for s00
 | s002 round 3 | stack | $7.30 | 10 min | 0 |
 | s002 round 4 | stack | $12.36 | 16 min | 0 |
 | s002 round 5 | stack | $13.36 | 10 min | 0 |
-| Total | | $83.48 | 178 min | 9 |
+| s003 | engine, ui | $21.96 | 70 min | 2 |
+| Total | | $105.44 | 248 min | 11 |
 
 Agent minutes are the model's own run time from the run records; wall clock with builds, installs and waits was about three times that. The operator's own time on 2026-10-27 was about 7 hours: reading logs the agents could not interpret (cloud auth keys, grants, the team's install commands), refreshing the local database, killing hung processes, and testing in the browser. That is the cost driver, not the agents.
 
