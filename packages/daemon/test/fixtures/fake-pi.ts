@@ -15,7 +15,13 @@ interface Command {
 
 const args_file = process.env["FAKE_PI_ARGS_FILE"];
 if (args_file !== undefined && args_file !== "") {
-    writeFileSync(args_file, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));
+    const spinner_env = Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => key.startsWith("SPINNER_")),
+    );
+    writeFileSync(
+        args_file,
+        JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env: spinner_env }),
+    );
 }
 
 const out = (record: unknown): void => {

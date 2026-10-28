@@ -14,7 +14,7 @@ import type { Session, SpinnerEvent } from "@spinner/protocol";
 import { EventBus } from "../event-bus.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { create_session } from "../store/session-store.js";
-import { PiRpcHarness } from "./harness.js";
+import { PiRpcHarness, default_extension_path } from "./harness.js";
 import { events_of_transcript } from "./history.js";
 import { AgentManager } from "./manager.js";
 import { models_of } from "./models.js";
@@ -28,6 +28,7 @@ let home: SpinnerHome;
 interface Spawned {
     argv: string[];
     cwd: string;
+    env: Record<string, string>;
 }
 
 beforeEach(() => {
@@ -134,9 +135,14 @@ describe("AgentManager with PiRpcHarness", () => {
             "anthropic",
             "--model",
             "claude-x",
-            "--append-system-prompt",
-            join(summary.path, "agents", "backend", "BRIEF.md"),
+            "--extension",
+            default_extension_path(),
         ]);
+        expect(spawned.env).toMatchObject({
+            SPINNER_SESSION_DIR: summary.path,
+            SPINNER_AGENT: "backend",
+            SPINNER_ROLE: "worker",
+        });
         const agents_file = readFileSync(join(summary.path, "AGENTS.md"), "utf8");
         expect(agents_file).toContain(`${summary.path}/MISSION.md`);
         await expect(manager.add(summary, { name: "backend" })).rejects.toThrow(/already running/);
@@ -181,6 +187,23 @@ describe("AgentManager with PiRpcHarness", () => {
         expect(again.argv).toContain("backend");
         await manager.stop_all();
         await resumed.exited;
+        delete process.env["FAKE_PI_ARGS_FILE"];
+    });
+
+    it("appends the brief itself without an extension; the fixer gets its role", async () => {
+        const summary = create_session(home, { title: "Plain" });
+        mkdirSync(join(summary.path, "agents", "fixer"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "fixer", "BRIEF.md"), "# fixer\n");
+        const args_file = join(home.root, "args.json");
+        process.env["FAKE_PI_ARGS_FILE"] = args_file;
+        const harness = new PiRpcHarness({ pi: () => FAKE_PI, extension: null });
+        const manager = new AgentManager(home, harness, new EventBus());
+        await manager.add(summary, { name: "fixer" });
+        const spawned = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
+        expect(spawned.argv).toContain("--append-system-prompt");
+        expect(spawned.argv).not.toContain("--extension");
+        expect(spawned.env["SPINNER_ROLE"]).toBe("fixer");
+        await manager.stop_all();
         delete process.env["FAKE_PI_ARGS_FILE"];
     });
 });

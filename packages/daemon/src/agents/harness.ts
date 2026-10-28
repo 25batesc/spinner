@@ -103,7 +103,7 @@ export class PiRpcHarness implements AgentHarness {
         assert.ok(existsSync(brief), `${brief} does not exist`);
         const session_dir = join(session.path, agent_pi_dir(agent.name));
         mkdirSync(session_dir, { recursive: true });
-        const extra_args = ["--append-system-prompt", brief];
+        const extra_args: string[] = [];
         const skills = join(session.path, "skills");
         if (existsSync(skills) && has_entries(skills)) {
             extra_args.push("--skill", skills);
@@ -113,7 +113,10 @@ export class PiRpcHarness implements AgentHarness {
                 ? default_extension_path()
                 : this.options.extension;
         if (extension !== null && existsSync(extension)) {
+            // The extension puts the brief in its prompt section; without it, pi appends it.
             extra_args.push("--extension", extension);
+        } else {
+            extra_args.push("--append-system-prompt", brief);
         }
         const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
         const env: Record<string, string> = {

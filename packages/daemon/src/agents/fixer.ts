@@ -12,7 +12,7 @@ import { dirname } from "node:path";
 import type { PipelineConfig, SessionSummary, ThreadsView, ThreadView } from "@spinner/protocol";
 import type { FixerDriver } from "../actions.js";
 import type { SpinnerHome } from "../home.js";
-import { load_pipeline_config } from "../pipeline/config.js";
+import { config_for_session } from "../pipeline/poller.js";
 import { agent_brief_path } from "./harness.js";
 import type { AgentManager } from "./manager.js";
 
@@ -34,7 +34,7 @@ export function fixer_driver(deps: FixerDriverDeps): FixerDriver {
     const config_of =
         deps.config ??
         ((summary: SessionSummary) =>
-            load_pipeline_config(summary.session.project, deps.home, deps.cwd).config);
+            config_for_session(summary, deps.home, deps.cwd, () => undefined));
     return {
         async start_or_steer(summary, threads, log) {
             const config = config_of(summary);

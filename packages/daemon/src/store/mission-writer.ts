@@ -213,7 +213,10 @@ export class MissionWriter {
         const previous = this.chains.get(dir) ?? Promise.resolve();
         const run = previous.then(() => this.write_now(dir, request));
         // A failed write must not poison the chain for the next writer.
-        this.chains.set(dir, run.catch(() => undefined));
+        this.chains.set(
+            dir,
+            run.catch(() => undefined),
+        );
         return run;
     }
 

@@ -1,0 +1,26 @@
+{
+    "name": "@spinner/pi-extension",
+    "version": "0.0.0",
+    "private": true,
+    "description": "The Spinner pi extension: mission in the system prompt, mission_*, message, stack, pr and thread_* tools, an out-of-area edit guard, /spinner-reload.",
+    "license": "MIT",
+    "type": "module",
+    "main": "./src/index.ts",
+    "scripts": {
+        "build": "tsc -p tsconfig.json --noEmit",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@spinner/protocol": "workspace:*"
+    },
+    "peerDependencies": {
+        "typebox": "*"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "typebox": "1.3.27",
+        "typescript": "^5.9.0",
+        "vitest": "^3.2.0"
+    }
+}
