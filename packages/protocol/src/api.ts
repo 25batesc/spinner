@@ -24,7 +24,7 @@ export const ROUTES = {
     "GET /sessions/:dir": "SessionResponse",
     /** The raw MISSION.md of a session. Content-Type text/markdown. */
     "GET /sessions/:dir/mission": "text/markdown",
-    /** Create a session. Body: NewSessionRequest. The session exists at once; the job attaches the project. */
+    /** Create a session. Body: NewSessionRequest. The job creates it and attaches the project. */
     "POST /sessions": "JobResponse",
     /** Adopt PRs opened outside Spinner. Body: AdoptRequest. The job creates the session. */
     "POST /sessions/adopt": "JobResponse",
@@ -202,7 +202,7 @@ export interface AddAgentRequest {
     name: string;
     /** pi model id as `provider/model`. The harness default when absent. */
     model?: string;
-    /** Repo key of `session.repos`; the agent's cwd is that worktree. The session dir when absent. */
+    /** Repo key of `session.repos`; the agent runs in its worktree. The session dir when absent. */
     repo?: string;
 }
 

@@ -103,7 +103,11 @@ export type PiAssistantMessageEvent =
     | { type: "toolcall_start"; contentIndex: number; id: string; toolName: string }
     | { type: "toolcall_delta"; contentIndex: number; delta: string }
     | { type: "toolcall_end"; contentIndex: number; toolCall: PiToolCall }
-    | { type: "done"; reason: "stop" | "length" | "toolUse" | "deferred"; message: PiAssistantMessage }
+    | {
+          type: "done";
+          reason: "stop" | "length" | "toolUse" | "deferred";
+          message: PiAssistantMessage;
+      }
     | { type: "error"; reason: "aborted" | "error"; error: PiAssistantMessage };
 
 export type PiCompactionReason = "manual" | "threshold" | "overflow";
