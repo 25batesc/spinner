@@ -15,6 +15,8 @@ import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
     AgentCommandResponse,
+    AgentEventsResponse,
+    AgentNotRunningResponse,
     AgentResponse,
     ErrorResponse,
     HealthResponse,
@@ -32,6 +34,7 @@ import { DAEMON_HOST, DAEMON_PORT, EVENTS_PATH } from "@spinner/protocol";
 import * as actions from "./actions.js";
 import type { ActionContext } from "./actions.js";
 import { PiRpcHarness, type AgentHandle } from "./agents/harness.js";
+import { agent_history } from "./agents/history.js";
 import { AgentManager } from "./agents/manager.js";
 import { models_source } from "./agents/models.js";
 import { resolve_pi_binary } from "./agents/pi-rpc.js";
@@ -258,9 +261,24 @@ export function create_app(deps: AppDeps): Hono {
             if (typeof request === "string") {
                 return c.json(error_body(request), 400);
             }
-            const handle = running_agent(deps, c.req.param("dir"), c.req.param("name"));
+            const name = c.req.param("name");
+            const summary = find_session(deps.home, c.req.param("dir"));
+            if (summary === null) {
+                return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+            }
+            const handle = deps.agents.get(summary.dir, name);
             if (handle === null) {
-                return c.json(error_body(`agent ${c.req.param("name")} is not running`), 404);
+                // A listed but stopped agent is a 409 with its state, so the tab offers resume;
+                // an agent the session never had is a 404.
+                const listed = summary.session.agents?.[name];
+                if (listed === undefined) {
+                    return c.json(error_body(`agent ${name} is not in ${summary.dir}`), 404);
+                }
+                const body: AgentNotRunningResponse = {
+                    error: `agent ${name} is not running (${listed.process})`,
+                    process: listed.process,
+                };
+                return c.json(body, 409);
             }
             try {
                 const disposition = await handle[command](request.text);
@@ -290,6 +308,17 @@ export function create_app(deps: AppDeps): Hono {
             return c.json(error_body(describe_error(error)), 404);
         }
         const body: AgentCommandResponse = { ok: true };
+        return c.json(body);
+    });
+
+    app.get("/sessions/:dir/agents/:name/events", (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const body: AgentEventsResponse = {
+            events: agent_history(summary.path, c.req.param("name")),
+        };
         return c.json(body);
     });
 

@@ -24,6 +24,7 @@ import {
     type Log,
     type UpResult,
 } from "./stack/runner.js";
+import { list_projects } from "./projects.js";
 import { find_spec, load_spec } from "./stack/spec.js";
 import { create_session } from "./store/session-store.js";
 
@@ -35,6 +36,22 @@ export interface ActionContext {
 }
 
 /**
+ * A project as a path, a directory name under `local/` or `<home>/projects/`, or the `name:`
+ * of any spec `GET /projects` lists (so its names round-trip). Returns the spec path.
+ */
+export function resolve_project(ctx: ActionContext, project: string): string {
+    try {
+        return find_spec(project, ctx.home, ctx.cwd);
+    } catch (error) {
+        const match = list_projects(ctx.home, () => undefined).find((p) => p.name === project);
+        if (match === undefined) {
+            throw error;
+        }
+        return match.path;
+    }
+}
+
+/**
  * The synchronous half of `new`: the session directory exists when this returns, so the job
  * that follows has a session to belong to. The spec is loaded first, so a bad `--project`
  * fails before anything is written.
@@ -42,7 +59,7 @@ export interface ActionContext {
 export function new_session(ctx: ActionContext, input: NewSessionRequest): SessionSummary {
     assert.ok(input.title.trim().length > 0, "title must not be empty");
     if (input.project !== undefined) {
-        load_spec(find_spec(input.project, ctx.home, ctx.cwd));
+        load_spec(resolve_project(ctx, input.project));
     }
     const title = input.title;
     const slug = input.slug;
@@ -60,7 +77,7 @@ export async function attach_new_session(
     if (project === undefined) {
         return summary;
     }
-    const loaded = load_spec(find_spec(project, ctx.home, ctx.cwd));
+    const loaded = load_spec(resolve_project(ctx, project));
     const attached = await attach_project(summary, loaded, log);
     log(`project ${loaded.spec.name} attached; next: spinner up ${summary.session.id}`);
     return attached;
@@ -71,9 +88,10 @@ export async function adopt(
     input: AdoptRequest,
     log: Log,
 ): Promise<SessionSummary> {
+    const project = input.project === undefined ? undefined : resolve_project(ctx, input.project);
     const summary = await adopt_prs(ctx.home, {
         urls: input.urls,
-        ...(input.project === undefined ? {} : { project: input.project }),
+        ...(project === undefined ? {} : { project }),
         ...(input.title === undefined ? {} : { title: input.title }),
         cwd: ctx.cwd,
         gh: ctx.gh,

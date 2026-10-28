@@ -5,7 +5,13 @@
 
 import type { SpinnerEvent } from "./events.js";
 import type { PrFacts, StageResult } from "./pipeline.js";
-import type { HostProcess, SessionSummary, StackStateName } from "./session.js";
+import type { PiEvent } from "./agent-event.js";
+import type {
+    AgentProcessState,
+    HostProcess,
+    SessionSummary,
+    StackStateName,
+} from "./session.js";
 
 export const DAEMON_HOST = "127.0.0.1";
 export const DAEMON_PORT = 7777;
@@ -46,6 +52,8 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/abort": "AgentCommandResponse",
     /** Stop the agent's process. Its transcript stays and `resume` picks it up. */
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
+    /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
+    "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
     /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
@@ -134,6 +142,8 @@ export interface SessionView {
     stack: StackView;
     /** Names of agents whose pi process the daemon currently hosts. */
     agents_running: string[];
+    /** True while the stack is up: the operator can test and tick `verify`. */
+    can_verify: boolean;
 }
 
 export interface SessionsResponse {
@@ -223,6 +233,16 @@ export interface AgentResponse {
     name: string;
     /** pi's session id for the agent's transcript, for resume. */
     pi_session_id: string | null;
+}
+
+/** The 409 body of `prompt` or `steer` on an agent the daemon does not host. */
+export interface AgentNotRunningResponse extends ErrorResponse {
+    process: AgentProcessState;
+}
+
+/** The agent's past turns, as the `message_end` events the UI folds, oldest first. */
+export interface AgentEventsResponse {
+    events: PiEvent[];
 }
 
 export interface AgentCommandResponse {

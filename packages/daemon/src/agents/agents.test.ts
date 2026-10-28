@@ -15,6 +15,7 @@ import { EventBus } from "../event-bus.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { create_session } from "../store/session-store.js";
 import { PiRpcHarness } from "./harness.js";
+import { events_of_transcript } from "./history.js";
 import { AgentManager } from "./manager.js";
 import { models_of } from "./models.js";
 import { model_args, resolve_pi_binary, spawn_pi } from "./pi-rpc.js";
@@ -181,5 +182,24 @@ describe("AgentManager with PiRpcHarness", () => {
         await manager.stop_all();
         await resumed.exited;
         delete process.env["FAKE_PI_ARGS_FILE"];
+    });
+});
+
+describe("events_of_transcript", () => {
+    it("keeps user, assistant and toolResult messages as message_end, drops the rest", () => {
+        const text = [
+            JSON.stringify({ type: "session", version: 3 }),
+            JSON.stringify({ type: "model_change", provider: "a" }),
+            JSON.stringify({ type: "message", message: { role: "system", content: "s" } }),
+            JSON.stringify({
+                type: "message",
+                message: { role: "user", content: "u", timestamp: 1 },
+            }),
+            "not json",
+            "",
+        ].join("\n");
+        expect(events_of_transcript(text)).toEqual([
+            { type: "message_end", message: { role: "user", content: "u", timestamp: 1 } },
+        ]);
     });
 });

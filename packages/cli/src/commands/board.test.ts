@@ -113,12 +113,12 @@ describe("spinner adopt and verify argument checks", () => {
         expect(err.at(-1)).toMatch(/not a GitHub pull request URL/);
     });
 
-    it("verify needs an existing session with a PR", async () => {
+    it("verify needs an existing session; without a PR it ticks the worktree heads", async () => {
         expect(await run_cli(["verify"], io)).toBe(1);
         expect(err[0]).toMatch(/a session is required/);
         write_session("s001", "building", null, false);
-        expect(await run_cli(["verify", "s001"], io)).toBe(1);
-        expect(err.at(-1)).toMatch(/has no PR to verify/);
+        expect(await run_cli(["verify", "s001"], io)).toBe(0);
+        expect(out[0]).toBe("verified s001-x: ");
     });
 
     it("verify records the tick and re-derives the stage", async () => {

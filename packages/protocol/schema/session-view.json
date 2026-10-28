@@ -28,13 +28,18 @@
                         "type": "string"
                     },
                     "description": "Names of agents whose pi process the daemon currently hosts."
+                },
+                "can_verify": {
+                    "type": "boolean",
+                    "description": "True while the stack is up: the operator can test and tick `verify`."
                 }
             },
             "required": [
                 "summary",
                 "board",
                 "stack",
-                "agents_running"
+                "agents_running",
+                "can_verify"
             ],
             "additionalProperties": false,
             "description": "Everything the UI renders for one session. `GET /sessions` returns one per session and `session.updated` carries a fresh one on every change, so the UI never polls."

@@ -50,6 +50,7 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         board: build_board(ctx, summary),
         stack: build_stack(summary, spec, ctx.observation(summary.dir)),
         agents_running: ctx.agents_running(summary.dir),
+        can_verify: summary.session.stack?.state === "up",
     };
 }
 

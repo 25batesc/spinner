@@ -11,6 +11,7 @@ import { WebSocket } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
     AgentCommandResponse,
+    AgentEventsResponse,
     AgentResponse,
     JobResponse,
     JobsResponse,
@@ -20,6 +21,7 @@ import type {
     SessionsResponse,
     SpinnerEvent,
 } from "@spinner/protocol";
+import { resolve_project } from "./actions.js";
 import { resolve_home, type SpinnerHome } from "./home.js";
 import { start_daemon, type Daemon, type DaemonOptions } from "./server.js";
 import { create_session } from "./store/session-store.js";
@@ -107,6 +109,7 @@ describe("REST", () => {
         expect(one.sessions.map((entry) => entry.summary.dir)).toEqual(["s001-alpha"]);
         expect(one.sessions[0]?.summary.session.title).toBe("Alpha");
         expect(one.sessions[0]?.board).toBeNull();
+        expect(one.sessions[0]?.can_verify).toBe(false);
         expect(one.sessions[0]?.stack).toEqual({
             state: "none",
             project: null,
@@ -177,6 +180,15 @@ describe("REST", () => {
         expect(not_json.status).toBe(400);
     });
 
+    it("a project name from GET /projects resolves to its spec path", async () => {
+        const body = (await (await fetch(`${base}/projects`)).json()) as ProjectsResponse;
+        const sample = body.projects.find((project) => project.name === "sample");
+        const ctx = { home, cwd: home.root, gh: () => Promise.reject(new Error("no gh")) };
+        expect(resolve_project(ctx, "sample")).toBe(sample?.path);
+        expect(resolve_project(ctx, sample?.path ?? "")).toBe(sample?.path);
+        expect(() => resolve_project(ctx, "no-such-project")).toThrow(/not found/);
+    });
+
     it("POST /sessions with an unknown project fails before writing anything", async () => {
         const response = await fetch(`${base}/sessions`, {
             method: "POST",
@@ -188,7 +200,7 @@ describe("REST", () => {
         expect(listed.sessions).toEqual([]);
     });
 
-    it("POST /sessions/:dir/verify runs as a job and reports the failure", async () => {
+    it("POST /sessions/:dir/verify runs as a job and ticks a session without a PR", async () => {
         create_session(home, { title: "Alpha" });
         const client = await connect("http://localhost:5173");
         const events: SpinnerEvent[] = [];
@@ -199,7 +211,12 @@ describe("REST", () => {
         expect(job.session).toBe("s001-alpha");
         await until(() => events.some((event) => event.type === "job.finished"));
         const finished = events.find((event) => event.type === "job.finished");
-        expect(finished).toMatchObject({ ok: false, error: "session s001 has no PR to verify" });
+        expect(finished).toMatchObject({ ok: true });
+        const view = (await (await fetch(`${base}/sessions/s001-alpha`)).json()) as SessionResponse;
+        expect(view.session.summary.session.pipeline).toMatchObject({
+            verified_locally: true,
+            verified_heads: {},
+        });
         expect((await fetch(`${base}/sessions/nope/verify`, { method: "POST" })).status).toBe(404);
         client.close();
     });
@@ -283,7 +300,31 @@ describe("agents", () => {
         expect((await post("/sessions/s001-alpha/agents/backend/stop")).status).toBe(200);
         await until(() => events.some((event) => event.type === "agent.exited"));
         const gone = await post("/sessions/s001-alpha/agents/backend/prompt", { text: "x" });
-        expect(gone.status).toBe(404);
+        expect(gone.status).toBe(409);
+        expect(await gone.json()).toMatchObject({ process: "exited" });
+        const never = await post("/sessions/s001-alpha/agents/nobody/prompt", { text: "x" });
+        expect(never.status).toBe(404);
+
+        const transcript = join(summary.path, "agents", "backend", "pi", "t.jsonl");
+        writeFileSync(
+            transcript,
+            [
+                JSON.stringify({ type: "session", version: 3, id: "backend" }),
+                JSON.stringify({ type: "message", message: { role: "system", content: "" } }),
+                JSON.stringify({
+                    type: "message",
+                    id: "b",
+                    message: { role: "user", content: "hi", timestamp: 1 },
+                }),
+                "",
+            ].join("\n"),
+        );
+        const history = await fetch(`${base}/sessions/s001/agents/backend/events`);
+        expect(((await history.json()) as AgentEventsResponse).events).toEqual([
+            { type: "message_end", message: { role: "user", content: "hi", timestamp: 1 } },
+        ]);
+        const none = await fetch(`${base}/sessions/s001/agents/nobody/events`);
+        expect(((await none.json()) as AgentEventsResponse).events).toEqual([]);
 
         const models = (await (await fetch(`${base}/models`)).json()) as ModelsResponse;
         expect(models.models.map((model) => model.id)).toEqual(["claude-x", "gpt-y"]);
