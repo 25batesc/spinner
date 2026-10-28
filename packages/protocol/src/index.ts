@@ -9,3 +9,5 @@ export * from "./events.js";
 export * from "./api.js";
 export * from "./pipeline.js";
 export * from "./agent-event.js";
+export * from "./threads.js";
+export * from "./extension.js";

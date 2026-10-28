@@ -44,6 +44,7 @@ export function pipeline_config_from_spec(spec: Pick<StackSpec, "pipeline">): Pi
                 human_author: roles(policy["human_author"]) ?? default_policy.human_author,
                 bot_author: roles(policy["bot_author"]) ?? default_policy.bot_author,
             },
+            write_repos: string_list(github["write_repos"]) ?? defaults.github.write_repos,
             merge_queue: github["merge_queue"] === "github" ? "github" : "none",
             poll_seconds: positive_number(github["poll_seconds"]) ?? defaults.github.poll_seconds,
         },

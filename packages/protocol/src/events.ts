@@ -48,12 +48,20 @@ export interface PrUpdatedEvent extends EventBase {
     pr: PullRequest;
 }
 
+/**
+ * `threads/<repo>-<n>.md` was re-rendered. The lists carry thread labels (`T3`) that changed
+ * state since the previous render; a first render lists every open thread as opened.
+ */
 export interface ThreadsUpdatedEvent extends EventBase {
     type: "threads.updated";
     repo: string;
     number: number;
     opened: string[];
     resolved: string[];
+    /** Labels flagged since the previous render. */
+    flagged: string[];
+    /** The rendered file, relative to the session directory. */
+    file: string;
 }
 
 export interface QueuePoppedEvent extends EventBase {
@@ -135,6 +143,25 @@ export interface InboxMessageEvent extends EventBase {
     subject: string;
 }
 
+/** How the daemon delivered an `inbox/` file or a mission-change notice to one agent. */
+export type DeliveryKind =
+    /** Sent as a pi steer to a running agent. */
+    | "steer"
+    /** Prepended to the next prompt of an idle agent. */
+    | "prompt"
+    /** Appended to the Log and shown in the UI: the recipient is `operator`. */
+    | "log";
+
+/** One delivery of an inbox message, or of the debounced "MISSION.md changed" steer. */
+export interface MessageDeliveredEvent extends EventBase {
+    type: "message.delivered";
+    /** File name in `inbox/`, or null for a mission-change steer. */
+    file: string | null;
+    /** The agent the message went to, or `operator`. */
+    agent: string;
+    how: DeliveryKind;
+}
+
 /**
  * Job events carry the job's session, which is null for `adopt` until the job created it.
  * Every other event names an existing session.
@@ -183,7 +210,8 @@ export type SpinnerEvent =
     | StackStateEvent
     | StackLogEvent
     | MissionChangedEvent
-    | InboxMessageEvent;
+    | InboxMessageEvent
+    | MessageDeliveredEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
 
@@ -206,6 +234,7 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "stack.log",
     "mission.changed",
     "inbox.message",
+    "message.delivered",
     "job.started",
     "job.log",
     "job.finished",

@@ -9,9 +9,11 @@ import type { PiEvent } from "./agent-event.js";
 import type {
     AgentProcessState,
     HostProcess,
+    PrState,
     SessionSummary,
     StackStateName,
 } from "./session.js";
+import type { ThreadView, ThreadsView } from "./threads.js";
 
 export const DAEMON_HOST = "127.0.0.1";
 export const DAEMON_PORT = 7777;
@@ -42,6 +44,40 @@ export const ROUTES = {
     "POST /sessions/:dir/close": "JobResponse",
     /** Record the operator's local test of the session's PRs. Body: VerifyRequest (optional). */
     "POST /sessions/:dir/verify": "JobResponse",
+    /** Push every changed repo and open one PR per repo as the operator. Body: PrRequest. */
+    "POST /sessions/:dir/pr": "JobResponse",
+    /** Render `threads/` from GitHub, then start or steer the fixer agent. Body: FixRequest. */
+    "POST /sessions/:dir/fix": "JobResponse",
+    /** The review threads of every PR, from the last render. 404 without a session. */
+    "GET /sessions/:dir/threads": "ThreadsResponse",
+    /** Re-render `threads/` from GitHub now and return it. */
+    "POST /sessions/:dir/threads/refresh": "ThreadsResponse",
+    /** Reply in a thread as the operator. Body: ThreadReplyRequest. */
+    "POST /sessions/:dir/threads/:id/reply": "ThreadResponse",
+    /** Resolve a thread. 409 without a reply, or for a human thread when `resolve_human` is off. */
+    "POST /sessions/:dir/threads/:id/resolve": "ThreadResponse",
+    /** Flag a thread for the operator. Body: ThreadFlagRequest. */
+    "POST /sessions/:dir/threads/:id/flag": "ThreadResponse",
+    /** The composed Slack message, before anything is sent. */
+    "GET /sessions/:dir/post": "PostResponse",
+    /** Post the composed message. Body: PostRequest with `confirm: true`; 400 otherwise. */
+    "POST /sessions/:dir/post": "JobResponse",
+    /** What `approve` would submit: head, diff stat and open threads per PR. */
+    "GET /sessions/:dir/approve": "ApproveResponse",
+    /** Submit the operator's approving review. Body: ApproveRequest with `confirm: true`. */
+    "POST /sessions/:dir/approve": "JobResponse",
+    /** Enqueue every PR with its head, watch, rebase and re-enqueue on a pop-out. */
+    "POST /sessions/:dir/land": "JobResponse",
+    /** Start the next round: new branch from fresh base, facts cleared, mission history kept. */
+    "POST /sessions/:dir/reset": "JobResponse",
+    /** Write one section of MISSION.md. Body: MissionSectionRequest. The daemon serializes. */
+    "PUT /sessions/:dir/mission/section": "MissionSectionResponse",
+    /** Write an `inbox/` message and deliver it. Body: InboxMessageRequest. */
+    "POST /sessions/:dir/inbox": "InboxMessageResponse",
+    /** The agent's context-file chain and loaded commands. */
+    "GET /sessions/:dir/agents/:name/context": "ContextResponse",
+    /** Write one context file of the chain. Body: ContextFileRequest. */
+    "PUT /sessions/:dir/agents/:name/context": "ContextFileResponse",
     /** Add an agent from a brief and start it. Body: AddAgentRequest. 201 when the brief exists. */
     "POST /sessions/:dir/agents": "AgentResponse",
     /** Send a prompt to a running agent. Body: AgentMessageRequest. */
@@ -155,9 +191,34 @@ export interface SessionResponse {
 }
 
 /** The actions the daemon runs as jobs. */
-export type JobAction = "new" | "adopt" | "up" | "down" | "close" | "verify";
+export type JobAction =
+    | "new"
+    | "adopt"
+    | "up"
+    | "down"
+    | "close"
+    | "verify"
+    | "pr"
+    | "fix"
+    | "post"
+    | "approve"
+    | "land"
+    | "reset";
 
-export const JOB_ACTIONS: readonly JobAction[] = ["new", "adopt", "up", "down", "close", "verify"];
+export const JOB_ACTIONS: readonly JobAction[] = [
+    "new",
+    "adopt",
+    "up",
+    "down",
+    "close",
+    "verify",
+    "pr",
+    "fix",
+    "post",
+    "approve",
+    "land",
+    "reset",
+];
 
 export type JobState = "running" | "ok" | "failed";
 
@@ -214,6 +275,159 @@ export interface UpRequest {
 export interface VerifyRequest {
     /** Who ticked. Defaults to the daemon's user. */
     by?: string;
+}
+
+export interface PrRequest {
+    /** Repo keys to open PRs for. Every repo with commits ahead of its base when absent. */
+    repos?: string[];
+    /** Open as draft PRs; the stage then stays `building`. */
+    draft?: boolean;
+}
+
+export interface FixRequest {
+    /** Repo key of one PR. Every PR with open threads when absent. */
+    pr?: string;
+}
+
+export interface ThreadsResponse {
+    threads: ThreadsView;
+}
+
+export interface ThreadReplyRequest {
+    text: string;
+}
+
+export interface ThreadFlagRequest {
+    reason: string;
+}
+
+/** The thread after a reply, resolve or flag, re-read from GitHub. */
+export interface ThreadResponse {
+    repo: string;
+    number: number;
+    thread: ThreadView;
+}
+
+/** One PR as the Slack post and the approval dialog list it. */
+export interface PrLink {
+    repo: string;
+    number: number;
+    url: string;
+    title: string;
+    state: PrState;
+}
+
+/** `GET /sessions/:dir/post`: the message `post` would send, and whether it may. */
+export interface PostView {
+    /** Slack channel id from `pipeline.slack.channel`, or null when none is configured. */
+    channel: string | null;
+    /** The composed message, Slack mrkdwn. */
+    text: string;
+    /** The reviewer the message tags, from `PostRequest.to` or `pipeline.reviewer`. */
+    reviewer: string | null;
+    prs: PrLink[];
+    /** `slack` with `SLACK_USER_TOKEN` in the daemon's environment; `fixture` without it. */
+    transport: "slack" | "fixture";
+    /** Why `post` would refuse (no channel, no PR, not verified), or null when it may post. */
+    blocked: string | null;
+    /** The post already made this round, from `pipeline.slack_post`; null before `post`. */
+    posted: string | null;
+}
+
+export interface PostResponse {
+    post: PostView;
+}
+
+export interface PostRequest {
+    /** The operator saw the composed message and said yes. The route refuses `false`. */
+    confirm: true;
+    /** Reviewer to tag, as a Slack user id or `@name`. */
+    to?: string;
+}
+
+/** Lines changed by one PR, from `gh pr diff --stat`. */
+export interface DiffStat {
+    files: number;
+    additions: number;
+    deletions: number;
+}
+
+/** What the operator approves for one PR; `approvable` is false with a reason otherwise. */
+export interface ApprovePrView extends PrLink {
+    head: string;
+    diff: DiffStat;
+    open_threads: number;
+    /** True when the operator already approved this head, so a second review is refused. */
+    approved: boolean;
+    /** Null when `approve` may submit; else why not (open threads, author is you, done). */
+    blocked: string | null;
+}
+
+export interface ApproveView {
+    prs: ApprovePrView[];
+}
+
+export interface ApproveResponse {
+    approve: ApproveView;
+}
+
+export interface ApproveRequest {
+    /** The operator saw head, diff stat and open-thread count and said yes. */
+    confirm: true;
+    /** Repo key of one PR. Every approvable PR when absent. */
+    pr?: string;
+}
+
+export interface LandRequest {
+    /** Repo key of one PR. Every PR when absent. */
+    pr?: string;
+}
+
+export interface ResetRequest {
+    /** Branch for the next round. `<branch>-r<round>` when absent. */
+    branch?: string;
+}
+
+/** Where a context file sits in the chain, from least to most specific. */
+export type ContextScope = "user" | "session" | "repo" | "directory";
+
+export interface ContextFileView {
+    /** Absolute path. */
+    path: string;
+    scope: ContextScope;
+    /** False for a position in the chain where no file exists yet. */
+    exists: boolean;
+    /** True when a git repository tracks the file: an edit changes the branch. */
+    tracked: boolean;
+    content: string;
+}
+
+/** A command the agent loaded: a skill, a prompt template or an extension command. */
+export interface AgentCommandView {
+    name: string;
+    kind: "skill" | "template" | "extension";
+    /** Source file, when pi reports one. */
+    path: string | null;
+    description: string;
+}
+
+/** `GET /sessions/:dir/agents/:name/context`. */
+export interface ContextResponse {
+    files: ContextFileView[];
+    /** Empty while the agent is not running: pi reports commands only through RPC. */
+    commands: AgentCommandView[];
+}
+
+export interface ContextFileRequest {
+    /** One of `ContextFileView.path`. */
+    path: string;
+    content: string;
+}
+
+export interface ContextFileResponse {
+    file: ContextFileView;
+    /** True when the daemon restarted the agent so the edit reaches its next turn. */
+    reloaded: boolean;
 }
 
 export interface AddAgentRequest {

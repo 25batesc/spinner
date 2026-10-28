@@ -27,6 +27,12 @@ export interface GithubConfig {
     approval_policy: ApprovalPolicy;
     /** The operator's login. Read from `gh api user` at runtime when absent. */
     owner_login?: string;
+    /**
+     * Repositories Spinner may write to (`owner/name`): push, open a PR, reply, resolve,
+     * approve, enqueue, merge. Every GitHub write checks this list first and refuses a repo
+     * that is not on it. Empty by default, so a fresh install can only read.
+     */
+    write_repos: string[];
     merge_queue: MergeQueueKind;
     poll_seconds: number;
 }
@@ -56,6 +62,7 @@ export const PIPELINE_CONFIG_DEFAULTS: PipelineConfig = {
     github: {
         bot_logins: [],
         approval_policy: { human_author: ["peer"], bot_author: ["peer", "owner"] },
+        write_repos: [],
         merge_queue: "none",
         poll_seconds: 60,
     },

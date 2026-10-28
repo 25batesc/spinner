@@ -67,7 +67,13 @@
                 "up",
                 "down",
                 "close",
-                "verify"
+                "verify",
+                "pr",
+                "fix",
+                "post",
+                "approve",
+                "land",
+                "reset"
             ],
             "description": "The actions the daemon runs as jobs."
         },

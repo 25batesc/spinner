@@ -42,6 +42,8 @@ export interface PrThreads {
     bots_open: number;
     humans_open: number;
     resolved: number;
+    /** Open threads the fixer flagged for the operator. Absent in files written before s005. */
+    flagged?: number;
 }
 
 export interface PullRequest {
@@ -62,6 +64,8 @@ export interface PullRequest {
     queue_reason?: string | null;
     /** ISO 8601 timestamp of the last activity on the PR. */
     last_activity: string;
+    /** PR title, as `gh pr create` set it or GitHub reports it. Absent before s005. */
+    title?: string;
 }
 
 export interface SessionRepo {
@@ -88,6 +92,10 @@ export interface Pipeline {
     verified_by?: string;
     slack_post: string | null;
     reviewer?: string | null;
+    /** When `spinner post` sent the message. Absent until then. */
+    posted_at?: string;
+    /** Repo name to head SHA the operator approved through `spinner approve`. */
+    approved_heads?: Record<string, string>;
 }
 
 /** Stack state, as the daemon observes it. `none` means the session has no stack. */
@@ -141,6 +149,8 @@ export interface Session {
     needs_human: string | null;
     branch: string;
     base: string;
+    /** Round number; 1 until the first `spinner reset`. Absent in files written before s005. */
+    round?: number;
     repos: Record<string, SessionRepo>;
     pipeline?: Pipeline;
     stack: StackState;
