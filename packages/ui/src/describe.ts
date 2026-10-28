@@ -41,6 +41,8 @@ export function describeEvent(event: SpinnerEvent): string | null {
             return `${event.author} changed ${event.sections.join(", ")}`;
         case "inbox.message":
             return `${event.from} \u2192 ${event.to}: ${event.subject}`;
+        case "message.delivered":
+            return `message ${event.file ?? "mission change"} reached ${event.agent} (${event.how})`;
         case "job.started":
             return `${event.data.action} started`;
         case "job.finished":
