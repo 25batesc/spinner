@@ -96,6 +96,18 @@ export interface Pipeline {
     posted_at?: string;
     /** Repo name to head SHA the operator approved through `spinner approve`. */
     approved_heads?: Record<string, string>;
+    /** Replies and reactions under the Slack post, as the daemon last polled them. */
+    slack_activity?: SlackActivity;
+}
+
+/** What the daemon reads under the session's Slack post. Read-only; counts drive the board. */
+export interface SlackActivity {
+    replies: number;
+    reactions: number;
+    /** ISO 8601 time of the latest reply or reaction, or null when there is none. */
+    last_activity: string | null;
+    /** ISO 8601 time of the poll that produced these counts. */
+    polled_at: string;
 }
 
 /** Stack state, as the daemon observes it. `none` means the session has no stack. */

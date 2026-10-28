@@ -108,8 +108,11 @@ function has_reviewer_activity(pr: PrFacts): boolean {
     return pr.threads.humans_open > 0 || pr.approval_check === "pass";
 }
 
+/** Quiet time counts from the later of the PR's and the Slack post's last activity. */
 function is_stale(pr: PrFacts, facts: PipelineFacts): boolean {
-    const last = Date.parse(pr.last_activity);
+    const pr_last = Date.parse(pr.last_activity);
+    const slack_last = Date.parse(facts.pipeline.slack_activity?.last_activity ?? "");
+    const last = Number.isNaN(slack_last) ? pr_last : Math.max(pr_last, slack_last);
     const now = Date.parse(facts.now);
     assert.ok(!Number.isNaN(last), `last_activity "${pr.last_activity}" is not a timestamp`);
     assert.ok(!Number.isNaN(now), `now "${facts.now}" is not a timestamp`);

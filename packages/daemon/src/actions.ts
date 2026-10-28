@@ -3,10 +3,13 @@
 // and commands call these and nothing else, so the two surfaces cannot drift.
 import assert from "node:assert/strict";
 import { userInfo } from "node:os";
+import { join } from "node:path";
 import type {
     AdoptRequest,
     FixRequest,
     NewSessionRequest,
+    PostRequest,
+    PostView,
     PrRequest,
     SessionSummary,
     ThreadResponse,
@@ -23,7 +26,9 @@ import {
     type GithubWriter,
 } from "./pipeline/github-write.js";
 import { config_for } from "./pipeline/poller.js";
+import { post_message, post_view } from "./pipeline/post.js";
 import { open_prs, type PrOutcome } from "./pipeline/pr.js";
+import { slack_client_from_env, type SlackClient } from "./pipeline/slack.js";
 import {
     flag_thread,
     read_threads,
@@ -66,6 +71,12 @@ export interface ActionContext {
     fixer?: FixerDriver;
     /** Where `SLACK_USER_TOKEN` is read from. `process.env` when absent. */
     env?: NodeJS.ProcessEnv;
+}
+
+/** The Slack client for a session: real with `SLACK_USER_TOKEN`, else the fixture. */
+export function slack_of(ctx: ActionContext, summary: SessionSummary): SlackClient {
+    const record_dir = join(summary.path, "artifacts");
+    return slack_client_from_env(ctx.env ?? process.env, record_dir);
 }
 
 /** The context's writer, or the real `gh` and `git`. */
@@ -185,6 +196,34 @@ export async function pr(
     const needs = result.summary.session.needs_human ?? "-";
     log(`stage: ${result.summary.session.stage}; needs_human: ${needs}`);
     return result.outcomes;
+}
+
+/** `GET .../post`: the composed message and whether `post` may send it. No Slack call. */
+export function post_preview(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    to: string | undefined,
+): PostView {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, () => {});
+    return post_view(summary, config, slack_of(ctx, summary), to);
+}
+
+/** `spinner post --yes` / `POST .../post {confirm: true}`: send the composed message. */
+export async function post(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: PostRequest,
+    log: Log,
+): Promise<PostView> {
+    const config = config_for(summary.session, ctx.home, ctx.cwd, log);
+    const result = await post_message(ctx.home, summary, input, {
+        config,
+        slack: slack_of(ctx, summary),
+        log,
+    });
+    const needs = result.summary.session.needs_human ?? "-";
+    log(`stage: ${result.summary.session.stage}; needs_human: ${needs}`);
+    return result.view;
 }
 
 function threads_deps(ctx: ActionContext, summary: SessionSummary, log: Log): ThreadsDeps {

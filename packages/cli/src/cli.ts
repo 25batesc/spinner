@@ -6,12 +6,19 @@ import { resolve_home } from "@spinner/daemon";
 import type { CliIo, Command } from "./commands/command.js";
 import { fix_command } from "./commands/fix.js";
 import { PIPELINE_COMMANDS } from "./commands/pipeline.js";
+import { post_command } from "./commands/post.js";
 import { pr_command } from "./commands/pr.js";
 import { STACK_COMMANDS } from "./commands/stack.js";
 
 export type { CliIo } from "./commands/command.js";
 
-const COMMANDS: Command[] = [...STACK_COMMANDS, ...PIPELINE_COMMANDS, pr_command, fix_command];
+const COMMANDS: Command[] = [
+    ...STACK_COMMANDS,
+    ...PIPELINE_COMMANDS,
+    pr_command,
+    fix_command,
+    post_command,
+];
 
 export const USAGE = render_usage(COMMANDS);
 

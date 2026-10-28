@@ -15,6 +15,8 @@ import {
     type GhRunner,
 } from "./github.js";
 import type { Notifier } from "./notify.js";
+import { poll_slack_activity } from "./post.js";
+import type { SlackClient } from "./slack.js";
 import {
     read_pr_threads,
     threads_from_response,
@@ -30,6 +32,8 @@ export interface PollOptions {
     cwd: string;
     now?: () => Date;
     log?: (line: string) => void;
+    /** Reads replies under a session's Slack post. No Slack poll when absent. */
+    slack?: (summary: SessionSummary) => SlackClient;
 }
 
 export interface PollReport {
@@ -117,6 +121,10 @@ async function poll_session(
     const changed = JSON.stringify(refreshed.session) !== JSON.stringify(entry.session);
     if (changed) {
         write_session({ ...entry, session: refreshed.session });
+    }
+    if (options.slack !== undefined && session.pipeline?.slack_post) {
+        const current = { ...entry, session: refreshed.session };
+        await poll_slack_activity(current, options.slack(current), config, now);
     }
     if (refreshed.transition !== null) {
         const message = transition_message(refreshed.session, refreshed.transition);

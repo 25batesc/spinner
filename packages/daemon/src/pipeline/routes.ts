@@ -11,6 +11,7 @@ import type {
     JobResponse,
     LandRequest,
     PostRequest,
+    PostResponse,
     PrRequest,
     ResetRequest,
     SessionSummary,
@@ -107,6 +108,31 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
             actions.thread_resolve(deps.ctx, summary, { thread, ...pr }, no_log),
         ),
     );
+
+    app.get("/sessions/:dir/post", (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const body: PostResponse = {
+            post: actions.post_preview(deps.ctx, summary, c.req.query("to")),
+        };
+        return c.json(body);
+    });
+
+    app.post("/sessions/:dir/post", async (c) => {
+        const request = parse_post(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        return start_job(c, deps, "post", summary.dir, (log) =>
+            actions.post(deps.ctx, summary, request, log).then(() => {}),
+        );
+    });
 
     app.post("/sessions/:dir/threads/:id/flag", async (c) => {
         const request = parse_thread_flag(await json_body(c));

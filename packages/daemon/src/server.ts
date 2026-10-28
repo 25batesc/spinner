@@ -530,7 +530,13 @@ function start_github_poller(
     }
     return start_poller(
         options.home,
-        { gh: ctx.gh, notify: options.notify ?? macos_notifier, cwd: ctx.cwd, log },
+        {
+            gh: ctx.gh,
+            notify: options.notify ?? macos_notifier,
+            cwd: ctx.cwd,
+            log,
+            slack: (summary) => actions.slack_of(ctx, summary),
+        },
         seconds * 1000,
         (report) => {
             for (const failure of report.errors) {
