@@ -42,6 +42,7 @@ import { EventBus } from "./event-bus.js";
 import type { SpinnerHome } from "./home.js";
 import { JobRunner, type JobWork } from "./jobs/jobs.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
+import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { start_poller, type Poller } from "./pipeline/poller.js";
 import { mount_pipeline_routes } from "./pipeline/routes.js";
@@ -78,6 +79,8 @@ export interface DaemonOptions {
     cwd?: string;
     /** The `gh` runner and the notifier of the poller; tests pass fakes. */
     gh?: GhRunner;
+    /** `gh` and `git` for GitHub writes, behind the allow-list; tests pass fakes. */
+    writer?: GithubWriter;
     notify?: Notifier;
     /** GitHub poll interval. 0 disables the poller. */
     poll_seconds?: number;
@@ -423,7 +426,13 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const started = new Date().toISOString();
     const bus = new EventBus();
     const jobs = new JobRunner(bus);
-    const ctx: ActionContext = { home, cwd, gh: options.gh ?? gh_runner };
+    const ctx: ActionContext = {
+        home,
+        cwd,
+        gh: options.gh ?? gh_runner,
+        ...(options.writer === undefined ? {} : { writer: options.writer }),
+        ...(options.notify === undefined ? {} : { notify: options.notify }),
+    };
 
     const pi = (): string => options.pi ?? resolve_pi_binary();
     const harness = new PiRpcHarness({
