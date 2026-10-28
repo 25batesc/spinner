@@ -20,6 +20,7 @@ import {
 } from "./github.js";
 import { github_write, repo_of_checkout, type GithubWriter } from "./github-write.js";
 import { append_log_line, pr_body_from_mission } from "./mission-sections.js";
+import { threads_from_response, with_flagged, write_pr_threads } from "./threads.js";
 import { apply_pr_facts, refresh_session } from "./tracker.js";
 
 export type Log = (line: string) => void;
@@ -98,9 +99,14 @@ export async function open_prs(
         const ref = parse_pr_url(url);
         assert.ok(ref !== null, `gh pr create printed no PR URL: ${stdout.trim()}`);
         const response = await fetch_pr_response(deps.gh, ref);
-        const facts = pr_facts_from_response(response, { config: deps.config.github, owner_login });
+        const context = { config: deps.config.github, owner_login };
+        const facts = pr_facts_from_response(response, context);
         facts.title = response.data.repository.pullRequest.title;
-        session = apply_pr_facts(session, repo, facts);
+        // The first `threads/` render comes from the same response, so the fixer and the UI
+        // see the PR's threads before the first poll.
+        const view = threads_from_response(repo, response, context, null);
+        write_pr_threads(summary, view, null);
+        session = apply_pr_facts(session, repo, with_flagged(facts, view.flagged));
         outcomes.push({ repo, outcome: "opened", url });
     }
     const refreshed = refresh_session(summary.session, session, deps.config, now());

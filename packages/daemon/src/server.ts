@@ -81,6 +81,8 @@ export interface DaemonOptions {
     gh?: GhRunner;
     /** `gh` and `git` for GitHub writes, behind the allow-list; tests pass fakes. */
     writer?: GithubWriter;
+    /** `land`'s wait between looks at the merge queue; tests shorten it. */
+    land_poll_ms?: number;
     notify?: Notifier;
     /** GitHub poll interval. 0 disables the poller. */
     poll_seconds?: number;
@@ -432,6 +434,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         gh: options.gh ?? gh_runner,
         ...(options.writer === undefined ? {} : { writer: options.writer }),
         ...(options.notify === undefined ? {} : { notify: options.notify }),
+        ...(options.land_poll_ms === undefined ? {} : { land_poll_ms: options.land_poll_ms }),
     };
 
     const pi = (): string => options.pi ?? resolve_pi_binary();

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Binary entry point: `spinnerd`. Reads SPINNER_HOME, SPINNER_PORT, SPINNER_UI_DIR,
-// SPINNER_POLL_SECONDS and SPINNER_NOTIFY from the environment, starts the daemon and stops
-// it on SIGINT or SIGTERM.
+// SPINNER_POLL_SECONDS, SPINNER_NOTIFY and SPINNER_GITHUB_FIXTURE from the environment,
+// starts the daemon and stops it on SIGINT or SIGTERM.
 import { resolve } from "node:path";
 import { resolve_home } from "./home.js";
+import { github_fixture } from "./pipeline/github-fixture.js";
 import { silent_notifier } from "./pipeline/notify.js";
 import { start_daemon, type DaemonOptions } from "./server.js";
 
@@ -23,6 +24,12 @@ if (ui_dir !== undefined && ui_dir !== "") {
 }
 if (process.env["SPINNER_NOTIFY"] === "off") {
     options.notify = silent_notifier;
+}
+const github_fixture_dir = process.env["SPINNER_GITHUB_FIXTURE"]; // engine: fake gh for UI/ext runs
+if (github_fixture_dir !== undefined && github_fixture_dir !== "") {
+    const fixture = github_fixture(resolve(github_fixture_dir));
+    options.gh = fixture.gh;
+    options.writer = fixture.writer;
 }
 
 const daemon = await start_daemon(options);

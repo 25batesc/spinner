@@ -52,3 +52,4 @@ export {
     type ThreadsDeps,
     type ThreadsDiff,
 } from "./threads.js";
+export { github_fixture, type GithubFixture } from "./github-fixture.js";

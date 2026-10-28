@@ -1,0 +1,359 @@
+{
+  "_source": "gh api graphql, 2026-10-27, scrubbed: logins, bodies, title, head ref, URLs",
+  "_shape": "open PR, human-authored, two open bot threads, some checks cancelled, approval check waiting. Stage: fixing.",
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "number": 4825,
+        "url": "https://github.com/acme/backend/pull/4825",
+        "title": "feat: example feature from a real PR, title scrubbed",
+        "isDraft": false,
+        "state": "OPEN",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "author": {
+          "login": "human-1"
+        },
+        "baseRefName": "develop",
+        "headRefName": "feat/example-feature",
+        "headRefOid": "8546f470e47ef9b34864c0662adab04a4bc6625a",
+        "updatedAt": "2026-10-27T02:41:16Z",
+        "mergeQueueEntry": null,
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "8546f470e47ef9b34864c0662adab04a4bc6625a",
+                "statusCheckRollup": {
+                  "state": "FAILURE",
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Flat Layout (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "CANCELLED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766373/job/121977039278"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Flat Layout (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "CANCELLED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439771495/job/121977057719"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "CANCELLED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766241/job/121977039045"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "CANCELLED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439771435/job/121977058399"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "CANCELLED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439850756/job/121977316821"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Devin Review Gate tests",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766573/job/121977039502"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Flat Layout (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439775723/job/121977071232"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439775599/job/121977071132"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Evaluate independent approval",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439851027/job/121977324123"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766339/job/121977038708"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766321/job/121977039080"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Sonar Quality Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766284/job/121977038594"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Check Changed Paths",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977040106"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Devin Review Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766573/job/121977041168"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "migration-info / apply-migrations",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766339/job/121977140113"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "ORM vs Migrations",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766321/job/121977169490"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Lint & Format (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977146930"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "migration-info / notify-on-failure",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766339/job/121977140123"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Build AI Test Image (build)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977149061"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Schema Drift Gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766321/job/121977168121"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Build AI Test Image",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147510"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Type Check (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147473"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Move Snapshot (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147355"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 gateway-1",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147564"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 gateway-2",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147534"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 gateway-3",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147477"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-1",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147596"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-2",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147562"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-3",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147604"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit Tests (apps/ai) \u2014 agents-shared-4",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977147497"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "PPTX Render Backstop (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977149618"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "All Checks Passed (apps/ai)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/backend/actions/runs/40439766552/job/121977626552"
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "Independent approval",
+                        "state": "SUCCESS",
+                        "targetUrl": "https://github.com/acme/backend/actions/runs/40439851027"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Supabase Preview",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://supabase.com/scrubbed"
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "Devin Review",
+                        "state": "SUCCESS",
+                        "targetUrl": "https://app.devin.ai/scrubbed"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "SonarCloud Code Analysis",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://sonarcloud.io/scrubbed"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "author": {
+                "login": "devin-ai-integration"
+              },
+              "state": "COMMENTED",
+              "submittedAt": "2026-10-27T02:41:00Z",
+              "commit": {
+                "oid": "8546f470e47ef9b34864c0662adab04a4bc6625a"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "totalCount": 2,
+          "nodes": [
+            {
+              "id": "PRRT_kwDOO83bzs6wh6FA",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "apps/ai/docs/ARCHITECTURE.md",
+              "line": 196,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBVd68g",
+                    "databaseId": 4384586482,
+                    "author": {
+                      "login": "devin-ai-integration"
+                    },
+                    "body": "[scrubbed, 900 chars]",
+                    "createdAt": "2026-10-27T02:40:57Z",
+                    "commit": {
+                      "oid": "8546f470e47ef9b34864c0662adab04a4bc6625a"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOO83bzs6wh6Fy",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "apps/ai/docs/ARCHITECTURE.md",
+              "line": 198,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOO83bzs8AAAABBVd7QQ",
+                    "databaseId": 4384586561,
+                    "author": {
+                      "login": "devin-ai-integration"
+                    },
+                    "body": "[scrubbed, 1012 chars]",
+                    "createdAt": "2026-10-27T02:40:58Z",
+                    "commit": {
+                      "oid": "8546f470e47ef9b34864c0662adab04a4bc6625a"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "nodes": []
+        }
+      }
+    }
+  }
+}
