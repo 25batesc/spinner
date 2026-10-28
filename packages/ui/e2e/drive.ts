@@ -344,7 +344,8 @@ if (flow === "m2-real") {
     await click("form[aria-label='Add agent'] button");
     await until(
         "agent tab",
-        `[...document.querySelectorAll(".agents-pane .tab")].some((t) => t.textContent === "scribe")`,
+        `[...document.querySelectorAll(".agents-pane .tab")]
+            .some((t) => t.textContent === "scribe")`,
     );
     await click(".agents-pane .tab", "scribe");
     await click(".agents-pane .tab", "context");
