@@ -1,6 +1,6 @@
 // `spinner down <session>`: stop the containers. Volumes and the database stay.
 // `spinner down --shared`: remove the shared proxy and Postgres containers once no stack is up.
-import { shared_down, stack_down, type SpinnerHome } from "@spinner/daemon";
+import { actions, gh_runner, shared_down, type SpinnerHome } from "@spinner/daemon";
 import { describe_error, type CliIo, type Command } from "./command.js";
 import { session_arg } from "./session-arg.js";
 
@@ -26,7 +26,7 @@ async function run_down(args: string[], home: SpinnerHome, io: CliIo): Promise<n
         return 1;
     }
     try {
-        await stack_down(home, summary, io.out);
+        await actions.down({ home, cwd: process.cwd(), gh: gh_runner }, summary, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner down: ${describe_error(error)}`);

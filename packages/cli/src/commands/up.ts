@@ -1,7 +1,7 @@
 // `spinner up <session> [--build]`: clone the database, start the compose project, wait for
 // the healthchecks and print the URLs. Prints the elapsed time, which the 15 s target is about.
 import { parseArgs } from "node:util";
-import { stack_up, type SpinnerHome } from "@spinner/daemon";
+import { actions, gh_runner, type SpinnerHome } from "@spinner/daemon";
 import { describe_error, type CliIo, type Command } from "./command.js";
 import { session_arg } from "./session-arg.js";
 
@@ -25,11 +25,8 @@ async function run_up(args: string[], home: SpinnerHome, io: CliIo): Promise<num
     }
     try {
         const build = parsed.values.build === true;
-        const result = await stack_up(home, summary, { build }, io.out);
-        for (const [service, host] of Object.entries(result.hosts)) {
-            io.out(`${service.padEnd(12)} http://${host}`);
-        }
-        io.out(`up in ${(result.elapsed_ms / 1000).toFixed(1)} s`);
+        const ctx = { home, cwd: process.cwd(), gh: gh_runner };
+        await actions.up(ctx, summary, { build }, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner up: ${describe_error(error)}`);

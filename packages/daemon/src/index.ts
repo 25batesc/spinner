@@ -28,3 +28,7 @@ export { run, run_attached } from "./stack/shell.js";
 export { group_alive, read_pid_files } from "./stack/host-service.js";
 export { add_worktree, remove_worktree, list_worktrees } from "./git/worktree.js";
 export * from "./pipeline/index.js";
+export * as actions from "./actions.js";
+export type { ActionContext } from "./actions.js";
+export { list_projects } from "./projects.js";
+export { build_session_view, build_stack, service_url } from "./views/session-view.js";

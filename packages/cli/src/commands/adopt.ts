@@ -2,7 +2,7 @@
 // opened outside Spinner on the board. Creates the session directory with `session.yaml` and
 // a minimal `MISSION.md`; no worktrees, no stack.
 import { parseArgs } from "node:util";
-import { adopt_prs, gh_runner, type SpinnerHome } from "@spinner/daemon";
+import { actions, gh_runner, type SpinnerHome } from "@spinner/daemon";
 import { describe_error, type CliIo, type Command } from "./command.js";
 
 export const adopt_command: Command = {
@@ -24,17 +24,14 @@ async function run_adopt(args: string[], home: SpinnerHome, io: CliIo): Promise<
         return 1;
     }
     try {
-        const summary = await adopt_prs(home, {
+        const ctx = { home, cwd: process.cwd(), gh: gh_runner };
+        const { project, title } = parsed.values;
+        const request = {
             urls: parsed.positionals,
-            ...(parsed.values.project === undefined ? {} : { project: parsed.values.project }),
-            ...(parsed.values.title === undefined ? {} : { title: parsed.values.title }),
-            cwd: process.cwd(),
-            gh: gh_runner,
-            log: io.err,
-        });
-        const session = summary.session;
-        io.out(`adopted ${summary.path}`);
-        io.out(`stage: ${session.stage}; needs_human: ${session.needs_human ?? "-"}`);
+            ...(project === undefined ? {} : { project }),
+            ...(title === undefined ? {} : { title }),
+        };
+        await actions.adopt(ctx, request, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner adopt: ${describe_error(error)}`);

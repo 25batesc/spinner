@@ -1,13 +1,7 @@
 // `spinner new <title> [--slug <slug>] [--project <name|path>]`: create a session; with a
 // project, copy its spec in and make one worktree per repo on the session branch.
 import { parseArgs } from "node:util";
-import {
-    attach_project,
-    create_session,
-    find_spec,
-    load_spec,
-    type SpinnerHome,
-} from "@spinner/daemon";
+import { actions, gh_runner, type SpinnerHome } from "@spinner/daemon";
 import { describe_error, type CliIo, type Command } from "./command.js";
 
 export const new_command: Command = {
@@ -30,17 +24,15 @@ async function run_new(args: string[], home: SpinnerHome, io: CliIo): Promise<nu
         return 1;
     }
     try {
-        const loaded =
-            parsed.values.project === undefined
-                ? null
-                : load_spec(find_spec(parsed.values.project, home, process.cwd()));
-        const slug = parsed.values.slug;
-        const summary = create_session(home, slug === undefined ? { title } : { title, slug });
-        io.out(`created ${summary.path}`);
-        if (loaded !== null) {
-            await attach_project(summary, loaded, io.out);
-            io.out(`project ${loaded.spec.name} attached; next: spinner up ${summary.session.id}`);
-        }
+        const ctx = { home, cwd: process.cwd(), gh: gh_runner };
+        const { slug, project } = parsed.values;
+        const request = {
+            title,
+            ...(slug === undefined ? {} : { slug }),
+            ...(project === undefined ? {} : { project }),
+        };
+        const summary = actions.new_session(ctx, request);
+        await actions.attach_new_session(ctx, summary, project, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner new: ${describe_error(error)}`);

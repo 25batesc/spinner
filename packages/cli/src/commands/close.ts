@@ -1,6 +1,6 @@
 // `spinner close <session>`: remove containers, volumes, network, database and worktrees,
 // keep the branches, and move the session to the archive.
-import { stack_close, type SpinnerHome } from "@spinner/daemon";
+import { actions, gh_runner, type SpinnerHome } from "@spinner/daemon";
 import { describe_error, type CliIo, type Command } from "./command.js";
 import { session_arg } from "./session-arg.js";
 
@@ -17,8 +17,7 @@ async function run_close(args: string[], home: SpinnerHome, io: CliIo): Promise<
         return 1;
     }
     try {
-        const result = await stack_close(home, summary, io.out);
-        io.out(`archived to ${result.archived_path}`);
+        await actions.close({ home, cwd: process.cwd(), gh: gh_runner }, summary, io.out);
         return 0;
     } catch (error) {
         io.err(`spinner close: ${describe_error(error)}`);

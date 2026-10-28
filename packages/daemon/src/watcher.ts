@@ -5,10 +5,13 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, relative, sep } from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
-import type { SpinnerEvent } from "@spinner/protocol";
+import type { SessionSummary, SessionView, SpinnerEvent } from "@spinner/protocol";
 import type { EventBus } from "./event-bus.js";
 import type { SpinnerHome } from "./home.js";
 import { read_session } from "./store/session-store.js";
+
+/** Builds the view an event carries; the daemon's view context supplies it. */
+export type ViewBuilder = (summary: SessionSummary) => SessionView;
 
 export interface SessionWatcher {
     /** Resolves once the initial scan is complete and new files will be reported. */
@@ -30,6 +33,7 @@ export interface WatcherOptions {
 export function watch_sessions(
     home: SpinnerHome,
     bus: EventBus,
+    view: ViewBuilder,
     options: WatcherOptions = {},
 ): SessionWatcher {
     const now = options.now ?? (() => new Date());
@@ -49,7 +53,7 @@ export function watch_sessions(
         if (dir === null) {
             return;
         }
-        const event = event_for(home, kind, dir, now().toISOString());
+        const event = event_for(home, view, kind, dir, now().toISOString());
         if (typeof event === "string") {
             on_error(event);
             return;
@@ -82,6 +86,7 @@ export function session_dir_of(home: SpinnerHome, file: string): string | null {
 
 function event_for(
     home: SpinnerHome,
+    view: ViewBuilder,
     kind: "add" | "change" | "unlink",
     dir: string,
     ts: string,
@@ -95,5 +100,5 @@ function event_for(
         return `ignored ${kind} of ${dir}/session.yaml: ${read.error}`;
     }
     const type = kind === "add" ? "session.created" : "session.updated";
-    return { type, ts, session: dir, data: read.summary.session };
+    return { type, ts, session: dir, data: view(read.summary) };
 }
