@@ -4,6 +4,7 @@
 // memory for `GET /jobs/:id`. Nothing here touches disk; the work function does.
 import assert from "node:assert/strict";
 import type { Job, JobAction } from "@spinner/protocol";
+import { JOBS_RECENT_MAX } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 
 /** Lines a job keeps. A stack `up` with image builds prints a few hundred. */
@@ -40,6 +41,14 @@ export class JobRunner {
 
     get(id: string): Job | null {
         return this.jobs.get(id) ?? null;
+    }
+
+    /** The running jobs plus the last `JOBS_RECENT_MAX` finished ones, oldest first. */
+    recent(): Job[] {
+        const all = [...this.jobs.values()];
+        const running = all.filter((job) => job.state === "running");
+        const finished = all.filter((job) => job.state !== "running").slice(-JOBS_RECENT_MAX);
+        return [...finished, ...running].sort((a, b) => job_number(a.id) - job_number(b.id));
     }
 
     /** The id of the job running on `session`, or null. */
@@ -143,4 +152,8 @@ export class JobRunner {
             }
         }
     }
+}
+
+function job_number(id: string): number {
+    return Number.parseInt(id.slice(2), 10);
 }

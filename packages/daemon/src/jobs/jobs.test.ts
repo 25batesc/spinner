@@ -99,6 +99,21 @@ describe("JobRunner", () => {
         expect(events.at(-1)).toMatchObject({ type: "job.finished", session: "s003-adopted" });
     });
 
+    it("recent() lists running jobs and the last finished ones, oldest first", async () => {
+        const { bus } = recorder();
+        const runner = new JobRunner(bus);
+        for (let n = 0; n < 12; n += 1) {
+            runner.start("down", `s${n}`, async () => undefined);
+            await settle();
+        }
+        runner.start("up", "s-live", () => new Promise(() => undefined));
+        const ids = runner.recent().map((job) => job.id);
+        expect(ids).toHaveLength(11);
+        expect(ids[0]).toBe("j-3");
+        expect(ids.at(-1)).toBe("j-13");
+        expect(runner.recent().at(-1)?.state).toBe("running");
+    });
+
     it("bounds the log", async () => {
         const { bus } = recorder();
         const runner = new JobRunner(bus);

@@ -48,6 +48,8 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
+    /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
+    "GET /jobs": "JobsResponse",
     /** One job by id. 404 when the daemon never ran it (jobs live in memory only). */
     "GET /jobs/:id": "JobResponse",
 } as const;
@@ -171,6 +173,13 @@ export interface Job {
 export interface JobResponse {
     job: Job;
 }
+
+/** Every running job, plus the last `JOBS_RECENT_MAX` finished ones, oldest first. */
+export interface JobsResponse {
+    jobs: Job[];
+}
+
+export const JOBS_RECENT_MAX = 10;
 
 export interface NewSessionRequest {
     title: string;

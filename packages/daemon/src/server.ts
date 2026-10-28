@@ -18,6 +18,7 @@ import type {
     HealthResponse,
     JobAction,
     JobResponse,
+    JobsResponse,
     ProjectsResponse,
     SessionResponse,
     SessionsResponse,
@@ -211,6 +212,11 @@ export function create_app(deps: AppDeps): Hono {
         return start_job(c, deps, "verify", summary.dir, async (log) => {
             actions.verify(deps.ctx, summary, request, log);
         });
+    });
+
+    app.get("/jobs", (c) => {
+        const body: JobsResponse = { jobs: deps.jobs.recent() };
+        return c.json(body);
     });
 
     app.get("/jobs/:id", (c) => {

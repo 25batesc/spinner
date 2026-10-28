@@ -10,6 +10,7 @@ import { WebSocket } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
     JobResponse,
+    JobsResponse,
     ProjectsResponse,
     SessionResponse,
     SessionsResponse,
@@ -151,6 +152,8 @@ describe("REST", () => {
         ]);
         const fetched = (await (await fetch(`${base}/jobs/${job.id}`)).json()) as JobResponse;
         expect(fetched.job.state).toBe("ok");
+        const listed = (await (await fetch(`${base}/jobs`)).json()) as JobsResponse;
+        expect(listed.jobs.map((entry) => entry.id)).toEqual([job.id]);
         expect(fetched.job.log).toHaveLength(1);
         expect((await fetch(`${base}/jobs/j-999`)).status).toBe(404);
         client.close();
