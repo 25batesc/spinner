@@ -30,6 +30,7 @@ import { PaneWindows, type PaneWindowHost } from "./pane-windows.js";
 import { PreviewRegistry } from "./previews.js";
 import { repo_root, run_start_command, start_command } from "./start-daemon.js";
 import { create_tray, type TrayWindow } from "./tray.js";
+import { window_geometry } from "./window-geometry.js";
 
 const dist = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env["SPINNER_PORT"] ?? DAEMON_PORT);
@@ -58,20 +59,6 @@ let refresh_tray: () => void = () => undefined;
 let stop_events: (() => void) | null = null;
 let reconnect_timer: NodeJS.Timeout | null = null;
 let quitting = false;
-
-/** `SPINNER_DESKTOP_WINDOW=WxH+X+Y` places the main window: a test can sit beside a real one. */
-function window_geometry(spec: string | undefined): Electron.BrowserWindowConstructorOptions {
-    const match = spec === undefined ? null : /^(\d+)x(\d+)\+(\d+)\+(\d+)$/.exec(spec);
-    if (match === null) {
-        return { width: 1440, height: 900 };
-    }
-    return {
-        width: Number(match[1]),
-        height: Number(match[2]),
-        x: Number(match[3]),
-        y: Number(match[4]),
-    };
-}
 
 const web_preferences: Electron.WebPreferences = {
     preload: join(dist, "preload.cjs"),
@@ -381,7 +368,11 @@ void app.whenReady().then(async () => {
         start_daemon: () => void ensure_daemon(),
         quit: () => app.quit(),
     });
-    refresh_tray = () => render_tray(link.status(), tray_windows());
+    refresh_tray = () => {
+        const windows = tray_windows();
+        debug(`tray windows: ${windows.map((w) => w.label).join(", ") || "(none)"}`);
+        render_tray(link.status(), windows);
+    };
     refresh_tray();
     link.subscribe((status) => {
         log(`daemon ${status.state}`);

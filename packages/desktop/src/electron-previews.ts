@@ -139,6 +139,8 @@ class ElectronPreviewView implements PreviewView {
         const main = this.window.getBounds();
         const popout = new BaseWindow({
             ...popout_size(this.view.getBounds()),
+            // The size is the page's, not the frame's: the pane's pixels stay the pane's.
+            useContentSize: true,
             x: main.x + POPOUT_CASCADE_PX,
             y: main.y + POPOUT_CASCADE_PX,
             title: popout_title(this.key, this.view.webContents.getTitle()),

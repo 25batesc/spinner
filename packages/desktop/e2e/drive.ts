@@ -7,113 +7,16 @@
 // separate CDP target, so the check sees both sides. `E2E_WINDOW_ID` comes from
 // `CGWindowListCopyWindowInfo` (see MISSION Log for the helper); without it no screenshots.
 import { execFileSync } from "node:child_process";
+import { Page, sleep, target_with, targets, text, type Target } from "./cdp.ts";
 
 const [out_dir] = process.argv.slice(2);
 if (out_dir === undefined) {
     throw new Error("Usage: drive.ts <screenshot dir>");
 }
-const CDP_PORT = process.env["E2E_CDP_PORT"] ?? "9345";
 const WINDOW_ID = process.env["E2E_WINDOW_ID"];
 const DAEMON_URL = process.env["E2E_DAEMON_URL"] ?? "http://127.0.0.1:7777";
 /** The `name:` of the spec, `sample` for `examples/sample-stack`. */
 const PROJECT = process.env["E2E_PROJECT"] ?? "sample";
-const TIMEOUT_MS = 300_000;
-
-interface Target {
-    id: string;
-    url: string;
-    webSocketDebuggerUrl: string;
-}
-
-async function targets(): Promise<Target[]> {
-    return (await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()) as Target[];
-}
-
-class Page {
-    private next_id = 0;
-    private readonly waiting = new Map<number, (value: Record<string, unknown>) => void>();
-
-    private readonly socket: WebSocket;
-
-    private constructor(socket: WebSocket) {
-        this.socket = socket;
-    }
-
-    static async open(target: Target): Promise<Page> {
-        const socket = new WebSocket(target.webSocketDebuggerUrl);
-        await new Promise((resolve) => socket.addEventListener("open", resolve));
-        const page = new Page(socket);
-        socket.addEventListener("message", (event) => {
-            const message = JSON.parse(String(event.data)) as {
-                id?: number;
-                result?: Record<string, unknown>;
-            };
-            if (message.id !== undefined) {
-                page.waiting.get(message.id)?.(message.result ?? {});
-            }
-        });
-        return page;
-    }
-
-    send(method: string, params: object = {}): Promise<Record<string, unknown>> {
-        this.next_id += 1;
-        const id = this.next_id;
-        return new Promise((resolve) => {
-            this.waiting.set(id, resolve);
-            this.socket.send(JSON.stringify({ id, method, params }));
-        });
-    }
-
-    async evaluate(expression: string): Promise<unknown> {
-        const result = (await this.send("Runtime.evaluate", {
-            expression,
-            returnByValue: true,
-            awaitPromise: true,
-        })) as { result?: { value?: unknown }; exceptionDetails?: { text: string } };
-        if (result.exceptionDetails !== undefined) {
-            throw new Error(`evaluate failed: ${result.exceptionDetails.text}: ${expression}`);
-        }
-        return result.result?.value;
-    }
-
-    async until(label: string, expression: string, timeout_ms = TIMEOUT_MS): Promise<void> {
-        const deadline = Date.now() + timeout_ms;
-        while (Date.now() < deadline) {
-            if ((await this.evaluate(expression)) === true) {
-                return;
-            }
-            await sleep(200);
-        }
-        shot("failure");
-        throw new Error(`Timed out waiting for: ${label}`);
-    }
-
-    click(selector: string, text = ""): Promise<unknown> {
-        return this.evaluate(`(() => {
-            const items = [...document.querySelectorAll(${JSON.stringify(selector)})];
-            const el = items.find((e) => e.textContent.includes(${JSON.stringify(text)}));
-            if (!el || el.disabled) return false;
-            el.click();
-            return true;
-        })()`);
-    }
-
-    fill(selector: string, value: string): Promise<unknown> {
-        return this.evaluate(`(() => {
-            const el = document.querySelector(${JSON.stringify(selector)});
-            const proto = el.constructor.prototype;
-            Object.getOwnPropertyDescriptor(proto, "value").set.call(el, ${JSON.stringify(value)});
-            el.dispatchEvent(new Event("input", { bubbles: true }));
-            return true;
-        })()`);
-    }
-
-    close(): void {
-        this.socket.close();
-    }
-}
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function shot(name: string): void {
     if (WINDOW_ID === undefined) {
@@ -123,9 +26,6 @@ function shot(name: string): void {
     execFileSync("screencapture", ["-x", "-o", "-l", WINDOW_ID, path]);
     console.log(`screenshot ${path}`);
 }
-
-const text = (selector: string) =>
-    `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
 interface Box {
     x: number;
@@ -144,15 +44,8 @@ async function box(ui: Page): Promise<Box> {
 
 /** The preview target whose URL starts with `prefix`, opened as a page. */
 async function preview_page(prefix: string): Promise<{ page: Page; target: Target }> {
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-        const found = (await targets()).find((t) => t.url.startsWith(prefix));
-        if (found !== undefined) {
-            return { page: await Page.open(found), target: found };
-        }
-        await sleep(300);
-    }
-    throw new Error(`no CDP target for ${prefix}`);
+    const target = await target_with(prefix);
+    return { page: await Page.open(target), target };
 }
 
 /**
@@ -186,7 +79,7 @@ const ui_target = (await targets()).find((t) => t.url.startsWith(DAEMON_URL));
 if (ui_target === undefined) {
     throw new Error(`no CDP target at ${DAEMON_URL}; is the app running with the port?`);
 }
-const ui = await Page.open(ui_target);
+const ui = await Page.open(ui_target, () => shot("failure"));
 await ui.until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
 await ui.until("daemon connected", `${text(".status")}.includes("open")`);
 const bridge = await ui.evaluate(`typeof window.spinnerDesktop`);
