@@ -64,6 +64,7 @@
             "enum": [
                 "new",
                 "adopt",
+                "attach",
                 "up",
                 "down",
                 "close",
