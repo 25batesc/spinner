@@ -63,12 +63,14 @@ export function pr(number: number, repo: string, partial: Partial<PrFacts> = {})
 
 export function serviceViews(id: string, status: ServiceStatus): ServiceView[] {
     const url = (host: string) => `http://${host}.${id}.localhost:${FIXTURE_PORT}`;
+    // `web` keeps its login in cookies (`preview: top-level`), the case the desktop app exists for.
     return [
         { name: "web", where: "host", status, host: `web.${id}.localhost`, url: url("web"),
-          process: null },
+          process: null, preview: "top-level" },
         { name: "api", where: "container", status, host: `api.${id}.localhost`, url: url("api"),
-          process: null },
-        { name: "db", where: "container", status, host: null, url: null, process: null },
+          process: null, preview: "frame" },
+        { name: "db", where: "container", status, host: null, url: null, process: null,
+          preview: "frame" },
     ];
 }
 

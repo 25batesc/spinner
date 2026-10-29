@@ -1,6 +1,6 @@
 // Drives the UI in headless Chrome over the DevTools protocol and saves a screenshot per step.
 // Usage: node e2e/drive.ts <ui url> <screenshot dir> [flow]. Chrome must already listen on
-// port 9333 (`--remote-debugging-port=9333`). The flow `lifecycle` runs: new session, up,
+// port 9333 (`--remote-debugging-port=9333`) or on `E2E_CDP_PORT`. The flow `lifecycle` runs: new session, up,
 // previews, verify, close. The flow `agents` prompts the first running agent of the first
 // session with a pi agent. It works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
@@ -12,9 +12,10 @@ if (uiUrl === undefined || outDir === undefined) {
     throw new Error("Usage: drive.ts <ui url> <screenshot dir>");
 }
 const TIMEOUT_MS = 120_000;
+const CDP_PORT = process.env["E2E_CDP_PORT"] ?? "9333";
 
 const target = (await (
-    await fetch("http://127.0.0.1:9333/json/new?about:blank", { method: "PUT" })
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/new?about:blank`, { method: "PUT" })
 ).json()) as { webSocketDebuggerUrl: string };
 const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve) => socket.on("open", resolve));
@@ -86,6 +87,24 @@ const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
 await send("Page.enable");
+if (flow === "bridge-stub") {
+    // A stand-in for the desktop preload: records every bridge call on `window.bridgeCalls`.
+    await send("Page.addScriptToEvaluateOnNewDocument", {
+        source: `window.bridgeCalls = [];
+            const record = (method) => (...args) => {
+                window.bridgeCalls.push({ method, args });
+                return Promise.resolve();
+            };
+            window.spinnerDesktop = {
+                previews: {
+                    set: record("set"), show: record("show"), hide: record("hide"),
+                    reload: record("reload"), openExternal: record("openExternal"),
+                    devtools: record("devtools"), subscribe: () => () => {},
+                },
+                daemon: { status: () => Promise.resolve({}), subscribe: () => () => {} },
+            };`,
+    });
+}
 await send("Emulation.setDeviceMetricsOverride", {
     width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
 });
@@ -100,6 +119,93 @@ if (flow === "previews") {
     await click(".preview-pane .tab", "web");
     await new Promise((resolve) => setTimeout(resolve, 2000));
     await shot("04b-web-preview");
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "top-level-note") {
+    // Browser path of M4: a service with `preview: top-level` shows the "open in tab" note above
+    // its iframe; a `frame` service shows the iframe alone. Runs against the fixture (session
+    // "Refund flow": web is top-level, api is frame) or a daemon with such a stack.
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
+    await click(".preview-pane .tab", process.env["E2E_TOP_LEVEL"] ?? "web");
+    await until("note shown", `${text(".preview-note")}.includes("top-level page")`);
+    await until("note offers a tab", `${text(".preview-note a")}.includes("Open it in a tab")`);
+    await until("iframe kept", `document.querySelector("iframe.preview-frame") !== null`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await shot("35-top-level-note");
+    await click(".preview-pane .tab", process.env["E2E_FRAME"] ?? "api");
+    await until("note gone", `document.querySelector(".preview-note") === null`);
+    await until("iframe shown", `document.querySelector("iframe.preview-frame") !== null`);
+    await shot("36-frame-no-note");
+    console.log("top-level note ok");
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "bridge-stub") {
+    // Bridge path of M4 without Electron: with the stub above, `Preview` renders an empty box
+    // and sends its rectangle; the reload button reloads the view; a tab switch hides the old
+    // key and sets the new one; a drag of the pane handle sends a new rectangle.
+    const calls = `window.bridgeCalls`;
+    const lastCall = (method: string) =>
+        `${calls}.filter((c) => c.method === ${JSON.stringify(method)}).at(-1)`;
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
+    await click(".preview-pane .tab", "web");
+    await until("box rendered", `document.querySelector(".preview-box") !== null`);
+    await until("no iframe", `document.querySelector("iframe") === null`);
+    await until("set called", `${lastCall("set")} !== undefined`);
+    const first = (await evaluate(`(() => {
+        const box = document.querySelector(".preview-box").getBoundingClientRect();
+        const call = ${lastCall("set")};
+        const [key, url, rect] = call.args;
+        const same = rect.x === Math.round(box.left) && rect.y === Math.round(box.top)
+            && rect.width === Math.round(box.width) && rect.height === Math.round(box.height);
+        return { key, url, rect, same };
+    })()`)) as { key: string; url: string; rect: object; same: boolean };
+    console.log("first set:", JSON.stringify(first));
+    if (!first.same || !first.key.endsWith("/web")) {
+        throw new Error("set() did not carry the box rectangle and the web key");
+    }
+    await shot("37-bridge-box");
+    await click(".preview-bar button", "reload");
+    await until("reload called", `${lastCall("reload")}?.args[0] === ${JSON.stringify(first.key)}`);
+    // Drag the preview pane's handle 100 px to the left: the pane widens, the box with it.
+    const handle = (await evaluate(`(() => {
+        const r = document.querySelectorAll(".handle")[1].getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + 300 };
+    })()`)) as { x: number; y: number };
+    const mouse = (type: string, x: number) =>
+        send("Input.dispatchMouseEvent", { type, x, y: handle.y, button: "left", buttons: 1 });
+    await mouse("mousePressed", handle.x);
+    for (let step = 1; step <= 5; step += 1) {
+        await mouse("mouseMoved", handle.x - step * 20);
+    }
+    await mouse("mouseReleased", handle.x - 100);
+    await until(
+        "wider rectangle sent",
+        `${lastCall("set")}.args[2].width > ${JSON.stringify(first.rect)}.width + 90`,
+    );
+    const dragged = await evaluate(`${lastCall("set")}.args[2]`);
+    console.log("after drag:", JSON.stringify(dragged));
+    await shot("38-bridge-dragged");
+    const count = (method: string, key: string) =>
+        `${calls}.filter((c) => c.method === ${JSON.stringify(method)}` +
+        ` && c.args[0] === ${JSON.stringify(key)}).length`;
+    const hidden = (await evaluate(count("hide", first.key))) as number;
+    await click(".preview-pane .tab", "api");
+    await until("web hidden", `${count("hide", first.key)} > ${hidden}`);
+    await until("api set", `${lastCall("set")}.args[0].endsWith("/api")`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const order = await evaluate(`${calls}.map((c) => c.method + ":" + c.args[0].split("/")[1])`);
+    console.log("calls:", JSON.stringify(order));
+    // The reload click above must not reload a tab mounted later (the counter is pane state).
+    if ((await evaluate(count("reload", first.key.replace(/web$/, "api")))) !== 0) {
+        throw new Error("reload() fired for the api view that was never reloaded");
+    }
+    console.log("bridge stub ok");
     socket.close();
     process.exit(0);
 }

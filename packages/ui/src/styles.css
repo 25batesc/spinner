@@ -39,6 +39,9 @@ html, body, #root { height: 100%; margin: 0; }
 .tab-selected { border-color: #38f; font-weight: 600; }
 .preview-pane { display: flex; flex-direction: column; gap: 6px; }
 .preview-frame { flex: 1; width: 100%; border: 1px solid #8886; background: white; }
+/* The native view covers the box; a transparent box keeps the view's own background visible. */
+.preview-box { background: transparent; }
+.preview-note { margin: 0; padding: 6px; font-size: 12px; border: 1px solid #db2; border-radius: 4px; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #8886; }
 .dot-up, .dot-healthy { background: #2a4; }
 .dot-starting { background: #db2; }

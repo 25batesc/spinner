@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { ServiceView, SessionView } from "@spinner/protocol";
+import { preview_key, type ServiceView, type SessionView } from "@spinner/protocol";
 
 import { Preview } from "./Preview.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
@@ -51,16 +51,19 @@ export function PreviewPane({ view, busy, run }: PreviewPaneProps) {
         <section className="pane preview-pane" aria-label="Previews">
             {view !== undefined && <Verified view={view} busy={busy} run={run} />}
             <Tabs labels={names} selected={selected} onSelect={setPicked} grey={grey} />
-            {service?.url != null && isLive(service) ? (
+            {view !== undefined && service?.url != null && isLive(service) ? (
                 <>
                     <div className="preview-bar">
                         <a href={service.url} target="_blank" rel="noreferrer">open in tab</a>
                         <button onClick={() => setReloads(reloads + 1)}>reload</button>
                     </div>
                     <Preview
-                        key={`${service.url}#${reloads}`}
+                        key={service.url}
+                        previewKey={preview_key(view.summary.dir, service.name)}
                         url={service.url}
                         title={service.name}
+                        reloads={reloads}
+                        topLevel={service.preview === "top-level"}
                     />
                 </>
             ) : (
