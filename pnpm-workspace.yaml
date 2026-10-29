@@ -1,2 +1,6 @@
 packages:
   - packages/*
+
+# Electron downloads its binary in a postinstall script; pnpm 10 runs no script without this.
+onlyBuiltDependencies:
+  - electron

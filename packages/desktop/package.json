@@ -1,0 +1,26 @@
+{
+    "name": "@spinner/desktop",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Spinner desktop: the web UI in an Electron window, previews as top-level pages.",
+    "license": "MIT",
+    "type": "module",
+    "main": "./dist/main.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "start": "electron .",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "vitest run",
+        "package": "node scripts/package.ts"
+    },
+    "dependencies": {
+        "@spinner/protocol": "workspace:*"
+    },
+    "devDependencies": {
+        "@electron/packager": "20.3.0",
+        "@types/node": "^24.0.0",
+        "electron": "45.1.0",
+        "typescript": "^5.9.0",
+        "vitest": "^3.2.0"
+    }
+}

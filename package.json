@@ -14,7 +14,9 @@
         "lint": "eslint .",
         "typecheck": "pnpm -r typecheck",
         "daemon": "pnpm --filter @spinner/daemon start",
-        "spinner": "node packages/cli/dist/main.js"
+        "spinner": "node packages/cli/dist/main.js",
+        "desktop": "pnpm --filter @spinner/desktop build && pnpm --filter @spinner/desktop start",
+        "desktop:build": "pnpm --filter @spinner/desktop build && pnpm --filter @spinner/desktop package"
     },
     "devDependencies": {
         "@eslint/js": "^9.39.0",
