@@ -15,6 +15,7 @@ import {
     type PaneName,
     type PoppedPane,
     type PreviewRect,
+    type ZoomDirection,
 } from "@spinner/protocol";
 import { DaemonLink, probe_health, RECONNECT_POLL_MS } from "./daemon.js";
 import {
@@ -284,6 +285,31 @@ function register_ipc(views: PreviewRegistry, windows: PaneWindows): void {
             }
         }),
     );
+    ipcMain.handle(IPC.previews_back, with_key("back", (key) => views.back(key)));
+    ipcMain.handle(IPC.previews_forward, with_key("forward", (key) => views.forward(key)));
+    ipcMain.handle(IPC.previews_navigate, (_event, key: unknown, url: unknown) => {
+        assert.equal(typeof key, "string");
+        assert.equal(typeof url, "string");
+        debug(`navigate ${String(key)} ${String(url)}`);
+        views.navigate(key as string, url as string);
+    });
+    ipcMain.handle(IPC.previews_zoom, (_event, key: unknown, direction: unknown) => {
+        assert.equal(typeof key, "string");
+        assert.ok(direction === "in" || direction === "out" || direction === "reset");
+        debug(`zoom ${String(key)} ${String(direction)}`);
+        views.zoom(key as string, direction as ZoomDirection);
+    });
+    ipcMain.handle(IPC.previews_find, (_event, key: unknown, text: unknown) => {
+        assert.equal(typeof key, "string");
+        assert.ok(text === null || typeof text === "string");
+        debug(`find ${String(key)} ${JSON.stringify(text)}`);
+        return views.find(key as string, text as string | null);
+    });
+    ipcMain.handle(IPC.previews_clear_storage, (_event, key: unknown) => {
+        assert.equal(typeof key, "string");
+        log(`clearStorage ${String(key)}`);
+        return views.clear_storage(key as string);
+    });
     ipcMain.handle(IPC.previews_pop_out, with_key("popOut", (key) => pop_out_preview(views, key)));
     ipcMain.handle(
         IPC.previews_dock_back,
@@ -324,7 +350,13 @@ function open_window(): void {
             electron_preview_host(
                 window,
                 (event) => {
-                    log(`preview ${event.key} ${event.type} ${event.url}`);
+                    // The five `navigated` triggers would flood the log; the load states stay.
+                    const line = `preview ${event.key} ${event.type} ${event.url}`;
+                    if (event.type === "navigated") {
+                        debug(line);
+                    } else {
+                        log(line);
+                    }
                     send_to_renderer(IPC.previews_event, event);
                 },
                 debug,

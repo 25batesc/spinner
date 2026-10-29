@@ -6,12 +6,20 @@
 // that adopts the same view: the page never reloads, so its login stays.
 import assert from "node:assert/strict";
 import { BaseWindow, shell, WebContentsView, type BrowserWindow } from "electron";
-import type { PreviewEvent, PreviewKey, PreviewRect } from "@spinner/protocol";
+import type {
+    FindResult,
+    PreviewEvent,
+    PreviewKey,
+    PreviewNavigation,
+    PreviewRect,
+} from "@spinner/protocol";
 import { error_page } from "./pages.js";
 import type { PreviewHost, PreviewView } from "./previews.js";
 
 /** Chromium's `net::ERR_ABORTED`: a navigation the page itself replaced, not a failure. */
 const ERR_ABORTED = -3;
+/** A `findInPage` whose final result never comes (the page went away) resolves with zeros. */
+export const FIND_TIMEOUT_MS = 2000;
 
 export type PreviewEventSink = (event: PreviewEvent) => void;
 
@@ -81,6 +89,16 @@ class ElectronPreviewView implements PreviewView {
         contents.on("page-title-updated", (_event, title) => {
             this.popout?.setTitle(popout_title(this.key, title));
         });
+        // The browser bar's five triggers; each sends the whole state, so a listener needs
+        // no memory of the previous one.
+        const navigated = () => {
+            this.sink({ key: this.key, type: "navigated", ...this.navigation() });
+        };
+        contents.on("did-navigate", navigated);
+        contents.on("did-navigate-in-page", navigated);
+        contents.on("page-title-updated", navigated);
+        contents.on("did-start-loading", navigated);
+        contents.on("did-stop-loading", navigated);
         contents.on("did-fail-load", (_event, code, description, failed_url, is_main_frame) => {
             if (!is_main_frame || code === ERR_ABORTED) {
                 return;
@@ -128,6 +146,82 @@ class ElectronPreviewView implements PreviewView {
     current_url(): string {
         const current = this.view.webContents.getURL();
         return current.startsWith("data:") ? this.url : current;
+    }
+
+    /** What a browser bar shows now. The error page reports the URL that failed. */
+    navigation(): PreviewNavigation {
+        const contents = this.view.webContents;
+        return {
+            url: this.current_url(),
+            title: contents.getURL().startsWith("data:") ? "" : contents.getTitle(),
+            canGoBack: contents.navigationHistory.canGoBack(),
+            canGoForward: contents.navigationHistory.canGoForward(),
+            loading: contents.isLoading(),
+        };
+    }
+
+    go_back(): void {
+        assert.equal(this.destroyed, false);
+        const history = this.view.webContents.navigationHistory;
+        if (history.canGoBack()) {
+            history.goBack();
+        }
+    }
+
+    go_forward(): void {
+        assert.equal(this.destroyed, false);
+        const history = this.view.webContents.navigationHistory;
+        if (history.canGoForward()) {
+            history.goForward();
+        }
+    }
+
+    zoom_level(): number {
+        return this.view.webContents.getZoomLevel();
+    }
+
+    set_zoom_level(level: number): void {
+        assert.equal(this.destroyed, false);
+        this.view.webContents.setZoomLevel(level);
+    }
+
+    find(text: string, next: boolean): Promise<FindResult> {
+        assert.equal(this.destroyed, false);
+        assert.ok(text !== "", "find needs text");
+        const contents = this.view.webContents;
+        return new Promise((resolve) => {
+            let settled = false;
+            const finish = (result: FindResult) => {
+                if (!settled) {
+                    settled = true;
+                    clearTimeout(timer);
+                    contents.removeListener("found-in-page", on_found);
+                    resolve(result);
+                }
+            };
+            const on_found = (_event: unknown, result: Electron.Result) => {
+                if (result.requestId === request && result.finalUpdate) {
+                    finish({ matches: result.matches, active: result.activeMatchOrdinal });
+                }
+            };
+            const timer = setTimeout(() => finish({ matches: 0, active: 0 }), FIND_TIMEOUT_MS);
+            contents.on("found-in-page", on_found);
+            const request = contents.findInPage(text, { findNext: next });
+        });
+    }
+
+    stop_find(): void {
+        assert.equal(this.destroyed, false);
+        this.view.webContents.stopFindInPage("clearSelection");
+    }
+
+    async clear_storage(): Promise<void> {
+        assert.equal(this.destroyed, false);
+        const origin = new URL(this.current_url()).origin;
+        assert.ok(origin.startsWith("http"), `clear storage needs an http origin, got ${origin}`);
+        await this.view.webContents.session.clearStorageData({ origin });
+        this.debug(`cleared storage of ${origin} for ${this.key}`);
+        this.reload();
     }
 
     pop_out(on_closed: () => void): void {

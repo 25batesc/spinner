@@ -11,6 +11,12 @@ export const IPC = {
     previews_devtools: "previews:devtools",
     previews_pop_out: "previews:popOut",
     previews_dock_back: "previews:dockBack",
+    previews_navigate: "previews:navigate",
+    previews_back: "previews:back",
+    previews_forward: "previews:forward",
+    previews_zoom: "previews:zoom",
+    previews_find: "previews:find",
+    previews_clear_storage: "previews:clearStorage",
     /** Main to renderer: one `PreviewEvent` per message. */
     previews_event: "previews:event",
     panes_pop_out: "panes:popOut",

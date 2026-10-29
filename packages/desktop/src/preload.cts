@@ -13,6 +13,7 @@ import type {
     PreviewKey,
     PreviewRect,
     SpinnerDesktop,
+    ZoomDirection,
 } from "@spinner/protocol";
 
 const { contextBridge, ipcRenderer } = electron;
@@ -26,6 +27,12 @@ const IPC = {
     previews_devtools: "previews:devtools",
     previews_pop_out: "previews:popOut",
     previews_dock_back: "previews:dockBack",
+    previews_navigate: "previews:navigate",
+    previews_back: "previews:back",
+    previews_forward: "previews:forward",
+    previews_zoom: "previews:zoom",
+    previews_find: "previews:find",
+    previews_clear_storage: "previews:clearStorage",
     previews_event: "previews:event",
     panes_pop_out: "panes:popOut",
     panes_dock_back: "panes:dockBack",
@@ -55,6 +62,15 @@ const bridge: SpinnerDesktop = {
         devtools: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_devtools, key),
         popOut: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_pop_out, key),
         dockBack: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_dock_back, key),
+        navigate: (key: PreviewKey, url: string) =>
+            ipcRenderer.invoke(IPC.previews_navigate, key, url),
+        back: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_back, key),
+        forward: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_forward, key),
+        zoom: (key: PreviewKey, direction: ZoomDirection) =>
+            ipcRenderer.invoke(IPC.previews_zoom, key, direction),
+        find: (key: PreviewKey, text: string | null) =>
+            ipcRenderer.invoke(IPC.previews_find, key, text),
+        clearStorage: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_clear_storage, key),
         subscribe: (listener: (event: PreviewEvent) => void) =>
             subscribe(IPC.previews_event, listener),
     },

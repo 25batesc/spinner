@@ -4,7 +4,13 @@
 // file is pure so Vitest can drive it: the registry takes a `PreviewHost` that makes views and
 // calls their methods; `main.ts` supplies the Electron one.
 import assert from "node:assert/strict";
-import { preview_key_session, type PreviewKey, type PreviewRect } from "@spinner/protocol";
+import {
+    preview_key_session,
+    type FindResult,
+    type PreviewKey,
+    type PreviewRect,
+    type ZoomDirection,
+} from "@spinner/protocol";
 
 /** What the registry needs from one `WebContentsView`. */
 export interface PreviewView {
@@ -22,6 +28,15 @@ export interface PreviewView {
     pop_out(on_closed: () => void): void;
     /** Closes the window and puts the view back in the main window, hidden. */
     dock_back(): void;
+    go_back(): void;
+    go_forward(): void;
+    zoom_level(): number;
+    set_zoom_level(level: number): void;
+    /** `next` repeats the last search from the current match. Resolves with the final count. */
+    find(text: string, next: boolean): Promise<FindResult>;
+    stop_find(): void;
+    /** Clears the storage of the page's current origin, then reloads. */
+    clear_storage(): Promise<void>;
     destroy(): void;
 }
 
@@ -41,6 +56,22 @@ interface Entry {
     popped: boolean;
     /** Monotonic tick of the last `set` or `show`, for eviction order. */
     shown_at: number;
+    /** The text of the last `find`, so the same text again finds the next match. */
+    finding: string | null;
+}
+
+/** One Chromium zoom level is 20 %; these bounds are 50 % to 300 %, like a browser's. */
+export const ZOOM_LEVEL_MIN = -3.8;
+export const ZOOM_LEVEL_MAX = 6;
+
+/** The zoom level after one step from `current`. `reset` is 100 %. */
+export function next_zoom_level(current: number, direction: ZoomDirection): number {
+    assert.ok(Number.isFinite(current), "a zoom level is a number");
+    if (direction === "reset") {
+        return 0;
+    }
+    const step = direction === "in" ? 1 : -1;
+    return Math.min(ZOOM_LEVEL_MAX, Math.max(ZOOM_LEVEL_MIN, current + step));
 }
 
 export class PreviewRegistry {
@@ -68,6 +99,7 @@ export class PreviewRegistry {
                 visible: false,
                 popped: false,
                 shown_at: 0,
+                finding: null,
             };
             this.entries.set(key, entry);
         }
@@ -127,6 +159,49 @@ export class PreviewRegistry {
         }
         const current = entry.view.current_url();
         return current === "" ? entry.url : current;
+    }
+
+    /** Loads `url` in the view; the pane's `set` URL stays, as after a click in the page. */
+    navigate(key: PreviewKey, url: string): void {
+        assert_url(url);
+        this.entries.get(key)?.view.load(url);
+    }
+
+    back(key: PreviewKey): void {
+        this.entries.get(key)?.view.go_back();
+    }
+
+    forward(key: PreviewKey): void {
+        this.entries.get(key)?.view.go_forward();
+    }
+
+    zoom(key: PreviewKey, direction: ZoomDirection): void {
+        const entry = this.entries.get(key);
+        if (entry === undefined) {
+            return;
+        }
+        entry.view.set_zoom_level(next_zoom_level(entry.view.zoom_level(), direction));
+    }
+
+    /** Null clears the search; the same text again finds the next match. */
+    async find(key: PreviewKey, text: string | null): Promise<FindResult | null> {
+        const entry = this.entries.get(key);
+        if (entry === undefined) {
+            return null;
+        }
+        if (text === null || text === "") {
+            entry.finding = null;
+            entry.view.stop_find();
+            return null;
+        }
+        const next = entry.finding === text;
+        entry.finding = text;
+        return entry.view.find(text, next);
+    }
+
+    clear_storage(key: PreviewKey): Promise<void> {
+        const entry = this.entries.get(key);
+        return entry === undefined ? Promise.resolve() : entry.view.clear_storage();
     }
 
     /**

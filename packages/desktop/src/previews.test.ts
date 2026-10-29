@@ -3,7 +3,15 @@
 // close, bounds the number of views, and leaves a popped-out view to its own window until it
 // docks back. Method: a fake host records every call per view and can close a pop-out window.
 import { describe, expect, it } from "vitest";
-import { integer_rect, PreviewRegistry, type PreviewHost, type PreviewView } from "./previews.js";
+import {
+    integer_rect,
+    next_zoom_level,
+    PreviewRegistry,
+    ZOOM_LEVEL_MAX,
+    ZOOM_LEVEL_MIN,
+    type PreviewHost,
+    type PreviewView,
+} from "./previews.js";
 
 interface FakeView extends PreviewView {
     calls: string[];
@@ -11,6 +19,7 @@ interface FakeView extends PreviewView {
     destroyed: boolean;
     /** The user's close of the pop-out window, while one is open. */
     close_window: (() => void) | null;
+    zoom: number;
 }
 
 function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
@@ -23,6 +32,7 @@ function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
                 url: "",
                 destroyed: false,
                 close_window: null,
+                zoom: 0,
                 load(url) {
                     this.url = url;
                     this.calls.push(`load ${url}`);
@@ -53,6 +63,30 @@ function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
                 dock_back() {
                     this.close_window = null;
                     this.calls.push("dock back");
+                },
+                go_back() {
+                    this.calls.push("back");
+                },
+                go_forward() {
+                    this.calls.push("forward");
+                },
+                zoom_level() {
+                    return this.zoom;
+                },
+                set_zoom_level(level) {
+                    this.zoom = level;
+                    this.calls.push(`zoom ${level}`);
+                },
+                find(text, next) {
+                    this.calls.push(`find ${text}${next ? " next" : ""}`);
+                    return Promise.resolve({ matches: 3, active: next ? 2 : 1 });
+                },
+                stop_find() {
+                    this.calls.push("stop find");
+                },
+                clear_storage() {
+                    this.calls.push("clear storage");
+                    return Promise.resolve();
                 },
                 destroy() {
                     this.destroyed = true;
@@ -209,6 +243,57 @@ describe("PreviewRegistry", () => {
         expect(registry.dock_back("s1-a/web")).toBe(false);
     });
 
+    it("browser bar: navigate keeps the set url, history and zoom reach the view", async () => {
+        const host = fake_host();
+        const registry = new PreviewRegistry(host);
+        registry.set("s1-a/web", "http://web.s1.localhost", rect);
+        registry.navigate("s1-a/web", "http://api.s1.localhost/items");
+        expect(() => registry.navigate("s1-a/web", "file:///etc/passwd")).toThrow(/http/);
+        // The pane's URL did not change: a repeated set only moves the view, no load.
+        registry.set("s1-a/web", "http://web.s1.localhost", { ...rect, width: 400 });
+        registry.back("s1-a/web");
+        registry.forward("s1-a/web");
+        registry.zoom("s1-a/web", "in");
+        registry.zoom("s1-a/web", "in");
+        registry.zoom("s1-a/web", "out");
+        registry.zoom("s1-a/web", "reset");
+        await registry.clear_storage("s1-a/web");
+        registry.navigate("none/none", "http://x");
+        registry.zoom("none/none", "in");
+        expect(host.views.get("s1-a/web")?.calls.slice(3)).toEqual([
+            "load http://api.s1.localhost/items",
+            "bounds 10,20 400x200",
+            "back",
+            "forward",
+            "zoom 1",
+            "zoom 2",
+            "zoom 1",
+            "zoom 0",
+            "clear storage",
+        ]);
+    });
+
+    it("find: the same text again finds the next match; null clears", async () => {
+        const host = fake_host();
+        const registry = new PreviewRegistry(host);
+        registry.set("s1-a/web", "http://web.s1.localhost", rect);
+        expect(await registry.find("s1-a/web", "items")).toEqual({ matches: 3, active: 1 });
+        expect(await registry.find("s1-a/web", "items")).toEqual({ matches: 3, active: 2 });
+        expect(await registry.find("s1-a/web", "other")).toEqual({ matches: 3, active: 1 });
+        expect(await registry.find("s1-a/web", null)).toBeNull();
+        expect(await registry.find("s1-a/web", "")).toBeNull();
+        expect(await registry.find("s1-a/web", "other")).toEqual({ matches: 3, active: 1 });
+        expect(await registry.find("none/none", "x")).toBeNull();
+        expect(host.views.get("s1-a/web")?.calls.slice(3)).toEqual([
+            "find items",
+            "find items next",
+            "find other",
+            "stop find",
+            "stop find",
+            "find other",
+        ]);
+    });
+
     it("rejects a malformed key, url or rectangle", () => {
         const registry = new PreviewRegistry(fake_host());
         expect(() => registry.set("nokey", "http://x", rect)).toThrow(/session dir/);
@@ -216,6 +301,17 @@ describe("PreviewRegistry", () => {
         expect(() => registry.set("s1/web", "http://x", { ...rect, x: Number.NaN })).toThrow(
             /finite/,
         );
+    });
+});
+
+describe("next_zoom_level", () => {
+    it("steps one level, stops at the bounds, and resets to 100 %", () => {
+        expect(next_zoom_level(0, "in")).toBe(1);
+        expect(next_zoom_level(0, "out")).toBe(-1);
+        expect(next_zoom_level(ZOOM_LEVEL_MAX, "in")).toBe(ZOOM_LEVEL_MAX);
+        expect(next_zoom_level(ZOOM_LEVEL_MIN, "out")).toBe(ZOOM_LEVEL_MIN);
+        expect(next_zoom_level(2.5, "reset")).toBe(0);
+        expect(() => next_zoom_level(Number.NaN, "in")).toThrow(/number/);
     });
 });
 
