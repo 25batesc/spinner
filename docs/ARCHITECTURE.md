@@ -120,7 +120,13 @@ interface AgentHandle {
 }
 ```
 
-v1 implementation: **`PiRpcHarness`**. Each agent tab is a `pi --mode rpc` child process started with `cwd` = the agent's primary worktree, `--session-dir <session>/agents/<name>/pi`, `-e <spinner-extension>`, `--skill <session>/skills` when that directory exists, `--approve` when `harness.pi.trust_projects` is on, and the model chosen for that tab (OpenRouter is just a provider setting in pi). pi exports an `RpcClient` that does the JSONL framing, ID correlation and `agent_settled` tracking; the adapter is a thin wrapper around it.
+Two implementations share one spawn builder (`pi_spawn_options` in `harness.ts`): `cwd` = the agent's primary worktree, `--session-dir <session>/agents/<name>/pi`, `--session-id <name>`, `--extension <spinner-extension>`, `--skill <session>/skills` when that directory has content, and the model chosen for that tab (OpenRouter is just a provider setting in pi). `resume` is the same spawn: pi reopens the transcript with that id when it exists. `config.yaml` `agents.harness` names the one `POST /sessions/:dir/agents` uses; `session.yaml` records the choice per agent under `agents.<name>.harness`.
+
+**`PiTtyHarness`** (`tty-harness.ts`, the default since s009). pi runs interactively, in a pseudo-terminal from `node-pty`, with `SPINNER_HARNESS=tty` and `TERM=xterm-256color`. The agent tab renders that terminal with xterm.js over one WebSocket, `GET /sessions/:dir/agents/:name/tty` ([DAEMON_API.md](DAEMON_API.md#tty-websocket)). Binary frames carry the pty's bytes both ways and one text frame carries a resize. The daemon replays a 64 KiB scrollback on attach. Up to 8 clients (a browser tab and the desktop window) share one pty. The daemon never types into the pty for the operator. `prompt`, `steer` and `abort` go through the Spinner extension inside pi: the extension long-polls `GET .../commands`, turns each command into `pi.sendUserMessage` (plain, `deliverAs: "followUp"` when busy, `deliverAs: "steer"` for a steer) or `ctx.abort()`, and acks on its next poll; the route resolves with that disposition. The extension posts `agent_start`, `agent_end`, `agent_settled`, `turn_end` and `tool_execution_*` to `POST .../events`, so the manager's fold, the bus and the board run unchanged. `spawn` resolves on the extension's `hello`, or 3 s after the pty started. The grace exists because pi can wait on a startup notice the operator answers in the tab.
+
+A daemon restart: the pty master dies with the daemon and pi gets SIGHUP, so no pty survives. On start the manager (`adopt_all`) reads `agents.<name>.{pid,started}` for every agent that is not `exited`, stops a pi whose identity still matches, and resumes each `tty` agent on its transcript. The scrollback starts empty; pi redraws the transcript. An `rpc` agent is marked `exited` and resumes from the tab.
+
+**`PiRpcHarness`** (`harness.ts`, `pi-rpc.ts`): the headless path, kept for tests and `agents.harness: rpc`. Each agent is a `pi --mode rpc` child; the daemon does the JSONL framing and ID correlation itself rather than through pi's `RpcClient`, which would pull the pi package into the daemon.
 
 The process runs with your normal pi agent directory (`~/.pi/agent`), so your skills, extensions, prompt templates, MCP servers, credentials and user-level `AGENTS.md` all apply, exactly as in your terminal. `PI_CODING_AGENT_DIR` can point a session at a different agent directory when you want isolation.
 
@@ -130,7 +136,7 @@ Why RPC subprocesses instead of pi's in-process SDK: a hung or crashed agent can
 
 | Harness | Headless mode | Transcript resume | Context injection |
 |---|---|---|---|
-| pi (v1) | `pi --mode rpc`, bidirectional | `--session-id` | `AGENTS.md` chain + extension + `--append-system-prompt` |
+| pi (v1) | `pi --mode rpc`, bidirectional; or pi's own UI in a pty since s009 | `--session-id` | `AGENTS.md` chain + extension + `--append-system-prompt` |
 | Claude Code CLI | `claude -p --output-format stream-json` | `--resume <id>` | `CLAUDE.md` chain + `--append-system-prompt` |
 | Codex CLI | `codex exec --json` | `codex exec resume` | `AGENTS.md` chain |
 | Cursor CLI | `agent -p --output-format stream-json` | `--resume` | `AGENTS.md` / rules |
