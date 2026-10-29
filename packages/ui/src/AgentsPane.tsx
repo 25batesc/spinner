@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from "react";
 
 import type { FeedLine } from "./state.ts";
+import { showsTerminal } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
+import { AgentTerminal } from "./AgentTerminal.tsx";
 import { ContextTab } from "./ContextTab.tsx";
 import { MissionPanel } from "./MissionPanel.tsx";
 import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
@@ -11,7 +13,7 @@ import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
-import type { SessionView } from "@spinner/protocol";
+import { tty_path, type SessionView } from "@spinner/protocol";
 
 import { ComposeForm, type ComposeKind, type RunAction } from "./SessionForms.tsx";
 
@@ -65,10 +67,31 @@ export function AgentsPane(props: AgentsPaneProps) {
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const [shown, setShown] = useState("agents");
     const [agentTab, setAgentTab] = useState("chat");
+    // The `+` tab at the end of the agent row: the add-agent form as the pane's view.
+    const [adding, setAdding] = useState(false);
     const session = view?.summary.session;
     const names = session === undefined ? [] : Object.keys(session.agents);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
     const agent = selected === undefined ? undefined : session?.agents[selected];
+    const terminalFor = (name: string) =>
+        showsTerminal(session?.agents[name]?.harness ?? "rpc", window.location.search);
+    // Every tty agent's terminal stays mounted; only the picked one shows. A switch to
+    // another agent, to the Context tab or to another view hides it and keeps its buffer.
+    const terminals =
+        view === undefined
+            ? []
+            : names.filter(terminalFor).map((name) => (
+                  <AgentTerminal
+                      key={`${view.summary.dir}/${name}`}
+                      path={tty_path(view.summary.dir, name)}
+                      running={view.agents_running.includes(name)}
+                      visible={
+                          shown === "agents" && !adding && agentTab !== "context" &&
+                          name === selected
+                      }
+                  />
+              ));
+    const mainTab = selected !== undefined && terminalFor(selected) ? "terminal" : "chat";
 
     if (compose !== undefined) {
         return (
@@ -100,10 +123,43 @@ export function AgentsPane(props: AgentsPaneProps) {
                             run={run}
                         />
                     )}
-                    {shown === "agents" && (
-                        <>
-                            <Tabs labels={names} selected={selected} onSelect={setPicked} />
-                            {agent === undefined || view === undefined || selected === undefined ? (
+                    {/* Hidden, not unmounted, while another view shows: the terminals keep
+                        their sockets and buffers. */}
+                    <div className="agents-view" hidden={shown !== "agents"}>
+                        <div className="tabs-row">
+                            <Tabs
+                                labels={names}
+                                selected={adding ? undefined : selected}
+                                onSelect={(name) => {
+                                    setPicked(name);
+                                    setAdding(false);
+                                }}
+                            />
+                            {view !== undefined && (
+                                <button
+                                    type="button"
+                                    className={adding ? "tab tab-add tab-selected" : "tab tab-add"}
+                                    aria-label="Add agent"
+                                    aria-pressed={adding}
+                                    onClick={() => setAdding(true)}
+                                >
+                                    +
+                                </button>
+                            )}
+                        </div>
+                        {view !== undefined && adding && (
+                            <AddAgent
+                                view={view}
+                                run={run}
+                                onDone={(name) => {
+                                    setPicked(name);
+                                    setAdding(false);
+                                }}
+                                onCancel={() => setAdding(false)}
+                            />
+                        )}
+                        {!adding && (agent === undefined || view === undefined ||
+                            selected === undefined ? (
                                 <p className="muted">This session has no agents.</p>
                             ) : (
                                 <>
@@ -111,16 +167,17 @@ export function AgentsPane(props: AgentsPaneProps) {
                                         {agent.harness} · {agent.model} · {agent.process}
                                     </p>
                                     <Tabs
-                                        labels={["chat", "context"]}
-                                        selected={agentTab}
+                                        labels={[mainTab, "context"]}
+                                        selected={agentTab === "context" ? "context" : mainTab}
                                         onSelect={setAgentTab}
                                     />
-                                    {agentTab === "context" ? (
+                                    {agentTab === "context" && (
                                         <ContextTab
                                             base={agentBase(view.summary.dir, selected)}
                                             revision={agent.process}
                                         />
-                                    ) : (
+                                    )}
+                                    {agentTab !== "context" && mainTab === "chat" && (
                                         <AgentChat
                                             view={view}
                                             agent={selected}
@@ -128,11 +185,10 @@ export function AgentsPane(props: AgentsPaneProps) {
                                         />
                                     )}
                                 </>
-                            )}
-                            {view !== undefined && <AddAgent view={view} run={run} />}
-                            {view !== undefined && <ServiceTable view={view} />}
-                        </>
-                    )}
+                            ))}
+                        {terminals}
+                        {view !== undefined && <ServiceTable view={view} />}
+                    </div>
                     {children}
                 </div>
                 <Actions

@@ -117,8 +117,8 @@ export function initialSessions(): SessionView[] {
         stage: "peer-review",
         needs_human: "Approve the refund copy in PR #412",
         agents: {
-            backend: { harness: "pi", model: "anthropic/claude-fable-5-1", process: "running" },
-            frontend: { harness: "pi", model: "anthropic/claude-sonnet-5-5", process: "idle" },
+            backend: { harness: "tty", model: "anthropic/claude-fable-5-1", process: "running" },
+            frontend: { harness: "rpc", model: "anthropic/claude-sonnet-5-5", process: "idle" },
         },
     });
     const boot = session({

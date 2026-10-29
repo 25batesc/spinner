@@ -112,6 +112,10 @@ html, body, #root { height: 100%; margin: 0; }
 .feed { max-height: 30%; overflow: auto; border-top: 1px solid #8884; padding-top: 6px; }
 .feed ul { margin: 0; padding-left: 16px; font-size: 12px; }
 .tabs { display: flex; gap: 2px; }
+/* The agent tabs with the `+` tab at the end: the add-agent form opens as the pane's view. */
+.tabs-row { display: flex; gap: 2px; }
+.tab-add { border-style: dashed; opacity: 0.75; padding: 2px 8px; }
+.tab-add:hover, .tab-add.tab-selected { opacity: 1; }
 .tab { padding: 2px 10px; border: 1px solid #8886; background: transparent; color: inherit; }
 .tab-selected { border-color: #38f; font-weight: 600; }
 .preview-pane { display: flex; flex-direction: column; gap: 6px; }
@@ -163,7 +167,7 @@ html, body, #root { height: 100%; margin: 0; }
 .transcript { padding-left: 0; }
 .prompt-form { display: flex; gap: 4px; margin-top: auto; }
 .prompt-form .prompt { flex: 1; margin-top: 0; }
-.add-agent { display: flex; gap: 4px; flex-wrap: wrap; font-size: 12px; }
+.add-agent { font-size: 12px; }
 .add-agent .brief { width: 100%; font-family: inherit; font-size: 12px; }
 .mission h2 { text-transform: none; }
 .mission h3, .pr-threads h3, .context h3 { font-size: 13px; margin: 8px 0 4px; }
@@ -198,3 +202,16 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .confirm-text { white-space: pre-wrap; border: 1px solid #8886; padding: 6px; margin: 0; }
 .approve-list { list-style: none; padding: 0; margin: 0; }
+/* The agents view hides, not unmounts, while mission or threads show: the terminals keep their
+   sockets and buffers. `contents` keeps its children in the chat column's flex flow. */
+.agents-view { display: contents; }
+.agents-view[hidden] { display: none; }
+/* A tty agent's tab: xterm on the pane's dark background, the status line above it while the
+   socket is not open. The host takes the chat column's remaining height. */
+.agent-terminal { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 240px; }
+.agent-terminal[hidden] { display: none; }
+.tty-status { margin: 0; font-size: 12px; }
+.terminal-host { flex: 1; min-height: 0; background: #1b1b1f; padding: 4px; border-radius: 4px; }
+.terminal-host .xterm { height: 100%; }
+/* xterm.css paints the viewport black by default; keep it the theme's background. */
+.terminal-host .xterm-viewport { background-color: #1b1b1f !important; }

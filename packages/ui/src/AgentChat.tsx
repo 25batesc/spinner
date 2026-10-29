@@ -183,12 +183,21 @@ function AttachProject({ dir, run }: { dir: string; run: RunAction }) {
     );
 }
 
+export interface AddAgentProps {
+    view: SessionView;
+    run: RunAction;
+    /** The agent was added; the pane selects its tab. */
+    onDone: (name: string) => void;
+    onCancel: () => void;
+}
+
 /**
- * Starts an agent with a model from `GET /models`. The brief textarea starts with the
- * daemon's default for the name and repo (`GET .../agents/default-brief`) and is sent as
- * `brief` once edited; the daemon writes it when the session has none for that agent.
+ * The `+` view of the agents pane: starts an agent with a model from `GET /models`. The brief
+ * textarea starts with the daemon's default for the name and repo
+ * (`GET .../agents/default-brief`) and is sent as `brief` once edited; the daemon writes it
+ * when the session has none for that agent.
  */
-export function AddAgent({ view, run }: { view: SessionView; run: RunAction }) {
+export function AddAgent({ view, run, onDone, onCancel }: AddAgentProps) {
     const dir = view.summary.dir;
     const repos = Object.keys(view.summary.session.repos);
     const [repo, setRepo] = useState("");
@@ -224,9 +233,8 @@ export function AddAgent({ view, run }: { view: SessionView; run: RunAction }) {
         };
         postAgent(`/sessions/${dir}/agents`, body).then(
             () => {
-                setName("");
-                setBriefEdited(false);
                 setError(null);
+                onDone(name);
             },
             (failure: unknown) => setError(String(failure)),
         );
@@ -235,7 +243,8 @@ export function AddAgent({ view, run }: { view: SessionView; run: RunAction }) {
     return (
         <>
             {!hasWorktree(view) && <AttachProject dir={dir} run={run} />}
-            <form className="add-agent" onSubmit={submit} aria-label="Add agent">
+            <form className="add-agent compose-form" onSubmit={submit} aria-label="Add agent">
+                <h3>New agent</h3>
                 <input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
@@ -258,7 +267,6 @@ export function AddAgent({ view, run }: { view: SessionView; run: RunAction }) {
                         </option>
                     ))}
                 </select>
-                <button type="submit" disabled={name.trim() === ""}>add agent</button>
                 <textarea
                     className="brief"
                     value={brief}
@@ -270,6 +278,12 @@ export function AddAgent({ view, run }: { view: SessionView; run: RunAction }) {
                     aria-label="Brief"
                     placeholder="Brief (the daemon's default when left as is)"
                 />
+                <div className="compose-actions">
+                    <button type="submit" className="primary" disabled={name.trim() === ""}>
+                        add agent
+                    </button>
+                    <button type="button" onClick={onCancel}>cancel</button>
+                </div>
                 {error !== null && <span className="needs-human">{error}</span>}
             </form>
         </>

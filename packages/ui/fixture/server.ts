@@ -18,6 +18,9 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { PipelineFixture } from "./pipeline.ts";
 import { FIXTURE_PORT, initialSessions, PROJECTS, pr, session, stackView, view } from "./data.ts";
+import { EchoPty } from "./tty.ts";
+
+export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
 
 export const STEP_DELAY_MS = 300;
 
@@ -98,6 +101,8 @@ class FixtureDaemon {
     counter = 0;
     /** `message_end` events per `<dir>/<agent>`, what `GET .../events` returns. */
     history = new Map<string, PiEvent[]>();
+    /** One fake pty per `<dir>/<agent>` that a terminal attached to; it outlives the socket. */
+    ptys = new Map<string, EchoPty>();
 
     pipeline = new PipelineFixture(this);
 
@@ -105,6 +110,22 @@ class FixtureDaemon {
         for (const item of initialSessions()) {
             this.sessions.set(item.summary.dir, item);
         }
+    }
+
+    /** The pty of a running agent, made on the first attach; null when the agent is not running. */
+    pty(dir: string, name: string): EchoPty | null {
+        const current = this.sessions.get(dir);
+        if (current === undefined || !current.agents_running.includes(name)) {
+            return null;
+        }
+        const key = `${dir}/${name}`;
+        const known = this.ptys.get(key);
+        if (known !== undefined) {
+            return known;
+        }
+        const made = new EchoPty(name);
+        this.ptys.set(key, made);
+        return made;
     }
 
     emit(event: SpinnerEvent): void {
@@ -198,7 +219,7 @@ class FixtureDaemon {
             const agents = {
                 ...base.agents,
                 [name]: {
-                    harness: "pi" as const,
+                    harness: "tty" as const,
                     model: String(body["model"] ?? "fixture/default"),
                     process: "idle" as const,
                 },
@@ -214,6 +235,20 @@ class FixtureDaemon {
             const script = replyScript(String(body["text"]));
             script.forEach((event, index) => setTimeout(() => emit(event), index * STEP_DELAY_MS));
             sendJson(response, { ok: true, disposition: "started" });
+        } else if (match[3] === "stop") {
+            // As the daemon: the pty's clients get the exit frame and close 1000, the agent
+            // leaves `agents_running` and its process reads `idle`.
+            this.ptys.get(`${dir}/${name}`)?.exit(0);
+            this.ptys.delete(`${dir}/${name}`);
+            const base = current.summary.session;
+            const spec = base.agents[name];
+            const agents = spec === undefined ? base.agents : {
+                ...base.agents, [name]: { ...spec, process: "idle" as const },
+            };
+            const summary = { ...current.summary, session: { ...base, agents } };
+            const running = current.agents_running.filter((item) => item !== name);
+            this.update({ ...current, summary, agents_running: running });
+            sendJson(response, { ok: true });
         } else {
             if (match[3] === "abort") {
                 emit({ type: "agent_settled", aborted: true });
@@ -341,6 +376,18 @@ export function startFixture(port: number = FIXTURE_PORT) {
     });
     const sockets = new WebSocketServer({ noServer: true });
     server.on("upgrade", (request, socket, head) => {
+        const path = (request.url ?? "").split("?")[0] ?? "";
+        const tty = TTY_ROUTE.exec(path);
+        if (tty !== null) {
+            const pty = daemon.pty(tty[1] ?? "", tty[2] ?? "");
+            if (pty === null) {
+                // As the daemon: a plain 404 before the upgrade when the agent is not running.
+                socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
+                return;
+            }
+            sockets.handleUpgrade(request, socket, head, (ws) => pty.attach(ws));
+            return;
+        }
         if (request.url !== EVENTS_PATH) {
             socket.destroy();
             return;
@@ -351,7 +398,8 @@ export function startFixture(port: number = FIXTURE_PORT) {
         });
     });
     server.listen(port, DAEMON_HOST);
-    return server;
+    // The daemon rides along for tests that reach past HTTP, for example to drop a pty's clients.
+    return Object.assign(server, { daemon });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -4,7 +4,9 @@
 // new session, up, previews, verify, close. The flow `agents` prompts the first running agent
 // of the first session with a pi agent. The flow `panes` collapses, hides, restores, expands
 // and opens the `?pane=` route; `bridge-popout` docks the desktop's popped-out windows back
-// through a stub of the bridge. It works against the fixture server or the real daemon.
+// through a stub of the bridge. The flow `terminal` attaches a tty agent's terminal to the
+// fixture's echo pty, types, resizes and opens the pane route. It works against the fixture
+// server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
@@ -161,7 +163,8 @@ if (flow === "bridge-stub" || flow === "bridge-popout" || flow === "bridge-bar")
 await send("Emulation.setDeviceMetricsOverride", {
     width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
 });
-await send("Page.navigate", { url: uiUrl });
+// The fixture's first agent is a tty agent since s009; the chat flow asks for the old view.
+await send("Page.navigate", { url: flow === "agents" ? `${uiUrl}?chat=1` : uiUrl });
 await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
 await until("daemon connected", `${text(".status")}.includes("open")`);
 await shot("01-sessions");
@@ -504,7 +507,8 @@ if (flow === "panes") {
     // 10. The route alone: one pane, no bar, strips, dividers or controls, same session.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
     await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
-    await until("session shown", `${text(".agents-pane")}.includes("idle")`);
+    const contextTab = `[...document.querySelectorAll(".agents-pane .tab")]`;
+    await until("session shown", `${contextTab}.some((t) => t.textContent === "context")`);
     const lone = await evaluate(`({
         strips: document.querySelectorAll(".strip").length,
         handles: document.querySelectorAll(".handle").length,
@@ -745,6 +749,7 @@ if (flow === "real-agent") {
     const prompt = process.env["E2E_PROMPT"] ?? "Read the brief and reply with one line.";
     await click(".session", session);
     const agent = process.env["E2E_AGENT"] ?? "scribe";
+    await click("button[aria-label='Add agent']");
     await fill("input[aria-label='Agent name']", agent);
     await evaluate(`(() => {
         const select = document.querySelector("select[aria-label=Model]");
@@ -953,6 +958,7 @@ if (flow === "m2-real") {
     await finished("reset");
     await shot("32-m2-reset");
     await click(".agents-pane .tab", "agents");
+    await click("button[aria-label='Add agent']");
     await fill("input[aria-label='Agent name']", "scribe");
     await evaluate(`(() => {
         const select = document.querySelector("select[aria-label=Model]");
@@ -1010,6 +1016,128 @@ if (flow === "m2-context") {
     console.log("agents file on disk ok");
     await shot("34-m2-context-edited");
     console.log("m2-context ok");
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "terminal") {
+    // The tty agent's tab is xterm over the pty socket. Against the fixture: the banner on
+    // attach, the echo of `hello` and Enter, a resize line after the pane's divider moves, the
+    // terminal kept (not remounted) across a switch to the context tab and back, and the
+    // `?pane=agents` route with the scrollback replayed. Against a daemon the banner is pi's
+    // own screen; set E2E_BANNER to a string pi prints.
+    const banner = process.env["E2E_BANNER"] ?? "Spinner fixture pty for";
+    const shown = `document.querySelector(".agent-terminal:not([hidden])")`;
+    const rows = `(${shown}?.querySelector(".xterm-rows")?.innerText ?? "")`;
+    const key = (key: string, code: string, keyCode: number, text: string) =>
+        [
+            send("Input.dispatchKeyEvent", {
+                type: "keyDown", key, code, windowsVirtualKeyCode: keyCode, text,
+            }),
+            send("Input.dispatchKeyEvent", { type: "keyUp", key, code }),
+        ];
+    const type = async (text: string) => {
+        for (const char of text) {
+            const upper = char.toUpperCase();
+            await Promise.all(key(char, `Key${upper}`, upper.charCodeAt(0), char));
+        }
+    };
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    const session = (await evaluate(
+        `document.querySelector(".session-selected").dataset.dir`,
+    )) as string;
+    await until(
+        "terminal tab selected",
+        `[...document.querySelectorAll(".tab-selected")].some((t) => t.textContent === "terminal")`,
+    );
+    await until("xterm mounted", `${shown}?.querySelector(".xterm") !== null`);
+    await until("banner", `${rows}.includes(${JSON.stringify(banner)})`);
+    await until("status line gone", `${shown}.querySelector(".tty-status") === null`);
+    const resizeLine = /\[resize (\d+)x(\d+)\]/g;
+    const sizes = async () => [...((await evaluate(rows)) as string).matchAll(resizeLine)]
+        .map((m) => `${m[1]}x${m[2]}`);
+    if (process.env["E2E_BANNER"] === undefined) {
+        await until("first resize line", `${rows}.includes("[resize ")`);
+    }
+    const first = await sizes();
+    console.log("sizes after attach:", JSON.stringify(first));
+    await shot("56-terminal-attached");
+    await type("hello");
+    await Promise.all(key("Enter", "Enter", 13, "\r"));
+    await until("echo", `${rows}.includes("hello")`);
+    if (process.env["E2E_BANNER"] === undefined) {
+        await until("new prompt after Enter", `/hello\\n[$] /.test(${rows})`);
+    }
+    await shot("57-terminal-typed");
+    // The divider between the agents pane and the previews, 200 px to the right.
+    const handle = (await evaluate(`(() => {
+        const r = document.querySelectorAll(".handle")[1].getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + 300 };
+    })()`)) as { x: number; y: number };
+    const mouse = (type: string, x: number) =>
+        send("Input.dispatchMouseEvent", { type, x, y: handle.y, button: "left", buttons: 1 });
+    await mouse("mousePressed", handle.x);
+    for (let step = 1; step <= 5; step += 1) {
+        await mouse("mouseMoved", handle.x + step * 40);
+    }
+    await mouse("mouseReleased", handle.x + 200);
+    if (process.env["E2E_BANNER"] === undefined) {
+        const lines = `${rows}.split("[resize ").length`;
+        await until("a second resize line", `${lines} > ${first.length + 1}`);
+    }
+    const after = await sizes();
+    console.log("sizes after the drag:", JSON.stringify(after));
+    const widened = Number(after.at(-1)?.split("x")[0]) > Number(first.at(-1)?.split("x")[0]);
+    if (process.env["E2E_BANNER"] === undefined && !widened) {
+        throw new Error("the drag did not send a wider resize frame");
+    }
+    await shot("58-terminal-resized");
+    // The Context tab hides the terminal; back on the terminal tab the same xterm shows
+    // with the typed line still there (no remount, no second banner).
+    const xtermCount = `document.querySelectorAll(".agent-terminal .xterm").length`;
+    await click(".agents-pane .tab", "context");
+    await until("terminal hidden", `${shown} === null`);
+    await until("still mounted", `${xtermCount} === 1`);
+    await click(".agents-pane .tab", "terminal");
+    await until("terminal shown again", `${shown} !== null`);
+    await until("typed line kept", `${rows}.includes("hello")`);
+    const banners = ((await evaluate(rows)) as string).split(banner).length - 1;
+    if (banners !== 1) {
+        throw new Error(`expected one banner after the tab switch, saw ${banners}`);
+    }
+    await shot("59-terminal-after-tab-switch");
+    // The add-agent form hides behind the `+` tab: it opens as the pane's view with the
+    // terminal hidden, cancel brings the terminal back, and an added agent gets its tab.
+    const form = `document.querySelector("form[aria-label='Add agent']")`;
+    await until("no form on the terminal", `${form} === null`);
+    await click("button[aria-label='Add agent']");
+    await until("form opened", `${form} !== null`);
+    await until("terminal hidden behind the form", `${shown} === null`);
+    await shot("59b-add-agent-view");
+    await click(".add-agent .compose-actions button", "cancel");
+    await until("form closed", `${form} === null`);
+    await until("terminal back", `${shown} !== null`);
+    if (process.env["E2E_BANNER"] === undefined) {
+        await click("button[aria-label='Add agent']");
+        await fill("input[aria-label='Agent name']", "scout");
+        await click(".add-agent .compose-actions .primary");
+        const tabs = `[...document.querySelectorAll(".agents-pane .tab")]`;
+        await until("new agent's tab selected", `${tabs}.some((t) =>
+            t.textContent === "scout" && t.classList.contains("tab-selected"))`);
+        await until("form closed after add", `${form} === null`);
+        await until("new agent's terminal", `${rows}.includes("fixture pty for scout")`);
+        await shot("59c-added-agent-selected");
+        await click(".agents-pane .tab", "backend");
+        await until("back on backend", `${rows}.includes("hello")`);
+    }
+    // The pane route, as a pop-out window loads it: a second attachment, the scrollback
+    // replayed, so the typed line is there before any keystroke.
+    await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
+    await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
+    await until("xterm in the pane route", `${shown}?.querySelector(".xterm") !== null`);
+    await until("scrollback replayed", `${rows}.includes("hello")`);
+    await shot("60-terminal-pane-route");
+    console.log("terminal ok");
     socket.close();
     process.exit(0);
 }
