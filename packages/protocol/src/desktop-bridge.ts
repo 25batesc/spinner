@@ -67,14 +67,64 @@ export interface DesktopPreviews {
      * the window's close button sends; a listener treats both alike.
      */
     dockBack(key: PreviewKey): Promise<void>;
-    /** Main process to renderer: the load state of a view. Returns the unsubscribe function. */
+    /**
+     * The browser bar. Navigation stays inside the view: `navigate` loads an http(s) URL in
+     * it, `back` and `forward` walk its history. A `target=_blank` link still goes to the
+     * external browser. None of these change the pane's `set` URL: a later `set` with the
+     * same URL only moves the view, as after a click inside the page.
+     */
+    navigate(key: PreviewKey, url: string): Promise<void>;
+    back(key: PreviewKey): Promise<void>;
+    forward(key: PreviewKey): Promise<void>;
+    /**
+     * One Chromium zoom level per step (20 %), `reset` is 100 %. Chromium keeps zoom per
+     * origin, so the views of one host share it.
+     */
+    zoom(key: PreviewKey, direction: ZoomDirection): Promise<void>;
+    /**
+     * `findInPage(text)`; the same text again finds the next match. Resolves with the final
+     * count for that search, or null when `text` is null (which clears the search and the
+     * selection) or the view does not exist.
+     */
+    find(key: PreviewKey, text: string | null): Promise<FindResult | null>;
+    /**
+     * Clears the storage (cookies, local storage, caches, the rest) of the view's current
+     * origin only, then reloads the view. The renderer confirms with the user before calling.
+     */
+    clearStorage(key: PreviewKey): Promise<void>;
+    /**
+     * Main process to renderer: the load state of a view and, as `navigated`, what a
+     * browser bar shows. Returns the unsubscribe function.
+     */
     subscribe(listener: (event: PreviewEvent) => void): () => void;
+}
+
+export type ZoomDirection = "in" | "out" | "reset";
+
+export interface FindResult {
+    matches: number;
+    /** 1-based index of the selected match; 0 when there is none. */
+    active: number;
+}
+
+/** What a browser bar shows for a view; `navigated` carries one per change. */
+export interface PreviewNavigation {
+    url: string;
+    title: string;
+    canGoBack: boolean;
+    canGoForward: boolean;
+    loading: boolean;
 }
 
 export type PreviewEvent =
     | { key: PreviewKey; type: "loading"; url: string }
     | { key: PreviewKey; type: "ready"; url: string; title: string }
-    | { key: PreviewKey; type: "failed"; url: string; error: string };
+    | { key: PreviewKey; type: "failed"; url: string; error: string }
+    /**
+     * On `did-navigate`, `did-navigate-in-page`, `page-title-updated`, `did-start-loading`
+     * and `did-stop-loading`. The error page a failed load shows reports the failed URL.
+     */
+    | ({ key: PreviewKey; type: "navigated" } & PreviewNavigation);
 
 /** The three panes of the workbench. `previews` pops out per key through `DesktopPreviews`. */
 export type PaneName = "sessions" | "agents" | "previews";
