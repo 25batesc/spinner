@@ -21,6 +21,7 @@
         "@spinner/protocol": "workspace:*",
         "chokidar": "^6.0.0",
         "hono": "^4.13.14",
+        "node-pty": "^1.1.0",
         "pg": "^8.23.1",
         "ws": "^8.22.0",
         "yaml": "^2.9.1"

@@ -146,12 +146,21 @@ export interface HostProcess {
 
 export type AgentProcessState = "running" | "idle" | "exited";
 
+/**
+ * How an agent's pi runs: `tty` is pi's own terminal UI in a pty, rendered by the agent tab
+ * over `GET /sessions/:dir/agents/:name/tty`; `rpc` is `pi --mode rpc`, the headless path.
+ * `pi` is the value files written before s009 carry; it reads as `rpc`.
+ */
+export type AgentHarnessName = "tty" | "rpc" | "pi";
+
 /** One agent of a session: how it runs and whether its process is alive. */
 export interface AgentSpec {
-    harness: "pi";
+    harness: AgentHarnessName;
     model: string;
     process: AgentProcessState;
     pid?: number;
+    /** The process start time as `ps -o lstart=` prints it, so a restart can tell a reused pid. */
+    started?: string;
 }
 
 /** The whole of `session.yaml`. */

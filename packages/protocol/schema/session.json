@@ -475,8 +475,7 @@
             "type": "object",
             "properties": {
                 "harness": {
-                    "type": "string",
-                    "const": "pi"
+                    "$ref": "#/definitions/AgentHarnessName"
                 },
                 "model": {
                     "type": "string"
@@ -486,6 +485,10 @@
                 },
                 "pid": {
                     "type": "number"
+                },
+                "started": {
+                    "type": "string",
+                    "description": "The process start time as `ps -o lstart=` prints it, so a restart can tell a reused pid."
                 }
             },
             "required": [
@@ -495,6 +498,15 @@
             ],
             "additionalProperties": false,
             "description": "One agent of a session: how it runs and whether its process is alive."
+        },
+        "AgentHarnessName": {
+            "type": "string",
+            "enum": [
+                "tty",
+                "rpc",
+                "pi"
+            ],
+            "description": "How an agent's pi runs: `tty` is pi's own terminal UI in a pty, rendered by the agent tab over `GET /sessions/:dir/agents/:name/tty`; `rpc` is `pi --mode rpc`, the headless path. `pi` is the value files written before s009 carry; it reads as `rpc`."
         },
         "AgentProcessState": {
             "type": "string",

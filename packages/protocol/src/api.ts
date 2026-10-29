@@ -95,6 +95,14 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
+    /** The extension of a tty agent reports pi's pid and slash commands. Body: AgentHelloRequest. */
+    "POST /sessions/:dir/agents/:name/hello": "AgentCommandResponse",
+    /** Long-poll (30 s) for the next command to a tty agent's extension. Query: `ack`, `disposition`. */
+    "GET /sessions/:dir/agents/:name/commands": "AgentCommandPollResponse",
+    /** The extension of a tty agent posts pi's lifecycle events. Body: AgentEventsRequest. 202. */
+    "POST /sessions/:dir/agents/:name/events": "AgentCommandResponse",
+    /** WebSocket upgrade to a tty agent's pty; see `TTY_PATH` and `TtyClientMessage`. */
+    "GET /sessions/:dir/agents/:name/tty": "websocket",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
     /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
@@ -107,6 +115,40 @@ export type Route = keyof typeof ROUTES;
 
 /** WebSocket path. Each message is one `SpinnerEvent` as JSON. */
 export const EVENTS_PATH = "/events";
+
+/**
+ * The pty WebSocket of a tty agent. Binary frames are the pty's bytes in both directions.
+ * Server to client: first one binary frame with the scrollback (0 to `TTY_SCROLLBACK_BYTES`
+ * bytes), then one per pty chunk, then one text frame `TtyServerMessage` `exit` and close 1000.
+ * Client to server: binary frames are keystrokes; the one text frame is `TtyClientMessage`.
+ * Before the upgrade a problem is plain HTTP: 404 when the agent is not running, 409 for an
+ * `rpc` agent or when `TTY_ATTACHMENTS_MAX` clients are attached.
+ */
+export function tty_path(dir: string, name: string): string {
+    return `/sessions/${encodeURIComponent(dir)}/agents/${encodeURIComponent(name)}/tty`;
+}
+
+export const TTY_SCROLLBACK_BYTES = 64 * 1024;
+export const TTY_ATTACHMENTS_MAX = 8;
+/** The pty size before any client sent a resize. */
+export const TTY_SIZE_DEFAULT = { cols: 120, rows: 40 } as const;
+/** Upper bound on one `resize` dimension; a frame outside it closes the socket with 1008. */
+export const TTY_DIMENSION_MAX = 1000;
+
+export interface TtyResize {
+    cols: number;
+    rows: number;
+}
+
+/** The only text frame a client sends. */
+export interface TtyClientMessage {
+    resize: TtyResize;
+}
+
+/** The only text frame the daemon sends: the pty child is gone; close 1000 follows. */
+export interface TtyServerMessage {
+    exit: { code: number | null };
+}
 
 export interface HealthResponse {
     ok: true;
@@ -491,6 +533,38 @@ export interface AgentNotRunningResponse extends ErrorResponse {
 
 /** The agent's past turns, as the `message_end` events the UI folds, oldest first. */
 export interface AgentEventsResponse {
+    events: PiEvent[];
+}
+
+/** `POST /sessions/:dir/agents/:name/hello`, from the extension at pi's start and after a reload. */
+export interface AgentHelloRequest {
+    pid: number;
+    /** `pi.getCommands()`: the slash commands pi loaded, for the Context tab. */
+    commands: PiCommandInfo[];
+}
+
+/** pi's `SlashCommandInfo`, the fields the Context tab shows. */
+export interface PiCommandInfo {
+    name: string;
+    description?: string;
+    source: "extension" | "prompt" | "skill";
+    sourceInfo?: { path?: string };
+}
+
+/** One command the daemon hands a tty agent's extension; `text` is absent for `abort`. */
+export interface AgentExtensionCommand {
+    id: string;
+    type: "prompt" | "steer" | "abort";
+    text?: string;
+}
+
+/** `GET /sessions/:dir/agents/:name/commands`: 200 with one command, or 204 after 30 s. */
+export interface AgentCommandPollResponse {
+    command: AgentExtensionCommand;
+}
+
+/** `POST /sessions/:dir/agents/:name/events`, batched by the extension; body bound 8 MiB. */
+export interface AgentEventsRequest {
     events: PiEvent[];
 }
 

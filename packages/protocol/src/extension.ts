@@ -21,6 +21,11 @@ export const EXTENSION_ENV = {
     daemon_url: "SPINNER_DAEMON_URL",
     /** The agent's role: `worker` or `fixer`. The `thread_*` tools register for `fixer`. */
     role: "SPINNER_ROLE",
+    /**
+     * `tty` when pi runs interactively in a pty. The extension then opens the `commands`
+     * long-poll, posts `hello` and the lifecycle events. Absent (or `rpc`) under `--mode rpc`.
+     */
+    harness: "SPINNER_HARNESS",
 } as const;
 
 export type ExtensionRole = "worker" | "fixer";
