@@ -33,6 +33,66 @@ export function previewRect(rect: {
     };
 }
 
+/** What a pane pop-out needs: the route for a browser window, the preview key for the bridge. */
+export interface PopOutRequest {
+    pane: "sessions" | "agents" | "previews";
+    session: string | undefined;
+    /** The preview the previews pane shows, if any; the desktop app pops out that view. */
+    preview?: { key: PreviewKey; url: string } | undefined;
+}
+
+/** A popped-out pane. `dock` closes its window; `onDocked` fires once, for either close path. */
+export interface PoppedOut {
+    dock(): void;
+}
+
+/** The URL that renders one pane alone, with the same data flow as the main window. */
+export function paneRoute(pane: PopOutRequest["pane"], session: string | undefined): string {
+    const params = new URLSearchParams({ pane });
+    if (session !== undefined) {
+        params.set("session", session);
+    }
+    return `${window.location.pathname}?${params.toString()}`;
+}
+
+const POPUP_FEATURES = "popup,width=720,height=800";
+/** How often the main window checks whether the operator closed a popped-out window. */
+const CLOSED_POLL_MS = 500;
+
+/**
+ * Opens a pane in its own window. In a browser that is `window.open` of the `?pane=` route; a
+ * same-origin popup has no close event, so a poll notices the close and reports it once. Returns
+ * null when the browser blocked the popup. The desktop path is added once the bridge contract
+ * names `previews.popOut` and `panes.popOut`.
+ */
+export function popOutPane(request: PopOutRequest, onDocked: () => void): PoppedOut | null {
+    // A unique name: reusing a window this document did not open would make `close` a no-op.
+    const name = `spinner-${request.pane}-${Date.now()}`;
+    const popup = window.open(paneRoute(request.pane, request.session), name, POPUP_FEATURES);
+    if (popup === null) {
+        return null;
+    }
+    let done = false;
+    const settle = () => {
+        if (!done) {
+            done = true;
+            clearInterval(timer);
+            onDocked();
+        }
+    };
+    const timer = setInterval(() => {
+        if (popup.closed) {
+            settle();
+        }
+    }, CLOSED_POLL_MS);
+    return {
+        dock: () => {
+            popup.close();
+            settle();
+        },
+    };
+}
+
 function sameRect(a: PreviewRect | null, b: PreviewRect): boolean {
     return a !== null && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }

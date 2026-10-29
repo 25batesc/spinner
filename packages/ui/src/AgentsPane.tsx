@@ -4,6 +4,7 @@ import type { FeedLine } from "./state.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { ContextTab } from "./ContextTab.tsx";
 import { MissionPanel } from "./MissionPanel.tsx";
+import { PaneHead, type PaneControls } from "./PaneHead.tsx";
 import { PipelineActions } from "./PipelineActions.tsx";
 import type { Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
@@ -25,6 +26,8 @@ export interface AgentsPaneProps {
     revisions: Revisions;
     /** The job drawer, drawn above the prompt. */
     children?: ReactNode;
+    /** Hide and pop out; absent when the pane is rendered alone by the `?pane=` route. */
+    controls?: PaneControls | undefined;
 }
 
 function Actions(props: {
@@ -53,7 +56,7 @@ function agentBase(dir: string, agent: string): string {
 const VIEWS = ["agents", "mission", "threads"];
 
 export function AgentsPane(props: AgentsPaneProps) {
-    const { view, busy, run, transcripts, feed, revisions, children } = props;
+    const { view, busy, run, transcripts, feed, revisions, children, controls } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const [shown, setShown] = useState("agents");
     const [agentTab, setAgentTab] = useState("chat");
@@ -64,6 +67,7 @@ export function AgentsPane(props: AgentsPaneProps) {
 
     return (
         <section className="pane agents-pane" aria-label="Agents">
+            <PaneHead name="agents" controls={controls} />
             <div className="agents-top">
                 <div className="chat">
                     <Tabs labels={VIEWS} selected={shown} onSelect={setShown} />

@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AgentsPane } from "./AgentsPane.tsx";
 import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
+import { isStrip, PANES, type PaneName } from "./layout.ts";
+import { PaneStrip } from "./PaneHead.tsx";
+import { popOutPane, type PoppedOut, type PopOutRequest } from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
-import { revisionsOf, runningJob, sortedSessions } from "./state.ts";
+import { revisionsOf, runningJob, sortedSessions, type UiState } from "./state.ts";
 import type { Transcript } from "./transcript.ts";
-import { useResizable } from "./useResizable.ts";
+import { useLayout } from "./useResizable.ts";
 import { useSpinner } from "./useSpinner.ts";
 
 function transcriptsFor(dir: string | undefined, all: Record<string, Transcript>) {
@@ -23,14 +26,27 @@ function transcriptsFor(dir: string | undefined, all: Record<string, Transcript>
     return result;
 }
 
-export function App() {
-    const state = useSpinner();
-    // View state only: the daemon never sends which session or job the operator looks at.
-    const [picked, setPicked] = useState<string | undefined>(undefined);
+export interface PaneRoute {
+    pane: PaneName;
+    session: string | undefined;
+}
+
+/** `?pane=<name>&session=<dir>` renders one pane alone, for a pop-out window. */
+export function paneRouteOf(search: string): PaneRoute | undefined {
+    const params = new URLSearchParams(search);
+    const pane = params.get("pane");
+    if (pane === null || !PANES.includes(pane as PaneName)) {
+        return undefined;
+    }
+    return { pane: pane as PaneName, session: params.get("session") ?? undefined };
+}
+
+/** View state and the action runner, shared by the main layout and a pane route. */
+function useAppState(state: UiState, initial: string | undefined) {
+    // The daemon never sends which session or job the operator looks at.
+    const [picked, setPicked] = useState<string | undefined>(initial);
     const [watched, setWatched] = useState<string | undefined>(undefined);
     const [actionError, setActionError] = useState<string | null>(null);
-    const left = useResizable(260, 180, 480, 1);
-    const right = useResizable(520, 240, 900, -1);
 
     const sessions = sortedSessions(state);
     const selected = picked !== undefined && picked in state.sessions ? picked : sessions[0]?.[0];
@@ -54,34 +70,124 @@ export function App() {
             (failure: unknown) => setActionError(String(failure)),
         );
     };
+    const drawer = (
+        <JobDrawer
+            job={job}
+            error={actionError}
+            onDismiss={() => {
+                setWatched(undefined);
+                setActionError(null);
+            }}
+        />
+    );
+    return { sessions, selected, view, feed, busy, run, drawer, setPicked, setActionError };
+}
 
+export function App() {
+    const route = paneRouteOf(window.location.search);
+    const state = useSpinner();
+    const app = useAppState(state, route?.session);
+    const { sessions, selected, view, feed, busy, run, drawer, setPicked } = app;
+    const layout = useLayout();
+    const popped = useRef<Partial<Record<PaneName, PoppedOut>>>({});
+
+    const popOut = (pane: PaneName, preview?: PopOutRequest["preview"]) => {
+        const handle = popOutPane({ pane, session: selected, preview }, () => {
+            delete popped.current[pane];
+            layout.setPopped(pane, false);
+        });
+        if (handle === null) {
+            app.setActionError("The browser blocked the pop-out window; allow popups here.");
+            return;
+        }
+        popped.current[pane] = handle;
+        layout.setPopped(pane, true);
+    };
+    const restore = (pane: PaneName) => {
+        const handle = popped.current[pane];
+        if (handle !== undefined) {
+            handle.dock();
+        } else {
+            layout.restore(pane);
+        }
+    };
+    const controls = (pane: PaneName) =>
+        route !== undefined
+            ? undefined
+            : { onHide: () => layout.hide(pane), onPopOut: () => popOut(pane) };
+
+    const sessionsPane = (
+        <SessionsPane
+            sessions={sessions}
+            selected={selected}
+            onSelect={setPicked}
+            run={run}
+            controls={controls("sessions")}
+        />
+    );
+    const agentsPane = (
+        <AgentsPane
+            view={view}
+            busy={busy}
+            run={run}
+            transcripts={transcriptsFor(selected, state.transcripts)}
+            feed={feed}
+            revisions={revisionsOf(state, selected)}
+            controls={controls("agents")}
+        >
+            {drawer}
+        </AgentsPane>
+    );
+    const previewsPane = (
+        <PreviewPane
+            view={view}
+            busy={busy}
+            run={run}
+            controls={
+                route !== undefined
+                    ? undefined
+                    : {
+                          onHide: () => layout.hide("previews"),
+                          onPopOut: (preview) => popOut("previews", preview),
+                      }
+            }
+        />
+    );
+    const panes = { sessions: sessionsPane, agents: agentsPane, previews: previewsPane };
+    const status = <footer className="status">daemon: {state.connection}</footer>;
+
+    if (route !== undefined) {
+        return (
+            <div className="layout layout-single" data-pane={route.pane}>
+                {panes[route.pane]}
+                {route.pane !== "agents" && drawer}
+                {status}
+            </div>
+        );
+    }
+
+    const slot = (pane: PaneName) =>
+        isStrip(layout.layout[pane]) ? (
+            <PaneStrip
+                name={pane}
+                popped={layout.layout[pane].popped}
+                onRestore={() => restore(pane)}
+            />
+        ) : (
+            panes[pane]
+        );
     return (
         <div
-            className="layout"
-            style={{ gridTemplateColumns: `${left.width}px 6px 1fr 6px ${right.width}px` }}
+            className={layout.dragging ? "layout layout-dragging" : "layout"}
+            style={{ gridTemplateColumns: layout.columns }}
         >
-            <SessionsPane sessions={sessions} selected={selected} onSelect={setPicked} run={run} />
-            <div className="handle" {...left.handleProps} role="separator" />
-            <AgentsPane
-                view={view}
-                busy={busy}
-                run={run}
-                transcripts={transcriptsFor(selected, state.transcripts)}
-                feed={feed}
-                revisions={revisionsOf(state, selected)}
-            >
-                <JobDrawer
-                    job={job}
-                    error={actionError}
-                    onDismiss={() => {
-                        setWatched(undefined);
-                        setActionError(null);
-                    }}
-                />
-            </AgentsPane>
-            <div className="handle" {...right.handleProps} role="separator" />
-            <PreviewPane view={view} busy={busy} run={run} />
-            <footer className="status">daemon: {state.connection}</footer>
+            {slot("sessions")}
+            <div className="handle" {...layout.handle("sessions")} />
+            {slot("agents")}
+            <div className="handle" {...layout.handle("previews")} />
+            {slot("previews")}
+            {isStrip(layout.layout.agents) && <div className="drawer-row">{drawer}</div>}
+            {status}
         </div>
     );
 }

@@ -12,7 +12,24 @@ html, body, #root { height: 100%; margin: 0; }
 .pane { overflow: auto; padding: 8px; min-width: 0; border: 1px solid #8884; }
 .pane h2 { font-size: 13px; text-transform: uppercase; margin: 0 0 8px; }
 .handle { cursor: col-resize; background: #8883; touch-action: none; }
-.handle:hover { background: #8886; }
+.handle:hover, .handle:focus-visible { background: #8886; outline: none; }
+/* An iframe under the pointer would take the drag's events away from the captured divider. */
+.layout-dragging iframe { pointer-events: none; }
+.pane-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pane-head h2 { margin: 0; }
+.pane-controls { display: flex; gap: 2px; font-size: 12px; white-space: nowrap; }
+.pane-controls .link { margin-left: 4px; padding: 0 2px; }
+/* A collapsed, hidden or popped-out pane: a 24 px strip, the name turned sideways. */
+.strip {
+    width: 24px; padding: 8px 0; border: 1px solid #8884; background: #8881; color: inherit;
+    cursor: pointer; writing-mode: vertical-rl; font: inherit; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.05em; text-align: left; overflow: hidden;
+}
+.strip:hover { background: #8883; }
+.strip-popped { color: #38f; }
+/* The `?pane=` route: one pane fills the window. */
+.layout-single { grid-template-columns: 1fr; }
+.drawer-row { grid-column: 1 / -1; padding: 4px 8px; }
 .status { grid-column: 1 / -1; padding: 2px 8px; font-size: 12px; border-top: 1px solid #8884; }
 .muted { opacity: 0.6; }
 .session-list { list-style: none; margin: 0; padding: 0; }

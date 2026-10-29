@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { ProjectView, SessionView } from "@spinner/protocol";
 
 import { fetchProjects } from "./events-client.ts";
+import { PaneHead, type PaneControls } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 
@@ -13,6 +14,8 @@ export interface SessionsPaneProps {
     selected: string | undefined;
     onSelect: (dir: string) => void;
     run: RunAction;
+    /** Hide and pop out; absent when the pane is rendered alone by the `?pane=` route. */
+    controls?: PaneControls | undefined;
 }
 
 function stackDot(view: SessionView): string {
@@ -106,11 +109,12 @@ function Adopt({ projects, run }: { projects: ProjectView[]; run: RunAction }) {
     );
 }
 
-export function SessionsPane({ sessions, selected, onSelect, run }: SessionsPaneProps) {
+export function SessionsPane(props: SessionsPaneProps) {
+    const { sessions, selected, onSelect, run, controls } = props;
     const projects = useProjects();
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
-            <h2>Sessions</h2>
+            <PaneHead name="sessions" controls={controls} />
             <ul className="session-list">
                 {sessions.map(([dir, view]) => {
                     const needs = needsHuman(view);
