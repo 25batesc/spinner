@@ -1,0 +1,28 @@
+version: 1
+id: s007
+slug: desktop
+title: "Desktop: the same UI in a window, previews as top-level pages"
+created: 2026-10-29
+stage: planned
+needs_human: null
+branch: main
+base: main
+repos:
+  spinner:
+    path: .
+    changed: true
+    pr: null
+pipeline:
+  verified_locally: false
+  slack_post: null
+stack:
+  state: none
+agents:
+  desktop:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
+  ui:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
