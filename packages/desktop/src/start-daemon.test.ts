@@ -3,7 +3,7 @@
 // with an empty `packages/cli/dist/main.js` and a scratch PATH with or without `node`.
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { find_node_on_path, repo_root, start_command } from "./start-daemon.js";
 
@@ -59,6 +59,7 @@ describe("find_node_on_path", () => {
 describe("repo_root", () => {
     it("takes SPINNER_REPO first, then the package's grandparent", () => {
         expect(repo_root({ SPINNER_REPO: "/tmp/x" })).toBe("/tmp/x");
-        expect(repo_root({})).toMatch(/\/Spinner$/);
+        // The grandparent of packages/desktop is the checkout, whatever its directory is named.
+        expect(repo_root({})).toBe(resolve(import.meta.dirname, "..", "..", ".."));
     });
 });
