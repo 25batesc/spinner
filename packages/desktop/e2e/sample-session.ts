@@ -14,6 +14,12 @@ export async function create_sample_session(
     project: string,
     title: string,
 ): Promise<SampleSession> {
+    // The side panel with the sessions list may be hidden; the bar's toggle shows it.
+    const shown = await ui.evaluate(`document.querySelector("[aria-label=Sessions]") !== null`);
+    if (shown !== true) {
+        await ui.click("[aria-label='Show side panel']");
+        await ui.until("side panel", `document.querySelector("[aria-label=Sessions]") !== null`);
+    }
     await ui.fill("[aria-label='New session title']", title);
     const picked = await ui.evaluate(`(() => {
         const select = document.querySelector("form[aria-label='New session'] select");
@@ -78,9 +84,42 @@ export async function open_web_tab(ui: Page): Promise<void> {
     await sleep(1000);
 }
 
-export async function close_session(ui: Page, session: SampleSession): Promise<void> {
-    await ui.click(".actions button", "close");
-    const quoted = JSON.stringify(session.title);
-    await ui.until("session gone", `!${text(".sessions-pane")}.includes(${quoted})`);
-    await sleep(1500);
+/** The operator's daemon port; a driver that closes sessions never runs against it. */
+const OPERATOR_PORT = "7777";
+
+/**
+ * The drivers create and close sessions, so they run against a scratch daemon only: start
+ * one with `SPINNER_HOME=$(mktemp -d) SPINNER_PORT=<port> spinner daemon start` and point
+ * the app and `E2E_DAEMON_URL` at it. The operator's daemon on :7777 is refused.
+ */
+export function assert_scratch_daemon(daemon_url: string): void {
+    if (new URL(daemon_url).port === OPERATOR_PORT) {
+        throw new Error(
+            `${daemon_url} is the operator's daemon; the drivers close sessions, so run a` +
+                ` scratch daemon (SPINNER_HOME, SPINNER_PORT) and set E2E_DAEMON_URL`,
+        );
+    }
+}
+
+/**
+ * Closes the session by its dir through the daemon's API, never through the UI's button:
+ * the button acts on whatever is selected, and a hand may change that during a run. Waits
+ * until the daemon no longer lists the session.
+ */
+export async function close_session(session: SampleSession, daemon_url: string): Promise<void> {
+    assert_scratch_daemon(daemon_url);
+    const reply = await fetch(`${daemon_url}/sessions/${session.dir}/close`, { method: "POST" });
+    if (!reply.ok) {
+        throw new Error(`close ${session.dir}: ${reply.status} ${await reply.text()}`);
+    }
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+        const body = await (await fetch(`${daemon_url}/sessions`)).text();
+        if (!body.includes(`"${session.dir}"`)) {
+            await sleep(1500);
+            return;
+        }
+        await sleep(1000);
+    }
+    throw new Error(`${session.dir} is still listed by the daemon`);
 }

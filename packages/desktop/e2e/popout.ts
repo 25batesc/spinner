@@ -15,7 +15,13 @@
 // per on-screen window of `E2E_APP_PID` (see MISSION Log); without it no screenshots.
 import { execFileSync } from "node:child_process";
 import { Page, sleep, target_with, targets, text } from "./cdp.ts";
-import { close_session, create_sample_session, open_web_tab, run_local } from "./sample-session.ts";
+import {
+    assert_scratch_daemon,
+    close_session,
+    create_sample_session,
+    open_web_tab,
+    run_local,
+} from "./sample-session.ts";
 
 const [out_dir] = process.argv.slice(2);
 if (out_dir === undefined) {
@@ -26,6 +32,7 @@ const INSPECT_PORT = process.env["E2E_INSPECT_PORT"];
 const WINPID = process.env["E2E_WINPID"];
 const DAEMON_URL = process.env["E2E_DAEMON_URL"] ?? "http://127.0.0.1:7777";
 const PROJECT = process.env["E2E_PROJECT"] ?? "sample";
+assert_scratch_daemon(DAEMON_URL);
 
 /** One capture per window of the app, named by step and window title. */
 function shot(step: string): void {
@@ -105,7 +112,7 @@ if (ui_target === undefined) {
     throw new Error(`no CDP target at ${DAEMON_URL}; is the app running with the port?`);
 }
 const ui = await Page.open(ui_target, () => shot("failure"));
-await ui.until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
+await ui.until("agents pane", `document.querySelector("[aria-label=Agents]") !== null`);
 await ui.until("daemon connected", `${text(".status")}.includes("open")`);
 expect("bridge", (await ui.evaluate(`typeof window.spinnerDesktop`)) === "object", "on page");
 await ui.evaluate(`(() => {
@@ -236,7 +243,7 @@ expect("pane target gone after dockBack", !(await targets()).some((t) => t.url =
 // Close the session with the web preview popped out: its window goes, the renderer hears it.
 await bridge(`previews.popOut(${JSON.stringify(key)})`);
 await sleep(1000);
-await close_session(ui, session);
+await close_session(session, DAEMON_URL);
 const leftover = (await targets()).filter((t) => t.url.includes(`.${id}.localhost`));
 expect("views gone with the session", leftover.length === 0, `${leftover.length} left`);
 events = await docked();

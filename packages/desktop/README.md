@@ -48,10 +48,22 @@ A session's windows close with it.
 | `e2e/cdp.ts` | The DevTools-protocol page the drivers share. |
 | `e2e/drive.ts` | Drives a running app over CDP through the sample-stack flow. |
 | `e2e/popout.ts` | Drives the pop-out flow through the bridge: no reload across pop out, dock back, close, and session close. |
+| `e2e/browser-bar.ts` | Drives the browser-bar half of the bridge: navigate, back, forward, zoom, find, clear storage, and the `navigated` events. |
+| `e2e/sample-session.ts` | The sample-stack steps the drivers share; closes a session by dir through the API. |
 
 The renderer never sees an Electron API. `Preview.tsx` in `packages/ui` measures its box and
 calls `previews.set(key, url, rect)`; the main process places the view. One preview shows
 at a time; a hidden one keeps its page.
+
+## Browser bar
+
+The bridge carries the bar's actions for a view: `navigate`, `back`, `forward`, `zoom`
+(one Chromium level per step, per origin), `find` (`findInPage`; the same text again finds
+the next match; null clears), and `clearStorage` (the view's current origin only, then a
+reload; the renderer confirms first). A `navigated` event through `previews.subscribe`
+carries `url`, `title`, `canGoBack`, `canGoForward` and `loading` on `did-navigate`,
+`did-navigate-in-page`, `page-title-updated`, `did-start-loading` and `did-stop-loading`.
+Navigation stays inside the view; a `target=_blank` link still opens the external browser.
 
 ## Test
 
@@ -61,7 +73,10 @@ cd packages/desktop && ./node_modules/.bin/electron . --remote-debugging-port=93
 E2E_CDP_PORT=9345 node e2e/drive.ts <screenshot dir>      # against a running daemon
 ```
 
-The driver creates its own session on `examples/sample-stack` and closes it. With
+The drivers create their own session on `examples/sample-stack` and close it by dir
+through the daemon's API. They refuse the operator's daemon on :7777: start a scratch one
+with `SPINNER_HOME=$(mktemp -d) SPINNER_PORT=<port> node packages/cli/dist/main.js daemon
+start`, run the app with the same `SPINNER_PORT`, and set `E2E_DAEMON_URL`. With
 `E2E_WINDOW_ID=<CGWindowNumber>` it saves a window screenshot per step. An occluded window
 (another window in front) does not lay out or paint its views, so the driver skips the size
 check then and the `bounds` debug lines are the evidence.

@@ -6,9 +6,18 @@
 //   E2E_CDP_PORT=<port> E2E_APP_PID=<pid> E2E_WINPID=<helper> node e2e/panes.ts <shot dir>
 // The login step of Plan 5 (the operator's app signed in inside the pop-out) is the
 // operator's: the hash kept across the moves is the stand-in here.
+// This flow drives the UI of 13:20 on 2026-10-29 (pane headers with `hide` and `pop out`,
+// strips). The UI pass of 13:53 took the header controls out, so against it the flow stops
+// at `Hide agents`; `popout.ts` covers the bridge without the UI's buttons.
 import { execFileSync } from "node:child_process";
 import { Page, sleep, target_with, targets, text } from "./cdp.ts";
-import { close_session, create_sample_session, open_web_tab, run_local } from "./sample-session.ts";
+import {
+    assert_scratch_daemon,
+    close_session,
+    create_sample_session,
+    open_web_tab,
+    run_local,
+} from "./sample-session.ts";
 
 const [out_dir] = process.argv.slice(2);
 if (out_dir === undefined) {
@@ -18,6 +27,7 @@ const APP_PID = process.env["E2E_APP_PID"];
 const WINPID = process.env["E2E_WINPID"];
 const DAEMON_URL = process.env["E2E_DAEMON_URL"] ?? "http://127.0.0.1:7777";
 const PROJECT = process.env["E2E_PROJECT"] ?? "sample";
+assert_scratch_daemon(DAEMON_URL);
 
 function shot(step: string): void {
     if (APP_PID === undefined || WINPID === undefined) {
@@ -77,9 +87,9 @@ const ui = await Page.open(ui_target, () => shot("failure"));
 await ui.until("daemon connected", `${text(".status")}.includes("open")`);
 expect("bridge", (await ui.evaluate(`typeof window.spinnerDesktop`)) === "object", "on page");
 // A strip left by an earlier run or a hand would skew the widths; start from the default.
-await ui.evaluate(`(localStorage.removeItem("spinner.layout.v1"), location.reload(), true)`);
+await ui.evaluate(`(localStorage.removeItem("spinner.layout.v2"), location.reload(), true)`);
 await sleep(2500);
-await ui.until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
+await ui.until("agents pane", `document.querySelector("[aria-label=Agents]") !== null`);
 
 const session = await create_sample_session(ui, PROJECT, `Desktop panes ${Date.now() % 100000}`);
 await run_local(ui);
@@ -139,7 +149,7 @@ shot("33-docked-back");
 // Restore agents from its strip, then close the session.
 await ui.click(".strip[data-pane=agents]");
 await ui.until("agents pane back", `document.querySelector(".strip[data-pane=agents]") === null`);
-await close_session(ui, session);
+await close_session(session, DAEMON_URL);
 const leftover = (await targets()).filter((t) => t.url.includes(`.${session.id}.localhost`));
 expect("views gone with the session", leftover.length === 0, `${leftover.length} left`);
 shot("34-closed");
