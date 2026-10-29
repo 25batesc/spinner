@@ -193,7 +193,22 @@ html, body, #root { height: 100%; margin: 0; }
 .tracked { background: #38f4; }
 .context-list { list-style: none; padding: 0; }
 .context-file { border: 1px solid #8886; border-radius: 4px; padding: 6px; margin-bottom: 6px; }
-.context-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.context-head { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.context-name { font-weight: 600; }
+.context-dir {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px;
+    font-family: ui-monospace, monospace;
+}
+/* The Context tab: one collapsible section per file, the chevron first on its header row. */
+.context-toolbar { display: flex; gap: 4px; margin: 4px 0; }
+.context-toolbar .link { margin-left: 0; }
+.disclosure {
+    width: 18px; padding: 0; border: 0; background: transparent; color: inherit;
+    cursor: pointer; font-size: 12px; opacity: 0.7;
+}
+.disclosure:hover { opacity: 1; }
+.context-size { font-size: 11px; }
+.context-title { font-weight: 600; font-size: 13px; }
 .confirm {
     position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10;
     width: 520px; max-height: 70vh; overflow: auto; padding: 12px;

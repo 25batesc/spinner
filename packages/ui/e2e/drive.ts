@@ -850,7 +850,23 @@ if (flow === "pipeline") {
     await click(".agents-pane .tab", "agents");
     await click(".agents-pane .tab", "context");
     await until("context shown", `document.querySelectorAll(".context-file").length > 0`);
+    // Every file is a collapsible section: the first open, the rest and the commands closed;
+    // the chevron toggles one; collapse all and expand all act on all of them.
+    const openCount = `document.querySelectorAll(".context-file[data-open=true]").length`;
+    const sections = `document.querySelectorAll(".context-file").length`;
+    await until("only the first open", `${openCount} === 1 && ${sections} > 2`);
+    const firstOpen = `document.querySelector(".context-file").dataset.open === "true"`;
+    await until("the first one is the open one", firstOpen);
+    const size = text(".context-file .context-size");
+    await until("sizes shown", `/\\d+ lines? · \\d+ B/.test(${size})`);
     await shot("20-context");
+    await click(".context-file:nth-child(2) .disclosure");
+    await until("second opened by its chevron", `${openCount} === 2`);
+    await click(".context-toolbar .link", "collapse all");
+    await until("all collapsed", `${openCount} === 0`);
+    await click(".context-toolbar .link", "expand all");
+    await until("all expanded", `${openCount} === ${sections}`);
+    await shot("20b-context-expanded");
     console.log("pipeline ok");
     socket.close();
     process.exit(0);
