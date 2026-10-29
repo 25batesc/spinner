@@ -1,7 +1,8 @@
 // Goal: `spinner doctor` prints one line per check and exits 1 with the list of failures.
 // Method: a temporary home, through the public `run_cli` entry. The checks the test controls
 // (the home inside a git repository, a broken `config.yaml`, the `env` file's mode) are
-// asserted line by line; the machine-dependent ones (Docker, gh) are asserted by shape only.
+// asserted line by line. PATH is empty, so `docker` and `gh` are "not on PATH" at once and
+// the test never waits on Docker; those two lines are asserted by shape only.
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ let err: string[];
 
 function io_for(home: string, extra: NodeJS.ProcessEnv = {}): CliIo {
     return {
-        env: { SPINNER_HOME: home, PATH: process.env["PATH"] ?? "", ...extra },
+        env: { SPINNER_HOME: home, PATH: "", ...extra },
         out: (line) => out.push(line),
         err: (line) => err.push(line),
     };

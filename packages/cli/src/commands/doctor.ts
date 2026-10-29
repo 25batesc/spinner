@@ -48,11 +48,11 @@ async function run_doctor(args: string[], home: SpinnerHome, io: CliIo): Promise
     const checks: Check[] = [
         check_home(home),
         check_node(),
-        await check_docker(),
-        await check_gh(),
+        await check_docker(io.env),
+        await check_gh(io.env),
         check_config_and_pi(home, io.env),
-        await check_container("proxy", "spinner-proxy"),
-        await check_container("postgres", "spinner-postgres"),
+        await check_container("proxy", "spinner-proxy", io.env),
+        await check_container("postgres", "spinner-postgres", io.env),
         check_env_file(home),
         check_token(io.env),
         await check_daemon(home, io.env),
@@ -93,12 +93,12 @@ function check_node(): Check {
     return pass(name, `v${version}`);
 }
 
-async function check_docker(): Promise<Check> {
+async function check_docker(env: NodeJS.ProcessEnv): Promise<Check> {
     const name = "docker";
     const result = await run(
         "docker",
         ["info", "--format", "{{.ServerVersion}} {{.OperatingSystem}}"],
-        { timeout_ms: COMMAND_TIMEOUT_MS },
+        { env, timeout_ms: COMMAND_TIMEOUT_MS },
     );
     if (result.code === 127) {
         return fail(name, "docker is not on PATH; install Docker Desktop or OrbStack");
@@ -109,9 +109,9 @@ async function check_docker(): Promise<Check> {
     return pass(name, `Docker ${String(result.stdout).trim()}`);
 }
 
-async function check_gh(): Promise<Check> {
+async function check_gh(env: NodeJS.ProcessEnv): Promise<Check> {
     const name = "gh";
-    const result = await run("gh", ["auth", "status"], { timeout_ms: COMMAND_TIMEOUT_MS });
+    const result = await run("gh", ["auth", "status"], { env, timeout_ms: COMMAND_TIMEOUT_MS });
     if (result.code === 127) {
         return fail(name, "gh is not on PATH; install GitHub CLI, then gh auth login");
     }
@@ -146,11 +146,15 @@ function check_config_and_pi(home: SpinnerHome, env: NodeJS.ProcessEnv): Check {
     return pass(name, `${path} (${config_note})`);
 }
 
-async function check_container(name: string, container: string): Promise<Check> {
+async function check_container(
+    name: string,
+    container: string,
+    env: NodeJS.ProcessEnv,
+): Promise<Check> {
     const result = await run(
         "docker",
         ["inspect", "--format", "{{.State.Status}}", container],
-        { timeout_ms: COMMAND_TIMEOUT_MS },
+        { env, timeout_ms: COMMAND_TIMEOUT_MS },
     );
     if (result.code === 127) {
         // The docker check above carries the failure; this line only says what is unknown.
