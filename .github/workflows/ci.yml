@@ -20,3 +20,45 @@ jobs:
       - run: pnpm lint
       - run: pnpm -r test
       - run: python3 tools/doc-metrics.py --fail
+
+  # The newcomer path on Linux with the real Docker: the sample stack through the CLI
+  # (new, seed, up, close), the cleanup proof, and the daemon's stack and pipeline suites
+  # where Docker is known to be up. `verify` runs every test too; this job is the one that
+  # fails when the stack runner itself breaks on Linux.
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SPINNER_HOME: ${{ runner.temp }}/spinner-home
+      SPINNER_PROXY_DIR: ${{ runner.temp }}/spinner-home/proxy
+      SPINNER_SESSION_IDS: home
+      SPINNER_NOTIFY: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
+      # The sample spec's repo is this checkout; a PR checkout has no local `main`, and
+      # `spinner new` branches from `origin/main` after a fetch.
+      - run: git fetch --no-tags --quiet origin main
+      - run: pnpm spinner doctor || true
+      - run: pnpm spinner new --project examples/sample-stack "ci stack"
+      - run: pnpm spinner seed rebuild s001
+      - run: pnpm spinner up s001
+      - run: |
+          curl --fail --silent --show-error -H 'Host: api.s001.localhost' http://127.0.0.1/health
+          curl --fail --silent --show-error -H 'Host: web.s001.localhost' http://127.0.0.1/ | grep -q s001
+      - run: pnpm spinner close s001
+      - run: tools/stack-proof.sh examples/sample-stack
+      - run: pnpm spinner down --shared
+      - run: pnpm --filter @spinner/daemon exec vitest run src/stack src/pipeline
+      - if: failure()
+        run: |
+          docker ps -a --filter name=spinner
+          docker logs spinner-proxy 2>&1 | tail -n 50 || true
+          ls -R "$SPINNER_HOME" | head -n 100 || true
