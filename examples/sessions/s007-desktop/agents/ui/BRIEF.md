@@ -26,7 +26,7 @@ Role: frontend engineer for session s007 of the Spinner repo. The operator is Cu
 ## Engineering
 1. `Preview.tsx` stays the only file that embeds a preview or talks to the bridge. Every other component stays ignorant of how a preview is shown.
 2. With the bridge: render an empty box. Measure it with `ResizeObserver`, on scroll and on pane drag. Send the rectangle in CSS pixels relative to the window. Send show or hide on tab switch and unmount.
-3. Without the bridge: keep the iframe. When the service's `preview` is `top-level`, show a short note above it. The note says: this app keeps its login in cookies and needs a top-level page; open in tab, or use the desktop app. Keep the iframe for a look.
+3. Without the bridge: keep the iframe. When the service's `preview` is `top-level`, show a short note above it. The note says that the app keeps its login in cookies and needs a top-level page. It offers open in tab or the desktop app. Keep the iframe for a look.
 4. Keep the fixture server aligned. Add a service with `preview: top-level` to its data.
 5. Verify in headless Chrome with the driver for the browser path; the desktop agent verifies the bridge path in Electron.
 6. Start each commit message with `ui:`.
