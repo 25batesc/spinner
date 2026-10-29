@@ -1,0 +1,2 @@
+# The packaged app (`pnpm package`), 250 MB of Electron.
+dist-app/
