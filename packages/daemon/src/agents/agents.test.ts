@@ -16,7 +16,7 @@ import { resolve_home, type SpinnerHome } from "../home.js";
 import { create_session } from "../store/session-store.js";
 import { PiRpcHarness, default_extension_path } from "./harness.js";
 import { events_of_transcript } from "./history.js";
-import { AgentManager } from "./manager.js";
+import { AgentManager, ensure_brief } from "./manager.js";
 import { models_of } from "./models.js";
 import { model_args, resolve_pi_binary, spawn_pi } from "./pi-rpc.js";
 
@@ -106,6 +106,47 @@ describe("spawn_pi", () => {
     });
 });
 
+describe("ensure_brief", () => {
+    it("writes the default brief from the session, or the request's text, once", async () => {
+        const summary = create_session(home, { title: "Briefs" });
+        summary.session.repos = {
+            backend: { path: "/code/backend", worktree: "worktrees/backend", changed: true },
+            web: { path: "/code/web", changed: false },
+        };
+        summary.session.stack = { state: "down", hosts: { api: "api.s001.localhost" } };
+        summary.session.agents = { other: { harness: "pi", model: "default", process: "idle" } };
+
+        const path = ensure_brief(summary, { name: "backend-api", repo: "backend" });
+        expect(path).toBe(join(summary.path, "agents", "backend-api", "BRIEF.md"));
+        const brief = readFileSync(path, "utf8");
+        expect(brief).toContain("# backend-api\n\nRole: engineer for session s001 (Briefs).");
+        expect(brief).toContain("- `backend` (worktree `worktrees/backend`, branch `feat/briefs`)");
+        expect(brief).toContain("- The other repos: `web`.");
+        expect(brief).toContain("- What `other` owns (its Roster row).");
+        expect(brief).toContain("- api: http://api.s001.localhost");
+        expect(brief).toContain("1. Read `.spinner/MISSION.md` in full.");
+        expect(brief).toContain("`HH:MM backend-api: <what>`");
+        expect(brief).toContain("4. Put an API change under Contracts before you implement it.");
+        expect(brief).toContain("## Finish");
+        expect(brief).not.toContain("- `web` (");
+
+        // Without a repo, every repo of the session is in Owns, and nothing is excluded by repo.
+        const all = readFileSync(ensure_brief(summary, { name: "solo" }), "utf8");
+        expect(all).toContain("- `backend` (worktree");
+        expect(all).toContain("- `web` (no worktree yet, branch `feat/briefs`).");
+        expect(all).not.toContain("The other repos");
+
+        // The request's text wins over the default; an existing brief is never replaced.
+        const own = ensure_brief(summary, { name: "custom", brief: "# custom\nDo X." });
+        expect(readFileSync(own, "utf8")).toBe("# custom\nDo X.\n");
+        ensure_brief(summary, { name: "custom", brief: "# other text" });
+        expect(readFileSync(own, "utf8")).toBe("# custom\nDo X.\n");
+        ensure_brief(summary, { name: "backend-api", brief: "# replaced?" });
+        expect(readFileSync(path, "utf8")).toBe(brief);
+        expect(() => ensure_brief(summary, { name: "blank", brief: "  " })).toThrow(/empty/);
+    });
+});
+
 describe("AgentManager with PiRpcHarness", () => {
     it("adds an agent from its brief, records it, forwards events, resumes", async () => {
         const summary = create_session(home, { title: "Agents" });
@@ -118,7 +159,8 @@ describe("AgentManager with PiRpcHarness", () => {
         bus.subscribe((event) => events.push(event));
         const manager = new AgentManager(home, new PiRpcHarness({ pi: () => FAKE_PI }), bus);
 
-        await expect(manager.add(summary, { name: "nobody" })).rejects.toThrow(/BRIEF.md/);
+        const no_worktree = manager.add(summary, { name: "nobody", repo: "zz" });
+        await expect(no_worktree).rejects.toThrow(/no worktree for repo "zz"/);
         const handle = await manager.add(summary, { name: "backend", model: "anthropic/claude-x" });
         expect(manager.running(summary.dir)).toEqual(["backend"]);
         expect(handle.pi_session_id).toBe("backend");

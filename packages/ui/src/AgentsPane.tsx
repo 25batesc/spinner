@@ -107,7 +107,7 @@ export function AgentsPane(props: AgentsPaneProps) {
                                     )}
                                 </>
                             )}
-                            {view !== undefined && <AddAgent view={view} />}
+                            {view !== undefined && <AddAgent view={view} run={run} />}
                             {view !== undefined && <ServiceTable view={view} />}
                         </>
                     )}

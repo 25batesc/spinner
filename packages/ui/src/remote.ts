@@ -8,6 +8,7 @@ import type {
     ApproveView,
     ContextFileResponse,
     ContextResponse,
+    DefaultBriefResponse,
     MissionSectionRequest,
     PostResponse,
     PostView,
@@ -93,6 +94,24 @@ export async function putContext(
     content: string,
 ): Promise<ContextFileResponse> {
     return send<ContextFileResponse>("PUT", `${path}/context`, { path: file, content });
+}
+
+/** The brief `POST /sessions/:dir/agents` would write for `name` in `repo`, to prefill the form. */
+export async function fetchDefaultBrief(
+    dir: string,
+    name: string,
+    repo: string,
+    signal: AbortSignal,
+): Promise<string> {
+    const query = new URLSearchParams();
+    if (name !== "") {
+        query.set("name", name);
+    }
+    if (repo !== "") {
+        query.set("repo", repo);
+    }
+    const path = `/sessions/${dir}/agents/default-brief?${query.toString()}`;
+    return (await getJson<DefaultBriefResponse>(path, signal)).brief;
 }
 
 export interface Loaded<T> {

@@ -1,15 +1,18 @@
 // The agent-plumbing routes: `PUT /sessions/:dir/mission/section` (the serialized mission
 // writer the extension's `mission_*` tools and the UI call), `POST /sessions/:dir/inbox` (a
 // message file, delivered at once), `GET|PUT /sessions/:dir/agents/:name/context` (the
-// Context tab) and `POST /sessions/:dir/attach` (worktrees for a session adopted without a
-// project, so an agent has somewhere to work). Mounted on the daemon's Hono app by one
-// registry line in `server.ts`, like the pipeline routes.
+// Context tab), `POST /sessions/:dir/attach` (worktrees for a session adopted without a
+// project, so an agent has somewhere to work) and `GET /sessions/:dir/agents/default-brief`
+// (the brief `POST /sessions/:dir/agents` writes for an agent without one, for the UI form
+// to prefill). Mounted on the daemon's Hono app by one registry line in `server.ts`, like the
+// pipeline routes.
 import type { Context, Hono } from "hono";
 import type {
     AttachRequest,
     ContextFileRequest,
     ContextFileResponse,
     ContextResponse,
+    DefaultBriefResponse,
     ErrorResponse,
     InboxMessageRequest,
     InboxMessageResponse,
@@ -27,7 +30,7 @@ import { MissionWriteError, type MissionWriter } from "../store/mission-writer.j
 import { agent_context, write_context_file, type ContextDeps } from "./context.js";
 import type { Deliverer } from "./delivery.js";
 import { validate_inbox_message, write_inbox_message } from "./inbox.js";
-import type { AgentManager } from "./manager.js";
+import { default_brief, type AgentManager } from "./manager.js";
 
 export interface AgentRouteDeps {
     home: SpinnerHome;
@@ -104,6 +107,20 @@ export function mount_agent_routes(app: Hono, deps: AgentRouteDeps): void {
             });
             log(`project attached; next: spinner up ${attached.session.id}`);
         });
+    });
+
+    app.get("/sessions/:dir/agents/default-brief", (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const repo = c.req.query("repo");
+        const name = c.req.query("name") ?? "agent";
+        if (repo !== undefined && summary.session.repos[repo] === undefined) {
+            return c.json(error_body(`session ${summary.dir} has no repo "${repo}"`), 400);
+        }
+        const body: DefaultBriefResponse = { brief: default_brief(summary, name, repo) };
+        return c.json(body);
     });
 
     app.get("/sessions/:dir/agents/:name/context", async (c) => {

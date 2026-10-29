@@ -6,11 +6,12 @@
 // also holds the text waiting for an agent's next prompt (an inbox message or a mission-change
 // notice for an idle agent, docs/SESSION_PROTOCOL.md "Messages"), which `prompt` prepends.
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AddAgentRequest, AgentSpec, SessionSummary } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
+import { render_brief } from "../store/brief-template.js";
 import { render_agents_file } from "../store/mission-template.js";
 import { read_session, write_session } from "../store/session-store.js";
 import { agent_brief_path, type AgentHandle, type AgentHarness } from "./harness.js";
@@ -96,8 +97,10 @@ export class AgentManager {
     }
 
     /**
-     * Adds an agent from its brief and starts it, or resumes one that `session.yaml` already
-     * lists. Throws when the brief is missing, the agent runs already, or pi fails to start.
+     * Adds an agent and starts it, or resumes one that `session.yaml` already lists. A session
+     * without a brief for the agent gets one first: the request's text, else the default
+     * brief. Throws when the agent runs already, the repo has no worktree, or pi fails to
+     * start.
      */
     async add(summary: SessionSummary, request: AddAgentRequest): Promise<AgentHandle> {
         const key = key_of(summary.dir, request.name);
@@ -105,11 +108,8 @@ export class AgentManager {
             throw new Error(`agent ${request.name} is already running in ${summary.dir}`);
         }
         assert.ok(this.hosted.size < AGENTS_RUNNING_MAX, `${AGENTS_RUNNING_MAX} agents running`);
-        const brief = agent_brief_path(summary.path, request.name);
-        if (!existsSync(brief)) {
-            throw new Error(`${brief} does not exist; write the brief first`);
-        }
         const cwd = agent_cwd(summary, request.repo);
+        ensure_brief(summary, request);
         // The caller's summary may predate an earlier run; the file has the model it used.
         const fresh = read_session(this.home, summary.dir);
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;
@@ -250,6 +250,31 @@ export class AgentManager {
             }),
         );
     }
+}
+
+/**
+ * Writes `agents/<name>/BRIEF.md` when the session has none: the request's text when it
+ * carries one, else the default brief. An existing brief is the operator's and stays.
+ */
+export function ensure_brief(summary: SessionSummary, request: AddAgentRequest): string {
+    const path = agent_brief_path(summary.path, request.name);
+    if (existsSync(path)) {
+        return path;
+    }
+    const text = request.brief ?? default_brief(summary, request.name, request.repo);
+    assert.ok(text.trim().length > 0, "a brief must not be empty");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text.endsWith("\n") ? text : `${text}\n`);
+    return path;
+}
+
+/** The brief the daemon writes for `name` without one, for the route and the UI form. */
+export function default_brief(summary: SessionSummary, name: string, repo?: string): string {
+    return render_brief({
+        name,
+        session: summary.session,
+        ...(repo === undefined ? {} : { repo }),
+    });
 }
 
 /** The worktree of `repo` when given, else the session directory. */

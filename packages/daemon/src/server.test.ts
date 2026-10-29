@@ -263,9 +263,11 @@ describe("agents", () => {
             });
         expect((await post("/sessions/s001/agents", { name: "Bad Name" })).status).toBe(400);
         expect((await post("/sessions/nope/agents", { name: "backend" })).status).toBe(404);
-        const no_brief = await post("/sessions/s001/agents", { name: "backend" });
-        expect(no_brief.status).toBe(409);
-        expect(await no_brief.json()).toMatchObject({ error: expect.stringMatching(/BRIEF/) });
+        const no_worktree = await post("/sessions/s001/agents", { name: "backend", repo: "zz" });
+        expect(no_worktree.status).toBe(409);
+        expect(await no_worktree.json()).toMatchObject({
+            error: expect.stringMatching(/no worktree/),
+        });
 
         mkdirSync(join(summary.path, "agents", "backend"), { recursive: true });
         writeFileSync(join(summary.path, "agents", "backend", "BRIEF.md"), "# backend\n");

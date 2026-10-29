@@ -170,3 +170,37 @@ describe("POST /sessions/:dir/attach", () => {
         expect(view.session.summary.session.repos["backend"]?.worktree).toBe("worktrees/backend");
     });
 });
+
+describe("agents without a brief", () => {
+    it("GET default-brief renders it; POST writes it or the body text, then starts", async () => {
+        const summary = await adopt_board_only();
+        const dir = summary.dir;
+
+        expect((await call("GET", "/sessions/nope/agents/default-brief")).status).toBe(404);
+        const bad_repo = await call("GET", `/sessions/${dir}/agents/default-brief?repo=zz`);
+        expect(bad_repo.status).toBe(400);
+        const shown = await call("GET", `/sessions/${dir}/agents/default-brief?name=api`);
+        expect(shown.status).toBe(200);
+        const { brief } = (await shown.json()) as { brief: string };
+        expect(brief).toContain("# api\n");
+        expect(brief).toContain(`Role: engineer for session ${summary.session.id}`);
+        expect(brief).toContain("- `backend` (no worktree yet, branch `devin/example-feature`).");
+        expect(brief).toContain("1. Read `.spinner/MISSION.md` in full.");
+
+        // No brief in the body: the default one is written, and the agent starts.
+        const blank = await call("POST", `/sessions/${dir}/agents`, { name: "api", brief: "" });
+        expect(blank.status).toBe(400);
+        const added = await call("POST", `/sessions/${dir}/agents`, { name: "api" });
+        expect(added.status).toBe(201);
+        const written = join(summary.path, "agents", "api", "BRIEF.md");
+        expect(readFileSync(written, "utf8")).toBe(brief);
+        expect(daemon.agents.running(dir)).toEqual(["api"]);
+
+        // A brief in the body is written as given, once.
+        const text = "# web\n\nRole: the UI.\n";
+        const custom = await call("POST", `/sessions/${dir}/agents`, { name: "web", brief: text });
+        expect(custom.status).toBe(201);
+        expect(readFileSync(join(summary.path, "agents", "web", "BRIEF.md"), "utf8")).toBe(text);
+        await daemon.agents.stop_all();
+    });
+});

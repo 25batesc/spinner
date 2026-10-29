@@ -80,7 +80,7 @@ export const ROUTES = {
     "GET /sessions/:dir/agents/:name/context": "ContextResponse",
     /** Write one context file of the chain. Body: ContextFileRequest. */
     "PUT /sessions/:dir/agents/:name/context": "ContextFileResponse",
-    /** The brief the daemon writes for a new agent without one. Query: `repo=<name>`, optional. */
+    /** The brief the daemon writes for an agent without one. Query: `name=`, `repo=`, optional. */
     "GET /sessions/:dir/agents/default-brief": "DefaultBriefResponse",
     /** Add an agent and start it. Body: AddAgentRequest. 201 once a brief exists or is written. */
     "POST /sessions/:dir/agents": "AgentResponse",

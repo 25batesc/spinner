@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import type { ModelView, SessionView } from "@spinner/protocol";
+import type { ModelView, ProjectView, SessionView } from "@spinner/protocol";
 
-import { fetchAgentHistory, fetchModels, postAgent } from "./events-client.ts";
+import { fetchAgentHistory, fetchModels, fetchProjects, postAgent } from "./events-client.ts";
+import { fetchDefaultBrief } from "./remote.ts";
+import type { RunAction } from "./SessionsPane.tsx";
 import { emptyTranscript, foldEvent, type Entry, type Transcript } from "./transcript.ts";
 
 function short(value: unknown): string {
@@ -136,14 +138,65 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     );
 }
 
-/** Starts an agent from `agents/<name>/BRIEF.md`, with a model from `GET /models`. */
-export function AddAgent({ view }: { view: SessionView }) {
+/** A session has somewhere to work once one repo has a worktree; an adopted one may not. */
+function hasWorktree(view: SessionView): boolean {
+    return Object.values(view.summary.session.repos).some((repo) => repo.worktree !== undefined);
+}
+
+/**
+ * `attach project` for a session adopted without a project: the daemon checks the PR
+ * branches out as worktrees, and the add-agent form's repo select fills in.
+ */
+function AttachProject({ dir, run }: { dir: string; run: RunAction }) {
+    const [projects, setProjects] = useState<ProjectView[]>([]);
+    const [project, setProject] = useState("");
+
+    useEffect(() => {
+        const abort = new AbortController();
+        fetchProjects(abort.signal).then(setProjects, () => undefined);
+        return () => abort.abort();
+    }, []);
+
+    return (
+        <div className="add-agent" aria-label="Attach project">
+            <span className="muted">No worktree yet: attach the project the PRs belong to.</span>
+            <select
+                value={project}
+                onChange={(e) => setProject(e.target.value)}
+                aria-label="Project"
+            >
+                <option value="">project</option>
+                {projects.map((p) => (
+                    <option key={p.path} value={p.path}>
+                        {p.name}
+                    </option>
+                ))}
+            </select>
+            <button
+                type="button"
+                disabled={project === ""}
+                onClick={() => void run(`/sessions/${dir}/attach`, { project })}
+            >
+                attach project
+            </button>
+        </div>
+    );
+}
+
+/**
+ * Starts an agent with a model from `GET /models`. The brief textarea starts with the
+ * daemon's default for the name and repo (`GET .../agents/default-brief`) and is sent as
+ * `brief` once edited; the daemon writes it when the session has none for that agent.
+ */
+export function AddAgent({ view, run }: { view: SessionView; run: RunAction }) {
     const dir = view.summary.dir;
     const repos = Object.keys(view.summary.session.repos);
     const [repo, setRepo] = useState("");
     const [models, setModels] = useState<ModelView[]>([]);
     const [name, setName] = useState("");
     const [model, setModel] = useState("");
+    const [brief, setBrief] = useState("");
+    const [briefEdited, setBriefEdited] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -152,16 +205,27 @@ export function AddAgent({ view }: { view: SessionView }) {
         return () => abort.abort();
     }, []);
 
+    useEffect(() => {
+        if (briefEdited) {
+            return;
+        }
+        const abort = new AbortController();
+        fetchDefaultBrief(dir, name, repo, abort.signal).then(setBrief, () => undefined);
+        return () => abort.abort();
+    }, [dir, name, repo, briefEdited]);
+
     const submit = (event: FormEvent) => {
         event.preventDefault();
         const body = {
             name,
             ...(model === "" ? {} : { model }),
             ...(repo === "" ? {} : { repo }),
+            ...(briefEdited && brief.trim() !== "" ? { brief } : {}),
         };
         postAgent(`/sessions/${dir}/agents`, body).then(
             () => {
                 setName("");
+                setBriefEdited(false);
                 setError(null);
             },
             (failure: unknown) => setError(String(failure)),
@@ -169,31 +233,45 @@ export function AddAgent({ view }: { view: SessionView }) {
     };
 
     return (
-        <form className="add-agent" onSubmit={submit} aria-label="Add agent">
-            <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Agent name (needs a brief)"
-                aria-label="Agent name"
-            />
-            <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
-                <option value="">default model</option>
-                {models.map((m) => (
-                    <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
-                        {m.provider}/{m.id}
-                    </option>
-                ))}
-            </select>
-            <select value={repo} onChange={(e) => setRepo(e.target.value)} aria-label="Repo">
-                <option value="">session dir</option>
-                {repos.map((key) => (
-                    <option key={key} value={key}>
-                        worktree: {key}
-                    </option>
-                ))}
-            </select>
-            <button type="submit" disabled={name.trim() === ""}>add agent</button>
-            {error !== null && <span className="needs-human">{error}</span>}
-        </form>
+        <>
+            {!hasWorktree(view) && <AttachProject dir={dir} run={run} />}
+            <form className="add-agent" onSubmit={submit} aria-label="Add agent">
+                <input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="Agent name"
+                    aria-label="Agent name"
+                />
+                <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
+                    <option value="">default model</option>
+                    {models.map((m) => (
+                        <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
+                            {m.provider}/{m.id}
+                        </option>
+                    ))}
+                </select>
+                <select value={repo} onChange={(e) => setRepo(e.target.value)} aria-label="Repo">
+                    <option value="">session dir</option>
+                    {repos.map((key) => (
+                        <option key={key} value={key}>
+                            worktree: {key}
+                        </option>
+                    ))}
+                </select>
+                <button type="submit" disabled={name.trim() === ""}>add agent</button>
+                <textarea
+                    className="brief"
+                    value={brief}
+                    onChange={(event) => {
+                        setBrief(event.target.value);
+                        setBriefEdited(true);
+                    }}
+                    rows={6}
+                    aria-label="Brief"
+                    placeholder="Brief (the daemon's default when left as is)"
+                />
+                {error !== null && <span className="needs-human">{error}</span>}
+            </form>
+        </>
     );
 }

@@ -127,6 +127,12 @@ export function parse_add_agent(input: unknown): AddAgentRequest | string {
     } else if (repo !== undefined) {
         return "`repo` must be a non-empty string when given";
     }
+    const brief = optional_string(record, "brief");
+    if (typeof brief === "string") {
+        request.brief = brief;
+    } else if (brief !== undefined) {
+        return "`brief` must be a non-empty string when given";
+    }
     return request;
 }
 
