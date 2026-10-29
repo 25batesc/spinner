@@ -3,8 +3,9 @@
 // `SPINNER_AGENT`, `SPINNER_DAEMON_URL`, `SPINNER_ROLE` in the environment. It adds the
 // `spinner_session` prompt section on every run, registers the manifest's tools (the
 // `thread_*` ones for the fixer role), guards `edit`/`write` outside the brief's owned globs,
-// and registers `/spinner-reload`, which the daemon sends after a context edit. Outside a
-// Spinner session (no `SPINNER_SESSION_DIR`) it registers nothing.
+// and registers `/spinner-reload`, which the daemon sends after a context edit. Under
+// `SPINNER_HARNESS=tty` it also opens the daemon's channel into the interactive pi (`tty.ts`).
+// Outside a Spinner session (no `SPINNER_SESSION_DIR`) it registers nothing.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXTENSION_MANIFEST, type SessionView } from "@spinner/protocol";
@@ -13,10 +14,18 @@ import { guard_edit } from "./guard.js";
 import type { ExtensionAPI, ToolDefinition } from "./pi-api.js";
 import { load_session_files, render_prompt_section } from "./prompt.js";
 import { daemon_client, run_tool, schema_of, type DaemonClient, type Fetch } from "./tools.js";
+import { register_tty, type TtyChannel } from "./tty.js";
 
 export interface SpinnerExtensionOptions {
     env?: NodeJS.ProcessEnv;
     fetch?: Fetch;
+    /** For tests: the tty channel's retry delay and reported pid. */
+    tty?: { retry_delay_ms?: number; pid?: number };
+}
+
+export interface Registered extends SpinnerEnv {
+    /** The tty channel, when `SPINNER_HARNESS=tty`. */
+    tty_channel: TtyChannel | null;
 }
 
 /** The factory pi calls. `register` is the testable core; this reads the real environment. */
@@ -24,12 +33,16 @@ export default function spinner_extension(pi: ExtensionAPI): void {
     register(pi, {});
 }
 
-export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): SpinnerEnv | null {
+export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Registered | null {
     const env = read_env(options.env ?? process.env);
     if (env === null) {
         return null;
     }
     const fetch_ = options.fetch ?? fetch;
+    let tty_channel: TtyChannel | null = null;
+    if (env.tty && env.daemon_url.length > 0) {
+        tty_channel = register_tty(pi, { env, fetch: fetch_, ...options.tty });
+    }
     let client: DaemonClient | null = null;
     const client_of = (): DaemonClient => {
         client ??= daemon_client(env, fetch_);
@@ -90,7 +103,7 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Sp
             await ctx.reload();
         },
     });
-    return env;
+    return { ...env, tty_channel };
 }
 
 /** `GET /sessions/:dir` for the hosts; null when the daemon does not answer in time. */

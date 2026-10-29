@@ -60,6 +60,41 @@ export interface ExtensionContext {
     cwd: string;
     hasUI: boolean;
     ui: { notify(message: string, level: "info" | "warning" | "error"): void };
+    /** True when the agent is not streaming. */
+    isIdle(): boolean;
+    /** Aborts the current agent run, as Escape does. */
+    abort(): void;
+}
+
+export interface SessionStartEvent {
+    type: "session_start";
+}
+
+export interface SessionShutdownEvent {
+    type: "session_shutdown";
+    reason: "quit" | "reload" | "new" | "resume" | "fork";
+}
+
+/** The events the tty channel posts to the daemon; each carries `type` plus pi's fields. */
+export interface LifecycleEvent {
+    type:
+        | "agent_start"
+        | "agent_end"
+        | "agent_settled"
+        | "turn_end"
+        | "tool_execution_start"
+        | "tool_execution_end";
+    [key: string]: unknown;
+}
+
+export type LifecycleEventName = LifecycleEvent["type"];
+
+/** pi's `SlashCommandInfo`. */
+export interface SlashCommandInfo {
+    name: string;
+    description?: string;
+    source: "extension" | "prompt" | "skill";
+    sourceInfo?: { path?: string };
 }
 
 export interface ExtensionCommandContext extends ExtensionContext {
@@ -74,6 +109,22 @@ export interface RegisteredCommand {
 export interface ExtensionAPI {
     registerTool(tool: ToolDefinition): void;
     registerCommand(name: string, command: RegisteredCommand): void;
+    /** Sends a user message; it starts a turn, or queues as a steer or follow-up when busy. */
+    sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void;
+    /** The slash commands pi loaded. */
+    getCommands(): SlashCommandInfo[];
+    on(
+        event: "session_start",
+        handler: (event: SessionStartEvent, ctx: ExtensionContext) => void | Promise<void>,
+    ): unknown;
+    on(
+        event: "session_shutdown",
+        handler: (event: SessionShutdownEvent, ctx: ExtensionContext) => void | Promise<void>,
+    ): unknown;
+    on(
+        event: LifecycleEventName,
+        handler: (event: LifecycleEvent, ctx: ExtensionContext) => void | Promise<void>,
+    ): unknown;
     on(
         event: "before_agent_start",
         handler: (event: BeforeAgentStartEvent, ctx: ExtensionContext) => void | Promise<void>,

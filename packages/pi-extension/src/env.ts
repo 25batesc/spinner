@@ -10,6 +10,8 @@ export interface SpinnerEnv {
     agent: string;
     daemon_url: string;
     role: ExtensionRole;
+    /** True under `SPINNER_HARNESS=tty`: pi runs in the daemon's pty and the tty channel opens. */
+    tty: boolean;
 }
 
 export function read_env(env: NodeJS.ProcessEnv): SpinnerEnv | null {
@@ -22,5 +24,6 @@ export function read_env(env: NodeJS.ProcessEnv): SpinnerEnv | null {
     const role: ExtensionRole = env[EXTENSION_ENV.role] === "fixer" ? "fixer" : "worker";
     const parts = session_dir.replace(/\/+$/, "").split("/");
     const dir = parts[parts.length - 1] ?? "";
-    return { session_dir, dir, agent, daemon_url, role };
+    const tty = env[EXTENSION_ENV.harness] === "tty";
+    return { session_dir, dir, agent, daemon_url, role, tty };
 }
