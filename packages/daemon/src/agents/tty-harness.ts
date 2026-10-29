@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { accessSync, chmodSync, constants, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import type { IPty } from "node-pty";
+import type { IPty, spawn as PtySpawn } from "node-pty";
 import type { PiCommandInfo, PiEvent, SessionSummary, TtyResize } from "@spinner/protocol";
 import { TTY_ATTACHMENTS_MAX, TTY_SCROLLBACK_BYTES, TTY_SIZE_DEFAULT } from "@spinner/protocol";
 import { ExtensionChannel } from "./extension-channel.js";
@@ -288,7 +288,7 @@ class PiTtyHandle implements AgentHandle {
  * installs the darwin prebuilt's `spawn-helper` without the exec bit, which makes every spawn
  * fail with `posix_spawnp failed`; the bit is set here once, before the first spawn.
  */
-function load_node_pty(): typeof import("node-pty") {
+function load_node_pty(): { spawn: typeof PtySpawn } {
     const require_ = createRequire(import.meta.url);
     const entry = require_.resolve("node-pty");
     const helper = join(
@@ -304,7 +304,7 @@ function load_node_pty(): typeof import("node-pty") {
             chmodSync(helper, 0o755);
         }
     }
-    return require_("node-pty") as typeof import("node-pty");
+    return require_("node-pty") as { spawn: typeof PtySpawn };
 }
 
 /** `process.env` without the undefined values node-pty's typings reject. */

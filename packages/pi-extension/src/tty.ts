@@ -56,7 +56,9 @@ export interface TtyChannel {
 /** Registers the hooks; returns the channel so a test can wait on it. */
 export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyChannel {
     const env = options.env;
-    const base = `${env.daemon_url}/sessions/${encodeURIComponent(env.dir)}/agents/${encodeURIComponent(env.agent)}`;
+    const dir = encodeURIComponent(env.dir);
+    const agent = encodeURIComponent(env.agent);
+    const base = `${env.daemon_url}/sessions/${dir}/agents/${agent}`;
     const fetch_ = options.fetch;
     const retry_delay_ms = options.retry_delay_ms ?? RETRY_DELAY_MS;
     const pid = options.pid ?? process.pid;
@@ -153,7 +155,8 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
                 continue;
             }
             const disposition = act(pi, ctx, command);
-            ack = `?ack=${encodeURIComponent(command.id)}&disposition=${encodeURIComponent(disposition)}`;
+            const id = encodeURIComponent(command.id);
+            ack = `?ack=${id}&disposition=${encodeURIComponent(disposition)}`;
         }
     }
 
@@ -171,7 +174,11 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
  * starts a turn when idle); an abort stops the run. The disposition words are the RPC
  * harness's, so the daemon's callers see the same answers on both paths.
  */
-export function act(pi: ExtensionAPI, ctx: ExtensionContext, command: AgentExtensionCommand): string {
+export function act(
+    pi: ExtensionAPI,
+    ctx: ExtensionContext,
+    command: AgentExtensionCommand,
+): string {
     const idle = ctx.isIdle();
     if (command.type === "abort") {
         ctx.abort();

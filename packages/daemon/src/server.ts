@@ -117,6 +117,8 @@ export interface Daemon {
     bus: EventBus;
     jobs: JobRunner;
     agents: AgentManager;
+    /** The tty harness, so a test can look at an agent's pty. */
+    tty: PiTtyHarness;
     watcher: SessionWatcher;
     close(): Promise<void>;
 }
@@ -571,6 +573,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         bus,
         jobs,
         agents,
+        tty,
         watcher,
         close: async () => {
             await agents.stop_all();

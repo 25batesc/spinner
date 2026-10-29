@@ -90,10 +90,15 @@ export class ExtensionChannel {
             return Promise.reject(this.closed);
         }
         assert.ok(this.queue.length < QUEUE_MAX, "the extension stopped polling for commands");
-        assert.ok(type === "abort" || (text !== undefined && text.length > 0), `${type} needs text`);
+        const has_text = text !== undefined && text.length > 0;
+        assert.ok(type === "abort" || has_text, `${type} needs text`);
         const id = `c-${this.next_id}`;
         this.next_id += 1;
-        const command: AgentExtensionCommand = { id, type, ...(text === undefined ? {} : { text }) };
+        const command: AgentExtensionCommand = {
+            id,
+            type,
+            ...(text === undefined ? {} : { text }),
+        };
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.awaiting.delete(id);

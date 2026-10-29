@@ -22,7 +22,7 @@ export interface DaemonConfig {
     /** `provider/model` for an agent tab that names no model. pi's own default when absent. */
     default_model?: string;
     agents: {
-        /** How an agent tab's pi runs: `tty` (pi's terminal UI in a pty) or `rpc`. `tty` when absent. */
+        /** How an agent tab's pi runs: `tty` (pi's own UI in a pty) or `rpc`. `tty` when absent. */
         harness?: "tty" | "rpc";
     };
     slack: {

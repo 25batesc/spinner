@@ -95,9 +95,9 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
-    /** The extension of a tty agent reports pi's pid and slash commands. Body: AgentHelloRequest. */
+    /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
     "POST /sessions/:dir/agents/:name/hello": "AgentCommandResponse",
-    /** Long-poll (30 s) for the next command to a tty agent's extension. Query: `ack`, `disposition`. */
+    /** Long-poll (30 s) for the next command to a tty agent's extension. Query: ack, disposition */
     "GET /sessions/:dir/agents/:name/commands": "AgentCommandPollResponse",
     /** The extension of a tty agent posts pi's lifecycle events. Body: AgentEventsRequest. 202. */
     "POST /sessions/:dir/agents/:name/events": "AgentCommandResponse",
@@ -536,7 +536,7 @@ export interface AgentEventsResponse {
     events: PiEvent[];
 }
 
-/** `POST /sessions/:dir/agents/:name/hello`, from the extension at pi's start and after a reload. */
+/** `POST /sessions/:dir/agents/:name/hello`: from the extension at pi's start and on reload. */
 export interface AgentHelloRequest {
     pid: number;
     /** `pi.getCommands()`: the slash commands pi loaded, for the Context tab. */

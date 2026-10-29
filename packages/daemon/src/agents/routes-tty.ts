@@ -235,7 +235,10 @@ export function parse_resize(text: string): TtyResize | null {
 
 function is_dimension(value: unknown): value is number {
     return (
-        typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= TTY_DIMENSION_MAX
+        typeof value === "number" &&
+        Number.isInteger(value) &&
+        value >= 1 &&
+        value <= TTY_DIMENSION_MAX
     );
 }
 
@@ -280,7 +283,10 @@ export function parse_events(input: unknown): AgentEventsRequest | string {
 }
 
 /** Both absent is no ack; both present is one; one without the other is a 400. */
-export function parse_ack(id: string | undefined, disposition: string | undefined): Ack | null | string {
+export function parse_ack(
+    id: string | undefined,
+    disposition: string | undefined,
+): Ack | null | string {
     if (id === undefined && disposition === undefined) {
         return null;
     }

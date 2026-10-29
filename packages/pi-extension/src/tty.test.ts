@@ -150,12 +150,17 @@ describe("the tty channel", () => {
         await pi.fire("session_start", { type: "session_start" }, ctx);
         await until(() => aborted.count === 1);
         const hello = served.requests.find((r) => r.path.endsWith("/hello"));
-        expect(hello?.body).toEqual({ pid: 4242, commands: [{ name: "help", source: "extension" }] });
+        expect(hello?.body).toEqual({
+            pid: 4242,
+            commands: [{ name: "help", source: "extension" }],
+        });
         expect(pi.sent).toEqual([
             { text: "hello there", deliverAs: undefined },
             { text: "also this", deliverAs: "steer" },
         ]);
-        const polls = served.requests.filter((r) => r.path.includes("/commands")).map((r) => r.path);
+        const polls = served.requests
+            .filter((r) => r.path.includes("/commands"))
+            .map((r) => r.path);
         expect(polls[0]).toBe("/sessions/s1-x/agents/engine/commands");
         expect(polls[1]).toBe("/sessions/s1-x/agents/engine/commands?ack=c-1&disposition=started");
         expect(polls[2]).toBe("/sessions/s1-x/agents/engine/commands?ack=c-2&disposition=started");
@@ -167,7 +172,8 @@ describe("the tty channel", () => {
         await registered?.tty_channel?.flush();
         const posted = served.requests
             .filter((r) => r.path.endsWith("/events"))
-            .flatMap((r) => (r.body as { events: Array<{ type: string }> }).events.map((e) => e.type));
+            .flatMap((r) => (r.body as { events: Array<{ type: string }> }).events)
+            .map((event) => event.type);
         expect(posted).toEqual(["agent_start", "agent_settled"]);
 
         await pi.fire("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
