@@ -29,8 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SPINNER_HOME: ${{ runner.temp }}/spinner-home
-      SPINNER_PROXY_DIR: ${{ runner.temp }}/spinner-home/proxy
+      # `runner.temp` is not available in a job-level env; the runner's home is outside the checkout.
+      SPINNER_HOME: /home/runner/spinner-home
+      SPINNER_PROXY_DIR: /home/runner/spinner-home/proxy
       SPINNER_SESSION_IDS: home
       SPINNER_NOTIFY: "off"
     steps:
