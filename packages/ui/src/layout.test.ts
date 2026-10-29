@@ -107,6 +107,7 @@ describe("loadLayout and saveLayout", () => {
                 previews: { width: 700, collapsed: true, hidden: false, popped: false },
             },
             expanded: true,
+            drawer: { height: 200, collapsed: false },
         };
         saveLayout(storage, layout);
         const loaded = loadLayout(storage);
@@ -144,5 +145,49 @@ describe("loadLayout and saveLayout", () => {
         };
         expect(loadLayout(broken)).toEqual(DEFAULT_LAYOUT);
         expect(() => saveLayout(broken, DEFAULT_LAYOUT)).not.toThrow();
+    });
+});
+
+describe("the job drawer", () => {
+    it("clamps a dragged height between the floor and the pane's allowance", () => {
+        const dragged = reduceLayout(DEFAULT_LAYOUT, { kind: "drawer", height: 300, max: 500 });
+        expect(dragged.drawer).toEqual({ height: 300, collapsed: false });
+        expect(reduceLayout(DEFAULT_LAYOUT, { kind: "drawer", height: 10, max: 500 }).drawer)
+            .toEqual({ height: 48, collapsed: false });
+        expect(reduceLayout(DEFAULT_LAYOUT, { kind: "drawer", height: 900, max: 500 }).drawer)
+            .toEqual({ height: 500, collapsed: false });
+        // A pane too short for the reserve still leaves the floor.
+        expect(reduceLayout(DEFAULT_LAYOUT, { kind: "drawer", height: 100, max: 20 }).drawer)
+            .toEqual({ height: 48, collapsed: false });
+    });
+
+    it("keeps the height through a collapse, and a drag reopens", () => {
+        const tall = reduceLayout(DEFAULT_LAYOUT, { kind: "drawer", height: 320, max: 600 });
+        const bar = reduceLayout(tall, { kind: "drawer-collapse", collapsed: true });
+        expect(bar.drawer).toEqual({ height: 320, collapsed: true });
+        expect(reduceLayout(bar, { kind: "drawer-collapse", collapsed: false }).drawer)
+            .toEqual({ height: 320, collapsed: false });
+        expect(reduceLayout(bar, { kind: "drawer", height: 100, max: 600 }).drawer)
+            .toEqual({ height: 100, collapsed: false });
+        // A drag that ends under the floor passed smaller heights on the way; the collapse
+        // remembers the height the drag began at.
+        const low = reduceLayout(tall, { kind: "drawer", height: 60, max: 600 });
+        const collapse = { kind: "drawer-collapse" as const, collapsed: true, remember: 320 };
+        const dragged = reduceLayout(low, collapse);
+        expect(dragged.drawer).toEqual({ height: 320, collapsed: true });
+    });
+
+    it("survives storage with the panes, and falls back field by field", () => {
+        const storage = memory();
+        const bar = reduceLayout(
+            reduceLayout(DEFAULT_LAYOUT, { kind: "drawer", height: 260, max: 600 }),
+            { kind: "drawer-collapse", collapsed: true },
+        );
+        saveLayout(storage, bar);
+        expect(loadLayout(storage).drawer).toEqual({ height: 260, collapsed: true });
+        const partial = memory({ [STORAGE_KEY]: JSON.stringify({ drawer: { height: 5 } }) });
+        expect(loadLayout(partial).drawer).toEqual({ height: 48, collapsed: false });
+        const none = memory({ [STORAGE_KEY]: JSON.stringify({ expanded: false }) });
+        expect(loadLayout(none).drawer).toEqual(DEFAULT_LAYOUT.drawer);
     });
 });

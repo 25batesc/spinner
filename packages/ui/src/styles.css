@@ -134,9 +134,31 @@ html, body, #root { height: 100%; margin: 0; }
 .tab-grey { opacity: 0.4; }
 .services { border-collapse: collapse; font-size: 12px; }
 .services th, .services td { text-align: left; padding: 2px 8px; border-bottom: 1px solid #8883; }
-.drawer { border: 1px solid #8886; border-radius: 4px; padding: 6px; }
+/* The job drawer: a fixed height from the layout record, the divider on its top edge, the
+   log taking the rest. The terminal above refits as the drawer grows or collapses. */
+.drawer {
+    position: relative; display: flex; flex-direction: column; flex: none; box-sizing: border-box;
+    border: 1px solid #8886; border-radius: 4px; padding: 6px; margin-top: auto;
+}
+.drawer-handle {
+    position: absolute; top: -4px; left: 0; right: 0; height: 8px; cursor: row-resize;
+    touch-action: none;
+}
+.drawer-handle:hover { background: #8886; }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; }
-.drawer-log { margin: 4px 0 0; max-height: 160px; overflow: auto; font-size: 11px; }
+.drawer-controls { display: flex; gap: 4px; align-items: center; }
+.drawer-log { margin: 4px 0 0; flex: 1; min-height: 0; overflow: auto; font-size: 11px; }
+.drawer-bar {
+    flex: none; margin-top: auto; padding: 3px 8px; text-align: left; font: inherit;
+    font-size: 12px; border: 1px solid #8886; border-radius: 4px; background: #8881;
+    color: inherit; cursor: pointer; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis;
+}
+.drawer-bar:hover { background: #8883; }
+.drawer-failed, .drawer-bar.drawer-failed { border-color: #d33; }
+.drawer-bar.drawer-failed strong { color: #d33; }
+.drawer-error, .drawer-bar.drawer-error { border-color: #d80; }
+.drawer-bar.drawer-error strong { color: #d80; }
 .verified { display: flex; align-items: center; gap: 4px; }
 /* The browser bar above the preview content. */
 .browser-bar { display: flex; gap: 2px; align-items: center; position: relative; }

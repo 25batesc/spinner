@@ -54,6 +54,9 @@ export interface PaneLayout {
     restore(pane: PaneName): void;
     setPopped(pane: PaneName, popped: boolean): void;
     setExpanded(expanded: boolean): void;
+    /** The job drawer's height from a drag; `max` is the pane's height minus the reserve. */
+    setDrawerHeight(height: number, max: number): void;
+    setDrawerCollapsed(collapsed: boolean, remember?: number): void;
 }
 
 /** The widths of the two panes beside a divider when the drag began. */
@@ -234,5 +237,14 @@ export function useLayout(): PaneLayout {
             [act],
         ),
         setExpanded: useCallback((expanded: boolean) => act({ kind: "expand", expanded }), [act]),
+        setDrawerHeight: useCallback(
+            (height: number, max: number) => act({ kind: "drawer", height, max }),
+            [act],
+        ),
+        setDrawerCollapsed: useCallback(
+            (collapsed: boolean, remember?: number) =>
+                act({ kind: "drawer-collapse", collapsed, remember }),
+            [act],
+        ),
     };
 }

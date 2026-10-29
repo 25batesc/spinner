@@ -79,19 +79,13 @@ function useAppState(state: UiState, initial: string | undefined) {
             (failure: unknown) => setActionError(String(failure)),
         );
     };
-    const drawer = (
-        <JobDrawer
-            job={job}
-            error={actionError}
-            onDismiss={() => {
-                setWatched(undefined);
-                setActionError(null);
-            }}
-        />
-    );
+    const dismiss = () => {
+        setWatched(undefined);
+        setActionError(null);
+    };
     return {
-        sessions, selected, view, feed, busy, run, drawer, setPicked, setActionError,
-        compose, setCompose,
+        sessions, selected, view, feed, busy, run, job, actionError, dismiss, setPicked,
+        setActionError, compose, setCompose,
     };
 }
 
@@ -99,8 +93,18 @@ export function App() {
     const route = paneRouteOf(window.location.search);
     const state = useSpinner();
     const app = useAppState(state, route?.session);
-    const { sessions, selected, view, feed, busy, run, drawer, setPicked } = app;
+    const { sessions, selected, view, feed, busy, run, setPicked } = app;
     const layout = useLayout();
+    const drawer = (
+        <JobDrawer
+            job={app.job}
+            error={app.actionError}
+            onDismiss={app.dismiss}
+            drawer={layout.layout.drawer}
+            onResize={layout.setDrawerHeight}
+            onCollapse={layout.setDrawerCollapsed}
+        />
+    );
     const popped = useRef<Partial<Record<PaneName, PoppedOut>>>({});
 
     const docked = (pane: PaneName) => () => {

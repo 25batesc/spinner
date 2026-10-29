@@ -21,6 +21,7 @@ export type IconName =
     | "forward"
     | "more"
     | "close"
+    | "minimize"
     | "pull-request";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
@@ -40,6 +41,7 @@ const GLYPHS: Record<IconName, string> = {
     forward: "M6 3l5 5-5 5",
     more: "M3 8h.01M8 8h.01M13 8h.01",
     close: "M4 4l8 8M12 4l-8 8",
+    minimize: "M3 11h10",
     "pull-request":
         "M4 5v8M4 5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M4 13a1.5 1.5 0 1 0 0 3" +
         "M12 13V8a3 3 0 0 0-3-3H7M9 3L7 5l2 2M12 13a1.5 1.5 0 1 0 0 3",

@@ -78,7 +78,9 @@ const STACK_STATUS = { up: "healthy", starting: "starting", down: "stopped" } as
 
 export function stackView(id: string, state: "none" | keyof typeof STACK_STATUS): StackView {
     if (state === "none") {
-        return { state, project: null, database: null, services: [], observed: null };
+        return {
+            state, project: null, database: null, services: [], observed: null, last_job: null,
+        };
     }
     return {
         state,
@@ -86,6 +88,7 @@ export function stackView(id: string, state: "none" | keyof typeof STACK_STATUS)
         database: `spinner_${id}`,
         services: serviceViews(id, STACK_STATUS[state]),
         observed: new Date().toISOString(),
+        last_job: null,
     };
 }
 

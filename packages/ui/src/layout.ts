@@ -34,7 +34,21 @@ export interface Layout {
     panes: Record<PaneName, PaneState>;
     /** The previews pane fills the window; the other panes keep their state underneath. */
     expanded: boolean;
+    /** The job drawer at the bottom of the agents pane. */
+    drawer: DrawerState;
 }
+
+export interface DrawerState {
+    /** The last open height in CSS pixels; kept while collapsed, for the restore. */
+    height: number;
+    /** A one-line bar in place of the drawer. */
+    collapsed: boolean;
+}
+
+/** The drawer's height floor; its ceiling is the pane's height minus `DRAWER_RESERVE_PX`. */
+export const DRAWER_MIN_PX = 48;
+/** What the terminal keeps above the drawer, whatever the drag. */
+export const DRAWER_RESERVE_PX = 200;
 
 /** A drag clamps the width between `min` and `max`; `SNAP_PX` past `min` arms the fold. */
 export interface PaneLimits {
@@ -69,6 +83,7 @@ export const DEFAULT_LAYOUT: Layout = {
         previews: { width: 520, collapsed: false, hidden: false, popped: false },
     },
     expanded: false,
+    drawer: { height: 200, collapsed: false },
 };
 
 export type LayoutAction =
@@ -82,7 +97,14 @@ export type LayoutAction =
     /** Back to shown, from any state; `width` when the restoring drag sets one. */
     | { kind: "restore"; pane: PaneName; width?: number | undefined }
     | { kind: "popped"; pane: PaneName; popped: boolean }
-    | { kind: "expand"; expanded: boolean };
+    | { kind: "expand"; expanded: boolean }
+    /** A height from a drag of the drawer's divider, clamped between the floor and `max`. */
+    | { kind: "drawer"; height: number; max: number }
+    /**
+     * The minimize icon, a drag under the floor, or the bar's click to restore. `remember` is
+     * the height when a collapsing drag began, so the restore does not land near the floor.
+     */
+    | { kind: "drawer-collapse"; collapsed: boolean; remember?: number | undefined };
 
 /** True when the pane shows as a strip in the main window: collapsed or popped out. */
 export function isStrip(pane: PaneState): boolean {
@@ -103,9 +125,22 @@ function withPane(layout: Layout, pane: PaneName, state: PaneState): Layout {
     return { ...layout, panes: { ...layout.panes, [pane]: state } };
 }
 
+/** The height a drag lands on: never under the floor, never over the pane's allowance. */
+export function clampDrawerHeight(height: number, max: number): number {
+    return Math.max(DRAWER_MIN_PX, Math.min(Math.max(DRAWER_MIN_PX, max), Math.round(height)));
+}
+
 export function reduceLayout(layout: Layout, action: LayoutAction): Layout {
     if (action.kind === "expand") {
         return { ...layout, expanded: action.expanded };
+    }
+    if (action.kind === "drawer") {
+        const height = clampDrawerHeight(action.height, action.max);
+        return { ...layout, drawer: { height, collapsed: false } };
+    }
+    if (action.kind === "drawer-collapse") {
+        const height = action.remember ?? layout.drawer.height;
+        return { ...layout, drawer: { height, collapsed: action.collapsed } };
     }
     const pane = layout.panes[action.pane];
     switch (action.kind) {
@@ -190,11 +225,24 @@ export function loadLayout(storage: LayoutStorage | undefined): Layout {
     } catch {
         parsed = undefined;
     }
-    const layout: Layout = { panes: { ...DEFAULT_LAYOUT.panes }, expanded: false };
+    const layout: Layout = {
+        panes: { ...DEFAULT_LAYOUT.panes }, expanded: false, drawer: { ...DEFAULT_LAYOUT.drawer },
+    };
     if (!isRecord(parsed)) {
         return layout;
     }
     layout.expanded = parsed["expanded"] === true;
+    const drawer = parsed["drawer"];
+    if (isRecord(drawer)) {
+        const height = drawer["height"];
+        layout.drawer = {
+            height:
+                typeof height === "number" && Number.isFinite(height)
+                    ? Math.max(DRAWER_MIN_PX, Math.round(height))
+                    : DEFAULT_LAYOUT.drawer.height,
+            collapsed: drawer["collapsed"] === true,
+        };
+    }
     const panes = parsed["panes"];
     if (!isRecord(panes)) {
         return layout;
@@ -222,8 +270,9 @@ export function saveLayout(storage: LayoutStorage | undefined, layout: Layout): 
         const { width, collapsed, hidden } = layout.panes[pane];
         panes[pane] = { width, collapsed, hidden };
     }
+    const record = { panes, expanded: layout.expanded, drawer: layout.drawer };
     try {
-        storage?.setItem(STORAGE_KEY, JSON.stringify({ panes, expanded: layout.expanded }));
+        storage?.setItem(STORAGE_KEY, JSON.stringify(record));
     } catch {
         // Private mode or a full quota: the layout lasts for this page only.
     }

@@ -5,8 +5,8 @@
 // of the first session with a pi agent. The flow `panes` collapses, hides, restores, expands
 // and opens the `?pane=` route; `bridge-popout` docks the desktop's popped-out windows back
 // through a stub of the bridge. The flow `terminal` attaches a tty agent's terminal to the
-// fixture's echo pty, types, resizes and opens the pane route. It works against the fixture
-// server or the real daemon.
+// fixture's echo pty, types, resizes and opens the pane route; `drawer` drags, collapses and
+// restores the job drawer under it. It works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
@@ -1036,6 +1036,88 @@ if (flow === "m2-context") {
     await shot("34-m2-context-edited");
     console.log("m2-context ok");
     socket.close();
+    process.exit(0);
+}
+
+if (flow === "drawer") {
+    // The job drawer under the terminal: `run local` opens it at its remembered height; its
+    // divider drags the height (floor 48 px, ceiling the pane minus 200 px) and the terminal
+    // refits; the minimize icon collapses it to a one-line bar with the job's name and state;
+    // a click on the bar restores the height; a drag under the floor collapses too; the
+    // height and the flag survive a reload in the layout record.
+    const drawer = `document.querySelector(".drawer")`;
+    const bar = `document.querySelector(".drawer-bar")`;
+    const heightOf = `Math.round(${drawer}?.getBoundingClientRect().height ?? -1)`;
+    const rows = `(document.querySelector(".agent-terminal:not([hidden]) .xterm-rows")
+        ?.innerText ?? "")`;
+    // The last resize line on the screen: the rows shrink as the drawer grows.
+    const lastSize = `(${rows}.match(/\\[resize \\d+x\\d+\\]/g) ?? []).at(-1)`;
+    const dragHandle = async (dy: number) => {
+        const at = (await evaluate(`(() => {
+            const r = document.querySelector(".drawer-handle").getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        })()`)) as { x: number; y: number };
+        const mouse = (type: string, y: number) =>
+            send("Input.dispatchMouseEvent", { type, x: at.x, y, button: "left", buttons: 1 });
+        await mouse("mousePressed", at.y);
+        for (let step = 1; step <= 5; step += 1) {
+            await mouse("mouseMoved", at.y + (dy * step) / 5);
+        }
+        await mouse("mouseReleased", at.y + dy);
+    };
+    const runLocal = `[...document.querySelectorAll(".actions button")]
+        .some((b) => b.textContent === "run local" && !b.disabled)`;
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("terminal attached", `${rows}.includes("[resize ")`);
+    await until("run local enabled", runLocal);
+    await click(".actions button", "run local");
+    await until("drawer open", `${heightOf} === 200`);
+    await until("job finished", `${text(".drawer")}.includes("up · ok")`);
+    const before = (await evaluate(lastSize)) as string;
+    await shot("67-drawer-default");
+    await dragHandle(-100);
+    await until("drawer at 300", `${heightOf} === 300`);
+    await until("terminal refitted", `${lastSize} !== ${JSON.stringify(before)}`);
+    console.log("terminal size before and after the drag:", before, await evaluate(lastSize));
+    await shot("68-drawer-dragged");
+    const ceiling = (await evaluate(`(() => {
+        const pane = document.querySelector(".agents-pane").getBoundingClientRect().height;
+        return Math.round(pane - 200);
+    })()`)) as number;
+    await dragHandle(-2000);
+    await until("drawer at the ceiling", `${heightOf} === ${ceiling}`);
+    console.log("ceiling:", ceiling);
+    await dragHandle(ceiling - 300);
+    await until("back at 300", `${heightOf} === 300`);
+    await click("button[aria-label='Minimize job log']");
+    await until("bar shown", `${bar} !== null && ${drawer} === null`);
+    await until("bar names the job", `${text(".drawer-bar")}.includes("up · ok")`);
+    await shot("69-drawer-bar");
+    await click(".drawer-bar");
+    await until("restored at 300", `${heightOf} === 300`);
+    await dragHandle(400);
+    await until("collapsed by the drag", `${bar} !== null && ${drawer} === null`);
+    const stored = JSON.parse((await evaluate(`localStorage.getItem("spinner.layout.v2")`)) as
+        string) as { drawer: unknown };
+    console.log("stored drawer:", JSON.stringify(stored.drawer));
+    if (JSON.stringify(stored.drawer) !== JSON.stringify({ height: 300, collapsed: true })) {
+        throw new Error("the layout record does not hold the drawer's height and flag");
+    }
+    await evaluate(`window.__stale = true`);
+    await send("Page.reload");
+    await until("reloaded", `window.__stale === undefined`);
+    await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("run local enabled again", runLocal);
+    await click(".actions button", "run local");
+    await until("bar after the reload", `${bar} !== null`);
+    await until("job finished", `${text(".drawer-bar")}.includes("up · ok")`);
+    await click(".drawer-bar");
+    await until("height after the reload", `${heightOf} === 300`);
+    await shot("70-drawer-after-reload");
+    console.log("drawer ok");
+    socket.close();
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
     process.exit(0);
 }
 
