@@ -54,7 +54,8 @@ describe("copy_seed_files", () => {
         writeFileSync(join(primary, ".env"), "TOKEN=x\n");
         writeFileSync(join(primary, "vendor", "darwin-arm64", "binding.node"), "bin");
 
-        const first = copy_seed_files(primary, worktree, [".env", "vendor/darwin-arm64", "missing"]);
+        const entries = [".env", "vendor/darwin-arm64", "missing"];
+        const first = copy_seed_files(primary, worktree, entries);
         expect(first).toEqual([".env", "vendor/darwin-arm64"]);
         expect(existsSync(join(worktree, "vendor", "darwin-arm64", "binding.node"))).toBe(true);
         const second = copy_seed_files(primary, worktree, [".env", "vendor/darwin-arm64"]);
