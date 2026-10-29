@@ -136,7 +136,7 @@ if (flow === "panes") {
     // Start from the default layout once; the flow's own reload must keep what it stored.
     await send("Page.addScriptToEvaluateOnNewDocument", {
         source: `if (sessionStorage.getItem("e2e-layout-cleared") === null) {
-                localStorage.removeItem("spinner.layout.v1");
+                localStorage.removeItem("spinner.layout.v2");
                 sessionStorage.setItem("e2e-layout-cleared", "1");
             }`,
     });
@@ -247,11 +247,14 @@ if (flow === "bridge-stub") {
 }
 
 if (flow === "panes") {
-    // Plan 2 and 3 of s008 in a browser: a drag past the threshold collapses a pane to a strip,
-    // the strip restores it, double-click on a divider restores, `hide` from the header is a
-    // strip too, the widths survive a reload through localStorage, `pop out` opens the pane in
-    // its own window and the strip docks it back (or a closed window docks itself), and the
-    // `?pane=` route renders one pane alone without strips, dividers or controls.
+    // The workbench layout in a browser: the activity bar and the top-left toggle show and
+    // hide the left panel (no strip; the top bar then names the session with its PR badge), a
+    // drag of its divider past the threshold hides it too; the previews collapse to the edge
+    // strip by drag or by their header toggle and the strip restores them; the agents pane
+    // never folds, its minimum stops a drag; expand gives the previews the window and Escape
+    // or the same button brings the layout back; widths survive a reload; `pop out` opens the
+    // pane in its own window and the strip docks it back (or a closed window docks itself);
+    // the `?pane=` route renders one pane alone without strips, dividers or controls.
     const widthOf = (selector: string) =>
         `Math.round(document.querySelector(${JSON.stringify(selector)})` +
         `?.getBoundingClientRect().width ?? -1)`;
@@ -274,6 +277,14 @@ if (flow === "panes") {
         }
         await mouse("mouseReleased", at.x + dx, 1);
     };
+    const doubleClick = async (index: number) => {
+        const at = await handleAt(index);
+        for (const type of ["mousePressed", "mouseReleased"]) {
+            await send("Input.dispatchMouseEvent", {
+                type, x: at.x, y: at.y, button: "left", clickCount: 2,
+            });
+        }
+    };
     // `Page.reload` returns before the old document goes; a marker tells the new one apart.
     const reload = async () => {
         await evaluate(`window.__stale = true`);
@@ -281,44 +292,96 @@ if (flow === "panes") {
         await until("reloaded", `window.__stale === undefined`);
         await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
     };
+    const barButton = ".activity-bar .icon-button";
+    const topToggle = ".top-bar .icon-button";
+    const noStrips = `document.querySelectorAll(".strip").length === 0`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     const session = (await evaluate(
         `document.querySelector(".session-selected .muted").innerText`,
     )) as string;
-    // 1. Drag the sessions divider 200 px left: 260 - 200 is below the 180 threshold.
+    const chrome = await evaluate(`({
+        bar: document.querySelectorAll("${barButton}").length,
+        top: document.querySelectorAll("${topToggle}").length,
+        links: document.querySelectorAll(".pane-head a, .pane-head .link, .preview-bar a").length,
+        icons: document.querySelectorAll(".pane-head .icon-button, .preview-bar .icon-button")
+            .length,
+    })`);
+    console.log("chrome:", JSON.stringify(chrome));
+    if (JSON.stringify(chrome) !== JSON.stringify({ bar: 1, top: 1, links: 0, icons: 7 })) {
+        throw new Error("expected one bar icon, one top toggle, 7 header icons and no links");
+    }
+    await shot("39-default");
+    // 1. The left divider dragged 200 px left: 260 - 200 is below the 180 threshold; no strip.
     await drag(0, -200);
-    await until("sessions strip", `${strip("sessions")} !== null`);
-    await until("sessions column is 24 px", `${widthOf(".strip[data-pane=sessions]")} === 24`);
-    // 2. Drag the previews divider 400 px right: 520 - 400 is below the 240 threshold.
+    await until("left panel hidden", `document.querySelector(".sessions-pane") === null`);
+    await until("no strip", noStrips);
+    await until("top bar names the session", `${text(".top-title")} === "Refund flow"`);
+    await until("pr badge", `${text(".pr-badge")}.includes("2")`);
+    await until("bar icon off", `document.querySelector("${barButton}").ariaPressed === "false"`);
+    await shot("40-left-hidden");
+    // 2. The bar icon shows it again at the width before the drag; the top toggle hides it.
+    await click(barButton);
+    await until("left panel back at 260", `${widthOf(".sessions-pane")} === 260`);
+    await until("title gone", `document.querySelector(".top-title") === null`);
+    await click(topToggle);
+    await until("hidden by the top toggle", `document.querySelector(".sessions-pane") === null`);
+    await click(topToggle);
+    await until("shown by the top toggle", `${widthOf(".sessions-pane")} === 260`);
+    // 3. The previews divider dragged 400 px right: 520 - 400 is below the 240 threshold.
     await drag(1, 400);
     await until("previews strip", `${strip("previews")} !== null`);
-    await shot("39-two-strips");
-    // 3. The strip restores the last width; a double-click on the divider restores too.
-    await click(".strip[data-pane=sessions]");
-    await until("sessions back at 260", `${widthOf(".sessions-pane")} === 260`);
-    const right = await handleAt(1);
-    for (const type of ["mousePressed", "mouseReleased"]) {
-        await send("Input.dispatchMouseEvent", {
-            type, x: right.x, y: right.y, button: "left", clickCount: 2,
-        });
-    }
+    await until("strip is 24 px", `${widthOf(".strip[data-pane=previews]")} === 24`);
+    await shot("41-previews-strip");
+    await click(".strip[data-pane=previews]");
     await until("previews back at 520", `${widthOf(".preview-pane")} === 520`);
-    // 4. `hide` on the agents header: a strip, the free space goes to previews.
-    await click("button[aria-label='Hide agents']");
-    await until("agents strip", `${strip("agents")} !== null`);
-    await until("previews took the space", `${widthOf(".preview-pane")} > 900`);
-    await shot("40-agents-hidden");
-    await click(".strip[data-pane=agents]");
-    await until("agents restored", `document.querySelector(".agents-pane") !== null`);
-    // 5. A resized sessions pane keeps its width across a reload.
+    // 4. The header toggle collapses too; a double-click on the divider restores.
+    await click("button[aria-label='Collapse previews']");
+    await until("collapsed by the header", `${strip("previews")} !== null`);
+    await doubleClick(1);
+    await until("restored by double-click", `${widthOf(".preview-pane")} === 520`);
+    // 5. The agents pane never folds: a 900 px drag stops at its 240 px minimum (and the
+    // previews maximum of 900).
+    await drag(1, -900);
+    await until("previews at their maximum", `${widthOf(".preview-pane")} === 900`);
+    const agentsWidth = (await evaluate(widthOf(".agents-pane"))) as number;
+    console.log("agents width at the stop:", agentsWidth);
+    if (agentsWidth < 240) {
+        throw new Error("the agents pane went below its minimum");
+    }
+    await shot("42-agents-minimum");
+    await drag(1, 400);
+    await until("previews narrower again", `${widthOf(".preview-pane")} < 600`);
+    // 6. Left panel hidden plus previews collapsed: the agents take the window.
+    await click(topToggle);
+    await click("button[aria-label='Collapse previews']");
+    await until("agents fill the window", `${widthOf(".agents-pane")} > 1400`);
+    await shot("43-agents-whole-window");
+    await click(barButton);
+    await click(".strip[data-pane=previews]");
+    await until("three panes again", `${widthOf(".sessions-pane")} === 260`);
+    // 7. Expand: the previews alone; Escape and the same button bring the layout back.
+    await click("button[aria-label='Expand previews']");
+    await until("previews fill the window", `${widthOf(".preview-pane")} > 1400`);
+    await until("other panes gone", `document.querySelectorAll(".pane").length === 1`);
+    const shrink = `document.querySelector("button[aria-label='Restore layout']")`;
+    await until("shrink icon shown", `${shrink} !== null`);
+    await shot("44-expanded");
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+    await until("layout back on Escape", `document.querySelectorAll(".pane").length === 3`);
+    await click("button[aria-label='Expand previews']");
+    await until("expanded again", `document.querySelectorAll(".pane").length === 1`);
+    await click("button[aria-label='Restore layout']");
+    await until("layout back on click", `document.querySelectorAll(".pane").length === 3`);
+    // 8. A resized left panel keeps its width across a reload.
     await drag(0, 140);
-    await until("sessions at 400", `${widthOf(".sessions-pane")} === 400`);
-    const stored = await evaluate(`localStorage.getItem("spinner.layout.v1")`);
+    await until("left panel at 400", `${widthOf(".sessions-pane")} === 400`);
+    const stored = await evaluate(`localStorage.getItem("spinner.layout.v2")`);
     console.log("stored layout:", stored);
     await reload();
-    await until("sessions still 400", `${widthOf(".sessions-pane")} === 400`);
+    await until("still 400", `${widthOf(".sessions-pane")} === 400`);
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
-    // 6. Pop out: a new window on the `?pane=` route, the strip docks it back.
+    // 9. Pop out: a new window on the `?pane=` route, the strip docks it back.
     const targets = async () =>
         ((await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()) as {
             id: string; url: string;
@@ -328,19 +391,23 @@ if (flow === "panes") {
     for (const stale of await targets()) {
         await closeTarget(stale.id);
     }
+    const popups = async () => {
+        // The strip renders before Chrome lists the new window; give the target a moment.
+        let found = await targets();
+        for (let tries = 0; found.length === 0 && tries < 20; tries += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            found = await targets();
+        }
+        return found;
+    };
     await click("button[aria-label='Pop out previews']", "", true);
     await until("previews popped strip", `${strip("previews")}?.textContent.includes("popped")`);
-    // The strip renders before Chrome lists the new window; give the target a moment.
-    let popups = await targets();
-    for (let tries = 0; popups.length === 0 && tries < 20; tries += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        popups = await targets();
-    }
-    console.log("popped-out windows:", JSON.stringify(popups.map((t) => t.url)));
-    if (popups.length !== 1 || !popups[0]?.url.includes(`pane=previews&session=${session}`)) {
+    let windows = await popups();
+    console.log("popped-out windows:", JSON.stringify(windows.map((t) => t.url)));
+    if (windows.length !== 1 || !windows[0]?.url.includes(`pane=previews&session=${session}`)) {
         throw new Error("pop out did not open the ?pane=previews route for the session");
     }
-    await shot("41-previews-popped");
+    await shot("45-previews-popped");
     await click(".strip[data-pane=previews]");
     await until("previews docked", `document.querySelector(".preview-pane") !== null`);
     for (let tries = 0; (await targets()).length > 0 && tries < 20; tries += 1) {
@@ -352,14 +419,10 @@ if (flow === "panes") {
     // The other way round: the operator closes the window and the pane docks itself.
     await click("button[aria-label='Pop out agents']", "", true);
     await until("agents popped strip", `${strip("agents")}?.textContent.includes("popped")`);
-    popups = await targets();
-    for (let tries = 0; popups.length === 0 && tries < 20; tries += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        popups = await targets();
-    }
-    await closeTarget(popups[0]?.id ?? "");
+    windows = await popups();
+    await closeTarget(windows[0]?.id ?? "");
     await until("agents docked on close", `document.querySelector(".agents-pane") !== null`);
-    // 7. The route alone: one pane, no strips, dividers or controls, same session.
+    // 10. The route alone: one pane, no bar, strips, dividers or controls, same session.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
     await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
     await until("session shown", `${text(".agents-pane")}.includes("idle")`);
@@ -367,13 +430,15 @@ if (flow === "panes") {
         strips: document.querySelectorAll(".strip").length,
         handles: document.querySelectorAll(".handle").length,
         controls: document.querySelectorAll(".pane-controls").length,
+        bars: document.querySelectorAll(".activity-bar, .top-bar").length,
         panes: document.querySelectorAll(".pane").length,
     })`);
     console.log("pane route:", JSON.stringify(lone));
-    if (JSON.stringify(lone) !== JSON.stringify({ strips: 0, handles: 0, controls: 0, panes: 1 })) {
+    const expected = { strips: 0, handles: 0, controls: 0, bars: 0, panes: 1 };
+    if (JSON.stringify(lone) !== JSON.stringify(expected)) {
         throw new Error("the pane route rendered more than the one pane");
     }
-    await shot("42-pane-route");
+    await shot("46-pane-route");
     console.log("panes ok");
     socket.close();
     // This tab now sits on a `pane=` URL; the next run must not count it as a popped window.

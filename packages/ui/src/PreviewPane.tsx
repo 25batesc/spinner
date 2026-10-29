@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { preview_key, type ServiceView, type SessionView } from "@spinner/protocol";
 
-import { PaneHead } from "./PaneHead.tsx";
+import { IconButton, PaneHead, type IconButtonProps } from "./PaneHead.tsx";
 import { Preview, type PopOutRequest } from "./Preview.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
 import { Tabs } from "./Tabs.tsx";
@@ -12,12 +12,15 @@ export interface PreviewPaneProps {
     busy: boolean;
     run: RunAction;
     /**
-     * Hide and pop out; absent when the pane is rendered alone by the `?pane=` route. Pop out
+     * Header icons; absent when the pane is rendered alone by the `?pane=` route. Pop out
      * names the preview on show, so the desktop app can move that view to the new window.
      */
     controls?:
         | {
-              onHide: () => void;
+              /** Collapses the pane to the edge strip. */
+              onToggle: () => void;
+              expanded: boolean;
+              onExpand: (expanded: boolean) => void;
               onPopOut: (preview: PopOutRequest["preview"]) => void;
           }
         | undefined;
@@ -61,10 +64,23 @@ export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
         view !== undefined && service?.url != null && isLive(service)
             ? { key: preview_key(view.summary.dir, service.name), url: service.url }
             : undefined;
-    const head =
+    const head: IconButtonProps[] | undefined =
         controls === undefined
             ? undefined
-            : { onHide: controls.onHide, onPopOut: () => controls.onPopOut(shown) };
+            : [
+                  {
+                      icon: controls.expanded ? "shrink" : "expand",
+                      label: controls.expanded ? "Restore layout" : "Expand previews",
+                      active: controls.expanded,
+                      onClick: () => controls.onExpand(!controls.expanded),
+                  },
+                  {
+                      icon: "pop-out",
+                      label: "Pop out previews",
+                      onClick: () => controls.onPopOut(shown),
+                  },
+                  { icon: "panel-right", label: "Collapse previews", onClick: controls.onToggle },
+              ];
 
     return (
         <section className="pane preview-pane" aria-label="Previews">
@@ -74,8 +90,16 @@ export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
             {view !== undefined && service?.url != null && isLive(service) ? (
                 <>
                     <div className="preview-bar">
-                        <a href={service.url} target="_blank" rel="noreferrer">open in tab</a>
-                        <button onClick={() => setReloads(reloads + 1)}>reload</button>
+                        <IconButton
+                            icon="globe"
+                            label="Open in a tab"
+                            onClick={() => window.open(service.url ?? "", "_blank", "noreferrer")}
+                        />
+                        <IconButton
+                            icon="reload"
+                            label="Reload"
+                            onClick={() => setReloads(reloads + 1)}
+                        />
                     </div>
                     <Preview
                         key={service.url}

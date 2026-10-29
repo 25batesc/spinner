@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { ProjectView, SessionView } from "@spinner/protocol";
 
 import { fetchProjects } from "./events-client.ts";
-import { PaneHead, type PaneControls } from "./PaneHead.tsx";
+import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 
@@ -14,8 +14,8 @@ export interface SessionsPaneProps {
     selected: string | undefined;
     onSelect: (dir: string) => void;
     run: RunAction;
-    /** Hide and pop out; absent when the pane is rendered alone by the `?pane=` route. */
-    controls?: PaneControls | undefined;
+    /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
+    controls?: IconButtonProps[] | undefined;
 }
 
 function stackDot(view: SessionView): string {

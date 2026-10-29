@@ -15,11 +15,39 @@ html, body, #root { height: 100%; margin: 0; }
 .handle:hover, .handle:focus-visible { background: #8886; outline: none; }
 /* An iframe under the pointer would take the drag's events away from the captured divider. */
 .layout-dragging iframe { pointer-events: none; }
-.pane-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.layout-dragging, .handle { user-select: none; }
+.pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pane-head h2 { margin: 0; }
-.pane-controls { display: flex; gap: 2px; font-size: 12px; white-space: nowrap; }
-.pane-controls .link { margin-left: 4px; padding: 0 2px; }
-/* A collapsed, hidden or popped-out pane: a 24 px strip, the name turned sideways. */
+.pane-controls { display: flex; gap: 2px; }
+/* Chrome shows muted monochrome icons with tooltips; they brighten on hover. */
+.icon-button {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px;
+    background: transparent; color: inherit; opacity: 0.55; cursor: pointer;
+}
+.icon-button:hover, .icon-button:focus-visible { opacity: 1; background: #8883; outline: none; }
+.icon-button.icon-on { opacity: 0.9; }
+.icon { display: block; }
+/* The window: a top bar, then the activity bar beside the pane grid. */
+.shell { display: flex; flex-direction: column; height: 100%; }
+.shell-body { display: flex; flex: 1; min-height: 0; }
+.top-bar {
+    display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
+    border-bottom: 1px solid #8884;
+}
+.top-session { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.top-title { font-weight: 600; }
+.pr-badge { font-size: 11px; padding: 0 6px; border-radius: 8px; background: #8883; }
+.pr-badge-green { background: #2a43; color: #2a4; }
+.activity-bar {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; width: 40px;
+    padding: 6px 0; border-right: 1px solid #8884; flex: none;
+}
+.activity-bar .icon-button { width: 32px; height: 32px; }
+.activity-bar .icon-on { opacity: 1; box-shadow: inset 2px 0 0 #38f; }
+.activity-bar .bar-popped { color: #38f; opacity: 1; }
+.layout { flex: 1; min-width: 0; }
+/* A collapsed or popped-out pane: a 24 px strip, the name turned sideways. */
 .strip {
     width: 24px; padding: 8px 0; border: 1px solid #8884; background: #8881; color: inherit;
     cursor: pointer; writing-mode: vertical-rl; font: inherit; font-size: 12px;
@@ -73,7 +101,7 @@ html, body, #root { height: 100%; margin: 0; }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; }
 .drawer-log { margin: 4px 0 0; max-height: 160px; overflow: auto; font-size: 11px; }
 .verified { display: flex; align-items: center; gap: 4px; }
-.preview-bar { display: flex; gap: 8px; align-items: center; }
+.preview-bar { display: flex; gap: 2px; align-items: center; }
 .entry { list-style: none; margin: 2px 0; padding: 4px 6px; border-radius: 4px; overflow-wrap: anywhere; }
 .entry-user { background: #38f3; }
 .entry-assistant { background: #8882; white-space: pre-wrap; }

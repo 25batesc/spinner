@@ -4,7 +4,7 @@ import type { FeedLine } from "./state.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { ContextTab } from "./ContextTab.tsx";
 import { MissionPanel } from "./MissionPanel.tsx";
-import { PaneHead, type PaneControls } from "./PaneHead.tsx";
+import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
 import { PipelineActions } from "./PipelineActions.tsx";
 import type { Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
@@ -26,8 +26,8 @@ export interface AgentsPaneProps {
     revisions: Revisions;
     /** The job drawer, drawn above the prompt. */
     children?: ReactNode;
-    /** Hide and pop out; absent when the pane is rendered alone by the `?pane=` route. */
-    controls?: PaneControls | undefined;
+    /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
+    controls?: IconButtonProps[] | undefined;
 }
 
 function Actions(props: {

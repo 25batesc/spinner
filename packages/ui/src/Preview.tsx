@@ -13,6 +13,8 @@ import type {
     SpinnerDesktop,
 } from "@spinner/protocol";
 
+import { IconButton } from "./PaneHead.tsx";
+
 export interface PreviewProps {
     /** `<session dir>/<service name>` from `preview_key`: the desktop keeps one view per key. */
     previewKey: PreviewKey;
@@ -252,10 +254,16 @@ function BridgePreview({
     return (
         <>
             <div className="preview-bar">
-                <button onClick={() => void bridge.previews.openExternal(previewKey)}>
-                    open in browser
-                </button>
-                <button onClick={() => void bridge.previews.devtools(previewKey)}>devtools</button>
+                <IconButton
+                    icon="globe"
+                    label="Open in the browser"
+                    onClick={() => void bridge.previews.openExternal(previewKey)}
+                />
+                <IconButton
+                    icon="devtools"
+                    label="Developer tools"
+                    onClick={() => void bridge.previews.devtools(previewKey)}
+                />
             </div>
             <div ref={box} className="preview-frame preview-box" data-preview={previewKey} />
         </>

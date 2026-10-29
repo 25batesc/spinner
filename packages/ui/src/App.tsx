@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { AgentsPane } from "./AgentsPane.tsx";
 import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
-import { PaneStrip } from "./PaneHead.tsx";
+import { ActivityBar, PaneStrip, TopBar, type IconButtonProps } from "./PaneHead.tsx";
 import {
     popOutPane,
     resumePoppedOut,
@@ -120,6 +120,21 @@ export function App() {
         });
         // Once, on mount: the handles live in a ref and `setPopped` is stable.
     }, []);
+    // Escape leaves the expanded previews.
+    const expanded = layout.layout.expanded;
+    useEffect(() => {
+        if (!expanded) {
+            return;
+        }
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                layout.setExpanded(false);
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [expanded, layout.setExpanded]);
+
     const restore = (pane: PaneName) => {
         const handle = popped.current[pane];
         if (handle !== undefined) {
@@ -128,10 +143,23 @@ export function App() {
             layout.restore(pane);
         }
     };
-    const controls = (pane: PaneName) =>
-        route !== undefined
-            ? undefined
-            : { onHide: () => layout.hide(pane), onPopOut: () => popOut(pane) };
+    const popOutButton = (pane: PaneName): IconButtonProps => ({
+        icon: "pop-out",
+        label: `Pop out ${pane}`,
+        onClick: () => popOut(pane),
+    });
+    const inRoute = route !== undefined;
+    const sessionsState = layout.layout.panes.sessions;
+    const panelShown = !sessionsState.hidden && !sessionsState.popped;
+    const togglePanel = () => {
+        if (sessionsState.popped) {
+            restore("sessions");
+        } else if (sessionsState.hidden) {
+            layout.restore("sessions");
+        } else {
+            layout.fold("sessions");
+        }
+    };
 
     const sessionsPane = (
         <SessionsPane
@@ -139,7 +167,7 @@ export function App() {
             selected={selected}
             onSelect={setPicked}
             run={run}
-            controls={controls("sessions")}
+            controls={inRoute ? undefined : [popOutButton("sessions")]}
         />
     );
     const agentsPane = (
@@ -150,7 +178,7 @@ export function App() {
             transcripts={transcriptsFor(selected, state.transcripts)}
             feed={feed}
             revisions={revisionsOf(state, selected)}
-            controls={controls("agents")}
+            controls={inRoute ? undefined : [popOutButton("agents")]}
         >
             {drawer}
         </AgentsPane>
@@ -161,10 +189,12 @@ export function App() {
             busy={busy}
             run={run}
             controls={
-                route !== undefined
+                inRoute
                     ? undefined
                     : {
-                          onHide: () => layout.hide("previews"),
+                          onToggle: () => layout.fold("previews"),
+                          expanded,
+                          onExpand: layout.setExpanded,
                           onPopOut: (preview) => popOut("previews", preview),
                       }
             }
@@ -184,27 +214,49 @@ export function App() {
     }
 
     const slot = (pane: PaneName) =>
-        isStrip(layout.layout[pane]) ? (
+        isStrip(layout.layout.panes[pane]) ? (
             <PaneStrip
                 name={pane}
-                popped={layout.layout[pane].popped}
+                popped={layout.layout.panes[pane].popped}
                 onRestore={() => restore(pane)}
             />
         ) : (
             panes[pane]
         );
+    // One cell per visible pane, a divider between two neighbours.
+    const cells = layout.visible.flatMap((pane, index) => {
+        const before = layout.visible[index - 1];
+        const cell = <Fragment key={pane}>{slot(pane)}</Fragment>;
+        if (before === undefined) {
+            return [cell];
+        }
+        const props = layout.handle(before, pane);
+        return [<div key={`${before}|${pane}`} className="handle" {...props} />, cell];
+    });
+    const agentsOff = expanded || isStrip(layout.layout.panes.agents);
     return (
-        <div
-            className={layout.dragging ? "layout layout-dragging" : "layout"}
-            style={{ gridTemplateColumns: layout.columns }}
-        >
-            {slot("sessions")}
-            <div className="handle" {...layout.handle("sessions")} />
-            {slot("agents")}
-            <div className="handle" {...layout.handle("previews")} />
-            {slot("previews")}
-            {isStrip(layout.layout.agents) && <div className="drawer-row">{drawer}</div>}
-            {status}
+        <div className={expanded ? "shell shell-expanded" : "shell"}>
+            <TopBar
+                panelShown={panelShown}
+                onToggle={togglePanel}
+                title={view?.summary.session.title}
+                prs={view?.board?.prs ?? []}
+            />
+            <div className="shell-body">
+                <ActivityBar
+                    shown={panelShown ? "sessions" : undefined}
+                    popped={sessionsState.popped}
+                    onPick={togglePanel}
+                />
+                <div
+                    className={layout.dragging ? "layout layout-dragging" : "layout"}
+                    style={{ gridTemplateColumns: layout.columns }}
+                >
+                    {cells}
+                    {agentsOff && <div className="drawer-row">{drawer}</div>}
+                    {status}
+                </div>
+            </div>
         </div>
     );
 }

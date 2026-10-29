@@ -12,12 +12,11 @@ import {
 
 import {
     columns,
-    isStrip,
     LIMITS,
     loadLayout,
     reduceLayout,
     saveLayout,
-    STRIP_PX,
+    visiblePanes,
     type Layout,
     type LayoutAction,
     type PaneName,
@@ -39,15 +38,28 @@ export interface HandleProps {
 
 export interface PaneLayout {
     layout: Layout;
+    /** The panes with a column, left to right; a divider sits between two of them. */
+    visible: PaneName[];
     /** The `grid-template-columns` value for the current layout. */
     columns: string;
     /** True during a divider drag; the layout then ignores pointer events on the previews. */
     dragging: boolean;
-    /** Props for the divider beside a side pane. */
-    handle(pane: "sessions" | "previews"): HandleProps;
-    hide(pane: PaneName): void;
+    /** Props for the divider between two neighbouring visible panes. */
+    handle(left: PaneName, right: PaneName): HandleProps;
+    /** Folds the pane: the left panel hides, the previews become a strip, agents stay. */
+    fold(pane: PaneName): void;
     restore(pane: PaneName): void;
     setPopped(pane: PaneName, popped: boolean): void;
+    setExpanded(expanded: boolean): void;
+}
+
+/** The widths of the two panes beside a divider when the drag began. */
+interface Drag {
+    left: PaneName;
+    right: PaneName;
+    x: number;
+    leftStart: number;
+    rightStart: number;
 }
 
 function storageOrUndefined(): Storage | undefined {
@@ -58,11 +70,62 @@ function storageOrUndefined(): Storage | undefined {
     }
 }
 
+/** The rendered widths of the elements beside the divider, strips included. */
+function neighbourWidths(handle: HTMLElement): { left: number; right: number } {
+    const widthOf = (element: Element | null) =>
+        element === null ? 0 : element.getBoundingClientRect().width;
+    return {
+        left: widthOf(handle.previousElementSibling),
+        right: widthOf(handle.nextElementSibling),
+    };
+}
+
+/**
+ * One side of a divider after the pointer moved: a shown pane folds below its threshold and
+ * otherwise takes the width; a collapsed pane reopens once the pointer is back past the
+ * threshold. A popped-out strip is left alone; its window owns the pane.
+ */
+function moveSide(
+    layout: Layout,
+    pane: PaneName,
+    start: number,
+    next: number,
+): LayoutAction | null {
+    const state = layout.panes[pane];
+    const { min } = LIMITS[pane];
+    if (state.popped || state.hidden) {
+        return null;
+    }
+    if (state.collapsed) {
+        return next >= min ? { kind: "restore", pane, width: next } : null;
+    }
+    if (next < min) {
+        // The width at pointer down is what a restore brings back, not the last open width
+        // the pointer crossed on its way to the threshold.
+        return { kind: "collapse", pane, remember: start >= min ? start : undefined };
+    }
+    return { kind: "drag", pane, width: next };
+}
+
+/** The agents pane never folds: the drag stops where it reaches the agents minimum. */
+function stopAtAgents(current: Drag, dx: number): number {
+    const min = LIMITS.agents.min;
+    if (current.left === "agents") {
+        return Math.max(dx, min - current.leftStart);
+    }
+    if (current.right === "agents") {
+        return Math.min(dx, current.rightStart - min);
+    }
+    return dx;
+}
+
 export function useLayout(): PaneLayout {
     const [layout, dispatch] = useReducer(reduceLayout, undefined, () =>
         loadLayout(storageOrUndefined()),
     );
-    const drag = useRef<{ pane: PaneName; x: number; start: number } | null>(null);
+    const latest = useRef(layout);
+    latest.current = layout;
+    const drag = useRef<Drag | null>(null);
     const [dragging, setDragging] = useState(false);
 
     useEffect(() => {
@@ -71,48 +134,64 @@ export function useLayout(): PaneLayout {
 
     const act = useCallback((action: LayoutAction) => dispatch(action), []);
 
+    // Both sides move at once: the left grows by `dx`, the right shrinks by it. The free pane
+    // takes its width too, so a later restore of its neighbour leaves no jump.
+    const move = useCallback(
+        (current: Drag, moved: number) => {
+            const dx = stopAtAgents(current, moved);
+            const sides: [PaneName, number, number][] = [
+                [current.left, current.leftStart, current.leftStart + dx],
+                [current.right, current.rightStart, current.rightStart - dx],
+            ];
+            for (const [pane, start, next] of sides) {
+                const action = moveSide(latest.current, pane, start, next);
+                if (action !== null) {
+                    act(action);
+                }
+            }
+        },
+        [act],
+    );
+
     const handle = useCallback(
-        (pane: "sessions" | "previews"): HandleProps => {
-            // Dragging right widens the left pane and narrows the right one.
-            const direction = pane === "sessions" ? 1 : -1;
-            const state = layout[pane];
+        (left: PaneName, right: PaneName): HandleProps => {
+            const begin = (element: HTMLElement, x: number): Drag => {
+                const widths = neighbourWidths(element);
+                return { left, right, x, leftStart: widths.left, rightStart: widths.right };
+            };
+            const restoreBoth = () => {
+                for (const pane of [left, right]) {
+                    if (latest.current.panes[pane].collapsed) {
+                        act({ kind: "restore", pane });
+                    }
+                }
+            };
             return {
                 role: "separator",
                 tabIndex: 0,
-                "aria-label": `Resize ${pane}`,
+                "aria-label": `Resize ${left} and ${right}`,
                 onPointerDown: (event) => {
                     event.currentTarget.setPointerCapture(event.pointerId);
-                    const start = isStrip(state) ? STRIP_PX : state.width;
-                    drag.current = { pane, x: event.clientX, start };
+                    drag.current = begin(event.currentTarget, event.clientX);
                     setDragging(true);
                 },
                 onPointerMove: (event) => {
                     if (drag.current === null) {
                         return;
                     }
-                    const { start } = drag.current;
-                    const next = start + direction * (event.clientX - drag.current.x);
-                    if (next < LIMITS[pane].min) {
-                        // The width at pointer down is what a restore brings back, not the
-                        // last open width the pointer crossed on its way to the threshold.
-                        const remember = start >= LIMITS[pane].min ? start : undefined;
-                        act({ kind: "collapse", pane, remember });
-                    } else {
-                        act({ kind: "drag", pane, width: next });
-                    }
+                    move(drag.current, event.clientX - drag.current.x);
                 },
                 onPointerUp: () => {
                     drag.current = null;
                     setDragging(false);
                 },
-                onDoubleClick: () => act({ kind: "restore", pane }),
+                onDoubleClick: restoreBoth,
                 onKeyDown: (event) => {
                     if (event.key === "Enter") {
-                        act({ kind: "restore", pane });
+                        restoreBoth();
                     } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                         const sign = event.key === "ArrowRight" ? 1 : -1;
-                        const width = isStrip(state) ? STRIP_PX : state.width;
-                        act({ kind: "drag", pane, width: width + direction * sign * KEY_STEP_PX });
+                        move(begin(event.currentTarget, 0), sign * KEY_STEP_PX);
                     } else {
                         return;
                     }
@@ -120,19 +199,24 @@ export function useLayout(): PaneLayout {
                 },
             };
         },
-        [layout, act],
+        [act, move],
     );
 
     return {
         layout,
+        visible: visiblePanes(layout),
         columns: columns(layout),
         dragging,
         handle,
-        hide: useCallback((pane: PaneName) => act({ kind: "hide", pane }), [act]),
+        fold: useCallback(
+            (pane: PaneName) => act({ kind: "collapse", pane, remember: undefined }),
+            [act],
+        ),
         restore: useCallback((pane: PaneName) => act({ kind: "restore", pane }), [act]),
         setPopped: useCallback(
             (pane: PaneName, popped: boolean) => act({ kind: "popped", pane, popped }),
             [act],
         ),
+        setExpanded: useCallback((expanded: boolean) => act({ kind: "expand", expanded }), [act]),
     };
 }
