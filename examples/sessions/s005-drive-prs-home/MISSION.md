@@ -42,6 +42,8 @@ Finish M2. After this session, one feature of the operator's project goes `pr â†
 - (date) Cullen: the Slack API runs against a fixture (`packages/daemon/test/fixtures/slack/`) when `SLACK_USER_TOKEN` is unset; the real post is tested by the operator once the token exists. Posting without the operator's confirm is a bug.
 - (date) Cullen: one port, no polling in the UI, actions are jobs, the fixture server stays for UI tests, headless Chrome over the DevTools protocol for UI checks (s003 Contracts).
 - (date) Cullen: rules from s001 to s003 (protocol, *Lessons*): Log times from `date +%H:%M`; stage by path; the lockfile with its `package.json`; `inbox/` for agent-to-agent requests; `mktemp -d` scratch, reported, never deleted; one retry on a repo-side failure; never print `.npmrc`, `.env*`, `auth.json` or a file named with `token`, `key` or `secret`; no customer, employer, private repo or person in a tracked file.
+- (date) Cullen: a driver prompts an idle agent and steers a busy one; a steer to an agent with no run in flight never enters. The daemon finds `pi` through `SPINNER_PI`.
+- (date) Cullen: never `git stash` in the shared checkout; it catches the other agents' files.
 - (date) Cullen: binaries: `pi` 1.4.0 (`SPINNER_PI_BIN` or PATH; it lives under the Node version that installed it), `gh` logged in as the operator, Docker running. A throwaway GitHub repo for item 8 is named by the operator under Open questions.
 
 ## Open questions

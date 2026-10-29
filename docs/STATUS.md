@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-28, after session s003.
+Updated: 2026-10-29, after session s005.
 
 ## Summary
 
@@ -16,12 +16,12 @@ Updated: 2026-10-28, after session s003.
 |---|---|---|---|---|---|
 | M0 · Bootstrap | done | s001 | $5.80 | 17 min | 37 |
 | M1 · Board + stack runner | done, 2026-10-27 | s002 (5 rounds) | $77.68 | 161 min | 132 |
-| M2 · Agents drive PRs home | partial | s003 | $21.96 | 70 min | 162 |
+| M2 · Agents drive PRs home | done except the operator's real feature | s003, s005 | $75.53 | 170 min | 233 |
 | M3 · Web UI | partial | s003 | (in s003) | | |
 | M4 · Desktop | open | | | | |
 | M5 · Release | open | | | | |
 
-The repo holds 74 commits, 18 by the operator and 56 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `99fa2d7` with 162 tests.
+The repo holds 92 commits, 22 by the operator and 70 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `ae34881` with 233 tests.
 
 ## What exists
 
@@ -106,16 +106,24 @@ Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 mi
 2. Stack agent, round 3 of s002: findings 6 and 9, then two the operator's project sessions side by side. Exit: `web.s1.localhost` and `web.s2.localhost` both serve the app, logged in, with `api` 200 on each, and `tools/stack-proof.sh` passes with host processes included.
 3. Then the soak week before M2 (ROADMAP).
 
-## M2 · Agents that drive PRs home (partial)
+## M2 · Agents that drive PRs home (done except the operator's real feature)
 
 | Exit criterion or item | State | Evidence |
 |---|---|---|
-| `spinnerd` as a real daemon with the REST/WS API from `packages/protocol` | done | API v1 (`ea0600c`); every CLI action is a job with `job.*` events; `GET /sessions` returns `SessionView` with board facts and stack state; the poller and the notifier run in the daemon |
-| `PiRpcHarness`: spawn / resume / prompt / steer / abort per agent, event passthrough | done | `170586b`; a real pi 1.4.0 agent wrote a file in a worktree from a UI prompt, the daemon restarted, the transcript resumed by id ($0.004) |
-| Session `AGENTS.md` generated per session | done | regenerated with hostnames and paths at `new` and `up` |
-| Spinner pi extension (mission tools, out-of-area guard, reload) | open | s005 |
-| File watcher → steers; `inbox/` delivery | open | s005 |
-| `spinner pr / fix / post / approve / land / reset` | open | s005 |
+| `spinnerd` as a real daemon with the REST/WS API | done | API v1 (`ea0600c`); jobs with `job.*` events; the poller and the notifier in the daemon |
+| `PiRpcHarness` | done | `170586b`; resume by id after a daemon restart |
+| Spinner pi extension: mission in the prompt, 11 tools, out-of-area guard, reload | done | `ef3b632`; a real pi ran six tools in one turn serialized through the daemon; the guard blocked an edit outside the brief's globs until a Log line named it; `/spinner-reload` after a context edit |
+| File watcher → steers; `inbox/` delivery | done | `638a131`; a mission change reached a busy agent as a mid-turn steer, at most one per 30 s |
+| Session `AGENTS.md` generated | done | regenerated at `new` and `up` |
+| `spinner pr` | done, live | `spinner-sandbox#1` opened as the operator, body from the mission |
+| `spinner fix` and the thread tools | done, live | the fixer replied, fixed, pushed, resolved a human thread on GitHub |
+| `spinner post` | done, live | posted to the test channel as the operator after the confirm; a reply appeared in the facts on the next poll |
+| `spinner approve` | done, live | shows head, diff stat, open threads; GitHub refuses an author's own approval (recorded); asked again after any push |
+| `spinner land` | done, live without a queue | zero checks count as green; `merge_queue: none` merged by direct merge. The enqueue mutation with `expectedHeadOid` is tested on the fixture only; personal repositories cannot have a merge queue |
+| `spinner reset` | done, live | next round's branch from fresh base, facts cleared, round 1 archived |
+| One real feature of the operator's project through the loop | open | Plan 9 of s005; the operator's call |
+
+Record: engine $36.60 (claude-fable-5-1, 58 min), ext $15.23 (claude-fable-5-1, 32 min), ui $1.74 (claude-sonnet-5-5, 12 min). Operator relays 3, decisions 1, inbox messages 2. A throwaway public repository `spinner-sandbox` under the operator's account holds the live run; the Slack app is a user-token app named Spinner. Full record: [sessions/s005-MISSION.md](sessions/s005-MISSION.md).
 
 ## M3 · Web UI (partial)
 
@@ -124,15 +132,16 @@ Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 mi
 | Sessions and board pane, new-session form, activity feed | done | `945d444`; sorted by `needs_human`, stage badge, per-PR lines, project select, adopt form |
 | Agent tabs rendering the pi event stream, prompt / steer / abort, model picker | done | `45f3e86`, `241c8ed`; history on reload from `GET .../agents/:name/events` |
 | Preview pane: iframe tabs per hostname, grey until healthy, open-in-tab, reload, the verified tick | done | the sample stack from new to close in headless Chrome, screenshots in the session's `artifacts/` |
-| Mission panel, Context tab, `threads/` rendering, `create PR / fix / post / land` buttons | open | s005 and after |
+| Mission panel, Context tab, `threads/` rendering, `create PR / fix / post / land` buttons | done | s005 (`fd271f5`, `88df4dd`): editable Goal and Done when through the daemon, threads with reply, resolve and flag, confirm dialogs for `post` and `approve`, the context tab with editable files; verified on the real daemon with screenshots |
 | A feature goes from new session to merged PRs without a terminal; a new user follows the README on their own stack in under an hour | open | after M2 |
 
 Record: engine $19.40 (claude-fable-5-1, 38 min), ui $2.56 (claude-sonnet-5-5, 30 min in two runs). Operator relays 2, inbox messages 2, blocking decisions 0. The operator deferred the two-session run of his own stack from the UI; the stack side is proven in s002. Full record: [sessions/s003-MISSION.md](sessions/s003-MISSION.md).
 
 ### Next
 
-1. s005 (M2, the rest): the Spinner pi extension, inbox delivery and file-watcher steers, `spinner pr / fix / post / approve / land / reset`, and the UI's mission panel, threads and PR buttons. Decisions taken for it: Spinner posts to Slack as the operator (user token, read from the environment); after any push the operator's approval is asked again, never re-applied by Spinner.
-2. Open from M1: `examples/sample-stack` in CI; `up` under 15 s on a stack with host services; finding 21.
+1. Plan 9 of s005: one real feature of the operator's project through the UI, which also gives the merge-queue enqueue its live test. The operator's call.
+2. M3's last item: a new user follows the README on their own stack in under an hour. Needs `spinner daemon start|stop|status`, a launch-at-login item, and the README path. Then M4 (Electron) and M5 (release).
+3. Open from M1: `examples/sample-stack` in CI; `up` under 15 s on a stack with host services; finding 21.
 
 ## Budget
 
@@ -147,7 +156,8 @@ Estimates before the work were "days 1 to 3" for s001 and "weeks 2 to 3" for s00
 | s002 round 4 | stack | $12.36 | 16 min | 0 |
 | s002 round 5 | stack | $13.36 | 10 min | 0 |
 | s003 | engine, ui | $21.96 | 70 min | 2 |
-| Total | | $105.44 | 248 min | 11 |
+| s005 | engine, ext, ui | $53.57 | 102 min | 3 |
+| Total | | $159.01 | 350 min | 14 |
 
 Agent minutes are the model's own run time from the run records; wall clock with builds, installs and waits was about three times that. The operator's own time on 2026-10-27 was about 7 hours: reading logs the agents could not interpret (cloud auth keys, grants, the team's install commands), refreshing the local database, killing hung processes, and testing in the browser. That is the cost driver, not the agents.
 

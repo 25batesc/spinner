@@ -46,7 +46,7 @@ Local testing between branches without touching your main checkout.
 
 Exit: `examples/sample-stack` comes up in CI; two feature branches of your own project run side by side on one laptop, both logged in at once in two Chrome tabs (`admin.s1.localhost`, `admin.s2.localhost`), Temporal UI per session, `spinner up` under 15 s warm, `spinner close` leaves nothing behind (`docker ps`, `git worktree list`, `psql \l` all clean).
 
-## M2 · Agents that drive PRs home (partial since s003, 2026-10-28; see [STATUS.md](STATUS.md))
+## M2 · Agents that drive PRs home (done 2026-10-29 except the operator's real feature; see [STATUS.md](STATUS.md))
 
 Replace yourself as the message bus and as the person who relays review comments.
 
