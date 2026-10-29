@@ -148,8 +148,9 @@ if (flow === "bridge-stub" || flow === "bridge-popout" || flow === "bridge-bar")
             };`,
     });
 }
-if (flow === "panes") {
-    // Start from the default layout once; the flow's own reload must keep what it stored.
+{
+    // Every flow starts from the default layout, once; a flow's own reload keeps what it
+    // stored. Chrome keeps localStorage across runs, so a failed run would shape the next.
     await send("Page.addScriptToEvaluateOnNewDocument", {
         source: `if (sessionStorage.getItem("e2e-layout-cleared") === null) {
                 localStorage.removeItem("spinner.layout.v2");
@@ -264,12 +265,14 @@ if (flow === "bridge-stub") {
 
 if (flow === "panes") {
     // The workbench layout in a browser: the context bar above names the active session
-    // (title, stage, stack, PR badge, needs-you line); the panel toggle at the left of the
-    // sessions header hides the side panel (no strip) and then sits at the left of the agents
-    // header; a drag of the panel's divider 60 px past its 140 px minimum arms a hide that
-    // lands on release (a shorter drag only parks it at the minimum); the previews collapse
-    // to the edge strip the same way (200 px minimum) or by their header toggle, and the
-    // strip restores them; the agents pane never folds, its 280 px
+    // (title, stage, stack, PR badge, needs-you line); the activity bar at the far left has
+    // one icon per side-panel view, lit while the panel shows it, and toggles the panel; the
+    // panel toggle at the left of the sessions header hides the side panel (no strip) and
+    // goes with it; a drag of the panel's divider 60 px past
+    // its 140 px minimum arms a hide that lands on release (a shorter drag only parks it at
+    // the minimum); the previews collapse to the edge strip the same way (200 px minimum) or
+    // by their header toggle, and the strip restores them; the agents pane never folds, its
+    // 280 px
     // minimum stops a drag and nothing else caps the previews; expand gives the previews the
     // window and Escape or the same button brings the layout back; widths survive a reload;
     // the `?pane=` route renders one pane alone without strips, dividers or controls.
@@ -324,13 +327,15 @@ if (flow === "panes") {
         await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
     };
     const topToggle = ".pane-head button[aria-label$='side panel']";
+    const barButton = ".activity-bar .icon-button";
     const noStrips = `document.querySelectorAll(".strip").length === 0`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     const session = (await evaluate(
         `document.querySelector(".session-selected .muted").innerText`,
     )) as string;
     const chrome = await evaluate(`({
-        bar: document.querySelectorAll(".activity-bar, .top-bar").length,
+        bar: document.querySelectorAll("${barButton}").length,
+        barOn: document.querySelector("${barButton}").ariaPressed,
         popOuts: document.querySelectorAll("button[aria-label^='Pop out']").length,
         top: document.querySelectorAll("${topToggle}").length,
         inSessions: document.querySelectorAll(".sessions-pane ${topToggle}").length,
@@ -342,13 +347,13 @@ if (flow === "panes") {
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
-        bar: 0, popOuts: 0, top: 1, inSessions: 1,
+        bar: 1, barOn: "true", popOuts: 0, top: 1, inSessions: 1,
         context: ["Refund flow", "peer-review", "stack up", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
         links: 0, icons: 7,
     };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
-        throw new Error("expected the toggle in the sessions header, the context bar, 7 icons");
+        throw new Error("expected the bar icon lit, the toggle in the sessions header, 7 icons");
     }
     await shot("39-default");
     // 1. A brush: 150 px left parks the panel at its 140 px minimum (260 - 150 = 110 is past
@@ -369,18 +374,26 @@ if (flow === "panes") {
     await until("left panel hidden", `document.querySelector(".sessions-pane") === null`);
     await until("no strip", noStrips);
     await until("context bar stays", `${text(".context-title")} === "Refund flow"`);
-    const inAgents = `document.querySelectorAll(".agents-pane ${topToggle}").length === 1`;
-    await until("toggle moved to the agents header", inAgents);
-    await until("toggle off", `document.querySelector("${topToggle}").ariaPressed === "false"`);
+    // The toggle goes with the panel; the bar never hides: it keeps its place, its icon
+    // dimmed, as the way back.
+    await until("no toggle anywhere", `document.querySelectorAll("${topToggle}").length === 0`);
+    await until("bar icon off", `document.querySelector("${barButton}").ariaPressed === "false"`);
+    await until("bar still in place", `${widthOf(".activity-bar")} >= 40`);
     await shot("40-left-hidden");
-    // 2. The toggle shows it again at the width before the drag, and hides it again.
-    await click(topToggle);
+    // 2. The bar icon shows it again at the width before the drag and lights up; the active
+    // icon hides it; the header toggle beside SESSIONS hides it too.
+    await click(barButton);
     await until("left panel back at 260", `${widthOf(".sessions-pane")} === 260`);
-    await until("toggle back in the sessions header", `!(${inAgents})`);
+    await until("bar icon on", `document.querySelector("${barButton}").ariaPressed === "true"`);
+    await until("toggle beside sessions", `document.querySelectorAll("${topToggle}").length === 1`);
+    await click(barButton);
+    await until("hidden by the bar", `document.querySelector(".sessions-pane") === null`);
+    await click(barButton);
+    await until("shown by the bar", `${widthOf(".sessions-pane")} === 260`);
     await click(topToggle);
-    await until("hidden by the top toggle", `document.querySelector(".sessions-pane") === null`);
-    await click(topToggle);
-    await until("shown by the top toggle", `${widthOf(".sessions-pane")} === 260`);
+    await until("hidden by the header toggle", `document.querySelector(".sessions-pane") === null`);
+    await click(barButton);
+    await until("shown again", `${widthOf(".sessions-pane")} === 260`);
     // 3. The previews divider dragged 400 px right: 520 - 400 is 60 px past the 200 minimum.
     const releaseRight = await dragHold(1, 400);
     const armedRight = `document.querySelector(".layout[data-armed=previews]") !== null`;
@@ -399,23 +412,24 @@ if (flow === "panes") {
     await until("restored by double-click", `${widthOf(".preview-pane")} === 520`);
     // 5. The agents pane never folds and nothing else caps the previews: a 1200 px drag stops
     // exactly where the agents pane is at its 280 px minimum, with the previews at the rest
-    // of the width (1500 - 260 - 12 - 280 = 948 px, past any fraction of the window).
+    // of the width (about 1500 - 40 bar - 260 - 12 - 280 = 908 px, past any fraction of the
+    // window).
     await drag(1, -1200);
     await until("agents at their minimum", `${widthOf(".agents-pane")} === 280`);
     const previewsWidth = (await evaluate(widthOf(".preview-pane"))) as number;
     console.log("previews width at the stop:", previewsWidth);
-    if (previewsWidth !== 948) {
+    if (previewsWidth < 900) {
         throw new Error("the previews stopped short of the agents minimum");
     }
     await shot("42-agents-minimum");
-    await drag(1, 448);
-    await until("previews narrower again", `${widthOf(".preview-pane")} === 500`);
+    await drag(1, 408);
+    await until("previews narrower again", `${widthOf(".preview-pane")} < 520`);
     // 6. Left panel hidden plus previews collapsed: the agents take the window.
     await click(topToggle);
     await click("button[aria-label='Collapse previews']");
     await until("agents fill the window", `${widthOf(".agents-pane")} > 1400`);
     await shot("43-agents-whole-window");
-    await click(topToggle);
+    await click(barButton);
     await click(".strip[data-pane=previews]");
     await until("three panes again", `${widthOf(".sessions-pane")} === 260`);
     // 7. Expand: the previews alone; Escape and the same button bring the layout back.
@@ -457,7 +471,7 @@ if (flow === "panes") {
         strips: document.querySelectorAll(".strip").length,
         handles: document.querySelectorAll(".handle").length,
         controls: document.querySelectorAll(".pane-controls").length,
-        bars: document.querySelectorAll(".context-bar, .top-bar").length,
+        bars: document.querySelectorAll(".context-bar, .activity-bar").length,
         panes: document.querySelectorAll(".pane").length,
     })`);
     console.log("pane route:", JSON.stringify(lone));

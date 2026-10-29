@@ -4,7 +4,7 @@ import { AgentsPane } from "./AgentsPane.tsx";
 import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
-import { ContextBar, PaneStrip, type IconButtonProps } from "./PaneHead.tsx";
+import { ActivityBar, ContextBar, PaneStrip, type IconButtonProps } from "./PaneHead.tsx";
 import { resumePoppedOut, type PoppedOut } from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
@@ -142,8 +142,8 @@ export function App() {
             layout.fold("sessions");
         }
     };
-    // The toggle sits at the left of the sessions header; while the panel hides, at the left
-    // of the agents header, so it is always in reach.
+    // The toggle sits at the left of the sessions header; while the panel hides, the activity
+    // bar's sessions icon is the way back.
     const panelToggle: IconButtonProps = {
         icon: "panel-left",
         label: panelShown ? "Hide side panel" : "Show side panel",
@@ -170,7 +170,6 @@ export function App() {
             feed={feed}
             revisions={revisionsOf(state, selected)}
             controls={inRoute ? undefined : []}
-            leading={inRoute || panelShown ? undefined : panelToggle}
         >
             {drawer}
         </AgentsPane>
@@ -229,6 +228,11 @@ export function App() {
         <div className={expanded ? "shell shell-expanded" : "shell"}>
             <ContextBar view={view} />
             <div className="shell-body">
+                <ActivityBar
+                    shown={panelShown ? "sessions" : undefined}
+                    popped={sessionsState.popped}
+                    onPick={togglePanel}
+                />
                 <div
                     className={layout.dragging ? "layout layout-dragging" : "layout"}
                     style={{ gridTemplateColumns: layout.columns }}
