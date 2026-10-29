@@ -1,8 +1,8 @@
 // Drives the UI in headless Chrome over the DevTools protocol and saves a screenshot per step.
 // Usage: node e2e/drive.ts <ui url> <screenshot dir> [flow]. Chrome must already listen on
-// port 9333 (`--remote-debugging-port=9333`) or on `E2E_CDP_PORT`. The flow `lifecycle` runs: new session, up,
-// previews, verify, close. The flow `agents` prompts the first running agent of the first
-// session with a pi agent. It works against the fixture server or the real daemon.
+// port 9333 (`--remote-debugging-port=9333`) or on `E2E_CDP_PORT`. The flow `lifecycle` runs:
+// new session, up, previews, verify, close. The flow `agents` prompts the first running agent
+// of the first session with a pi agent. It works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
