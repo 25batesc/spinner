@@ -4,9 +4,9 @@
 // binds it.
 //
 // The left panel (its view today: sessions) is shown or hidden: the activity bar toggles it,
-// and a drag of its divider past the threshold hides it; no strip stays. The agents pane is the
+// and a drag of its divider well past its minimum hides it; no strip stays. The agents pane is the
 // work area: never hidden, never a strip; its minimum stops a drag. The previews pane collapses
-// to a 24 px strip at the right edge, by a drag past its threshold or by its toggle icon; a
+// to a 24 px strip at the right edge, by a drag well past its minimum or by its toggle icon; a
 // click on the strip restores it. A popped-out pane (the desktop's tray can still open one) is
 // a strip too, so one click docks it back.
 // `expanded` gives the previews the whole window; the panes keep their state for the return.
@@ -36,18 +36,24 @@ export interface Layout {
     expanded: boolean;
 }
 
-/** Below `min` a drag folds the pane; above it the width is clamped to `max`. */
+/** A drag clamps the width between `min` and `max`; `SNAP_PX` past `min` arms the fold. */
 export interface PaneLimits {
     min: number;
     max: number;
 }
 
 export const LIMITS: Record<PaneName, PaneLimits> = {
-    sessions: { min: 180, max: 480 },
+    sessions: { min: 140, max: 480 },
     agents: { min: 280, max: Infinity },
     // No cap of its own: the previews grow until the agents pane is at its minimum.
-    previews: { min: 240, max: Infinity },
+    previews: { min: 200, max: Infinity },
 };
+
+/**
+ * A drag folds a pane only when the pointer overshoots its minimum by this much: the pane
+ * stays at the minimum while the pointer is near it, so a hide is a deliberate snap.
+ */
+export const SNAP_PX = 60;
 
 /** What a drag past the threshold, or the header's toggle, does to each pane. */
 const FOLD: Record<PaneName, "hidden" | "strip" | "never"> = {
@@ -66,7 +72,7 @@ export const DEFAULT_LAYOUT: Layout = {
 };
 
 export type LayoutAction =
-    /** A width from a drag: below the threshold folds, above it clamps to `max`. */
+    /** A width from a drag, clamped between the limits. A drag never folds by itself. */
     | { kind: "drag"; pane: PaneName; width: number }
     /**
      * Below the threshold, or the header's toggle: the pane folds as `FOLD` says. `remember`
@@ -104,10 +110,6 @@ export function reduceLayout(layout: Layout, action: LayoutAction): Layout {
     const pane = layout.panes[action.pane];
     switch (action.kind) {
         case "drag": {
-            if (action.width < LIMITS[action.pane].min) {
-                const collapse = { kind: "collapse", pane: action.pane, remember: undefined };
-                return reduceLayout(layout, collapse as LayoutAction);
-            }
             const width = clampWidth(action.pane, action.width);
             return withPane(layout, action.pane, { ...pane, width, collapsed: false });
         }

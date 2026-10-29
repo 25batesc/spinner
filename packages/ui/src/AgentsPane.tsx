@@ -28,6 +28,8 @@ export interface AgentsPaneProps {
     children?: ReactNode;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?: IconButtonProps[] | undefined;
+    /** The side-panel toggle, at the left of the title. */
+    leading?: IconButtonProps | undefined;
 }
 
 function Actions(props: {
@@ -56,7 +58,7 @@ function agentBase(dir: string, agent: string): string {
 const VIEWS = ["agents", "mission", "threads"];
 
 export function AgentsPane(props: AgentsPaneProps) {
-    const { view, busy, run, transcripts, feed, revisions, children, controls } = props;
+    const { view, busy, run, transcripts, feed, revisions, children, controls, leading } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const [shown, setShown] = useState("agents");
     const [agentTab, setAgentTab] = useState("chat");
@@ -67,7 +69,7 @@ export function AgentsPane(props: AgentsPaneProps) {
 
     return (
         <section className="pane agents-pane" aria-label="Agents">
-            <PaneHead name="agents" controls={controls} />
+            <PaneHead name="agents" controls={controls} leading={leading} />
             <div className="agents-top">
                 <div className="chat">
                     <Tabs labels={VIEWS} selected={shown} onSelect={setShown} />

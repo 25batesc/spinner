@@ -263,10 +263,13 @@ if (flow === "bridge-stub") {
 }
 
 if (flow === "panes") {
-    // The workbench layout in a browser: the top-left toggle shows and hides the side panel
-    // (no strip; the top bar then names the session with its PR badge), a drag of its divider
-    // past the threshold hides it too; the previews collapse to the edge strip by drag or by
-    // their header toggle and the strip restores them; the agents pane never folds, its 280 px
+    // The workbench layout in a browser: the context bar above names the active session
+    // (title, stage, stack, PR badge, needs-you line); the panel toggle at the left of the
+    // sessions header hides the side panel (no strip) and then sits at the left of the agents
+    // header; a drag of the panel's divider 60 px past its 140 px minimum arms a hide that
+    // lands on release (a shorter drag only parks it at the minimum); the previews collapse
+    // to the edge strip the same way (200 px minimum) or by their header toggle, and the
+    // strip restores them; the agents pane never folds, its 280 px
     // minimum stops a drag and nothing else caps the previews; expand gives the previews the
     // window and Escape or the same button brings the layout back; widths survive a reload;
     // the `?pane=` route renders one pane alone without strips, dividers or controls.
@@ -292,6 +295,19 @@ if (flow === "panes") {
         }
         await mouse("mouseReleased", at.x + dx, 1);
     };
+    // A drag held before release, so the armed state can be checked mid-drag.
+    const dragHold = async (index: number, dx: number) => {
+        const at = await handleAt(index);
+        const mouse = (type: string, x: number, clickCount = 0) =>
+            send("Input.dispatchMouseEvent", {
+                type, x, y: at.y, button: "left", buttons: 1, clickCount,
+            });
+        await mouse("mousePressed", at.x, 1);
+        for (let step = 1; step <= 5; step += 1) {
+            await mouse("mouseMoved", at.x + (dx * step) / 5);
+        }
+        return () => mouse("mouseReleased", at.x + dx, 1);
+    };
     const doubleClick = async (index: number) => {
         const at = await handleAt(index);
         for (const type of ["mousePressed", "mouseReleased"]) {
@@ -307,45 +323,70 @@ if (flow === "panes") {
         await until("reloaded", `window.__stale === undefined`);
         await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
     };
-    const topToggle = ".top-bar .icon-button";
+    const topToggle = ".pane-head button[aria-label$='side panel']";
     const noStrips = `document.querySelectorAll(".strip").length === 0`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     const session = (await evaluate(
         `document.querySelector(".session-selected .muted").innerText`,
     )) as string;
     const chrome = await evaluate(`({
-        bar: document.querySelectorAll(".activity-bar").length,
+        bar: document.querySelectorAll(".activity-bar, .top-bar").length,
         popOuts: document.querySelectorAll("button[aria-label^='Pop out']").length,
         top: document.querySelectorAll("${topToggle}").length,
+        inSessions: document.querySelectorAll(".sessions-pane ${topToggle}").length,
+        context: document.querySelector(".context-bar").innerText,
         links: document.querySelectorAll(".pane-head a, .pane-head .link, .browser-bar a")
             .length,
         icons: document.querySelectorAll(".pane-head .icon-button, .browser-bar .icon-button")
             .length,
     })`);
     console.log("chrome:", JSON.stringify(chrome));
-    const wanted = { bar: 0, popOuts: 0, top: 1, links: 0, icons: 6 };
+    const wanted = {
+        bar: 0, popOuts: 0, top: 1, inSessions: 1,
+        context: ["Refund flow", "peer-review", "stack up", "⑂ 2",
+            "Approve the refund copy in PR #412"].join("\n"),
+        links: 0, icons: 7,
+    };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
-        throw new Error("expected no bar, no pop-out, one top toggle, 6 chrome icons, no links");
+        throw new Error("expected the toggle in the sessions header, the context bar, 7 icons");
     }
     await shot("39-default");
-    // 1. The left divider dragged 200 px left: 260 - 200 is below the 180 threshold; no strip.
-    await drag(0, -200);
+    // 1. A brush: 150 px left parks the panel at its 140 px minimum (260 - 150 = 110 is past
+    // the minimum but short of the 60 px snap margin); nothing hides. Then a deliberate pull:
+    // 200 px left (next 60 < 140 - 60) arms the hide, the panel fades, and release hides it.
+    await drag(0, -150);
+    await until("parked at the minimum", `${widthOf(".sessions-pane")} === 140`);
+    await until("not armed", `document.querySelector(".layout[data-armed]") === null`);
+    await drag(0, 120);
+    await until("back to 260", `${widthOf(".sessions-pane")} === 260`);
+    const releaseLeft = await dragHold(0, -200);
+    await until("armed", `document.querySelector(".layout[data-armed=sessions]") !== null`);
+    await until("still at the minimum", `${widthOf(".sessions-pane")} === 140`);
+    const faded = `getComputedStyle(document.querySelector(".sessions-pane")).opacity`;
+    await until("panel faded", `${faded} === "0.35"`);
+    await shot("39b-left-armed");
+    await releaseLeft();
     await until("left panel hidden", `document.querySelector(".sessions-pane") === null`);
     await until("no strip", noStrips);
-    await until("top bar names the session", `${text(".top-title")} === "Refund flow"`);
-    await until("pr badge", `${text(".pr-badge")}.includes("2")`);
+    await until("context bar stays", `${text(".context-title")} === "Refund flow"`);
+    const inAgents = `document.querySelectorAll(".agents-pane ${topToggle}").length === 1`;
+    await until("toggle moved to the agents header", inAgents);
     await until("toggle off", `document.querySelector("${topToggle}").ariaPressed === "false"`);
     await shot("40-left-hidden");
     // 2. The toggle shows it again at the width before the drag, and hides it again.
     await click(topToggle);
     await until("left panel back at 260", `${widthOf(".sessions-pane")} === 260`);
-    await until("title gone", `document.querySelector(".top-title") === null`);
+    await until("toggle back in the sessions header", `!(${inAgents})`);
     await click(topToggle);
     await until("hidden by the top toggle", `document.querySelector(".sessions-pane") === null`);
     await click(topToggle);
     await until("shown by the top toggle", `${widthOf(".sessions-pane")} === 260`);
-    // 3. The previews divider dragged 400 px right: 520 - 400 is below the 240 threshold.
-    await drag(1, 400);
+    // 3. The previews divider dragged 400 px right: 520 - 400 is 60 px past the 200 minimum.
+    const releaseRight = await dragHold(1, 400);
+    const armedRight = `document.querySelector(".layout[data-armed=previews]") !== null`;
+    await until("previews armed", armedRight);
+    await until("previews at the minimum", `${widthOf(".preview-pane")} === 200`);
+    await releaseRight();
     await until("previews strip", `${strip("previews")} !== null`);
     await until("strip is 24 px", `${widthOf(".strip[data-pane=previews]")} === 24`);
     await shot("41-previews-strip");
@@ -416,7 +457,7 @@ if (flow === "panes") {
         strips: document.querySelectorAll(".strip").length,
         handles: document.querySelectorAll(".handle").length,
         controls: document.querySelectorAll(".pane-controls").length,
-        bars: document.querySelectorAll(".activity-bar, .top-bar").length,
+        bars: document.querySelectorAll(".context-bar, .top-bar").length,
         panes: document.querySelectorAll(".pane").length,
     })`);
     console.log("pane route:", JSON.stringify(lone));

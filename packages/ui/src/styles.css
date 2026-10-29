@@ -16,6 +16,12 @@ html, body, #root { height: 100%; margin: 0; }
 /* An iframe under the pointer would take the drag's events away from the captured divider. */
 .layout-dragging iframe { pointer-events: none; }
 .layout-dragging, .handle { user-select: none; }
+/* A drag pulled past the minimum by the snap margin: the pane fades, the divider lights up,
+   and the pane folds on release. */
+.layout[data-armed="sessions"] .sessions-pane, .layout[data-armed="previews"] .preview-pane {
+    opacity: 0.35; transition: opacity 0.15s;
+}
+.layout[data-armed] .handle:active { background: #38f; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pane-head h2 { margin: 0; }
 .pane-controls { display: flex; gap: 2px; }
@@ -31,12 +37,16 @@ html, body, #root { height: 100%; margin: 0; }
 /* The window: a top bar above the pane grid. */
 .shell { display: flex; flex-direction: column; height: 100%; }
 .shell-body { display: flex; flex: 1; min-height: 0; }
-.top-bar {
-    display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
-    border-bottom: 1px solid #8884;
+.pane-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
+/* The context bar: the active session on one line, the title truncated first. */
+.context-bar {
+    display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px;
+    font-size: 13px; border-bottom: 1px solid #8884; white-space: nowrap; min-width: 0;
 }
-.top-session { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.top-title { font-weight: 600; }
+.context-title {
+    font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;
+}
+.context-bar .needs-human { overflow: hidden; text-overflow: ellipsis; }
 .pr-badge { font-size: 11px; padding: 0 6px; border-radius: 8px; background: #8883; }
 .pr-badge-green { background: #2a43; color: #2a4; }
 .layout { flex: 1; min-width: 0; }

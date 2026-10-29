@@ -16,6 +16,8 @@ export interface SessionsPaneProps {
     run: RunAction;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?: IconButtonProps[] | undefined;
+    /** The side-panel toggle, at the left of the title. */
+    leading?: IconButtonProps | undefined;
 }
 
 function stackDot(view: SessionView): string {
@@ -110,11 +112,11 @@ function Adopt({ projects, run }: { projects: ProjectView[]; run: RunAction }) {
 }
 
 export function SessionsPane(props: SessionsPaneProps) {
-    const { sessions, selected, onSelect, run, controls } = props;
+    const { sessions, selected, onSelect, run, controls, leading } = props;
     const projects = useProjects();
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
-            <PaneHead name="sessions" controls={controls} />
+            <PaneHead name="sessions" controls={controls} leading={leading} />
             <ul className="session-list">
                 {sessions.map(([dir, view]) => {
                     const needs = needsHuman(view);

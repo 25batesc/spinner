@@ -1,8 +1,8 @@
-// The pane geometry rules: a drag below the threshold folds the pane the way its kind says
-// (the left panel hides, the previews become a strip, agents never fold), restore brings the
-// remembered width back, the free column moves to the open pane, expand shows the previews
-// alone, and the layout survives a round trip through storage while bad or partial records
-// fall back to the defaults.
+// The pane geometry rules: a drag clamps at the minimum and `collapse` folds the pane the way
+// its kind says (the left panel hides, the previews become a strip, agents never fold),
+// restore brings the remembered width back, the free column moves to the open pane, expand
+// shows the previews alone, and the layout survives a round trip through storage while bad
+// or partial records fall back to the defaults.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -32,20 +32,19 @@ const fold = (layout: Layout, pane: "sessions" | "agents" | "previews", remember
     reduceLayout(layout, { kind: "collapse", pane, remember });
 
 describe("reduceLayout", () => {
-    it("clamps a drag between the threshold and the maximum", () => {
+    it("clamps a drag between the minimum and the maximum and never folds by itself", () => {
         const wide = reduceLayout(DEFAULT_LAYOUT, { kind: "drag", pane: "sessions", width: 999 });
         expect(wide.panes.sessions.width).toBe(480);
-        const narrow = reduceLayout(DEFAULT_LAYOUT, {
-            kind: "drag", pane: "sessions", width: 180.4,
-        });
-        expect(narrow.panes.sessions.width).toBe(180);
-        expect(narrow.panes.sessions.hidden).toBe(false);
+        const narrow = reduceLayout(DEFAULT_LAYOUT, { kind: "drag", pane: "sessions", width: 60 });
+        expect(narrow.panes.sessions).toMatchObject({ width: 140, hidden: false });
+        const right = reduceLayout(DEFAULT_LAYOUT, { kind: "drag", pane: "previews", width: 10 });
+        expect(right.panes.previews).toMatchObject({ width: 200, collapsed: false });
     });
 
     it("folds each pane its own way: the left panel hides, previews strip, agents stay", () => {
-        const left = reduceLayout(DEFAULT_LAYOUT, { kind: "drag", pane: "sessions", width: 100 });
+        const left = fold(DEFAULT_LAYOUT, "sessions", 260);
         expect(left.panes.sessions).toMatchObject({ hidden: true, collapsed: false, width: 260 });
-        const right = reduceLayout(DEFAULT_LAYOUT, { kind: "drag", pane: "previews", width: 100 });
+        const right = fold(DEFAULT_LAYOUT, "previews", 520);
         expect(right.panes.previews).toMatchObject({ collapsed: true, hidden: false, width: 520 });
         expect(fold(DEFAULT_LAYOUT, "agents")).toEqual(DEFAULT_LAYOUT);
     });

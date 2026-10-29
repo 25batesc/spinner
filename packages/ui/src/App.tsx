@@ -4,7 +4,7 @@ import { AgentsPane } from "./AgentsPane.tsx";
 import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
-import { PaneStrip, TopBar } from "./PaneHead.tsx";
+import { ContextBar, PaneStrip, type IconButtonProps } from "./PaneHead.tsx";
 import { resumePoppedOut, type PoppedOut } from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
@@ -142,6 +142,14 @@ export function App() {
             layout.fold("sessions");
         }
     };
+    // The toggle sits at the left of the sessions header; while the panel hides, at the left
+    // of the agents header, so it is always in reach.
+    const panelToggle: IconButtonProps = {
+        icon: "panel-left",
+        label: panelShown ? "Hide side panel" : "Show side panel",
+        active: panelShown,
+        onClick: togglePanel,
+    };
 
     const sessionsPane = (
         <SessionsPane
@@ -150,6 +158,7 @@ export function App() {
             onSelect={setPicked}
             run={run}
             controls={inRoute ? undefined : []}
+            leading={inRoute ? undefined : panelToggle}
         />
     );
     const agentsPane = (
@@ -161,6 +170,7 @@ export function App() {
             feed={feed}
             revisions={revisionsOf(state, selected)}
             controls={inRoute ? undefined : []}
+            leading={inRoute || panelShown ? undefined : panelToggle}
         >
             {drawer}
         </AgentsPane>
@@ -217,16 +227,12 @@ export function App() {
     const agentsOff = expanded || isStrip(layout.layout.panes.agents);
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
-            <TopBar
-                panelShown={panelShown}
-                onToggle={togglePanel}
-                title={view?.summary.session.title}
-                prs={view?.board?.prs ?? []}
-            />
+            <ContextBar view={view} />
             <div className="shell-body">
                 <div
                     className={layout.dragging ? "layout layout-dragging" : "layout"}
                     style={{ gridTemplateColumns: layout.columns }}
+                    data-armed={layout.armed ?? undefined}
                 >
                     {cells}
                     {agentsOff && <div className="drawer-row">{drawer}</div>}

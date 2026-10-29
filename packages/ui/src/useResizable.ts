@@ -13,6 +13,7 @@ import {
 import {
     columns,
     LIMITS,
+    SNAP_PX,
     loadLayout,
     reduceLayout,
     saveLayout,
@@ -44,6 +45,8 @@ export interface PaneLayout {
     columns: string;
     /** True during a divider drag; the layout then ignores pointer events on the previews. */
     dragging: boolean;
+    /** The pane a drag has pulled past its minimum by `SNAP_PX`: it folds on release. */
+    armed: PaneName | null;
     /** Props for the divider between two neighbouring visible panes. */
     handle(left: PaneName, right: PaneName): HandleProps;
     /** Folds the pane: the left panel hides, the previews become a strip, agents stay. */
@@ -81,16 +84,11 @@ function neighbourWidths(handle: HTMLElement): { left: number; right: number } {
 }
 
 /**
- * One side of a divider after the pointer moved: a shown pane folds below its threshold and
- * otherwise takes the width; a collapsed pane reopens once the pointer is back past the
- * threshold. A popped-out strip is left alone; its window owns the pane.
+ * One side of a divider after the pointer moved: a shown pane takes the width, clamped at its
+ * minimum; a collapsed pane reopens once the pointer is back past the minimum. A popped-out
+ * strip is left alone; its window owns the pane. The fold itself waits for the release.
  */
-function moveSide(
-    layout: Layout,
-    pane: PaneName,
-    start: number,
-    next: number,
-): LayoutAction | null {
+function moveSide(layout: Layout, pane: PaneName, next: number): LayoutAction | null {
     const state = layout.panes[pane];
     const { min } = LIMITS[pane];
     if (state.popped || state.hidden) {
@@ -99,12 +97,13 @@ function moveSide(
     if (state.collapsed) {
         return next >= min ? { kind: "restore", pane, width: next } : null;
     }
-    if (next < min) {
-        // The width at pointer down is what a restore brings back, not the last open width
-        // the pointer crossed on its way to the threshold.
-        return { kind: "collapse", pane, remember: start >= min ? start : undefined };
-    }
     return { kind: "drag", pane, width: next };
+}
+
+/** True when the pointer pulled an open pane `SNAP_PX` past its minimum. */
+function overshoots(layout: Layout, pane: PaneName, next: number): boolean {
+    const state = layout.panes[pane];
+    return !state.hidden && !state.popped && !state.collapsed && next < LIMITS[pane].min - SNAP_PX;
 }
 
 /** The agents pane never folds: the drag stops where it reaches the agents minimum. */
@@ -127,6 +126,7 @@ export function useLayout(): PaneLayout {
     latest.current = layout;
     const drag = useRef<Drag | null>(null);
     const [dragging, setDragging] = useState(false);
+    const [armed, setArmed] = useState<PaneName | null>(null);
 
     useEffect(() => {
         saveLayout(storageOrUndefined(), layout);
@@ -143,15 +143,33 @@ export function useLayout(): PaneLayout {
                 [current.left, current.leftStart, current.leftStart + dx],
                 [current.right, current.rightStart, current.rightStart - dx],
             ];
-            for (const [pane, start, next] of sides) {
-                const action = moveSide(latest.current, pane, start, next);
+            let pulled: PaneName | null = null;
+            for (const [pane, , next] of sides) {
+                const action = moveSide(latest.current, pane, next);
                 if (action !== null) {
                     act(action);
                 }
+                if (overshoots(latest.current, pane, next)) {
+                    pulled = pane;
+                }
             }
+            setArmed(pulled);
         },
         [act],
     );
+    // The fold on release: the width at pointer down is what a restore brings back, not the
+    // minimum the pane sat at while the pointer was past it.
+    const release = useCallback(() => {
+        const current = drag.current;
+        if (current !== null && armed !== null) {
+            const start = armed === current.left ? current.leftStart : current.rightStart;
+            const remember = start >= LIMITS[armed].min ? start : undefined;
+            act({ kind: "collapse", pane: armed, remember });
+        }
+        drag.current = null;
+        setDragging(false);
+        setArmed(null);
+    }, [act, armed]);
 
     const handle = useCallback(
         (left: PaneName, right: PaneName): HandleProps => {
@@ -181,10 +199,7 @@ export function useLayout(): PaneLayout {
                     }
                     move(drag.current, event.clientX - drag.current.x);
                 },
-                onPointerUp: () => {
-                    drag.current = null;
-                    setDragging(false);
-                },
+                onPointerUp: release,
                 onDoubleClick: restoreBoth,
                 onKeyDown: (event) => {
                     if (event.key === "Enter") {
@@ -199,7 +214,7 @@ export function useLayout(): PaneLayout {
                 },
             };
         },
-        [act, move],
+        [act, move, release],
     );
 
     return {
@@ -207,6 +222,7 @@ export function useLayout(): PaneLayout {
         visible: visiblePanes(layout),
         columns: columns(layout),
         dragging,
+        armed,
         handle,
         fold: useCallback(
             (pane: PaneName) => act({ kind: "collapse", pane, remember: undefined }),

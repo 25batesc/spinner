@@ -1,9 +1,10 @@
 // The chrome around the panes: the icon set (inline SVG, no dependency), the icon button, a
-// pane header, the strip of a collapsed or popped-out pane and the top bar with the side-panel
-// toggle. Chrome shows icons with tooltips, never link text.
-import type { PrFacts } from "@spinner/protocol";
+// pane header, the strip of a collapsed or popped-out pane and the context bar that names the
+// active session. Chrome shows icons with tooltips, never link text.
+import type { PrFacts, SessionView } from "@spinner/protocol";
 
 import type { PaneName } from "./layout.ts";
+import { needsHuman, stageOf } from "./state.ts";
 
 export type IconName =
     | "sessions"
@@ -88,12 +89,17 @@ export interface PaneHeadProps {
     name: PaneName;
     /** The icon buttons at the right; none when the `?pane=` route renders the pane alone. */
     controls: IconButtonProps[] | undefined;
+    /** An icon button at the left of the title, for example the side-panel toggle. */
+    leading?: IconButtonProps | undefined;
 }
 
-export function PaneHead({ name, controls }: PaneHeadProps) {
+export function PaneHead({ name, controls, leading }: PaneHeadProps) {
     return (
         <header className="pane-head">
-            <h2>{name}</h2>
+            <span className="pane-title">
+                {leading !== undefined && <IconButton {...leading} />}
+                <h2>{name}</h2>
+            </span>
             {controls !== undefined && controls.length > 0 && (
                 <span className="pane-controls">
                     {controls.map((control) => (
@@ -156,31 +162,25 @@ export function PrBadge({ prs }: { prs: PrFacts[] }) {
     );
 }
 
-export interface TopBarProps {
-    /** True while the left panel is shown. */
-    panelShown: boolean;
-    onToggle: () => void;
-    /** The session the main area shows; named here while the panel is hidden. */
-    title: string | undefined;
-    prs: PrFacts[];
-}
-
-/** The top-left of the window: the quick panel toggle, then the session while the panel hides. */
-export function TopBar({ panelShown, onToggle, title, prs }: TopBarProps) {
+/**
+ * The bar above the panes, always visible: the active session's title, stage, stack, PR count
+ * and `needs you` line, from `SessionView` alone. One line, the title truncated; no controls.
+ */
+export function ContextBar({ view }: { view: SessionView | undefined }) {
+    if (view === undefined) {
+        return <div className="context-bar muted">No session selected.</div>;
+    }
+    const needs = needsHuman(view);
     return (
-        <div className="top-bar">
-            <IconButton
-                icon="panel-left"
-                label={panelShown ? "Hide side panel" : "Show side panel"}
-                active={panelShown}
-                onClick={onToggle}
-            />
-            {!panelShown && title !== undefined && (
-                <span className="top-session">
-                    <span className="top-title">{title}</span>
-                    <PrBadge prs={prs} />
-                </span>
-            )}
+        <div className="context-bar" aria-label="Session">
+            <span className="context-title" title={view.summary.session.title}>
+                {view.summary.session.title}
+            </span>
+            <span className="badge">{stageOf(view)}</span>
+            <span className={`dot dot-${view.stack.state}`} />
+            <span className="muted">stack {view.stack.state}</span>
+            <PrBadge prs={view.board?.prs ?? []} />
+            {needs !== null && <span className="needs-human">{needs}</span>}
         </div>
     );
 }
