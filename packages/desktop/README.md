@@ -15,7 +15,20 @@ pnpm desktop:build     # also package packages/desktop/dist-app/Spinner-darwin-<
 
 Environment: `SPINNER_PORT` picks the daemon port, `SPINNER_REPO` the checkout the app
 starts a daemon from (default: this checkout, baked into the `.app` at package time),
-`SPINNER_DESKTOP_DEBUG=1` logs every bridge call and the bounds applied to each view.
+`SPINNER_DESKTOP_DEBUG=1` logs every bridge call and the bounds applied to each view,
+`SPINNER_DESKTOP_WINDOW=WxH+X+Y` places the main window (a test app beside a real one).
+
+## Pop-out windows
+
+A preview pops out into its own window: the window adopts the preview's `WebContentsView`,
+so the page does not reload and its login stays. The window opens 40 px right and down
+from the main window at the pane's size (at least 480x360) and follows a resize. Dock back
+(a bridge call or the window's close button) puts the view back in the main window, hidden
+until the pane's next `set`, and sends `pane.docked` to the renderer. The sessions and
+agents panes pop out as a `BrowserWindow` on the UI's `?pane=<pane>&session=<dir>` route,
+with the bridge preloaded so the page can dock itself back. One window per preview key or
+`(pane, session)`; a second pop-out focuses it. The tray menu lists the popped-out windows.
+A session's windows close with it.
 
 ## How it fits
 
@@ -23,14 +36,18 @@ starts a daemon from (default: this checkout, baked into the `.app` at package t
 |---|---|
 | `src/main.ts` | The main process: window, IPC, daemon link, events socket, tray. |
 | `src/previews.ts` | Pure registry: one view per `<session dir>/<service>`, shown one at a time, hidden views kept alive, destroyed on `session.closed`, bounded at 32. |
-| `src/electron-previews.ts` | The `WebContentsView` behind each registry entry; a failed load shows the error inside the view. |
+| `src/electron-previews.ts` | The `WebContentsView` behind each registry entry; a failed load shows the error inside the view; pop-out moves it into a `BaseWindow`. |
+| `src/pane-windows.ts` | Pure registry of pane windows: one per `(pane, session)`, closed with the session. |
+| `src/window-geometry.ts` | `SPINNER_DESKTOP_WINDOW` parsing. |
 | `src/daemon.ts` | Probe `/health`; start a daemon and poll for 30 s; never start one after a loss. |
 | `src/start-daemon.ts` | `node packages/cli/dist/main.js daemon start`, with Electron's own Node as the fallback. |
 | `src/events.ts` | The app's own `/events` socket, for `session.closed` and loss. |
 | `src/preload.cts` | `contextBridge` for `window.spinnerDesktop`, typed in `@spinner/protocol`'s `desktop-bridge.ts`. |
 | `src/tray.ts`, `src/tray-icon.ts` | The tray item; the icon is drawn at runtime. |
 | `scripts/package.ts` | The unsigned `.app`. |
+| `e2e/cdp.ts` | The DevTools-protocol page the drivers share. |
 | `e2e/drive.ts` | Drives a running app over CDP through the sample-stack flow. |
+| `e2e/popout.ts` | Drives the pop-out flow through the bridge: no reload across pop out, dock back, close, and session close. |
 
 The renderer never sees an Electron API. `Preview.tsx` in `packages/ui` measures its box and
 calls `previews.set(key, url, rect)`; the main process places the view. One preview shows
@@ -48,3 +65,17 @@ The driver creates its own session on `examples/sample-stack` and closes it. Wit
 `E2E_WINDOW_ID=<CGWindowNumber>` it saves a window screenshot per step. An occluded window
 (another window in front) does not lay out or paint its views, so the driver skips the size
 check then and the `bounds` debug lines are the evidence.
+
+```
+cd packages/desktop && ./node_modules/.bin/electron . --remote-debugging-port=9345 \
+    --inspect=9347 --disable-backgrounding-occluded-windows --disable-renderer-backgrounding
+E2E_CDP_PORT=9345 E2E_INSPECT_PORT=9347 node e2e/popout.ts <screenshot dir>
+```
+
+The pop-out driver checks that the preview's CDP target and a hash set in its page survive
+every move, that the view's inner size follows the pop-out window and the pane, and that
+`panes.list()` and the `pane.docked` events tell the renderer the truth. The two Chromium
+switches keep a window behind another one laying out, so the size checks hold when the app
+runs behind the operator's windows. `E2E_INSPECT_PORT` lets the driver close the pop-out
+from the main process, the close button's path. A window capture never includes a
+`WebContentsView`; the inner size over CDP is the evidence.
