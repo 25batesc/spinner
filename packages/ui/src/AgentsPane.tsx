@@ -59,7 +59,7 @@ function agentBase(dir: string, agent: string): string {
     return `/sessions/${dir}/agents/${agent}`;
 }
 
-const VIEWS = ["agents", "mission", "threads"];
+const VIEWS = ["agents", "mission", "threads", "services"];
 
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, feed, revisions, children } = props;
@@ -123,6 +123,7 @@ export function AgentsPane(props: AgentsPaneProps) {
                             run={run}
                         />
                     )}
+                    {view !== undefined && shown === "services" && <ServiceTable view={view} />}
                     {/* Hidden, not unmounted, while another view shows: the terminals keep
                         their sockets and buffers. */}
                     <div className="agents-view" hidden={shown !== "agents"}>
@@ -187,7 +188,6 @@ export function AgentsPane(props: AgentsPaneProps) {
                                 </>
                             ))}
                         {terminals}
-                        {view !== undefined && <ServiceTable view={view} />}
                     </div>
                     {children}
                 </div>

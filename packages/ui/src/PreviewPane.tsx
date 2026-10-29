@@ -83,7 +83,13 @@ export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
         <section className="pane preview-pane" aria-label="Previews">
             <PaneHead name="previews" controls={head} />
             {view !== undefined && <Verified view={view} busy={busy} run={run} />}
-            <Tabs labels={names} selected={selected} onSelect={setPicked} grey={grey} />
+            <Tabs
+                labels={names}
+                selected={selected}
+                onSelect={setPicked}
+                grey={grey}
+                dots={Object.fromEntries(services.map((s) => [s.name, s.status]))}
+            />
             {view !== undefined && service?.url != null && isLive(service) ? (
                 <>
                     <Preview

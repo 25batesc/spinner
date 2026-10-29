@@ -62,6 +62,9 @@ async function until(label: string, expression: string): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 200));
     }
     await shot("failure");
+    // A tab left open keeps its sockets (a terminal's pty gets its size again on the next
+    // fixture); close it before the throw.
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
     throw new Error(`Timed out waiting for: ${label}`);
 }
 
@@ -1208,11 +1211,17 @@ await until(
 await click(".actions button", "run local");
 await until("job log shows", `${text(".drawer")}.includes("up")`);
 await shot("03-up-running");
+await click(".agents-pane .tab", "services");
 await until(
     "service healthy",
     `[...document.querySelectorAll(".services tbody tr")]
         .some((r) => r.innerText.includes("healthy"))`,
 );
+await until(
+    "preview tab dot",
+    `document.querySelector(".preview-pane .tab .tab-dot.dot-healthy")?.title === "healthy"`,
+);
+await click(".agents-pane .tab", "agents");
 await click(".preview-pane .tab", "web");
 // The proxy picks up a new route a moment after the service is healthy; reload like a user.
 await new Promise((resolve) => setTimeout(resolve, 2500));

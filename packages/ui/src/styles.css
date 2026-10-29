@@ -126,7 +126,9 @@ html, body, #root { height: 100%; margin: 0; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #8886; }
 .dot-up, .dot-healthy { background: #2a4; }
 .dot-starting { background: #db2; }
-.dot-failed, .dot-unhealthy { background: #d33; }
+.dot-failed { background: #d33; }
+.dot-unhealthy { background: #db2; }
+.tab-dot { width: 7px; height: 7px; margin-right: 5px; vertical-align: 1px; }
 .dot-unknown { background: #38f; }
 .pr-line { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.8; }
 .tab-grey { opacity: 0.4; }

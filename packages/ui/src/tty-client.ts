@@ -70,13 +70,20 @@ export function connectTty(url: string, handlers: TtyHandlers): TtyConnection {
     let socket: WebSocket | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let size: { cols: number; rows: number } | null = null;
+    /** The last frame this socket got; the same size again is not sent (pi would redraw). */
+    let sent: string | null = null;
     /** Set by the daemon's `exit` frame; the close that follows keeps the exit status shown. */
     let exited: { code: number | null } | null = null;
 
     const isOpen = () => socket !== null && socket.readyState === WebSocket.OPEN;
     const sendSize = () => {
-        if (size !== null && isOpen()) {
-            socket?.send(resizeFrame(size.cols, size.rows));
+        if (size === null || !isOpen()) {
+            return;
+        }
+        const frame = resizeFrame(size.cols, size.rows);
+        if (frame !== sent) {
+            socket?.send(frame);
+            sent = frame;
         }
     };
     const open = () => {
@@ -86,6 +93,7 @@ export function connectTty(url: string, handlers: TtyHandlers): TtyConnection {
         socket = next;
         next.onopen = () => {
             delay_ms = TTY_RECONNECT_MS_MIN;
+            sent = null;
             sendSize();
             handlers.onStatus({ state: "open" });
         };
