@@ -77,7 +77,7 @@ The sketch, working, with the board as the left pane.
 
 Exit: a feature goes from `new session` to merged PRs without opening a terminal, and a new user can follow `README` to get there on their own stack in under an hour.
 
-## M4 · Desktop wrapper (in progress, s007; see [STATUS.md](STATUS.md))
+## M4 · Desktop wrapper (built 2026-10-29, in daily use; signing open; see [STATUS.md](STATUS.md))
 
 Same UI in Electron, for the things a browser cannot do.
 

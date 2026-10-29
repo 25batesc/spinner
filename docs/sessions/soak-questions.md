@@ -13,3 +13,6 @@ The operator uses Spinner on real work between the M1 exit (2026-10-27) and the 
 | 2026-10-29 | `run local` opened a browser tab at the dev server's own port | nothing opens on its own | the dev server's `open: true`; `--no-open` in the service command, and the recipe notes it |
 | 2026-10-29 | the preview pane cannot grow past a fixed share of the window | drag the divider all the way; the middle pane collapses | collapsible panes with a restore strip |
 | 2026-10-29 | no way to hide or pop out a pane | hide and pop-out per pane; a popped-out preview keeps its login | pane controls; in the desktop app a pop-out is a window with the `WebContentsView` |
+| 2026-10-29 | a daemon test (`plumbing.test.ts`, the debounced steer) fails under a loaded machine, passes alone | green under load | widen the debounce window in the test or fake the clock |
+| 2026-10-29 | a second home minted `s001` again; the newcomer run collided with the operator's `s001-bootstrap` in name | ids unique per machine | `next_session_id` also reads other homes' session directories named in route files |
+| 2026-10-29 | the desktop agent's e2e driver archived the operator's session through the shared daemon | agents never touch the operator's sessions | lesson 27: destructive e2e only on a scratch daemon; done in `39de498` |

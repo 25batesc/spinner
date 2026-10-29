@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-29, after session s006; s007 (M4) in progress.
+Updated: 2026-10-29 15:10, after s008. A fresh session starts from [HANDOFF.md](HANDOFF.md).
 
 ## Summary
 
@@ -18,10 +18,10 @@ Updated: 2026-10-29, after session s006; s007 (M4) in progress.
 | M1 · Board + stack runner | done, 2026-10-27 | s002 (5 rounds) | $77.68 | 161 min | 132 |
 | M2 · Agents drive PRs home | done except the operator's real feature | s003, s005 | $75.53 | 170 min | 233 |
 | M3 · Web UI | done (record), 2026-10-29 | s003, s005, s006 | (in s003, s005, s006) | | |
-| M4 · Desktop | in progress | s007 | | | |
+| M4 · Desktop | built, in daily use; signing open | s007, s008 | $65.98 | 198 min | 329 |
 | M5 · Release | open | | | | |
 
-The repo holds 92 commits, 22 by the operator and 70 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `ae34881` with 233 tests.
+The repo holds 138 commits, 33 by the operator and 105 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `5d5e834` with 329 tests (one daemon test, `plumbing.test.ts`, is flaky under a loaded machine).
 
 ## What exists
 
@@ -30,6 +30,7 @@ The repo holds 92 commits, 22 by the operator and 70 by agents (one by a review 
 | `@spinner/protocol` | `Session` (session.yaml), `SpinnerEvent` (17 types), `ROUTES`, `PipelineFacts`, `StackSpec` (spinner.yaml); generated JSON schemas for both files, with a drift test | the file formats |
 | `@spinner/daemon` | session store; Hono server on `127.0.0.1:7777` with a WebSocket at `/events`; serves the UI at `/`; `jobs/` (one job per action, bounded log); `actions.ts` (shared by the CLI and the routes); `views/` (`SessionView` from the store, the tracker and a stack observer); the poller and the notifier as a daemon loop; `pipeline/` (GitHub collector, `derive_stage`, adopt, verify); `stack/` (spec loader, compose renderer, Docker and Traefik, Postgres template clone, host services, runner); `git/` (worktrees); `agents/` (`PiRpcHarness` over pi's RPC mode, manager, models, history) | GitHub, Docker, Postgres, git, pi |
 | `@spinner/cli` | `spinner new`, `show`, `adopt`, `board`, `verify`, `seed`, `up`, `down`, `logs`, `exec`, `close`; the actions call the daemon's `actions` module | the daemon's internals |
+| `@spinner/desktop` | Electron 45: a window on the daemon's UI, a tray, daemon discovery and start, one `WebContentsView` per preview (hidden tabs kept, destroyed on close, pop-out into a window that adopts the view), the browser-bar actions (navigate, back, forward, zoom, find, clear storage) and the `navigated` event, a DevTools-protocol e2e driver, `pnpm desktop:build` → a local unsigned `.app` | Electron |
 | `ui` | the sketch: sessions and board pane (sorted by `needs_human`, stage badge, per-PR lines, new and adopt forms), session view (service table, action buttons, job log drawer), previews (grey until healthy, open-in-tab, reload, the verified tick), agent tabs (transcript from `agent.event`, history on reload, prompt, steer, abort, model and repo pickers); fixture server; a DevTools-protocol driver for end-to-end runs | how a preview is embedded (`Preview.tsx`) |
 | `examples/sample-stack` | API with `GET /items` and `GET /health`, one web page, Postgres in template mode, Temporal, `seed.sql`, `spinner.yaml` | nothing; it is the test vehicle |
 
@@ -130,6 +131,21 @@ Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 mi
 
 Record: engine $36.60 (claude-fable-5-1, 58 min), ext $15.23 (claude-fable-5-1, 32 min), ui $1.74 (claude-sonnet-5-5, 12 min). Operator relays 3, decisions 1, inbox messages 2. A throwaway public repository `spinner-sandbox` under the operator's account holds the live run; the Slack app is a user-token app named Spinner. Full record: [sessions/s005-MISSION.md](sessions/s005-MISSION.md).
 
+## M4 · Desktop (built, in daily use)
+
+| Exit criterion or item | State | Evidence |
+|---|---|---|
+| The same UI in a window, connected to the running daemon, starting one when none answers | done | s007 `0755ff5`; `pnpm desktop`, `pnpm desktop:build` |
+| Previews as top-level pages; the operator's app keeps its login | done | the operator logged in inside the window on his real session; `SameSite=Lax` cookies hold because the view is a top-level page |
+| Geometry: previews follow drags, resizes and tab switches | done | main-process log of every rectangle received and applied; the operator: "drag works great" |
+| Pane layout: side panel with an activity bar and a toggle, agents never fold, previews collapse to the edge or expand to the window, a deliberate snap on drag, uniform session cards, a compose card for new and adopt, a context bar | done | s008, seven passes on the operator's screenshots |
+| Browser bar on previews: back, forward, reload, URL, external, devtools, zoom, find, clear storage | done | `ad2d526`, `f60fad4`; 16 e2e checks on a scratch daemon |
+| Pop-out: a preview into its own window that adopts the view; dock back | done | `66ce18f`..`8ffd028`; the CDP target survives pop out, dock back, close |
+| Tray item with the daemon state | done, minimal | lists popped-out windows |
+| A signed, notarized `.app` | open | M5; needs an Apple developer account |
+
+Record: s007 desktop $14.21 (50 min), ui $4.55 (38 min); s008 desktop $20.67 (68 min), ui $25.54 (80 min, seven passes). Operator relays 5, decisions 2. One incident: a destructive e2e driver on the shared daemon archived the operator's merged s003; restored within minutes; lesson 27.
+
 ## M3 · Web UI (done, 2026-10-29)
 
 | Exit criterion or item | State | Evidence |
@@ -144,10 +160,10 @@ Record: engine $19.40 (claude-fable-5-1, 38 min), ui $2.56 (claude-sonnet-5-5, 3
 
 ### Next
 
-1. s007 (M4): the Electron app with `WebContentsView` previews, connecting to the running daemon; the web UI stays first-class.
-2. The operator's real PR in s006 of his home: the feasibility-agent eval harness, through the UI; `pr → land` on it gives the merge-queue enqueue its live test.
-3. Soak fixes: the verify toggle, `seed_files` after `install`, the pop-out reason in `needs_human` (finding 21), `up` under 15 s on a stack with host services.
-4. M5: packaging and signing, `spinner init` from the recipes, the public repository.
+1. The operator's real PR, in the desktop app: `fix` when the bot posts, `verify`, `post`, `approve`, `land` (the merge-queue enqueue's live test).
+2. Stacked PRs (decision pending; option B): ordered PRs per repo, worktree at the top, `adopt` walks the base chain, `land` bottom-up; `session.yaml` v2.
+3. Soak fixes: the verify toggle, `seed_files` after `install`, finding 21, `up` under 15 s with host services, the flaky `plumbing.test.ts`, ids unique across homes.
+4. M5: signing and packaging, `spinner init` from the recipes, the public repository.
 
 ## Budget
 
@@ -163,7 +179,10 @@ Estimates before the work were "days 1 to 3" for s001 and "weeks 2 to 3" for s00
 | s002 round 5 | stack | $13.36 | 10 min | 0 |
 | s003 | engine, ui | $21.96 | 70 min | 2 |
 | s005 | engine, ext, ui | $53.57 | 102 min | 3 |
-| Total | | $159.01 | 350 min | 14 |
+| s006 | engine, soak | $12.63 | 56 min | 1 |
+| s007 | desktop, ui | $18.76 | 88 min | 3 |
+| s008 | desktop, ui | $46.21 | 148 min | 3 |
+| Total | | $236.61 | 642 min | 21 |
 
 Agent minutes are the model's own run time from the run records; wall clock with builds, installs and waits was about three times that. The operator's own time on 2026-10-27 was about 7 hours: reading logs the agents could not interpret (cloud auth keys, grants, the team's install commands), refreshing the local database, killing hung processes, and testing in the browser. That is the cost driver, not the agents.
 

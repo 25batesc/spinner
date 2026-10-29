@@ -28,6 +28,7 @@ The operator's first hours in the desktop app: the preview pane could not grow p
 - (date) Cullen: layout is the one UI state the daemon does not own; it lives in `localStorage` per browser profile and in the desktop app's own store.
 - (date) Cullen: a pop-out never reloads a preview in the desktop app; the window adopts the existing `WebContentsView`.
 - (date) Cullen: `Preview.tsx` stays the only file that embeds a preview or talks to the bridge.
+- (date) Cullen: UI sessions run as small passes: the operator reviews in the running app after each, sends a screenshot and one paragraph, the agent commits and reports; the mission's Plan is the backlog, not a contract to finish in one run.
 - (date) Cullen: rules from s001 to s007 (protocol, *Lessons*): Log times from `date +%H:%M`; stage by path; no `git add -A`, no `git stash`; `mktemp -d` scratch, reported, never deleted; never raise or move a window over the operator's; never print `.npmrc`, `.env*`, `auth.json`, `~/.spinner/env`, or a file named with `token`, `key` or `secret`; no customer or person in a tracked file; wait on an artifact (a Contracts entry, a commit), never on a Log timestamp.
 
 ## Open questions

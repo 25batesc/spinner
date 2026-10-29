@@ -6,7 +6,7 @@ Spinner is a local, open-source workbench. It is two things joined at the hip. T
 
 Spinner does not make one feature faster by adding agents to it. Communication cost grows with the square of the agent count, and the review-to-merge loop is sequential. It lets you run four features at once because the mission doc and the board carry the communication, not you.
 
-> Status: **M2 done except the operator's first real feature; M3 partial** (2026-10-29). `pnpm daemon` serves the web UI at `http://localhost:7777`: sessions and board, stack actions with live job logs, previews, agent tabs backed by pi, the mission panel, review threads, and `create PR / fix / post / approve / land / reset` as jobs. The loop ran live on a throwaway repository: the fixer agent resolved a review thread, the post went to Slack as the operator, the PR merged. The board works on real PRs (`spinner adopt`, `spinner board --watch`; a live merge-queue pop-out notified in 19 s). The stack runner brings up `examples/sample-stack` in 3 s and the operator's own three-repo stack, two sessions side by side on their own hostnames and database clones. The soak week runs before M2. Details in [docs/STATUS.md](docs/STATUS.md).
+> Status: **M0 to M3 done, M4 built and in daily use** (2026-10-29). `pnpm desktop` opens the window; previews are top-level pages, so an app's login holds inside Spinner. A fresh session starts from [docs/HANDOFF.md](docs/HANDOFF.md). `pnpm daemon` serves the web UI at `http://localhost:7777`: sessions and board, stack actions with live job logs, previews, agent tabs backed by pi, the mission panel, review threads, and `create PR / fix / post / approve / land / reset` as jobs. The loop ran live on a throwaway repository: the fixer agent resolved a review thread, the post went to Slack as the operator, the PR merged. The board works on real PRs (`spinner adopt`, `spinner board --watch`; a live merge-queue pop-out notified in 19 s). The stack runner brings up `examples/sample-stack` in 3 s and the operator's own three-repo stack, two sessions side by side on their own hostnames and database clones. The soak week runs before M2. Details in [docs/STATUS.md](docs/STATUS.md).
 >
 > Try it: [Quick start](#quick-start) below takes you from a clone to the sample stack in the UI. Then read [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
 
@@ -203,6 +203,7 @@ A local daemon (`spinnerd`) owns sessions, stacks, agent processes and the pipel
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): daemon, pipeline tracker, CLI, UI, agent adapter, stack runner, hostnames, web vs desktop.
 - [docs/ROADMAP.md](docs/ROADMAP.md): milestones, in order, with exit criteria.
 - [docs/STATUS.md](docs/STATUS.md): what exists, what is proven, what is open, and what it cost. Updated when a session closes.
+- [docs/HANDOFF.md](docs/HANDOFF.md): how to pick the work up in a fresh session: what runs, where the state lives, the open decisions.
 - [docs/sessions/](docs/sessions/): the full mission record of each closed session, Log included.
 - [docs/WRITING.md](docs/WRITING.md): the house writing rules and the glossary. One word, one meaning.
 - [docs/audits/](docs/audits/): dated reviews of the docs against outside yardsticks.
