@@ -5,7 +5,13 @@
 // sends the rectangle. Nothing else in the UI changes.
 import { useEffect, useRef } from "react";
 
-import type { PreviewKey, PreviewRect, SpinnerDesktop } from "@spinner/protocol";
+import type {
+    PaneName,
+    PoppedPane,
+    PreviewKey,
+    PreviewRect,
+    SpinnerDesktop,
+} from "@spinner/protocol";
 
 export interface PreviewProps {
     /** `<session dir>/<service name>` from `preview_key`: the desktop keeps one view per key. */
@@ -35,7 +41,7 @@ export function previewRect(rect: {
 
 /** What a pane pop-out needs: the route for a browser window, the preview key for the bridge. */
 export interface PopOutRequest {
-    pane: "sessions" | "agents" | "previews";
+    pane: PaneName;
     session: string | undefined;
     /** The preview the previews pane shows, if any; the desktop app pops out that view. */
     preview?: { key: PreviewKey; url: string } | undefined;
@@ -60,17 +66,15 @@ const POPUP_FEATURES = "popup,width=720,height=800";
 const CLOSED_POLL_MS = 500;
 
 /**
- * Opens a pane in its own window. In a browser that is `window.open` of the `?pane=` route; a
- * same-origin popup has no close event, so a poll notices the close and reports it once. Returns
- * null when the browser blocked the popup. The desktop path is added once the bridge contract
- * names `previews.popOut` and `panes.popOut`.
+ * The browser path: `window.open` of the `?pane=` route. A same-origin popup has no close
+ * event, so a poll notices the close and reports it once.
  */
-export function popOutPane(request: PopOutRequest, onDocked: () => void): PoppedOut | null {
+function popOutInBrowser(request: PopOutRequest, onDocked: () => void): PoppedOut | string {
     // A unique name: reusing a window this document did not open would make `close` a no-op.
     const name = `spinner-${request.pane}-${Date.now()}`;
     const popup = window.open(paneRoute(request.pane, request.session), name, POPUP_FEATURES);
     if (popup === null) {
-        return null;
+        return "The browser blocked the pop-out window; allow popups for this site.";
     }
     let done = false;
     const settle = () => {
@@ -91,6 +95,90 @@ export function popOutPane(request: PopOutRequest, onDocked: () => void): Popped
             settle();
         },
     };
+}
+
+/** One `pane.docked` listener per pop-out: it fires once for `dockBack` or the close button. */
+function watchDocked(
+    bridge: SpinnerDesktop,
+    popped: PoppedPane,
+    dockBack: () => Promise<void>,
+    onDocked: () => void,
+): PoppedOut {
+    let done = false;
+    const unsubscribe = bridge.panes.subscribe((event) => {
+        const same = event.pane === popped.pane && event.session === popped.session;
+        if (same && event.key === popped.key && !done) {
+            done = true;
+            unsubscribe();
+            onDocked();
+        }
+    });
+    return { dock: () => void dockBack() };
+}
+
+/**
+ * The desktop path. The previews pane pops out the view of the tab on show: the window adopts
+ * the existing `WebContentsView`, no reload (contract: `previews.popOut`). The other panes
+ * open a `BrowserWindow` on the `?pane=` route (`panes.popOut`).
+ */
+function popOutInDesktop(
+    bridge: SpinnerDesktop,
+    request: PopOutRequest,
+    onDocked: () => void,
+): PoppedOut | string {
+    if (request.session === undefined) {
+        return "Select a session before popping a pane out.";
+    }
+    const session = request.session;
+    if (request.pane === "previews") {
+        const key = request.preview?.key;
+        if (key === undefined) {
+            return "No live preview to pop out.";
+        }
+        void bridge.previews.popOut(key);
+        const popped = { pane: "previews" as const, session, key };
+        return watchDocked(bridge, popped, () => bridge.previews.dockBack(key), onDocked);
+    }
+    void bridge.panes.popOut(request.pane, session);
+    const popped = { pane: request.pane, session };
+    const dockBack = () => bridge.panes.dockBack(request.pane, session);
+    return watchDocked(bridge, popped, dockBack, onDocked);
+}
+
+/**
+ * Opens a pane in its own window. Returns the handle, or the reason it could not, as a
+ * sentence for the operator.
+ */
+export function popOutPane(request: PopOutRequest, onDocked: () => void): PoppedOut | string {
+    const bridge = window.spinnerDesktop;
+    if (bridge !== undefined) {
+        return popOutInDesktop(bridge, request, onDocked);
+    }
+    return popOutInBrowser(request, onDocked);
+}
+
+/**
+ * The windows already popped out when this page loaded: a reloaded main window in the desktop
+ * app shows their strips again. `adopt` is called once per window with an `attach` that takes
+ * the page's docked callback and returns the handle. A browser has nothing to resume.
+ */
+export function resumePoppedOut(
+    adopt: (pane: PaneName, attach: (onDocked: () => void) => PoppedOut) => void,
+): void {
+    const bridge = window.spinnerDesktop;
+    if (bridge === undefined) {
+        return;
+    }
+    void bridge.panes.list().then((popped) => {
+        for (const entry of popped) {
+            const key = entry.key;
+            const dockBack =
+                key === undefined
+                    ? () => bridge.panes.dockBack(entry.pane, entry.session)
+                    : () => bridge.previews.dockBack(key);
+            adopt(entry.pane, (onDocked) => watchDocked(bridge, entry, dockBack, onDocked));
+        }
+    });
 }
 
 function sameRect(a: PreviewRect | null, b: PreviewRect): boolean {

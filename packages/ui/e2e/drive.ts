@@ -3,7 +3,8 @@
 // port 9333 (`--remote-debugging-port=9333`) or on `E2E_CDP_PORT`. The flow `lifecycle` runs:
 // new session, up, previews, verify, close. The flow `agents` prompts the first running agent
 // of the first session with a pi agent. The flow `panes` collapses, hides, restores, pops out
-// and opens the `?pane=` route. It works against the fixture server or the real daemon.
+// and opens the `?pane=` route; `bridge-popout` does the pop-out through a stub of the desktop
+// bridge. It works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
@@ -17,7 +18,7 @@ const CDP_PORT = process.env["E2E_CDP_PORT"] ?? "9333";
 
 const target = (await (
     await fetch(`http://127.0.0.1:${CDP_PORT}/json/new?about:blank`, { method: "PUT" })
-).json()) as { webSocketDebuggerUrl: string };
+).json()) as { id: string; webSocketDebuggerUrl: string };
 const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve) => socket.on("open", resolve));
 
@@ -91,19 +92,41 @@ const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
 await send("Page.enable");
-if (flow === "bridge-stub") {
+if (flow === "bridge-stub" || flow === "bridge-popout") {
     // A stand-in for the desktop preload: records every bridge call on `window.bridgeCalls`.
+    // `dockBack` answers with the `pane.docked` event the desktop sends; `window.bridgeDock`
+    // sends one by hand, as the window's close button would; `panes.list` reads the windows
+    // the test put in `sessionStorage` under `e2e-popped`, as a reload would find them.
     await send("Page.addScriptToEvaluateOnNewDocument", {
         source: `window.bridgeCalls = [];
             const record = (method) => (...args) => {
                 window.bridgeCalls.push({ method, args });
                 return Promise.resolve();
             };
+            const listeners = new Set();
+            window.bridgeDock = (event) =>
+                listeners.forEach((l) => l({ type: "docked", ...event }));
+            const docked = (event) => setTimeout(() => window.bridgeDock(event), 10);
             window.spinnerDesktop = {
                 previews: {
                     set: record("set"), show: record("show"), hide: record("hide"),
                     reload: record("reload"), openExternal: record("openExternal"),
                     devtools: record("devtools"), subscribe: () => () => {},
+                    popOut: record("previews.popOut"),
+                    dockBack: (key) => {
+                        docked({ pane: "previews", session: key.split("/")[0], key });
+                        return record("previews.dockBack")(key);
+                    },
+                },
+                panes: {
+                    popOut: record("panes.popOut"),
+                    dockBack: (pane, session) => {
+                        docked({ pane, session });
+                        return record("panes.dockBack")(pane, session);
+                    },
+                    list: () =>
+                        Promise.resolve(JSON.parse(sessionStorage.getItem("e2e-popped") ?? "[]")),
+                    subscribe: (l) => { listeners.add(l); return () => listeners.delete(l); },
                 },
                 daemon: { status: () => Promise.resolve({}), subscribe: () => () => {} },
             };`,
@@ -299,10 +322,20 @@ if (flow === "panes") {
     const targets = async () =>
         ((await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()) as {
             id: string; url: string;
-        }[]).filter((t) => t.url.includes("pane="));
+        }[]).filter((t) => t.url.includes("pane=") && t.id !== target.id);
+    const closeTarget = (id: string) => fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${id}`);
+    // Windows left by an earlier run would be counted below; this Chrome is the test's own.
+    for (const stale of await targets()) {
+        await closeTarget(stale.id);
+    }
     await click("button[aria-label='Pop out previews']", "", true);
     await until("previews popped strip", `${strip("previews")}?.textContent.includes("popped")`);
+    // The strip renders before Chrome lists the new window; give the target a moment.
     let popups = await targets();
+    for (let tries = 0; popups.length === 0 && tries < 20; tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        popups = await targets();
+    }
     console.log("popped-out windows:", JSON.stringify(popups.map((t) => t.url)));
     if (popups.length !== 1 || !popups[0]?.url.includes(`pane=previews&session=${session}`)) {
         throw new Error("pop out did not open the ?pane=previews route for the session");
@@ -310,7 +343,9 @@ if (flow === "panes") {
     await shot("41-previews-popped");
     await click(".strip[data-pane=previews]");
     await until("previews docked", `document.querySelector(".preview-pane") !== null`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    for (let tries = 0; (await targets()).length > 0 && tries < 20; tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
     if ((await targets()).length !== 0) {
         throw new Error("dock back left the popped-out window open");
     }
@@ -318,7 +353,11 @@ if (flow === "panes") {
     await click("button[aria-label='Pop out agents']", "", true);
     await until("agents popped strip", `${strip("agents")}?.textContent.includes("popped")`);
     popups = await targets();
-    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${popups[0]?.id ?? ""}`);
+    for (let tries = 0; popups.length === 0 && tries < 20; tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        popups = await targets();
+    }
+    await closeTarget(popups[0]?.id ?? "");
     await until("agents docked on close", `document.querySelector(".agents-pane") !== null`);
     // 7. The route alone: one pane, no strips, dividers or controls, same session.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
@@ -336,6 +375,63 @@ if (flow === "panes") {
     }
     await shot("42-pane-route");
     console.log("panes ok");
+    socket.close();
+    // This tab now sits on a `pane=` URL; the next run must not count it as a popped window.
+    await closeTarget(target.id);
+    process.exit(0);
+}
+
+if (flow === "bridge-popout") {
+    // The desktop path of Plan 3 without Electron, with the stub above: `pop out` on the
+    // previews pane calls `previews.popOut` with the shown tab's key and the pane becomes a
+    // strip; the strip calls `previews.dockBack`, the docked event restores the pane and it
+    // places the view again with `set`. The agents pane goes through `panes.popOut`, and a
+    // docked event alone (the window's close button) restores it. After a reload the page asks
+    // `panes.list` and shows the strip of a window that is still open.
+    const calls = `window.bridgeCalls`;
+    const lastCall = (method: string) =>
+        `${calls}.filter((c) => c.method === ${JSON.stringify(method)}).at(-1)`;
+    const strip = (pane: string) => `document.querySelector(".strip[data-pane=${pane}]")`;
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    const session = (await evaluate(
+        `document.querySelector(".session-selected .muted").innerText`,
+    )) as string;
+    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
+    await click(".preview-pane .tab", "web");
+    await until("set called", `${lastCall("set")} !== undefined`);
+    const key = `${session}/web`;
+    const sets = (await evaluate(`${calls}.filter((c) => c.method === "set").length`)) as number;
+    await click("button[aria-label='Pop out previews']");
+    const quotedKey = JSON.stringify(key);
+    await until("previews.popOut", `${lastCall("previews.popOut")}?.args[0] === ${quotedKey}`);
+    await until("previews strip", `${strip("previews")}?.textContent.includes("popped")`);
+    await shot("43-bridge-preview-popped");
+    await click(".strip[data-pane=previews]");
+    await until("previews.dockBack", `${lastCall("previews.dockBack")}?.args[0] === ${quotedKey}`);
+    await until("pane back", `document.querySelector(".preview-pane .preview-box") !== null`);
+    await until("view placed again", `${calls}.filter((c) => c.method === "set").length > ${sets}`);
+    await click("button[aria-label='Pop out agents']");
+    const argsOf = (method: string, args: string[]) =>
+        `JSON.stringify(${lastCall(method)}?.args) === ${JSON.stringify(JSON.stringify(args))}`;
+    await until("panes.popOut", argsOf("panes.popOut", ["agents", session]));
+    await until("agents strip", `${strip("agents")}?.textContent.includes("popped")`);
+    await evaluate(`window.bridgeDock({ pane: "agents", session: ${JSON.stringify(session)} })`);
+    await until("agents back on close", `document.querySelector(".agents-pane") !== null`);
+    if ((await evaluate(`${lastCall("panes.dockBack")}`)) !== undefined) {
+        throw new Error("a close from the desktop side must not call dockBack");
+    }
+    const popped = JSON.stringify([{ pane: "sessions", session }]);
+    await evaluate(`sessionStorage.setItem("e2e-popped", ${JSON.stringify(popped)})`);
+    await evaluate(`window.__stale = true`);
+    await send("Page.reload");
+    await until("reloaded", `window.__stale === undefined`);
+    await until("strip after reload", `${strip("sessions")}?.textContent.includes("popped")`);
+    await shot("44-bridge-resumed-strip");
+    await click(".strip[data-pane=sessions]");
+    await until("panes.dockBack", argsOf("panes.dockBack", ["sessions", session]));
+    await until("sessions back", `document.querySelector(".sessions-pane") !== null`);
+    console.log("calls:", JSON.stringify(await evaluate(`${calls}.map((c) => c.method)`)));
+    console.log("bridge popout ok");
     socket.close();
     process.exit(0);
 }

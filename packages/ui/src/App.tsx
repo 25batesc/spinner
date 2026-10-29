@@ -5,7 +5,12 @@ import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
 import { PaneStrip } from "./PaneHead.tsx";
-import { popOutPane, type PoppedOut, type PopOutRequest } from "./Preview.tsx";
+import {
+    popOutPane,
+    resumePoppedOut,
+    type PoppedOut,
+    type PopOutRequest,
+} from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { revisionsOf, runningJob, sortedSessions, type UiState } from "./state.ts";
@@ -91,18 +96,30 @@ export function App() {
     const layout = useLayout();
     const popped = useRef<Partial<Record<PaneName, PoppedOut>>>({});
 
+    const docked = (pane: PaneName) => () => {
+        delete popped.current[pane];
+        layout.setPopped(pane, false);
+    };
     const popOut = (pane: PaneName, preview?: PopOutRequest["preview"]) => {
-        const handle = popOutPane({ pane, session: selected, preview }, () => {
-            delete popped.current[pane];
-            layout.setPopped(pane, false);
-        });
-        if (handle === null) {
-            app.setActionError("The browser blocked the pop-out window; allow popups here.");
+        const handle = popOutPane({ pane, session: selected, preview }, docked(pane));
+        if (typeof handle === "string") {
+            app.setActionError(handle);
             return;
         }
         popped.current[pane] = handle;
         layout.setPopped(pane, true);
     };
+    // In the desktop app the windows outlive a reload of this page; show their strips again.
+    useEffect(() => {
+        if (route !== undefined) {
+            return;
+        }
+        resumePoppedOut((pane, attach) => {
+            popped.current[pane] = attach(docked(pane));
+            layout.setPopped(pane, true);
+        });
+        // Once, on mount: the handles live in a ref and `setPopped` is stable.
+    }, []);
     const restore = (pane: PaneName) => {
         const handle = popped.current[pane];
         if (handle !== undefined) {
