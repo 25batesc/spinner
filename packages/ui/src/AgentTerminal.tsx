@@ -155,6 +155,9 @@ export function AgentTerminal({ path, running, visible }: AgentTerminalProps) {
             timer = setTimeout(fitNow, FIT_DEBOUNCE_MS);
         });
         observer.observe(element);
+        // The pty takes the last size any client sent. When this window gets the focus back
+        // (a pop-out window closed, or the operator returned), its size wins again.
+        window.addEventListener("focus", fitNow);
         // A tab shown again takes the keyboard; the first show focuses after `open()`.
         if (opened.current?.shown === true) {
             opened.current.terminal.focus();
@@ -162,6 +165,7 @@ export function AgentTerminal({ path, running, visible }: AgentTerminalProps) {
         return () => {
             clearTimeout(timer);
             observer.disconnect();
+            window.removeEventListener("focus", fitNow);
         };
     }, [visible]);
 

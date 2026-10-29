@@ -1041,8 +1041,12 @@ if (flow === "terminal") {
     // attach, the echo of `hello` and Enter, a resize line after the pane's divider moves, the
     // terminal kept (not remounted) across a switch to the context tab and back, and the
     // `?pane=agents` route with the scrollback replayed. Against a daemon the banner is pi's
-    // own screen; set E2E_BANNER to a string pi prints.
+    // own screen: set E2E_BANNER to a string pi prints, E2E_TYPED to the keys (` /sp` passes
+    // pi's start notice and opens its command list), E2E_ENTER=0 to send no Enter (no model
+    // call) and E2E_EXPECT to what the keys make pi draw (`spinner-reload`).
     const banner = process.env["E2E_BANNER"] ?? "Spinner fixture pty for";
+    const typed = process.env["E2E_TYPED"] ?? "hello";
+    const expected = process.env["E2E_EXPECT"] ?? "hello";
     const shown = `document.querySelector(".agent-terminal:not([hidden])")`;
     const rows = `(${shown}?.querySelector(".xterm-rows")?.innerText ?? "")`;
     const key = (key: string, code: string, keyCode: number, text: string) =>
@@ -1078,9 +1082,11 @@ if (flow === "terminal") {
     const first = await sizes();
     console.log("sizes after attach:", JSON.stringify(first));
     await shot("56-terminal-attached");
-    await type("hello");
-    await Promise.all(key("Enter", "Enter", 13, "\r"));
-    await until("echo", `${rows}.includes("hello")`);
+    await type(typed);
+    if (process.env["E2E_ENTER"] !== "0") {
+        await Promise.all(key("Enter", "Enter", 13, "\r"));
+    }
+    await until("echo", `${rows}.includes(${JSON.stringify(expected)})`);
     if (process.env["E2E_BANNER"] === undefined) {
         await until("new prompt after Enter", `/hello\\n[$] /.test(${rows})`);
     }
@@ -1116,7 +1122,7 @@ if (flow === "terminal") {
     await until("still mounted", `${xtermCount} === 1`);
     await click(".agents-pane .tab", "terminal");
     await until("terminal shown again", `${shown} !== null`);
-    await until("typed line kept", `${rows}.includes("hello")`);
+    await until("typed line kept", `${rows}.includes(${JSON.stringify(expected)})`);
     const banners = ((await evaluate(rows)) as string).split(banner).length - 1;
     if (banners !== 1) {
         throw new Error(`expected one banner after the tab switch, saw ${banners}`);
@@ -1151,7 +1157,7 @@ if (flow === "terminal") {
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
     await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
     await until("xterm in the pane route", `${shown}?.querySelector(".xterm") !== null`);
-    await until("scrollback replayed", `${rows}.includes("hello")`);
+    await until("scrollback replayed", `${rows}.includes(${JSON.stringify(expected)})`);
     await shot("60-terminal-pane-route");
     console.log("terminal ok");
     socket.close();
