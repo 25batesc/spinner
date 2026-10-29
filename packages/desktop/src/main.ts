@@ -1,21 +1,35 @@
 // The desktop app's main process. One `BrowserWindow` loads the web UI from the daemon; the
 // previews are `WebContentsView`s the renderer places through the bridge (`preload.cts`,
 // IPC in `ipc.ts`). The main process owns the view map (`previews.ts`), the daemon link
-// (`daemon.ts`), its own events socket (`events.ts`) and the tray (`tray.ts`). The renderer
-// never touches an Electron API.
+// (`daemon.ts`), the pane windows (`pane-windows.ts`), its own events socket (`events.ts`)
+// and the tray (`tray.ts`). The renderer never touches an Electron API.
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
-import { DAEMON_HOST, DAEMON_PORT, type PreviewRect } from "@spinner/protocol";
+import {
+    DAEMON_HOST,
+    DAEMON_PORT,
+    preview_key_session,
+    type PaneEvent,
+    type PaneName,
+    type PoppedPane,
+    type PreviewRect,
+} from "@spinner/protocol";
 import { DaemonLink, probe_health, RECONNECT_POLL_MS } from "./daemon.js";
-import { data_url, electron_preview_host } from "./electron-previews.js";
+import {
+    data_url,
+    electron_preview_host,
+    POPOUT_CASCADE_PX,
+    POPOUT_MIN,
+} from "./electron-previews.js";
 import { watch_events } from "./events.js";
 import { IPC } from "./ipc.js";
 import { down_page, starting_page } from "./pages.js";
+import { PaneWindows, type PaneWindowHost } from "./pane-windows.js";
 import { PreviewRegistry } from "./previews.js";
 import { repo_root, run_start_command, start_command } from "./start-daemon.js";
-import { create_tray } from "./tray.js";
+import { create_tray, type TrayWindow } from "./tray.js";
 
 const dist = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env["SPINNER_PORT"] ?? DAEMON_PORT);
@@ -39,26 +53,43 @@ const link = new DaemonLink({
 
 let window: BrowserWindow | null = null;
 let registry: PreviewRegistry | null = null;
+let panes: PaneWindows | null = null;
+let refresh_tray: () => void = () => undefined;
 let stop_events: (() => void) | null = null;
 let reconnect_timer: NodeJS.Timeout | null = null;
 let quitting = false;
 
+/** `SPINNER_DESKTOP_WINDOW=WxH+X+Y` places the main window: a test can sit beside a real one. */
+function window_geometry(spec: string | undefined): Electron.BrowserWindowConstructorOptions {
+    const match = spec === undefined ? null : /^(\d+)x(\d+)\+(\d+)\+(\d+)$/.exec(spec);
+    if (match === null) {
+        return { width: 1440, height: 900 };
+    }
+    return {
+        width: Number(match[1]),
+        height: Number(match[2]),
+        x: Number(match[3]),
+        y: Number(match[4]),
+    };
+}
+
+const web_preferences: Electron.WebPreferences = {
+    preload: join(dist, "preload.cjs"),
+    sandbox: true,
+    contextIsolation: true,
+    nodeIntegration: false,
+    // The page places the preview views from `ResizeObserver` and animation frames.
+    // Chromium stops both while the window is occluded (another window in front);
+    // the views must still follow a resize then, so the page is never throttled.
+    backgroundThrottling: false,
+};
+
 function create_window(): BrowserWindow {
     const created = new BrowserWindow({
-        width: 1440,
-        height: 900,
+        ...window_geometry(process.env["SPINNER_DESKTOP_WINDOW"]),
         title: "Spinner",
         show: false,
-        webPreferences: {
-            preload: join(dist, "preload.cjs"),
-            sandbox: true,
-            contextIsolation: true,
-            nodeIntegration: false,
-            // The page places the preview views from `ResizeObserver` and animation frames.
-            // Chromium stops both while the window is occluded (another window in front);
-            // the views must still follow a resize then, so the page is never throttled.
-            backgroundThrottling: false,
-        },
+        webPreferences: web_preferences,
     });
     created.once("ready-to-show", () => created.show());
     // The window hides on close; the tray brings it back. Quit is explicit.
@@ -79,6 +110,89 @@ function send_to_renderer(channel: string, payload: unknown): void {
     if (window !== null && !window.isDestroyed()) {
         window.webContents.send(channel, payload);
     }
+}
+
+/** A pane window: the UI's one-pane route, cascaded from the main window like a pop-out. */
+function electron_pane_host(main: BrowserWindow): PaneWindowHost {
+    return {
+        open(popped, url, on_closed) {
+            const bounds = main.getBounds();
+            const content = main.getContentBounds();
+            const created = new BrowserWindow({
+                width: Math.max(POPOUT_MIN.width, Math.round(content.width / 3)),
+                height: Math.max(POPOUT_MIN.height, content.height),
+                x: bounds.x + POPOUT_CASCADE_PX,
+                y: bounds.y + POPOUT_CASCADE_PX,
+                title: `${popped.session} \u2014 ${popped.pane}`,
+                webPreferences: web_preferences,
+            });
+            created.webContents.setWindowOpenHandler(({ url: opened }) => {
+                void shell.openExternal(opened);
+                return { action: "deny" };
+            });
+            // The page sets its own title; the window keeps the pane and session as its name.
+            created.on("page-title-updated", (event) => event.preventDefault());
+            created.on("closed", on_closed);
+            void created.loadURL(url);
+            return {
+                focus: () => created.focus(),
+                close: () => {
+                    created.removeListener("closed", on_closed);
+                    created.close();
+                },
+            };
+        },
+    };
+}
+
+function docked(popped: PoppedPane): void {
+    const event: PaneEvent = { type: "docked", ...popped };
+    const key = popped.key === undefined ? "" : ` ${popped.key}`;
+    log(`docked ${popped.pane} ${popped.session}${key}`);
+    send_to_renderer(IPC.panes_event, event);
+    refresh_tray();
+}
+
+function preview_popped(key: string): PoppedPane {
+    return { pane: "previews", session: preview_key_session(key), key };
+}
+
+function pop_out_preview(views: PreviewRegistry, key: string): void {
+    const popped = views.pop_out(key, () => docked(preview_popped(key)));
+    if (popped) {
+        refresh_tray();
+    } else {
+        log(`popOut ${key}: no view yet, ignored`);
+    }
+}
+
+function pop_out_pane(windows: PaneWindows, pane: PaneName, session: string): void {
+    const popped = windows.pop_out(pane, session, () => docked({ pane, session }));
+    if (popped) {
+        refresh_tray();
+    } else {
+        log(`popOut ${pane} ${session}: not a pane page, ignored`);
+    }
+}
+
+/** Every popped-out window, previews first, for `panes.list` and the tray. */
+function popped_windows(): PoppedPane[] {
+    const previews = registry?.popped_keys().map(preview_popped) ?? [];
+    return [...previews, ...(panes?.list() ?? [])];
+}
+
+/** The tray's entries: a click brings the window forward; a repeated pop-out is a focus. */
+function tray_windows(): TrayWindow[] {
+    return popped_windows().map((popped) => ({
+        label: popped.key === undefined ? `${popped.session} \u2014 ${popped.pane}` : popped.key,
+        focus: () => {
+            if (popped.key !== undefined && registry !== null) {
+                pop_out_preview(registry, popped.key);
+            } else if (panes !== null) {
+                pop_out_pane(panes, popped.pane, popped.session);
+            }
+        },
+    }));
 }
 
 /** Loads the UI once the daemon answers; otherwise the inline page for the state. */
@@ -112,8 +226,14 @@ function follow_daemon(): void {
         daemon_url,
         {
             on_session_closed: (session_dir) => {
+                // A popped-out window of the session goes with it; the page learns it docked.
+                const popped = popped_windows().filter((p) => p.session === session_dir);
                 const closed = registry?.close_session(session_dir) ?? 0;
+                panes?.close_session(session_dir);
                 log(`session ${session_dir} closed: ${closed} preview view(s) destroyed`);
+                for (const entry of popped) {
+                    docked(entry);
+                }
             },
             on_lost: () => {
                 stop_events = null;
@@ -150,7 +270,7 @@ async function ensure_daemon(): Promise<void> {
     }
 }
 
-function register_ipc(views: PreviewRegistry): void {
+function register_ipc(views: PreviewRegistry, windows: PaneWindows): void {
     ipcMain.handle(IPC.previews_set, (_event, key: unknown, url: unknown, rect: unknown) => {
         assert.equal(typeof key, "string");
         assert.equal(typeof url, "string");
@@ -177,6 +297,36 @@ function register_ipc(views: PreviewRegistry): void {
             }
         }),
     );
+    ipcMain.handle(IPC.previews_pop_out, with_key("popOut", (key) => pop_out_preview(views, key)));
+    ipcMain.handle(
+        IPC.previews_dock_back,
+        with_key("dockBack", (key) => {
+            if (views.dock_back(key)) {
+                docked(preview_popped(key));
+            }
+        }),
+    );
+    const with_pane =
+        (name: string, handler: (pane: PaneName, session: string) => void) =>
+        (_event: unknown, pane: unknown, session: unknown) => {
+            assert.equal(typeof pane, "string");
+            assert.equal(typeof session, "string");
+            debug(`${name} ${String(pane)} ${String(session)}`);
+            handler(pane as PaneName, session as string);
+        };
+    ipcMain.handle(
+        IPC.panes_pop_out,
+        with_pane("panes.popOut", (pane, session) => pop_out_pane(windows, pane, session)),
+    );
+    ipcMain.handle(
+        IPC.panes_dock_back,
+        with_pane("panes.dockBack", (pane, session) => {
+            if (windows.dock_back(pane, session)) {
+                docked({ pane, session });
+            }
+        }),
+    );
+    ipcMain.handle(IPC.panes_list, () => popped_windows());
     ipcMain.handle(IPC.daemon_status, () => link.status());
 }
 
@@ -193,6 +343,7 @@ function open_window(): void {
                 debug,
             ),
         );
+        panes = new PaneWindows(electron_pane_host(window), daemon_url);
         render_window();
     } else {
         window.show();
@@ -230,10 +381,11 @@ void app.whenReady().then(async () => {
         start_daemon: () => void ensure_daemon(),
         quit: () => app.quit(),
     });
-    render_tray(link.status());
+    refresh_tray = () => render_tray(link.status(), tray_windows());
+    refresh_tray();
     link.subscribe((status) => {
         log(`daemon ${status.state}`);
-        render_tray(status);
+        refresh_tray();
         send_to_renderer(IPC.daemon_event, status);
         render_window();
         follow_daemon();
@@ -241,6 +393,7 @@ void app.whenReady().then(async () => {
     open_window();
     assert.ok(window !== null);
     assert.ok(registry !== null);
-    register_ipc(registry);
+    assert.ok(panes !== null);
+    register_ipc(registry, panes);
     await ensure_daemon();
 });

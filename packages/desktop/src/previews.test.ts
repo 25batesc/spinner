@@ -1,6 +1,7 @@
 // Goal: the registry keeps one view per key, shows one at a time, keeps hidden views alive,
 // loads a URL only when it changes, rounds bounds to integers, destroys a session's views on
-// close, and bounds the number of views. Method: a fake host records every call per view.
+// close, bounds the number of views, and leaves a popped-out view to its own window until it
+// docks back. Method: a fake host records every call per view and can close a pop-out window.
 import { describe, expect, it } from "vitest";
 import { integer_rect, PreviewRegistry, type PreviewHost, type PreviewView } from "./previews.js";
 
@@ -8,6 +9,8 @@ interface FakeView extends PreviewView {
     calls: string[];
     url: string;
     destroyed: boolean;
+    /** The user's close of the pop-out window, while one is open. */
+    close_window: (() => void) | null;
 }
 
 function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
@@ -19,6 +22,7 @@ function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
                 calls: [],
                 url: "",
                 destroyed: false,
+                close_window: null,
                 load(url) {
                     this.url = url;
                     this.calls.push(`load ${url}`);
@@ -37,6 +41,18 @@ function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
                 },
                 current_url() {
                     return this.url;
+                },
+                pop_out(on_closed) {
+                    this.calls.push(this.close_window === null ? "pop out" : "focus");
+                    this.close_window = () => {
+                        this.close_window = null;
+                        this.calls.push("window closed");
+                        on_closed();
+                    };
+                },
+                dock_back() {
+                    this.close_window = null;
+                    this.calls.push("dock back");
                 },
                 destroy() {
                     this.destroyed = true;
@@ -145,6 +161,52 @@ describe("PreviewRegistry", () => {
         registry.set("s2-b/web", "http://web.s2.localhost", rect);
         expect(registry.keys().sort()).toEqual(["s1-a/web", "s2-b/web"]);
         expect(host.views.get("s1-a/api")?.destroyed).toBe(true);
+    });
+
+    it("leaves a popped-out view alone until dock back, then the next set places it", () => {
+        const host = fake_host();
+        const registry = new PreviewRegistry(host);
+        registry.set("s1-a/web", "http://web.s1.localhost", rect);
+        registry.set("s1-a/api", "http://api.s1.localhost", rect);
+        const closed: string[] = [];
+        expect(registry.pop_out("s1-a/web", () => closed.push("web"))).toBe(true);
+        expect(registry.pop_out("none/none", () => closed.push("none"))).toBe(false);
+        expect(registry.popped_keys()).toEqual(["s1-a/web"]);
+        expect(registry.visible_key()).toBe("s1-a/api");
+        // The pane keeps measuring: the URL may change, the placement must not.
+        registry.set("s1-a/web", "http://web.s1.localhost/next", { ...rect, width: 50 });
+        registry.show("s1-a/web");
+        registry.hide("s1-a/web");
+        registry.show("s1-a/api");
+        const web = host.views.get("s1-a/web");
+        expect(web?.calls.slice(-2)).toEqual(["pop out", "load http://web.s1.localhost/next"]);
+        expect(registry.visible_key()).toBe("s1-a/api");
+        // A second pop-out focuses the window.
+        registry.pop_out("s1-a/web", () => closed.push("web"));
+        expect(web?.calls.at(-1)).toBe("focus");
+        expect(registry.dock_back("s1-a/web")).toBe(true);
+        expect(registry.dock_back("s1-a/web")).toBe(false);
+        expect(registry.popped_keys()).toEqual([]);
+        expect(closed).toEqual([]);
+        registry.set("s1-a/web", "http://web.s1.localhost/next", rect);
+        expect(web?.calls.slice(-3)).toEqual(["dock back", "bounds 10,20 300x200", "show"]);
+    });
+
+    it("a closed pop-out window docks the view and reports it once", () => {
+        const host = fake_host();
+        const registry = new PreviewRegistry(host, 2);
+        registry.set("s1-a/web", "http://web.s1.localhost", rect);
+        const closed: string[] = [];
+        registry.pop_out("s1-a/web", () => closed.push("web"));
+        // Two more views: the hidden one goes, the popped-out one is on screen and stays.
+        registry.set("s1-a/api", "http://api.s1.localhost", rect);
+        registry.hide("s1-a/api");
+        registry.set("s1-a/docs", "http://docs.s1.localhost", rect);
+        expect(registry.keys().sort()).toEqual(["s1-a/docs", "s1-a/web"]);
+        host.views.get("s1-a/web")?.close_window?.();
+        expect(closed).toEqual(["web"]);
+        expect(registry.popped_keys()).toEqual([]);
+        expect(registry.dock_back("s1-a/web")).toBe(false);
     });
 
     it("rejects a malformed key, url or rectangle", () => {

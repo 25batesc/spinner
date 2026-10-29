@@ -7,6 +7,8 @@
 import electron = require("electron");
 import type {
     DaemonStatus,
+    PaneEvent,
+    PaneName,
     PreviewEvent,
     PreviewKey,
     PreviewRect,
@@ -22,7 +24,13 @@ const IPC = {
     previews_reload: "previews:reload",
     previews_open_external: "previews:openExternal",
     previews_devtools: "previews:devtools",
+    previews_pop_out: "previews:popOut",
+    previews_dock_back: "previews:dockBack",
     previews_event: "previews:event",
+    panes_pop_out: "panes:popOut",
+    panes_dock_back: "panes:dockBack",
+    panes_list: "panes:list",
+    panes_event: "panes:event",
     daemon_status: "daemon:status",
     daemon_event: "daemon:event",
 } as const;
@@ -45,8 +53,19 @@ const bridge: SpinnerDesktop = {
         reload: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_reload, key),
         openExternal: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_open_external, key),
         devtools: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_devtools, key),
+        popOut: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_pop_out, key),
+        dockBack: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_dock_back, key),
         subscribe: (listener: (event: PreviewEvent) => void) =>
             subscribe(IPC.previews_event, listener),
+    },
+    panes: {
+        popOut: (pane: PaneName, session: string) =>
+            ipcRenderer.invoke(IPC.panes_pop_out, pane, session),
+        dockBack: (pane: PaneName, session: string) =>
+            ipcRenderer.invoke(IPC.panes_dock_back, pane, session),
+        list: () => ipcRenderer.invoke(IPC.panes_list),
+        subscribe: (listener: (event: PaneEvent) => void) =>
+            subscribe(IPC.panes_event, listener),
     },
     daemon: {
         status: () => ipcRenderer.invoke(IPC.daemon_status),

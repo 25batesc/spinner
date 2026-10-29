@@ -1,5 +1,6 @@
 // The preview registry: one view per preview key, created on demand, shown one at a time,
-// hidden views kept alive so a page keeps its state, destroyed when the session closes. This
+// hidden views kept alive so a page keeps its state, destroyed when the session closes. A
+// popped-out view lives in its own window: the registry neither places nor hides it. This
 // file is pure so Vitest can drive it: the registry takes a `PreviewHost` that makes views and
 // calls their methods; `main.ts` supplies the Electron one.
 import assert from "node:assert/strict";
@@ -14,6 +15,13 @@ export interface PreviewView {
     open_devtools(): void;
     /** The URL the page is at now, after navigation inside it. */
     current_url(): string;
+    /**
+     * Moves the view into its own window; `on_closed` fires when the user closes that window,
+     * after the view is back in the main window. A second call focuses the window.
+     */
+    pop_out(on_closed: () => void): void;
+    /** Closes the window and puts the view back in the main window, hidden. */
+    dock_back(): void;
     destroy(): void;
 }
 
@@ -28,7 +36,9 @@ interface Entry {
     view: PreviewView;
     /** The URL of the last `set`, so a repeated `set` with the same URL only moves the view. */
     url: string;
+    /** Shown in the main window. Never true while `popped`. */
     visible: boolean;
+    popped: boolean;
     /** Monotonic tick of the last `set` or `show`, for eviction order. */
     shown_at: number;
 }
@@ -52,12 +62,21 @@ export class PreviewRegistry {
         let entry = this.entries.get(key);
         if (entry === undefined) {
             this.evict(key);
-            entry = { view: this.host.create(key), url: "", visible: false, shown_at: 0 };
+            entry = {
+                view: this.host.create(key),
+                url: "",
+                visible: false,
+                popped: false,
+                shown_at: 0,
+            };
             this.entries.set(key, entry);
         }
         if (entry.url !== url) {
             entry.url = url;
             entry.view.load(url);
+        }
+        if (entry.popped) {
+            return;
         }
         entry.view.set_bounds(bounds);
         this.show(key);
@@ -65,12 +84,15 @@ export class PreviewRegistry {
 
     show(key: PreviewKey): void {
         const entry = this.entries.get(key);
-        if (entry === undefined) {
+        if (entry === undefined || entry.popped) {
             return;
         }
         this.tick += 1;
         entry.shown_at = this.tick;
         for (const [other_key, other] of this.entries) {
+            if (other.popped) {
+                continue;
+            }
             const visible = other_key === key;
             if (other.visible !== visible) {
                 other.visible = visible;
@@ -107,6 +129,44 @@ export class PreviewRegistry {
         return current === "" ? entry.url : current;
     }
 
+    /**
+     * Moves the view into its own window; false when the key has no view yet. The main window
+     * stops showing it; `set` and `show` leave it alone until `dock_back`. `on_closed` fires
+     * when the user closes the window: the view is docked by then.
+     */
+    pop_out(key: PreviewKey, on_closed: () => void): boolean {
+        const entry = this.entries.get(key);
+        if (entry === undefined) {
+            return false;
+        }
+        if (!entry.popped) {
+            entry.popped = true;
+            entry.visible = false;
+        }
+        entry.view.pop_out(() => {
+            entry.popped = false;
+            on_closed();
+        });
+        assert.equal(entry.visible, false);
+        return true;
+    }
+
+    /** Puts the view back in the main window, hidden; false when it was not popped out. */
+    dock_back(key: PreviewKey): boolean {
+        const entry = this.entries.get(key);
+        if (entry === undefined || !entry.popped) {
+            return false;
+        }
+        entry.popped = false;
+        entry.view.dock_back();
+        assert.equal(entry.visible, false);
+        return true;
+    }
+
+    popped_keys(): PreviewKey[] {
+        return [...this.entries].filter(([, entry]) => entry.popped).map(([key]) => key);
+    }
+
     /** Destroys every view of the session; the daemon's `session.closed` calls this. */
     close_session(session_dir: string): number {
         let closed = 0;
@@ -141,11 +201,14 @@ export class PreviewRegistry {
         return undefined;
     }
 
-    /** Makes room for `incoming`: drops the least recently shown hidden views past the bound. */
+    /**
+     * Makes room for `incoming`: drops the least recently shown hidden views past the bound.
+     * A popped-out view is on screen in its own window, so it stays.
+     */
     private evict(incoming: PreviewKey): void {
         assert.equal(this.entries.has(incoming), false);
         const hidden = [...this.entries]
-            .filter(([, entry]) => !entry.visible)
+            .filter(([, entry]) => !entry.visible && !entry.popped)
             .sort(([, a], [, b]) => a.shown_at - b.shown_at);
         let excess = this.entries.size + 1 - this.views_max;
         for (const [key, entry] of hidden) {
@@ -156,7 +219,8 @@ export class PreviewRegistry {
             this.entries.delete(key);
             excess -= 1;
         }
-        assert.ok(this.entries.size < this.views_max || this.visible_key() !== undefined);
+        const on_screen = this.visible_key() !== undefined || this.popped_keys().length > 0;
+        assert.ok(this.entries.size < this.views_max || on_screen);
     }
 }
 

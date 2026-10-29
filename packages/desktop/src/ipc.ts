@@ -9,8 +9,15 @@ export const IPC = {
     previews_reload: "previews:reload",
     previews_open_external: "previews:openExternal",
     previews_devtools: "previews:devtools",
+    previews_pop_out: "previews:popOut",
+    previews_dock_back: "previews:dockBack",
     /** Main to renderer: one `PreviewEvent` per message. */
     previews_event: "previews:event",
+    panes_pop_out: "panes:popOut",
+    panes_dock_back: "panes:dockBack",
+    panes_list: "panes:list",
+    /** Main to renderer: one `PaneEvent` per message. */
+    panes_event: "panes:event",
     daemon_status: "daemon:status",
     /** Main to renderer: one `DaemonStatus` per message. */
     daemon_event: "daemon:event",
