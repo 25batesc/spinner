@@ -6,8 +6,10 @@
 // replays on attach. The daemon never types into the pty for the operator: `prompt`, `steer`
 // and `abort` go through the Spinner extension inside pi, over `ExtensionChannel`
 // (MISSION.md s009, Contracts), so the transcript records a message, not keystrokes.
-// `spawn` resolves when the extension posts `hello`; the pty's exit before that is a failed
-// start. `stop` is SIGTERM, then SIGKILL after `STOP_GRACE_MS`.
+// `spawn` resolves when the extension posts `hello`, or `READY_GRACE_MS` after the pty
+// started when pi is still alive but has not (pi can sit on a "Press any key" notice that the
+// operator answers in the tab); the pty's exit before either is a failed start. `stop` is
+// SIGTERM, then SIGKILL after `STOP_GRACE_MS`.
 import assert from "node:assert/strict";
 import { accessSync, chmodSync, constants, existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -30,12 +32,16 @@ import { pi_args } from "./pi-rpc.js";
 /** Time pi gets after SIGTERM before SIGKILL. pi flushes its transcript on SIGTERM. */
 const STOP_GRACE_MS = 5_000;
 
-/** Time from the pty spawn to the extension's `hello` before the spawn counts as failed. */
-const HELLO_TIMEOUT_MS = 60_000;
+/**
+ * Time a pty that has not posted `hello` gets before `spawn` resolves anyway. pi's startup
+ * notices wait for a key the operator presses in the tab; the extension's `hello` then
+ * follows. A pty that exits inside the grace is a failed start.
+ */
+const READY_GRACE_MS = 3_000;
 
 export interface PiTtyHarnessOptions extends PiHarnessOptions {
-    /** For tests: a shorter wait for `hello`. */
-    hello_timeout_ms?: number;
+    /** For tests: a shorter grace before `spawn` resolves without `hello`. */
+    ready_grace_ms?: number;
     /** For tests: a shorter wait for the extension's ack. */
     ack_timeout_ms?: number;
 }
@@ -97,7 +103,7 @@ export class PiTtyHarness implements AgentHarness {
         });
         const on_stderr = this.options.on_stderr;
         try {
-            await tty.wait_hello(this.options.hello_timeout_ms ?? HELLO_TIMEOUT_MS);
+            await tty.wait_ready(this.options.ready_grace_ms ?? READY_GRACE_MS);
         } catch (error) {
             const tail = tty.scrollback_text().split("\n").slice(-20).join("\n");
             on_stderr?.(agent.name, tail);
@@ -194,11 +200,14 @@ export class TtyAgent {
         return this.scrollback.toString("utf8");
     }
 
-    wait_hello(timeout_ms: number): Promise<void> {
+    /** Resolves on `hello`, or after `grace_ms` with pi still alive; rejects when pi exits. */
+    wait_ready(grace_ms: number): Promise<void> {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
-                reject(new Error(`pi ${this.name} did not post hello within ${timeout_ms} ms`));
-            }, timeout_ms);
+                if (this.exit_code === undefined) {
+                    resolve();
+                }
+            }, grace_ms);
             this.channel.wait_hello().then(
                 () => {
                     clearTimeout(timer);

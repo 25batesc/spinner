@@ -138,7 +138,9 @@ export class AgentManager {
         // The caller's summary may predate an earlier run; the file has the model it used.
         const fresh = read_session(this.home, summary.dir);
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;
-        const model = request.model ?? listed?.model;
+        // `default` is the placeholder `record` writes for pi's own choice, not a model id.
+        const listed_model = listed?.model === "default" ? undefined : listed?.model;
+        const model = request.model ?? listed_model;
         this.write_agents_file(summary);
         const harness_name = this.harnesses.default;
         const harness = this.harnesses[harness_name];
