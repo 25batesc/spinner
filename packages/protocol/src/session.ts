@@ -161,6 +161,8 @@ export interface AgentSpec {
     pid?: number;
     /** The process start time as `ps -o lstart=` prints it, so a restart can tell a reused pid. */
     started?: string;
+    /** Repo key of `repos` whose worktree is the agent's cwd; the session dir when absent. */
+    repo?: string;
 }
 
 /** The whole of `session.yaml`. */

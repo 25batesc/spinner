@@ -554,6 +554,10 @@
                 "started": {
                     "type": "string",
                     "description": "The process start time as `ps -o lstart=` prints it, so a restart can tell a reused pid."
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repo key of `repos` whose worktree is the agent's cwd; the session dir when absent."
                 }
             },
             "required": [

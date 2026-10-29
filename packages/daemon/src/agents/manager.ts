@@ -1,20 +1,39 @@
-// Hosts the pi agents of every session: starts one per agent tab through the harness, keeps
-// the handles (the daemon's only process state), records each agent in `session.yaml`
-// (`agents.<name>`: harness, model, process, pid), regenerates the session `AGENTS.md`, and
-// turns pi's events into `agent.spawned`, `agent.event`, `agent.settled` and `agent.exited`
-// on the bus. Nothing starts on its own: every spawn is a `POST` or a CLI call. The manager
-// also holds the text waiting for an agent's next prompt (an inbox message or a mission-change
-// notice for an idle agent, docs/SESSION_PROTOCOL.md "Messages"), which `prompt` prepends.
+// Hosts the pi agents of every session: starts one per agent tab through the harness the
+// config names (`tty` by default, `rpc` for headless runs), keeps the handles (the daemon's
+// only process state), records each agent in `session.yaml` (`agents.<name>`: harness, model,
+// process, pid, started), regenerates the session `AGENTS.md`, and turns pi's events into
+// `agent.spawned`, `agent.event`, `agent.settled` and `agent.exited` on the bus. Every spawn
+// is a `POST` or a CLI call, with one exception since s009: `adopt_all` on daemon start
+// resumes the tty agents the previous daemon hosted, because a pty master dies with its
+// daemon and the operator expects the tab back. The manager also holds the text waiting for
+// an agent's next prompt (an inbox message or a mission-change notice for an idle agent,
+// docs/SESSION_PROTOCOL.md "Messages"), which `prompt` prepends.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { AddAgentRequest, AgentSpec, SessionSummary } from "@spinner/protocol";
+import type {
+    AddAgentRequest,
+    AgentHarnessName,
+    AgentSpec,
+    SessionSummary,
+} from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
+import { is_spinner_leader, process_start_time } from "../stack/host-service.js";
 import { render_brief } from "../store/brief-template.js";
 import { render_agents_file } from "../store/mission-template.js";
-import { read_session, write_session } from "../store/session-store.js";
+import { list_sessions, read_session, write_session } from "../store/session-store.js";
 import { agent_brief_path, type AgentHandle, type AgentHarness } from "./harness.js";
+
+/** The harnesses the daemon can start and the one `config.yaml` `agents.harness` names. */
+export interface AgentHarnesses {
+    default: "tty" | "rpc";
+    tty?: AgentHarness;
+    rpc?: AgentHarness;
+}
+
+/** Time a leftover pi from the previous daemon gets after SIGTERM before SIGKILL. */
+const ADOPT_STOP_GRACE_MS = 5_000;
 
 /** Agents one daemon hosts at once. Each is a pi process with its own model session. */
 const AGENTS_RUNNING_MAX = 24;
@@ -45,12 +64,18 @@ export class AgentManager {
 
     constructor(
         private readonly home: SpinnerHome,
-        private readonly harness: AgentHarness,
+        private readonly harnesses: AgentHarnesses,
         private readonly bus: EventBus,
         options: AgentManagerOptions = {},
     ) {
+        assert.ok(harnesses[harnesses.default] !== undefined, `no ${harnesses.default} harness`);
         this.now = options.now ?? (() => new Date());
         this.log = options.log ?? (() => undefined);
+    }
+
+    /** The harness name every `add` uses, from `config.yaml`. */
+    get default_harness(): "tty" | "rpc" {
+        return this.harnesses.default;
     }
 
     /** Names of the agents whose process this daemon hosts, for `SessionView.agents_running`. */
@@ -115,13 +140,19 @@ export class AgentManager {
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;
         const model = request.model ?? listed?.model;
         this.write_agents_file(summary);
-        const spawned = await this.harness.spawn(summary, { name: request.name, model, cwd });
+        const harness_name = this.harnesses.default;
+        const harness = this.harnesses[harness_name];
+        assert.ok(harness !== undefined, `no ${harness_name} harness`);
+        const spawned = await harness.spawn(summary, { name: request.name, model, cwd });
         const handle = this.with_pending(key, spawned);
+        const started = process_start_time(handle.pid);
         const spec: AgentSpec = {
-            harness: "pi",
+            harness: harness_name,
             model: model ?? "default",
             process: "idle",
             pid: handle.pid,
+            ...(started === null ? {} : { started }),
+            ...(request.repo === undefined ? {} : { repo: request.repo }),
         };
         this.record(summary.dir, request.name, spec);
         const dir = summary.dir;
@@ -177,6 +208,62 @@ export class AgentManager {
         await Promise.all([...this.hosted.values()].map((entry) => entry.handle.stop()));
     }
 
+    /**
+     * On daemon start: every `tty` agent `session.yaml` lists as `running` or `idle` was hosted
+     * by the previous daemon. Its pty master died with that daemon, so the pi behind it is
+     * stopped when its identity (pid and start time) is still live, then the agent is resumed
+     * on the same transcript. Returns the names resumed, as `dir/name`. An `rpc` agent is
+     * marked `exited`: its stdin pipe is gone and the operator resumes it from the tab.
+     */
+    async adopt_all(): Promise<string[]> {
+        const resumed: string[] = [];
+        for (const summary of list_sessions(this.home).sessions) {
+            for (const [name, spec] of Object.entries(summary.session.agents ?? {})) {
+                if (spec.process === "exited") {
+                    continue;
+                }
+                await this.stop_leftover(name, spec);
+                if (harness_of(spec.harness) !== "tty" || this.harnesses.tty === undefined) {
+                    this.record(summary.dir, name, { process: "exited" }, true);
+                    continue;
+                }
+                try {
+                    const request: AddAgentRequest = { name };
+                    if (spec.repo !== undefined) {
+                        request.repo = spec.repo;
+                    }
+                    await this.add(summary, request);
+                    resumed.push(`${summary.dir}/${name}`);
+                } catch (error) {
+                    const reason = error instanceof Error ? error.message : String(error);
+                    this.log(`adopt ${summary.dir}/${name}: resume failed: ${reason}`);
+                    this.record(summary.dir, name, { process: "exited" }, true);
+                }
+            }
+        }
+        return resumed;
+    }
+
+    /** SIGTERM, then SIGKILL, to a pi the previous daemon left, when its identity still matches. */
+    private async stop_leftover(name: string, spec: AgentSpec): Promise<void> {
+        if (spec.pid === undefined || spec.started === undefined) {
+            return;
+        }
+        const identity = { pid: spec.pid, started: spec.started };
+        if (!(await is_spinner_leader(identity))) {
+            return;
+        }
+        this.log(`adopt ${name}: pi ${spec.pid} outlived the daemon; stopping it before resume`);
+        process.kill(spec.pid, "SIGTERM");
+        const deadline = Date.now() + ADOPT_STOP_GRACE_MS;
+        while (Date.now() < deadline && process_start_time(spec.pid) === spec.started) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (process_start_time(spec.pid) === spec.started) {
+            process.kill(spec.pid, "SIGKILL");
+        }
+    }
+
     /** A handle whose `prompt` prepends the queued texts, each under its own heading. */
     private with_pending(key: string, handle: AgentHandle): AgentHandle {
         // The handle is a class instance; its methods live on the prototype, so each one is
@@ -228,11 +315,16 @@ export class AgentManager {
         }
         const session = read.summary.session;
         session.agents ??= {};
-        const fresh: AgentSpec = { harness: "pi", model: "default", process: "idle" };
+        const fresh: AgentSpec = {
+            harness: this.harnesses.default,
+            model: "default",
+            process: "idle",
+        };
         const current = session.agents[name] ?? fresh;
         const next: AgentSpec = { ...current, ...patch };
         if (drop_pid) {
             delete next.pid;
+            delete next.started;
         }
         session.agents[name] = next;
         write_session(read.summary);
@@ -287,6 +379,11 @@ export function agent_cwd(summary: SessionSummary, repo: string | undefined): st
         throw new Error(`session ${summary.session.id} has no worktree for repo "${repo}"`);
     }
     return join(summary.path, entry.worktree);
+}
+
+/** `pi`, the value files before s009 carry, is the RPC harness. */
+export function harness_of(name: AgentHarnessName): "tty" | "rpc" {
+    return name === "tty" ? "tty" : "rpc";
 }
 
 function key_of(dir: string, name: string): string {

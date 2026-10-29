@@ -103,13 +103,15 @@ export function model_args(model: string | undefined): string[] {
     return ["--provider", model.slice(0, slash), "--model", model.slice(slash + 1)];
 }
 
-/** Starts the child and resolves once its stdout answered a first `get_state`. */
-export async function spawn_pi(options: PiSpawnOptions): Promise<PiProcess> {
+/**
+ * The argument list both harnesses hand pi: the transcript, the model and the extra flags.
+ * `rpc` prepends `--mode rpc`; `tty` leaves the mode out so pi opens its terminal UI.
+ */
+export function pi_args(options: PiSpawnOptions, mode: "rpc" | "tty"): string[] {
     assert.ok(options.session_id.length > 0, "a pi session id is required");
-    assert.ok(existsSync(options.cwd), `agent cwd ${options.cwd} does not exist`);
-    const args = [
-        "--mode",
-        "rpc",
+    assert.ok(options.session_dir.length > 0, "a pi session dir is required");
+    return [
+        ...(mode === "rpc" ? ["--mode", "rpc"] : []),
         "--session-dir",
         options.session_dir,
         "--session-id",
@@ -117,6 +119,12 @@ export async function spawn_pi(options: PiSpawnOptions): Promise<PiProcess> {
         ...model_args(options.model),
         ...(options.extra_args ?? []),
     ];
+}
+
+/** Starts the child and resolves once its stdout answered a first `get_state`. */
+export async function spawn_pi(options: PiSpawnOptions): Promise<PiProcess> {
+    assert.ok(existsSync(options.cwd), `agent cwd ${options.cwd} does not exist`);
+    const args = pi_args(options, "rpc");
     const child = spawn(options.pi, args, {
         cwd: options.cwd,
         env: { ...process.env, ...options.env },

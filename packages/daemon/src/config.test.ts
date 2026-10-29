@@ -23,7 +23,7 @@ describe("load_config", () => {
         const loaded = load_config(resolve_home({ SPINNER_HOME: root }), {});
         expect(loaded.found).toBe(false);
         expect(loaded.path).toBe(join(root, "config.yaml"));
-        expect(loaded.config).toEqual({ slack: {} });
+        expect(loaded.config).toEqual({ agents: {}, slack: {} });
     });
 
     it("reads every key and lets the environment override each one", () => {
@@ -33,6 +33,8 @@ describe("load_config", () => {
                 "pi_bin: /opt/pi/bin/pi",
                 "port: 7778",
                 "default_model: anthropic/claude-x",
+                "agents:",
+                "  harness: rpc",
                 "slack:",
                 "  channel: C0FILE",
                 "",
@@ -45,18 +47,21 @@ describe("load_config", () => {
             pi_bin: "/opt/pi/bin/pi",
             port: 7778,
             default_model: "anthropic/claude-x",
+            agents: { harness: "rpc" },
             slack: { channel: "C0FILE" },
         });
         const from_env = load_config(home, {
             SPINNER_PI: "/usr/local/bin/pi",
             SPINNER_PORT: "9000",
             SPINNER_DEFAULT_MODEL: "openai/gpt-y",
+            SPINNER_AGENTS_HARNESS: "tty",
             SPINNER_SLACK_CHANNEL: "C0ENV",
         });
         expect(from_env.config).toEqual({
             pi_bin: "/usr/local/bin/pi",
             port: 9000,
             default_model: "openai/gpt-y",
+            agents: { harness: "tty" },
             slack: { channel: "C0ENV" },
         });
         // An empty variable is unset, not an override to nothing.
@@ -74,12 +79,15 @@ describe("load_config", () => {
         expect(() => parse_config("port: 70000\n", "c.yaml")).toThrow(/port must be an integer/);
         expect(() => parse_config("port: '7777'\n", "c.yaml")).toThrow(/port must be an integer/);
         expect(() => parse_config("- a\n", "c.yaml")).toThrow(/must be a mapping/);
+        expect(() => parse_config("agents:\n  harness: pty\n", "c.yaml")).toThrow(
+            /agents.harness must be one of tty, rpc/,
+        );
         const home = resolve_home({ SPINNER_HOME: root });
         expect(() => load_config(home, { SPINNER_PORT: "abc" })).toThrow(/SPINNER_PORT/);
     });
 
     it("treats an empty file as no settings", () => {
-        expect(parse_config("", "c.yaml")).toEqual({ slack: {} });
-        expect(parse_config("# only a comment\n", "c.yaml")).toEqual({ slack: {} });
+        expect(parse_config("", "c.yaml")).toEqual({ agents: {}, slack: {} });
+        expect(parse_config("# only a comment\n", "c.yaml")).toEqual({ agents: {}, slack: {} });
     });
 });

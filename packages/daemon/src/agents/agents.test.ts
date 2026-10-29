@@ -157,7 +157,11 @@ describe("AgentManager with PiRpcHarness", () => {
         const bus = new EventBus();
         const events: SpinnerEvent[] = [];
         bus.subscribe((event) => events.push(event));
-        const manager = new AgentManager(home, new PiRpcHarness({ pi: () => FAKE_PI }), bus);
+        const manager = new AgentManager(
+            home,
+            { default: "rpc", rpc: new PiRpcHarness({ pi: () => FAKE_PI }) },
+            bus,
+        );
 
         const no_worktree = manager.add(summary, { name: "nobody", repo: "zz" });
         await expect(no_worktree).rejects.toThrow(/no worktree for repo "zz"/);
@@ -203,7 +207,7 @@ describe("AgentManager with PiRpcHarness", () => {
         });
         const yaml = parse(readFileSync(join(summary.path, "session.yaml"), "utf8")) as Session;
         expect(yaml.agents["backend"]).toMatchObject({
-            harness: "pi",
+            harness: "rpc",
             model: "anthropic/claude-x",
             process: "idle",
             pid: handle.pid,
@@ -216,7 +220,7 @@ describe("AgentManager with PiRpcHarness", () => {
         expect(manager.running(summary.dir)).toEqual([]);
         const after = parse(readFileSync(join(summary.path, "session.yaml"), "utf8")) as Session;
         expect(after.agents["backend"]).toEqual({
-            harness: "pi",
+            harness: "rpc",
             model: "anthropic/claude-x",
             process: "exited",
         });
@@ -239,7 +243,7 @@ describe("AgentManager with PiRpcHarness", () => {
         const args_file = join(home.root, "args.json");
         process.env["FAKE_PI_ARGS_FILE"] = args_file;
         const harness = new PiRpcHarness({ pi: () => FAKE_PI, extension: null });
-        const manager = new AgentManager(home, harness, new EventBus());
+        const manager = new AgentManager(home, { default: "rpc", rpc: harness }, new EventBus());
         await manager.add(summary, { name: "fixer" });
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
         expect(spawned.argv).toContain("--append-system-prompt");

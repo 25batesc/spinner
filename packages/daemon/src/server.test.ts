@@ -45,6 +45,7 @@ function test_options(ui_dir: string | null = null): DaemonOptions {
         ui_dir,
         observe_interval_ms: 60_000,
         pi: FAKE_PI,
+        agents_harness: "rpc",
     };
 }
 

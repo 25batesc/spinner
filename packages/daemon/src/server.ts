@@ -5,7 +5,8 @@
 // look up and answer; the work is in `actions.ts`, which the CLI calls too.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import type { Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
+import type { Duplex } from "node:stream";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -37,6 +38,8 @@ import type { ActionContext } from "./actions.js";
 import { Deliverer } from "./agents/delivery.js";
 import { fixer_driver } from "./agents/fixer.js";
 import { PiRpcHarness, type AgentHandle } from "./agents/harness.js";
+import { PiTtyHarness } from "./agents/tty-harness.js";
+import { mount_tty_routes, tty_upgrader } from "./agents/routes-tty.js";
 import { agent_history } from "./agents/history.js";
 import { AgentManager } from "./agents/manager.js";
 import { mount_agent_routes } from "./agents/routes.js";
@@ -101,6 +104,8 @@ export interface DaemonOptions {
     extension?: string | null;
     /** `provider/model` for an agent that names none; pi's own default when absent. */
     default_model?: string;
+    /** `config.yaml` `agents.harness`: `tty` (the default) or `rpc`. */
+    agents_harness?: "tty" | "rpc";
     /** What `GET /health` reports as the build; `main.ts` reads it from the checkout. */
     build?: BuildInfo;
 }
@@ -129,6 +134,8 @@ export interface AppDeps {
     refresh: (dir: string) => Promise<void>;
     ui_dir: string | null;
     agents: AgentManager;
+    /** The tty harness, for the pty WebSocket and the extension's routes; null without one. */
+    tty?: PiTtyHarness | null;
     models: () => Promise<ModelView[]>;
     bus: EventBus;
     /** ext: the mission writer and the deliverer; the agent routes mount when both are set. */
@@ -378,6 +385,9 @@ export function create_app(deps: AppDeps): Hono {
         // ext: mission section, inbox, context
         mount_agent_routes(app, { ...deps, writer: deps.writer, deliverer: deps.deliverer });
     }
+    if (deps.tty !== undefined && deps.tty !== null) {
+        mount_tty_routes(app, { home: deps.home, agents: deps.agents, tty: deps.tty });
+    }
     mount_ui(app, deps.ui_dir);
     return app;
 }
@@ -464,14 +474,20 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
 
     const pi = (): string => options.pi ?? resolve_pi_binary();
     let bound_port = port;
-    const harness = new PiRpcHarness({
+    const harness_options = {
         pi,
-        on_stderr: (agent, line) => log(`pi ${agent}: ${line}`),
+        on_stderr: (agent: string, line: string) => log(`pi ${agent}: ${line}`),
         daemon_url: () => `http://${host}:${bound_port}`,
         ...(options.extension === undefined ? {} : { extension: options.extension }),
         ...(options.default_model === undefined ? {} : { default_model: options.default_model }),
-    });
-    const agents = new AgentManager(home, harness, bus, { log });
+    };
+    const tty = new PiTtyHarness(harness_options);
+    const agents = new AgentManager(
+        home,
+        { default: options.agents_harness ?? "tty", tty, rpc: new PiRpcHarness(harness_options) },
+        bus,
+        { log },
+    );
     const writer = new MissionWriter(home, bus);
     const deliverer = new Deliverer(home, agents, writer, bus, { log });
     ctx.fixer = fixer_driver({ home, agents, cwd });
@@ -520,6 +536,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         refresh,
         ui_dir: options.ui_dir === undefined ? default_ui_dir() : options.ui_dir,
         agents,
+        tty,
         models: models_source(pi, home.root),
         bus,
         writer,
@@ -530,7 +547,8 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
     bound_port = address.port;
 
-    const sockets = attach_events_socket(server, bus, log);
+    const ttys = tty_upgrader({ home, agents, tty, log });
+    const sockets = attach_events_socket(server, bus, log, ttys.handle);
     const watcher = watch_sessions(home, bus, view, { on_error: log });
     await watcher.ready;
     deliverer.prime(list_sessions(home).sessions.map((summary) => summary.dir));
@@ -543,6 +561,9 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     await files.ready;
     const poller = start_github_poller(options, ctx, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
+    for (const resumed of await agents.adopt_all()) {
+        log(`adopt: resumed tty agent ${resumed} on its transcript`);
+    }
 
     return {
         port: bound_port,
@@ -562,6 +583,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
                 socket.terminate();
             }
             sockets.close();
+            ttys.close();
             await new Promise<void>((resolve, reject) => {
                 server.close((error) => (error ? reject(error) : resolve()));
                 // Keep-alive connections from fetch would hold `close` for their idle timeout.
@@ -614,22 +636,29 @@ function listen(app: Hono, hostname: string, port: number): Promise<Server> {
     });
 }
 
+/** The daemon's second WebSocket path: a tty agent's pty. True when `other` took the upgrade. */
+type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => boolean;
+
 /**
  * Upgrades requests for `EVENTS_PATH` to WebSockets and forwards bus events to each client.
  * Any `Origin` is accepted: the UI dev server and the built UI run on different origins and
- * the daemon only listens on loopback.
+ * the daemon only listens on loopback. Every other path is offered to `other` (the tty route)
+ * and is a 404 when it declines.
  */
 function attach_events_socket(
     server: Server,
     bus: EventBus,
     log: (line: string) => void,
+    other: UpgradeHandler,
 ): WebSocketServer {
     const sockets = new WebSocketServer({ noServer: true });
     server.on("upgrade", (request, socket, head) => {
         const path = new URL(request.url ?? "/", "http://localhost").pathname;
         if (path !== EVENTS_PATH) {
-            socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-            socket.destroy();
+            if (!other(request, socket, head)) {
+                socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+                socket.destroy();
+            }
             return;
         }
         sockets.handleUpgrade(request, socket, head, (client) => {

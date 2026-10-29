@@ -7,14 +7,16 @@
 // `stop` then `resume`. The Spinner pi extension (`packages/pi-extension`) goes in through
 // `--extension` with the session directory, the agent name, the daemon URL and the role in
 // the environment (`EXTENSION_ENV`); it adds the mission to the prompt, the tools and
-// `/spinner-reload`, which makes a context edit a reload instead of a restart.
+// `/spinner-reload`, which makes a context edit a reload instead of a restart. `PiTtyHarness`
+// (`tty-harness.ts`) runs the same pi interactively in a pty; `pi_spawn_options` is the
+// builder both share.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PiEvent, SessionSummary } from "@spinner/protocol";
 import { EXTENSION_ENV, type ExtensionRole } from "@spinner/protocol";
-import { model_args, spawn_pi, type PiProcess } from "./pi-rpc.js";
+import { model_args, spawn_pi, type PiProcess, type PiSpawnOptions } from "./pi-rpc.js";
 
 export interface AgentSpawnSpec {
     name: string;
@@ -55,7 +57,8 @@ export interface AgentHarness {
     resume(session: SessionSummary, agent: AgentSpawnSpec): Promise<AgentHandle>;
 }
 
-export interface PiRpcHarnessOptions {
+/** What a pi harness needs to build a spawn. The tty harness takes the same options. */
+export interface PiHarnessOptions {
     /** The pi executable, resolved at each spawn so a daemon without pi still serves the rest. */
     pi: () => string;
     /** Receives pi's stderr lines, tagged with the agent name. */
@@ -67,6 +70,8 @@ export interface PiRpcHarnessOptions {
     /** `provider/model` for an agent that names none (`config.yaml` `default_model`). */
     default_model?: string;
 }
+
+export type PiRpcHarnessOptions = PiHarnessOptions;
 
 /**
  * `packages/pi-extension/src/index.ts`, from `packages/daemon/{src,dist}/agents/harness.{ts,js}`.
@@ -100,47 +105,69 @@ export class PiRpcHarness implements AgentHarness {
     }
 
     private async start(session: SessionSummary, agent: AgentSpawnSpec): Promise<AgentHandle> {
-        assert.ok(/^[a-z0-9][a-z0-9-]*$/.test(agent.name), `agent name ${agent.name}`);
-        const brief = agent_brief_path(session.path, agent.name);
-        assert.ok(existsSync(brief), `${brief} does not exist`);
-        const session_dir = join(session.path, agent_pi_dir(agent.name));
-        mkdirSync(session_dir, { recursive: true });
-        const extra_args: string[] = [];
-        const skills = join(session.path, "skills");
-        if (existsSync(skills) && has_entries(skills)) {
-            extra_args.push("--skill", skills);
-        }
-        const extension =
-            this.options.extension === undefined
-                ? default_extension_path()
-                : this.options.extension;
-        if (extension !== null && existsSync(extension)) {
-            // The extension puts the brief in its prompt section; without it, pi appends it.
-            extra_args.push("--extension", extension);
-        } else {
-            extra_args.push("--append-system-prompt", brief);
-        }
-        const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
-        const model = agent.model ?? this.options.default_model;
-        const env: Record<string, string> = {
-            [EXTENSION_ENV.session_dir]: session.path,
-            [EXTENSION_ENV.agent]: agent.name,
-            [EXTENSION_ENV.daemon_url]: this.options.daemon_url?.() ?? "",
-            [EXTENSION_ENV.role]: role,
-        };
         const on_stderr = this.options.on_stderr;
         const process_ = await spawn_pi({
-            pi: this.options.pi(),
-            cwd: agent.cwd,
-            session_dir,
-            session_id: agent.name,
-            ...(model === undefined ? {} : { model }),
-            extra_args,
-            env,
+            ...pi_spawn_options(session, agent, this.options),
             on_stderr: (line) => on_stderr?.(agent.name, line),
         });
         return new PiHandle(process_, agent.name);
     }
+}
+
+/**
+ * The spawn both harnesses share: cwd, transcript dir and id, model, `--skill` when the
+ * session has skills, `--extension` when the extension exists (else the brief through
+ * `--append-system-prompt`), and the extension's environment. Creates the transcript dir.
+ */
+export function pi_spawn_options(
+    session: SessionSummary,
+    agent: AgentSpawnSpec,
+    options: PiHarnessOptions,
+): PiSpawnOptions {
+    assert.ok(/^[a-z0-9][a-z0-9-]*$/.test(agent.name), `agent name ${agent.name}`);
+    const brief = agent_brief_path(session.path, agent.name);
+    assert.ok(existsSync(brief), `${brief} does not exist`);
+    const session_dir = join(session.path, agent_pi_dir(agent.name));
+    mkdirSync(session_dir, { recursive: true });
+    const extra_args: string[] = [];
+    const skills = join(session.path, "skills");
+    if (existsSync(skills) && has_entries(skills)) {
+        extra_args.push("--skill", skills);
+    }
+    const extension = resolved_extension(options);
+    if (extension !== null) {
+        // The extension puts the brief in its prompt section; without it, pi appends it.
+        extra_args.push("--extension", extension);
+    } else {
+        extra_args.push("--append-system-prompt", brief);
+    }
+    const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
+    const model = agent.model ?? options.default_model;
+    const env: Record<string, string> = {
+        [EXTENSION_ENV.session_dir]: session.path,
+        [EXTENSION_ENV.agent]: agent.name,
+        [EXTENSION_ENV.daemon_url]: options.daemon_url?.() ?? "",
+        [EXTENSION_ENV.role]: role,
+    };
+    return {
+        pi: options.pi(),
+        cwd: agent.cwd,
+        session_dir,
+        session_id: agent.name,
+        ...(model === undefined ? {} : { model }),
+        extra_args,
+        env,
+    };
+}
+
+/** The extension entry that exists, or null: absent means the checkout's, null means none. */
+export function resolved_extension(options: PiHarnessOptions): string | null {
+    const extension =
+        options.extension === undefined ? default_extension_path() : options.extension;
+    if (extension !== null && existsSync(extension)) {
+        return extension;
+    }
+    return null;
 }
 
 /** `--skill` on an empty directory is noise in pi's diagnostics; pass it only with content. */

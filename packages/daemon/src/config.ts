@@ -1,7 +1,8 @@
 // The daemon's settings file, `<home>/config.yaml`, and the daemon's runtime files under the
 // same home (`daemon.pid`, `daemon.log`). The file holds the non-secret settings only:
-// `pi_bin`, `port`, `default_model`, `slack.channel`. The environment overrides each key
-// (`SPINNER_PI`, `SPINNER_PORT`, `SPINNER_DEFAULT_MODEL`, `SPINNER_SLACK_CHANNEL`), so a
+// `pi_bin`, `port`, `default_model`, `agents.harness`, `slack.channel`. The environment
+// overrides each key (`SPINNER_PI`, `SPINNER_PORT`, `SPINNER_DEFAULT_MODEL`,
+// `SPINNER_AGENTS_HARNESS`, `SPINNER_SLACK_CHANNEL`), so a
 // shell or a launch agent can change one setting without editing the file. A missing file is
 // fine. Secrets never enter the file: a key that looks like one is an error at start, so a
 // token pasted in by mistake stops the daemon instead of sitting in a world-readable file.
@@ -20,6 +21,10 @@ export interface DaemonConfig {
     port?: number;
     /** `provider/model` for an agent tab that names no model. pi's own default when absent. */
     default_model?: string;
+    agents: {
+        /** How an agent tab's pi runs: `tty` (pi's terminal UI in a pty) or `rpc`. `tty` when absent. */
+        harness?: "tty" | "rpc";
+    };
     slack: {
         /** The channel `spinner post` uses when the project's spec names none. */
         channel?: string;
@@ -39,12 +44,15 @@ export const CONFIG_ENV = {
     pi_bin: "SPINNER_PI",
     port: "SPINNER_PORT",
     default_model: "SPINNER_DEFAULT_MODEL",
+    agents_harness: "SPINNER_AGENTS_HARNESS",
     slack_channel: "SPINNER_SLACK_CHANNEL",
 } as const;
 
 /** Keys the file may hold. Anything else is an error, so a typo does not silently do nothing. */
-const CONFIG_KEYS = ["pi_bin", "port", "default_model", "slack"];
+const CONFIG_KEYS = ["pi_bin", "port", "default_model", "agents", "slack"];
+const AGENTS_KEYS = ["harness"];
 const SLACK_KEYS = ["channel"];
+const HARNESSES = ["tty", "rpc"];
 
 /** A key that contains one of these names a secret, which belongs in `~/.spinner/env`. */
 const SECRET_KEY_PATTERN = /token|secret|password|api_key|apikey/i;
@@ -59,7 +67,7 @@ export function load_config(home: SpinnerHome, env: NodeJS.ProcessEnv = process.
     const found = existsSync(path);
     const config: DaemonConfig = found
         ? parse_config(readFileSync(path, "utf8"), path)
-        : { slack: {} };
+        : { agents: {}, slack: {} };
     apply_environment(config, env);
     assert.ok(config.port === undefined || Number.isInteger(config.port));
     return { config, path, found };
@@ -69,11 +77,11 @@ export function load_config(home: SpinnerHome, env: NodeJS.ProcessEnv = process.
 export function parse_config(text: string, path: string): DaemonConfig {
     const raw: unknown = parse(text);
     if (raw === null || raw === undefined) {
-        return { slack: {} };
+        return { agents: {}, slack: {} };
     }
     const root = record_or_throw(raw, path, "the file");
     check_keys(root, CONFIG_KEYS, path, "");
-    const config: DaemonConfig = { slack: {} };
+    const config: DaemonConfig = { agents: {}, slack: {} };
     const pi_bin = root["pi_bin"];
     if (pi_bin !== undefined) {
         config.pi_bin = string_or_throw(pi_bin, path, "pi_bin");
@@ -85,6 +93,15 @@ export function parse_config(text: string, path: string): DaemonConfig {
     const default_model = root["default_model"];
     if (default_model !== undefined) {
         config.default_model = string_or_throw(default_model, path, "default_model");
+    }
+    const agents = root["agents"];
+    if (agents !== undefined) {
+        const block = record_or_throw(agents, path, "agents");
+        check_keys(block, AGENTS_KEYS, path, "agents.");
+        const harness = block["harness"];
+        if (harness !== undefined) {
+            config.agents.harness = harness_or_throw(harness, path, "agents.harness");
+        }
     }
     const slack = root["slack"];
     if (slack !== undefined) {
@@ -112,10 +129,21 @@ function apply_environment(config: DaemonConfig, env: NodeJS.ProcessEnv): void {
     if (default_model !== undefined && default_model !== "") {
         config.default_model = default_model;
     }
+    const harness = env[CONFIG_ENV.agents_harness];
+    if (harness !== undefined && harness !== "") {
+        config.agents.harness = harness_or_throw(harness, `$${CONFIG_ENV.agents_harness}`, harness);
+    }
     const channel = env[CONFIG_ENV.slack_channel];
     if (channel !== undefined && channel !== "") {
         config.slack.channel = channel;
     }
+}
+
+function harness_or_throw(value: unknown, path: string, key: string): "tty" | "rpc" {
+    if (value === "tty" || value === "rpc") {
+        return value;
+    }
+    throw new Error(`${path}: ${key} must be one of ${HARNESSES.join(", ")}`);
 }
 
 function check_keys(
