@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
     copyFileSync,
+    cpSync,
     existsSync,
     lstatSync,
     mkdirSync,
@@ -12,6 +13,7 @@ import {
     readFileSync,
     renameSync,
     rmSync,
+    statSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
@@ -231,7 +233,7 @@ export async function attach_project(
  * edits (tokens filled in). Returns the paths it copied. A file the primary checkout does
  * not have is skipped, not an error, so a fresh clone still works.
  */
-function copy_seed_files(repo_path: string, worktree: string, files: string[]): string[] {
+export function copy_seed_files(repo_path: string, worktree: string, files: string[]): string[] {
     const copied: string[] = [];
     for (const file of files) {
         assert.ok(!file.startsWith("/") && !file.includes(".."), `seed_files entry: ${file}`);
@@ -240,10 +242,16 @@ function copy_seed_files(repo_path: string, worktree: string, files: string[]): 
         if (!existsSync(source)) {
             continue;
         }
+        mkdirSync(dirname(target), { recursive: true });
+        if (statSync(source).isDirectory()) {
+            // A directory entry (a vendored binary's folder) is copied whole, every time.
+            cpSync(source, target, { recursive: true });
+            copied.push(file);
+            continue;
+        }
         if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) {
             continue;
         }
-        mkdirSync(dirname(target), { recursive: true });
         copyFileSync(source, target);
         copied.push(file);
     }

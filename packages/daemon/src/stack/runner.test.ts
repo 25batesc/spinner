@@ -1,7 +1,7 @@
 // Goal: `seed_links` links a directory only when the lockfile next to it is the same in the
 // primary checkout and the worktree; a changed lockfile means an install of its own.
 // Method: two temporary trees with and without a lockfile difference.
-import { lstatSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -14,7 +14,7 @@ import {
     shared_use_lines,
 } from "./docker.js";
 import { homes_in_route_files, session_numbers_in_route_files } from "./host-service.js";
-import { link_seed_dirs } from "./runner.js";
+import { copy_seed_files, link_seed_dirs } from "./runner.js";
 
 describe("link_seed_dirs", () => {
     it("links when the lockfile matches and skips when it differs", () => {
@@ -41,6 +41,24 @@ describe("link_seed_dirs", () => {
             },
         ]);
         expect(lstatSync(join(worktree, "apps", "api", ".venv")).isSymbolicLink()).toBe(true);
+    });
+});
+
+describe("copy_seed_files", () => {
+    it("copies a file once and a directory whole", () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-seed-"));
+        const primary = join(root, "primary");
+        const worktree = join(root, "worktree");
+        mkdirSync(join(primary, "vendor", "darwin-arm64"), { recursive: true });
+        mkdirSync(worktree);
+        writeFileSync(join(primary, ".env"), "TOKEN=x\n");
+        writeFileSync(join(primary, "vendor", "darwin-arm64", "binding.node"), "bin");
+
+        const first = copy_seed_files(primary, worktree, [".env", "vendor/darwin-arm64", "missing"]);
+        expect(first).toEqual([".env", "vendor/darwin-arm64"]);
+        expect(existsSync(join(worktree, "vendor", "darwin-arm64", "binding.node"))).toBe(true);
+        const second = copy_seed_files(primary, worktree, [".env", "vendor/darwin-arm64"]);
+        expect(second).toEqual(["vendor/darwin-arm64"]);
     });
 });
 
