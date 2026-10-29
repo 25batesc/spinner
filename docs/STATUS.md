@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-29, after session s005.
+Updated: 2026-10-29, after session s006; s007 (M4) in progress.
 
 ## Summary
 
@@ -17,8 +17,8 @@ Updated: 2026-10-29, after session s005.
 | M0 · Bootstrap | done | s001 | $5.80 | 17 min | 37 |
 | M1 · Board + stack runner | done, 2026-10-27 | s002 (5 rounds) | $77.68 | 161 min | 132 |
 | M2 · Agents drive PRs home | done except the operator's real feature | s003, s005 | $75.53 | 170 min | 233 |
-| M3 · Web UI | partial | s003 | (in s003) | | |
-| M4 · Desktop | open | | | | |
+| M3 · Web UI | done (record), 2026-10-29 | s003, s005, s006 | (in s003, s005, s006) | | |
+| M4 · Desktop | in progress | s007 | | | |
 | M5 · Release | open | | | | |
 
 The repo holds 92 commits, 22 by the operator and 70 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `ae34881` with 233 tests.
@@ -94,6 +94,11 @@ Fixtures from real PRs, scrubbed, under `packages/daemon/test/fixtures/github/`:
 | 18 | The stack agent printed a registry token from an untracked `.npmrc` into its own transcript while debugging an install. No tracked file holds it | operator | rotate the tokens if the transcript leaves the machine; the brief now names the files an agent never prints |
 | 19 | The admin app reads the 3.0 API from its own variable, and the copied `.env.local` pointed it at the primary's `localhost:8000`; its three hosted APIs need `upstreams` too; one of them does not resolve in DNS from this machine | done in the spec | the private README records the hosts |
 | 20 | A hand-built native binding (`node-sass`) does not come back from a fresh worktree install; every stylesheet failed and the page was blank | done in the spec | `seed_files` copies the binding; recipe updated |
+| 22 | `close` signalled the process group of a reused pid and killed the operator's browser windows and an agent runner | done in `68e8ccf` | identity is pid plus start time; a legacy record needs its cwd inside the session |
+| 23 | An adopted session had no worktrees and `add agent` wanted a brief nothing could write | done in s006 | `adopt --project`, `attach`, the default brief |
+| 24 | The preview was blank again on the operator's PR: the `node-sass` binding entry had been lost in a spec rewrite, and `seed_files` ran before `install` | spec fixed by hand; ordering open | `seed_files` after `install` |
+| 25 | Login inside the preview frame loops: the app's cookies are `SameSite=Lax`; `*.localhost` labels are separate sites | M4 (s007) | `WebContentsView` previews; the web UI says "open in tab" on such a service |
+| 26 | `verify` has no undo | open | `DELETE /sessions/:dir/verify`, the checkbox toggles |
 | 21 | After a pop-out the board shows the next stage by the table (`fixing`, because a bot thread was open), and `needs_human` stays empty. The operator wants the cause in the line: "popped out of the queue (manual); 1 bot thread open" | board agent, M2 | `needs_human` carries the pop-out reason for one poll after a `queue: popped` transition |
 
 ### Record
@@ -125,7 +130,7 @@ Round 1: board agent $8.83 (claude-fable-5-1, 22 min), stack agent $24.60 (75 mi
 
 Record: engine $36.60 (claude-fable-5-1, 58 min), ext $15.23 (claude-fable-5-1, 32 min), ui $1.74 (claude-sonnet-5-5, 12 min). Operator relays 3, decisions 1, inbox messages 2. A throwaway public repository `spinner-sandbox` under the operator's account holds the live run; the Slack app is a user-token app named Spinner. Full record: [sessions/s005-MISSION.md](sessions/s005-MISSION.md).
 
-## M3 · Web UI (partial)
+## M3 · Web UI (done, 2026-10-29)
 
 | Exit criterion or item | State | Evidence |
 |---|---|---|
@@ -139,9 +144,10 @@ Record: engine $19.40 (claude-fable-5-1, 38 min), ui $2.56 (claude-sonnet-5-5, 3
 
 ### Next
 
-1. Plan 9 of s005: one real feature of the operator's project through the UI, which also gives the merge-queue enqueue its live test. The operator's call.
-2. M3's last item: a new user follows the README on their own stack in under an hour. Needs `spinner daemon start|stop|status`, a launch-at-login item, and the README path. Then M4 (Electron) and M5 (release).
-3. Open from M1: `examples/sample-stack` in CI; `up` under 15 s on a stack with host services; finding 21.
+1. s007 (M4): the Electron app with `WebContentsView` previews, connecting to the running daemon; the web UI stays first-class.
+2. The operator's real PR in s006 of his home: the feasibility-agent eval harness, through the UI; `pr → land` on it gives the merge-queue enqueue its live test.
+3. Soak fixes: the verify toggle, `seed_files` after `install`, the pop-out reason in `needs_human` (finding 21), `up` under 15 s on a stack with host services.
+4. M5: packaging and signing, `spinner init` from the recipes, the public repository.
 
 ## Budget
 

@@ -64,7 +64,7 @@ Replace yourself as the message bus and as the person who relays review comments
 
 Exit: one real feature of your own project goes `pr → fix → verify → post → approve → land` where your only actions were ticking *verify*, confirming the Slack post, and approving; and session s001's next round runs through the daemon instead of by hand.
 
-## M3 · Web UI (pulled forward: the panes without agents landed in s003; see [STATUS.md](STATUS.md))
+## M3 · Web UI (done 2026-10-29; see [STATUS.md](STATUS.md))
 
 The sketch, working, with the board as the left pane.
 
@@ -77,7 +77,7 @@ The sketch, working, with the board as the left pane.
 
 Exit: a feature goes from `new session` to merged PRs without opening a terminal, and a new user can follow `README` to get there on their own stack in under an hour.
 
-## M4 · Desktop wrapper
+## M4 · Desktop wrapper (in progress, s007; see [STATUS.md](STATUS.md))
 
 Same UI in Electron, for the things a browser cannot do.
 
