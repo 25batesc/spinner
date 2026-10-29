@@ -11,3 +11,4 @@ export * from "./pipeline.js";
 export * from "./agent-event.js";
 export * from "./threads.js";
 export * from "./extension.js";
+export * from "./desktop-bridge.js";

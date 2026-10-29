@@ -99,6 +99,7 @@ export function build_stack(
             host,
             url: host === null ? null : service_url(host, http_port),
             process,
+            preview: service.preview ?? "frame",
         });
     }
     return {

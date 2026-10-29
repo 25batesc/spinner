@@ -13,6 +13,7 @@ import type {
     SessionSummary,
     StackStateName,
 } from "./session.js";
+import type { PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
 
 export const DAEMON_HOST = "127.0.0.1";
@@ -161,6 +162,8 @@ export interface ServiceView {
     url: string | null;
     /** For `where: host`: the process `spinner up` started, while the stack is up. */
     process: HostProcess | null;
+    /** `services.<name>.preview` of the spec, `frame` when the spec leaves it out. */
+    preview: PreviewMode;
 }
 
 /** Stack state assembled from `session.yaml` and the daemon's last docker observation. */

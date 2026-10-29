@@ -768,6 +768,10 @@
                         }
                     ],
                     "description": "For `where: host`: the process `spinner up` started, while the stack is up."
+                },
+                "preview": {
+                    "$ref": "#/definitions/PreviewMode",
+                    "description": "`services.<name>.preview` of the spec, `frame` when the spec leaves it out."
                 }
             },
             "required": [
@@ -776,7 +780,8 @@
                 "status",
                 "host",
                 "url",
-                "process"
+                "process",
+                "preview"
             ],
             "additionalProperties": false
         },
@@ -798,6 +803,14 @@
                 "unknown"
             ],
             "description": "A service's health as the daemon last observed it. `unknown` is a service with no healthcheck that is running; `stopped` covers a stack that is down or a missing container."
+        },
+        "PreviewMode": {
+            "type": "string",
+            "enum": [
+                "frame",
+                "top-level"
+            ],
+            "description": "How the UI embeds the service's preview. `frame` (the default) is an iframe. `top-level` marks an app that needs its own top-level page, for example one whose login cookie is `SameSite=Lax`: the desktop app shows it in a `WebContentsView`, and the browser UI keeps the iframe but tells the operator to open it in a tab."
         }
     },
     "$id": "https://spinner.dev/schema/session-view.json",

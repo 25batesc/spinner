@@ -17,6 +17,14 @@ export type ServiceRuntime = "node" | "python" | "host";
  */
 export type DepsVolume = "pnpm-store" | "npm-cache" | "yarn-cache" | "venv";
 
+/**
+ * How the UI embeds the service's preview. `frame` (the default) is an iframe. `top-level`
+ * marks an app that needs its own top-level page, for example one whose login cookie is
+ * `SameSite=Lax`: the desktop app shows it in a `WebContentsView`, and the browser UI keeps
+ * the iframe but tells the operator to open it in a tab.
+ */
+export type PreviewMode = "frame" | "top-level";
+
 export interface StackRepo {
     /** Path of the repo on this machine. May start with `~`, or be relative to the spec file. */
     path: string;
@@ -97,6 +105,8 @@ export interface StackService {
      * example `${TEMPORAL_7233_HOST_PORT}`.
      */
     publish?: number[];
+    /** How the UI embeds the preview. Defaults to `frame`. */
+    preview?: PreviewMode;
 }
 
 export type DatabaseMode = "template" | "per-session";

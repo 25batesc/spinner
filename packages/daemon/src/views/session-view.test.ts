@@ -11,7 +11,7 @@ const spec: StackSpec = {
     base: "main",
     repos: { app: { path: "/repo" } },
     services: {
-        api: { port: 3000, host: "api", healthcheck: "GET /health" },
+        api: { port: 3000, host: "api", healthcheck: "GET /health", preview: "top-level" },
         worker: { port: 3001 },
         backend: { port: 8000, host: "backend", runtime: "host", healthcheck: "GET /ping" },
     },
@@ -73,6 +73,7 @@ describe("build_stack", () => {
                 host: "api.s017.localhost",
                 url: "http://api.s017.localhost:8080",
                 process: null,
+                preview: "top-level",
             },
             {
                 name: "worker",
@@ -81,6 +82,7 @@ describe("build_stack", () => {
                 host: null,
                 url: null,
                 process: null,
+                preview: "frame",
             },
             {
                 name: "backend",
@@ -89,6 +91,7 @@ describe("build_stack", () => {
                 host: "backend.s017.localhost",
                 url: "http://backend.s017.localhost:8080",
                 process: { pid: 42, port: 65501, log: "log/backend.log" },
+                preview: "frame",
             },
         ]);
     });
