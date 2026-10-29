@@ -85,7 +85,14 @@ export function build_stack(
 ): StackView {
     const stack: SessionSummary["session"]["stack"] = summary.session.stack ?? { state: "none" };
     if (spec === null) {
-        return { state: stack.state, project: null, database: null, services: [], observed: null };
+        return {
+            state: stack.state,
+            project: null,
+            database: null,
+            services: [],
+            observed: null,
+            last_job: stack.last_job ?? null,
+        };
     }
     const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
     const services: ServiceView[] = [];
@@ -108,6 +115,7 @@ export function build_stack(
         database: stack.db ?? null,
         services,
         observed: observation?.observed ?? null,
+        last_job: stack.last_job ?? null,
     };
 }
 

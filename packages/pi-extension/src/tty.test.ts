@@ -12,6 +12,7 @@ import { act } from "./tty.js";
 
 interface FakePi extends ExtensionAPI {
     sent: Array<{ text: string; deliverAs: string | undefined }>;
+    custom: Array<{ customType: string; content: string; options: unknown }>;
     handlers: Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>;
     fire(event: string, payload: unknown, ctx: ExtensionContext): Promise<void>;
 }
@@ -19,11 +20,18 @@ interface FakePi extends ExtensionAPI {
 function fake_pi(): FakePi {
     const pi = {
         sent: [],
+        custom: [],
         handlers: new Map(),
         registerTool: () => undefined,
         registerCommand: () => undefined,
         sendUserMessage: (text: string, options?: { deliverAs?: string }) => {
             pi.sent.push({ text, deliverAs: options?.deliverAs });
+        },
+        sendMessage: (
+            message: { customType: string; content: string; display: boolean },
+            options?: unknown,
+        ) => {
+            pi.custom.push({ customType: message.customType, content: message.content, options });
         },
         getCommands: () => [{ name: "help", source: "extension" as const }],
         on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
@@ -130,7 +138,8 @@ describe("the tty channel", () => {
         const served = await fake_daemon([
             { id: "c-1", type: "prompt", text: "hello there" },
             { id: "c-2", type: "steer", text: "also this" },
-            { id: "c-3", type: "abort" },
+            { id: "c-3", type: "notify", text: "Spinner: the stack job `up` failed" },
+            { id: "c-4", type: "abort" },
         ]);
         daemon = served;
         const pi = fake_pi();
@@ -164,7 +173,15 @@ describe("the tty channel", () => {
         expect(polls[0]).toBe("/sessions/s1-x/agents/engine/commands");
         expect(polls[1]).toBe("/sessions/s1-x/agents/engine/commands?ack=c-1&disposition=started");
         expect(polls[2]).toBe("/sessions/s1-x/agents/engine/commands?ack=c-2&disposition=started");
-        expect(polls[3]).toBe("/sessions/s1-x/agents/engine/commands?ack=c-3&disposition=aborted");
+        expect(polls[3]).toBe("/sessions/s1-x/agents/engine/commands?ack=c-3&disposition=started");
+        expect(polls[4]).toBe("/sessions/s1-x/agents/engine/commands?ack=c-4&disposition=aborted");
+        expect(pi.custom).toEqual([
+            {
+                customType: "spinner_notice",
+                content: "Spinner: the stack job `up` failed",
+                options: { triggerTurn: true },
+            },
+        ]);
 
         await pi.fire("agent_start", { type: "agent_start" }, ctx);
         await pi.fire("agent_settled", { type: "agent_settled", aborted: false }, ctx);
@@ -201,9 +218,13 @@ describe("the tty channel", () => {
         expect(act(pi, busy, { id: "c-1", type: "prompt", text: "p" })).toBe("queued");
         expect(act(pi, busy, { id: "c-2", type: "steer", text: "s" })).toBe("queued");
         expect(act(pi, busy, { id: "c-3", type: "prompt", text: "" })).toBe("ignored");
+        expect(act(pi, busy, { id: "c-4", type: "notify", text: "n" })).toBe("queued");
         expect(pi.sent).toEqual([
             { text: "p", deliverAs: "followUp" },
             { text: "s", deliverAs: "steer" },
+        ]);
+        expect(pi.custom).toEqual([
+            { customType: "spinner_notice", content: "n", options: { deliverAs: "steer" } },
         ]);
     });
 });

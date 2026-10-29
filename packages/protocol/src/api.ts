@@ -11,6 +11,7 @@ import type {
     HostProcess,
     PrState,
     SessionSummary,
+    StackLastJob,
     StackStateName,
 } from "./session.js";
 import type { PreviewMode } from "./stack-spec.js";
@@ -103,6 +104,8 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/events": "AgentCommandResponse",
     /** WebSocket upgrade to a tty agent's pty; see `TTY_PATH` and `TtyClientMessage`. */
     "GET /sessions/:dir/agents/:name/tty": "websocket",
+    /** A service's last log lines: a host service's file or `docker logs`. Query: `lines` */
+    "GET /sessions/:dir/stack/logs/:service": "StackLogsResponse",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
     /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
@@ -219,7 +222,24 @@ export interface StackView {
     services: ServiceView[];
     /** ISO 8601 time of the last docker observation, or null before the first one. */
     observed: string | null;
+    /**
+     * The last `up`, `down` or `reset` job, or null before the first one. The daemon always
+     * sets it; optional so a fixture written before s011 still type-checks.
+     */
+    last_job?: StackLastJob | null;
 }
+
+/** `GET /sessions/:dir/stack/logs/:service`. */
+export interface StackLogsResponse {
+    service: string;
+    where: ServiceWhere;
+    /** The last `lines` lines, oldest first. */
+    lines: string[];
+}
+
+/** Upper bound on `?lines=` of the stack logs route; the default is 100. */
+export const STACK_LOGS_LINES_MAX = 2000;
+export const STACK_LOGS_LINES_DEFAULT = 100;
 
 /** The pipeline tracker's view of a session: the derived stage and the PR facts behind it. */
 export interface BoardView extends StageResult {
@@ -551,10 +571,14 @@ export interface PiCommandInfo {
     sourceInfo?: { path?: string };
 }
 
-/** One command the daemon hands a tty agent's extension; `text` is absent for `abort`. */
+/**
+ * One command the daemon hands a tty agent's extension; `text` is absent for `abort`.
+ * `notify` is a message from the daemon itself (a failed stack job), delivered as a custom
+ * message that starts or steers a turn, so the agent reacts without being asked.
+ */
 export interface AgentExtensionCommand {
     id: string;
-    type: "prompt" | "steer" | "abort";
+    type: "prompt" | "steer" | "abort" | "notify";
     text?: string;
 }
 

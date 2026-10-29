@@ -123,17 +123,26 @@ async function fake_daemon(
                 answer(200, { ok: true, sections: [(body as { section: string }).section] });
             } else if (path.endsWith("/inbox")) {
                 answer(201, { file: "120000-alpha-beta.md" });
+            } else if (/\/stack\/logs\/web\?lines=20$/.test(path)) {
+                answer(200, { service: "web", where: "host", lines: ["boot", "listening :8000"] });
             } else if (/^\/sessions\/[^/]+$/.test(path)) {
                 answer(200, {
                     session: {
                         summary: { dir: "s1-x", session: { stage: "building" } },
                         board: null,
                         stack: {
-                            state: "up",
+                            state: "failed",
                             project: "spinner-s1",
                             services: [
                                 { name: "web", status: "healthy", url: "http://web.s1.localhost" },
                             ],
+                            last_job: {
+                                action: "up",
+                                state: "failed",
+                                error: "service web is unhealthy",
+                                finished: "2026-10-29T21:00:00.000Z",
+                                tail: ["pulling web", "web exited 1"],
+                            },
                         },
                     },
                 });
@@ -286,11 +295,16 @@ describe("tools against the daemon routes", () => {
                 "Sent inbox/120000-alpha-beta.md to beta.",
             );
             expect(await run(pi, "pr", { command: "show" })).toContain("No PR yet; stage building");
-            expect(await run(pi, "stack", { command: "show" })).toContain(
-                "- web: healthy · http://web",
+            const shown = await run(pi, "stack", { command: "show" });
+            expect(shown).toContain("- web: healthy · http://web");
+            expect(shown).toContain("Last job: `up` failed at 2026-10-29T21:00:00.000Z.");
+            expect(shown).toContain("Error: service web is unhealthy");
+            expect(shown).toContain("  web exited 1");
+            expect(await run(pi, "stack", { command: "logs", service: "web", lines: 20 })).toBe(
+                "web (host), last 2 lines:\nboot\nlistening :8000",
             );
-            expect(await run(pi, "stack", { command: "logs", service: "web" })).toContain(
-                "spinner logs",
+            expect(await run(pi, "stack", { command: "restart", service: "web" })).toContain(
+                "spinner restart",
             );
             const listed = await run(pi, "thread_list", {});
             expect(listed).toContain("api#7 · 1 open (1 bot, 0 human)");

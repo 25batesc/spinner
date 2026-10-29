@@ -168,11 +168,16 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
     };
 }
 
+/** The `customType` of a daemon notice in pi's transcript, for example a failed stack job. */
+export const NOTICE_TYPE = "spinner_notice";
+
 /**
  * Runs one command and names what pi did with it. A prompt starts a turn when pi is idle and
  * queues as a follow-up when it is busy; a steer queues ahead of the next model call (and
- * starts a turn when idle); an abort stops the run. The disposition words are the RPC
- * harness's, so the daemon's callers see the same answers on both paths.
+ * starts a turn when idle); an abort stops the run. A notify is the daemon's own message (a
+ * failed stack job): a custom message that starts a turn when idle and steers when busy, so
+ * the transcript shows it came from Spinner, not from a person. The disposition words are
+ * the RPC harness's, so the daemon's callers see the same answers on both paths.
  */
 export function act(
     pi: ExtensionAPI,
@@ -190,6 +195,11 @@ export function act(
     }
     if (command.type === "steer") {
         pi.sendUserMessage(text, { deliverAs: "steer" });
+        return idle ? "started" : "queued";
+    }
+    if (command.type === "notify") {
+        const message = { customType: NOTICE_TYPE, content: text, display: true };
+        pi.sendMessage(message, idle ? { triggerTurn: true } : { deliverAs: "steer" });
         return idle ? "started" : "queued";
     }
     if (idle) {

@@ -57,7 +57,7 @@ posts it at `session_start`, so once at pi's start and again after `/spinner-rel
 
 The long-poll. The daemon holds the request up to 30 s, then answers:
 
-- 200 `{ "command": { "id": "c-1", "type": "prompt" | "steer" | "abort", "text": "..." } }`,
+- 200 `{ "command": { "id": "c-1", "type": "prompt" | "steer" | "abort" | "notify", "text": "..." } }`,
   one command per response; `text` is absent for `abort`.
 - 204 when no command arrived in time. The extension reopens the poll at once.
 
@@ -72,6 +72,8 @@ ack in 30 s the route answers 504. The extension acts as follows:
 | `prompt`, pi busy | `pi.sendUserMessage(text, { deliverAs: "followUp" })` | `queued` |
 | `steer` | `pi.sendUserMessage(text, { deliverAs: "steer" })` | `started` or `queued` |
 | `abort` | `ctx.abort()` | `aborted` |
+| `notify`, pi idle | `pi.sendMessage({ customType: "spinner_notice", content, display: true }, { triggerTurn: true })` | `started` |
+| `notify`, pi busy | `pi.sendMessage(..., { deliverAs: "steer" })` | `queued` |
 
 ### `POST /sessions/:dir/agents/:name/events`
 
@@ -80,6 +82,31 @@ Body `AgentEventsRequest`: `{ "events": PiEvent[] }`, bound 8 MiB. The extension
 `tool_execution_end`, each with the fields pi hands the extension, batched. The daemon's
 fold is the one the RPC harness uses: `agent.event` on the bus per event, `process: running`
 on `agent_start`, `agent.settled` and `process: idle` on `agent_settled`. Answer: 202.
+
+## Stack jobs: `stack.last_job` and the notice to the agent
+
+When an `up`, `down` or `reset` job ends, the daemon writes `stack.last_job` into
+`session.yaml`. The record holds `action`, `state` (`ok` or `failed`), `error` (the job's
+error message, or null), `finished` (ISO 8601) and `tail` (the last 40 log lines). `GET /sessions/:dir`
+carries it as `stack.last_job`, null before the first job. The extension's `stack show` prints
+the error and the tail under the service list when the state is `failed`.
+
+When the job failed and the session has a running `tty` agent, the daemon also sends one
+`notify` command through the extension channel (next section). The text holds the first
+error line, the tail in a code fence, and a pointer to the `stack` tool. The extension delivers it as a custom
+message (`customType: spinner_notice`). The message starts a turn when pi is idle and steers
+the running one when it is busy. One notice per failed job; every running tty agent of the session
+receives it. An `rpc` agent receives none.
+
+## Stack logs
+
+`GET /sessions/:dir/stack/logs/:service?lines=N` answers `StackLogsResponse`:
+`{ "service", "where": "host" | "container", "lines": string[] }`, oldest first. `lines` is 1
+to 2000, default 100. A host service's lines come from its file under the session's `log/`. A
+container's lines come from `docker compose logs --tail N`. The route answers 404 when the
+session has no such service and no log file for it. It answers 400 for a bad `lines` or
+service name, and 502 when docker fails.
+The extension's `stack logs` calls this route; `spinner logs` keeps its attached `tail -f`.
 
 ## Agent records in `session.yaml`
 

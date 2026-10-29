@@ -30,9 +30,16 @@ import type {
     ProjectsResponse,
     SessionResponse,
     SessionsResponse,
+    StackLogsResponse,
     SessionView,
 } from "@spinner/protocol";
-import { DAEMON_HOST, DAEMON_PORT, EVENTS_PATH } from "@spinner/protocol";
+import {
+    DAEMON_HOST,
+    DAEMON_PORT,
+    EVENTS_PATH,
+    STACK_LOGS_LINES_DEFAULT,
+    STACK_LOGS_LINES_MAX,
+} from "@spinner/protocol";
 import * as actions from "./actions.js";
 import type { ActionContext } from "./actions.js";
 import { Deliverer } from "./agents/delivery.js";
@@ -53,6 +60,8 @@ import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { start_poller, type Poller } from "./pipeline/poller.js";
 import { mount_pipeline_routes } from "./pipeline/routes.js";
+import { watch_stack_jobs } from "./stack/job-record.js";
+import { service_log_lines, StackLogsError } from "./stack/logs.js";
 import { list_projects } from "./projects.js";
 import {
     parse_add_agent,
@@ -359,6 +368,28 @@ export function create_app(deps: AppDeps): Hono {
         return c.json(body);
     });
 
+    app.get("/sessions/:dir/stack/logs/:service", async (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const lines = parse_lines(c.req.query("lines"));
+        if (typeof lines === "string") {
+            return c.json(error_body(lines), 400);
+        }
+        const service = c.req.param("service");
+        if (!/^[a-z0-9][a-z0-9_-]*$/i.test(service)) {
+            return c.json(error_body(`service name "${service}" is not valid`), 400);
+        }
+        try {
+            const body: StackLogsResponse = await service_log_lines(summary, service, lines);
+            return c.json(body);
+        } catch (error) {
+            const status = error instanceof StackLogsError ? error.status : 500;
+            return c.json(error_body(describe_error(error)), status);
+        }
+    });
+
     app.get("/models", async (c) => {
         try {
             const body: ModelsResponse = { models: await deps.models() };
@@ -549,6 +580,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
     bound_port = address.port;
 
+    const unwatch_stack_jobs = watch_stack_jobs({ home, bus, agents, log });
     const ttys = tty_upgrader({ home, agents, tty, log });
     const sockets = attach_events_socket(server, bus, log, ttys.handle);
     const watcher = watch_sessions(home, bus, view, { on_error: log });
@@ -576,6 +608,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         tty,
         watcher,
         close: async () => {
+            unwatch_stack_jobs();
             await agents.stop_all();
             poller?.stop();
             observer?.stop();
@@ -678,6 +711,18 @@ function attach_events_socket(
         client.on("error", (error) => log(`ws client error: ${error.message}`));
     });
     return sockets;
+}
+
+/** `?lines=` of the stack logs route: 1 to `STACK_LOGS_LINES_MAX`, default 100. */
+function parse_lines(text: string | undefined): number | string {
+    if (text === undefined || text === "") {
+        return STACK_LOGS_LINES_DEFAULT;
+    }
+    const value = Number(text);
+    if (!Number.isInteger(value) || value < 1 || value > STACK_LOGS_LINES_MAX) {
+        return `\`lines\` must be an integer from 1 to ${STACK_LOGS_LINES_MAX}`;
+    }
+    return value;
 }
 
 /** The parsed JSON body, `undefined` for an empty body, or `null` for unparsable text. */

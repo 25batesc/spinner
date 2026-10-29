@@ -92,6 +92,7 @@ export class ExtensionChannel {
         assert.ok(this.queue.length < QUEUE_MAX, "the extension stopped polling for commands");
         const has_text = text !== undefined && text.length > 0;
         assert.ok(type === "abort" || has_text, `${type} needs text`);
+        assert.ok(type !== "abort" || text === undefined, "abort carries no text");
         const id = `c-${this.next_id}`;
         this.next_id += 1;
         const command: AgentExtensionCommand = {

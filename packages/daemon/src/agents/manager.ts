@@ -196,6 +196,28 @@ export class AgentManager {
         return handle;
     }
 
+    /**
+     * Pushes a daemon notice (a failed stack job) to every running agent of `dir` whose
+     * harness can take one. Returns the names reached; a failed delivery is logged, not thrown.
+     */
+    async notify_all(dir: string, text: string): Promise<string[]> {
+        assert.ok(text.length > 0, "a notice must not be empty");
+        const reached: string[] = [];
+        for (const entry of this.hosted.values()) {
+            if (entry.dir !== dir || entry.handle.notify === undefined) {
+                continue;
+            }
+            try {
+                await entry.handle.notify(text);
+                reached.push(entry.name);
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                this.log(`notify ${entry.name} in ${dir}: ${reason}`);
+            }
+        }
+        return reached.sort();
+    }
+
     /** Stops the agent's process. The transcript stays; `add` resumes it. */
     async stop(dir: string, name: string): Promise<void> {
         const entry = this.hosted.get(key_of(dir, name));
@@ -270,12 +292,14 @@ export class AgentManager {
     private with_pending(key: string, handle: AgentHandle): AgentHandle {
         // The handle is a class instance; its methods live on the prototype, so each one is
         // forwarded by name rather than spread.
+        const notify = handle.notify?.bind(handle);
         return {
             pid: handle.pid,
             pi_session_id: handle.pi_session_id,
             exited: handle.exited,
             steer: (text) => handle.steer(text),
             abort: () => handle.abort(),
+            ...(notify === undefined ? {} : { notify }),
             commands: () => handle.commands(),
             on_event: (listener) => handle.on_event(listener),
             stop: () => handle.stop(),

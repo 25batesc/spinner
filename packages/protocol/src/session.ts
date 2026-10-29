@@ -128,7 +128,23 @@ export interface StackState {
     db_stale?: boolean;
     /** Services with `runtime: host`, by name: the process Spinner started for them. */
     processes?: Record<string, HostProcess>;
+    /** The last `up`, `down` or `reset` job, so an agent can see why a stack failed. */
+    last_job?: StackLastJob;
 }
+
+/** How the last stack job ended. Written by the daemon when the job finishes. */
+export interface StackLastJob {
+    action: "up" | "down" | "reset";
+    state: "ok" | "failed";
+    /** The error message of a failed job, else null. */
+    error: string | null;
+    /** ISO 8601 time the job finished. */
+    finished: string;
+    /** The last `STACK_JOB_TAIL_LINES` lines of the job's log. */
+    tail: string[];
+}
+
+export const STACK_JOB_TAIL_LINES = 40;
 
 /** A `runtime: host` service's process, as `spinner up` started it. */
 export interface HostProcess {

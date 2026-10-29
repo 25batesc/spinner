@@ -47,6 +47,7 @@ describe("build_stack", () => {
             database: null,
             services: [],
             observed: null,
+            last_job: null,
         });
     });
 

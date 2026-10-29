@@ -11,6 +11,7 @@ import type {
     MissionSectionResponse,
     PrThreadsView,
     SessionView,
+    StackLogsResponse,
     ThreadResponse,
     ThreadView,
     ThreadsResponse,
@@ -142,11 +143,20 @@ export async function run_tool(
             );
             return `Sent inbox/${response.file} to ${body.to}.`;
         }
-        case "stack":
-            return render_stack(
-                await client.get<{ session: SessionView }>(session),
-                text("command"),
-            );
+        case "stack": {
+            const command = text("command");
+            if (command === "logs") {
+                const service = text("service");
+                const lines = typeof args["lines"] === "number" ? args["lines"] : 100;
+                const query = `?lines=${encodeURIComponent(String(lines))}`;
+                return render_logs(
+                    await client.get<StackLogsResponse>(
+                        `${session}/stack/logs/${encodeURIComponent(service)}${query}`,
+                    ),
+                );
+            }
+            return render_stack(await client.get<{ session: SessionView }>(session), command);
+        }
         case "pr":
             return render_prs(await client.get<{ session: SessionView }>(session));
         case "thread_list": {
@@ -312,5 +322,24 @@ export function render_stack(response: { session: SessionView }, command: string
                 (service.url === null ? "" : ` · ${service.url}`),
         );
     }
+    const last = stack.last_job;
+    if (last !== null && last !== undefined && last.state === "failed") {
+        lines.push(
+            "",
+            `Last job: \`${last.action}\` failed at ${last.finished}.`,
+            `Error: ${last.error ?? "(no message)"}`,
+            `Last ${last.tail.length} log lines:`,
+            ...last.tail.map((line) => `  ${line}`),
+        );
+    }
     return lines.join("\n");
+}
+
+/** `stack logs`: the lines as they are, with a one-line header. */
+export function render_logs(response: StackLogsResponse): string {
+    const header = `${response.service} (${response.where}), last ${response.lines.length} lines:`;
+    if (response.lines.length === 0) {
+        return `${header} (empty)`;
+    }
+    return [header, ...response.lines].join("\n");
 }

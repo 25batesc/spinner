@@ -97,7 +97,7 @@ export type Log = (line: string) => void;
 
 /** The copy of the project's spec that a session keeps, with absolute paths. */
 export const SESSION_SPEC = join("stack", "spinner.yaml");
-const COMPOSE_FILE = join("stack", "compose.yaml");
+export const COMPOSE_FILE = join("stack", "compose.yaml");
 const ENV_FILE = join("stack", ".env");
 const PROXY_PORT_DEFAULT = 80;
 const POSTGRES_VERSION_DEFAULT = "16";
@@ -1180,7 +1180,7 @@ function seed_cwd(spec: StackSpec, seed: DatabaseSeed): string {
     return repo.path;
 }
 
-function compose_target(summary: SessionSummary): ComposeTarget {
+export function compose_target(summary: SessionSummary): ComposeTarget {
     return { project: compose_project(summary.session.id), file: join(summary.path, COMPOSE_FILE) };
 }
 

@@ -275,6 +275,11 @@ class PiTtyHandle implements AgentHandle {
         await this.tty.channel.enqueue("abort");
     }
 
+    notify(text: string): Promise<string> {
+        assert.ok(text.length > 0, "a notice must not be empty");
+        return this.tty.channel.enqueue("notify", text);
+    }
+
     /** What the extension posted with its last `hello`; empty before it. */
     commands(): Promise<PiCommand[]> {
         const hello = this.tty.channel.hello;

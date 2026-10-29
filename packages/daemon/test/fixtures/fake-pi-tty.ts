@@ -5,8 +5,9 @@
 // it reads back to the terminal (so a test can type and see the keystroke come back). It
 // long-polls `commands`: a `prompt` prints `> <text>` and posts `agent_start`, `turn_end`,
 // `agent_end` and `agent_settled`; a `steer` prints `steer: <text>`; an `abort` prints
-// `aborted`. A prompt of `exit` ends the process with code 0; SIGTERM ends it with 143 after
-// printing `bye`. The argv and the Spinner environment go to FAKE_PI_ARGS_FILE when set.
+// `aborted`; a `notify` prints `notice: <first line>`. A prompt of `exit` ends the process
+// with code 0; SIGTERM ends it with 143 after printing `bye`. The argv and the Spinner
+// environment go to FAKE_PI_ARGS_FILE when set.
 import { writeFileSync } from "node:fs";
 
 const args_file = process.env["FAKE_PI_ARGS_FILE"];
@@ -27,7 +28,7 @@ const base = `${process.env["SPINNER_DAEMON_URL"] ?? ""}/sessions/${dir}/agents/
 
 interface Command {
     id: string;
-    type: "prompt" | "steer" | "abort";
+    type: "prompt" | "steer" | "abort" | "notify";
     text?: string;
 }
 
@@ -56,6 +57,10 @@ async function act(command: Command): Promise<string> {
         return "aborted";
     }
     const text = command.text ?? "";
+    if (command.type === "notify") {
+        print(`notice: ${text.split("\n")[0] ?? ""}`);
+        return busy ? "queued" : "started";
+    }
     if (command.type === "steer") {
         print(`steer: ${text}`);
         return busy ? "queued" : "started";

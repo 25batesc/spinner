@@ -117,6 +117,7 @@ describe("REST", () => {
             database: null,
             services: [],
             observed: null,
+            last_job: null,
         });
     });
 

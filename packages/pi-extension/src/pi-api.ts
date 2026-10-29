@@ -111,6 +111,14 @@ export interface ExtensionAPI {
     registerCommand(name: string, command: RegisteredCommand): void;
     /** Sends a user message; it starts a turn, or queues as a steer or follow-up when busy. */
     sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void;
+    /**
+     * Sends a custom message (from an extension, not a person). `triggerTurn` starts a run
+     * when idle; `deliverAs` queues it into a running one.
+     */
+    sendMessage(
+        message: { customType: string; content: string; display: boolean },
+        options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+    ): void;
     /** The slash commands pi loaded. */
     getCommands(): SlashCommandInfo[];
     on(

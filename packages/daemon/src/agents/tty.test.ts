@@ -260,6 +260,57 @@ describe("the tty harness through the daemon", () => {
         client.socket.close();
     }, 30_000);
 
+    it("a failed stack job is recorded in session.yaml and pushed to the tty agent", async () => {
+        const summary = create_session(home, { title: "Broken stack" });
+        mkdirSync(join(summary.path, "agents", "engine"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "engine", "BRIEF.md"), "# engine\n");
+        const added = await call("POST", `/sessions/${summary.dir}/agents`, { name: "engine" });
+        expect(added.status).toBe(201);
+        const term = await attach(summary.dir, "engine");
+        await until(() => term.text().includes("fake pi tty ready"));
+
+        // `up` on a session without a spec copy fails before docker is touched.
+        const up = await call("POST", `/sessions/${summary.dir}/up`, {});
+        expect(up.status).toBe(202);
+        await until(() => events.some((event) => event.type === "job.finished"));
+        await until(() => session_yaml(summary.path).stack.last_job !== undefined);
+        const last_job = session_yaml(summary.path).stack.last_job;
+        expect(last_job).toMatchObject({ action: "up", state: "failed" });
+        expect(last_job?.error).toMatch(/has no stack/);
+        expect(typeof last_job?.finished).toBe("string");
+        expect(Array.isArray(last_job?.tail)).toBe(true);
+        const view = await call("GET", `/sessions/${summary.dir}`);
+        const body = (await view.json()) as { session: { stack: { last_job: unknown } } };
+        expect(body.session.stack.last_job).toEqual(last_job);
+
+        // The agent hears about it once, through the extension channel.
+        await until(() => term.text().includes("notice: Spinner: the stack job `up` failed"));
+        await new Promise((resolve_) => setTimeout(resolve_, 200));
+        expect(term.text().split("notice: Spinner").length - 1).toBe(1);
+        term.socket.close();
+    }, 30_000);
+
+    it("GET /stack/logs/:service tails a host service's log file", async () => {
+        const summary = create_session(home, { title: "Logs" });
+        mkdirSync(join(summary.path, "log"), { recursive: true });
+        writeFileSync(join(summary.path, "log", "web.log"), "one\ntwo\nthree\n");
+        const two = await call("GET", `/sessions/${summary.dir}/stack/logs/web?lines=2`);
+        expect(two.status).toBe(200);
+        expect(await two.json()).toEqual({
+            service: "web",
+            where: "host",
+            lines: ["two", "three"],
+        });
+        const all = await call("GET", `/sessions/${summary.dir}/stack/logs/web`);
+        expect(((await all.json()) as { lines: string[] }).lines).toEqual(["one", "two", "three"]);
+        const many = await call("GET", `/sessions/${summary.dir}/stack/logs/web?lines=3000`);
+        expect(many.status).toBe(400);
+        const none = await call("GET", `/sessions/${summary.dir}/stack/logs/api`);
+        expect(none.status).toBe(404);
+        const bad = await call("GET", `/sessions/${summary.dir}/stack/logs/..%2Fsession`);
+        expect(bad.status).toBe(400);
+    });
+
     it("refuses the ninth attachment with 409 before the upgrade", async () => {
         const summary = create_session(home, { title: "Many" });
         mkdirSync(join(summary.path, "agents", "a"), { recursive: true });

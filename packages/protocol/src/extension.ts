@@ -157,7 +157,9 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         },
         {
             name: "stack",
-            description: "Show the session's stack, tail a service's logs, or restart a service.",
+            description:
+                "Show the session's stack (and why its last job failed), tail a service's " +
+                "logs, or restart a service.",
             parameters: {
                 command: {
                     type: "string",
@@ -165,7 +167,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                     enum: ["show", "logs", "restart"],
                 },
                 service: { type: "string", description: "Service name, for logs and restart" },
-                lines: { type: "number", description: "Log lines to tail (default 100)" },
+                lines: { type: "number", description: "Log lines to tail (default 100, max 2000)" },
             },
             required: ["command"],
             role: "all",

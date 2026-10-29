@@ -45,6 +45,12 @@ export interface AgentHandle {
     /** Queues a steer; it enters after the current turn and its tool calls. */
     steer(text: string): Promise<string>;
     abort(): Promise<void>;
+    /**
+     * A message from the daemon itself (a failed stack job), not from a person: delivered as
+     * a custom message that starts a turn, or steers the running one. Only the tty harness
+     * has it; the RPC path has no custom-message command.
+     */
+    notify?(text: string): Promise<string>;
     /** The commands pi loaded, for the Context tab. */
     commands(): Promise<PiCommand[]>;
     on_event(listener: (event: PiEvent) => void): () => void;
