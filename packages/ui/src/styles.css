@@ -28,7 +28,7 @@ html, body, #root { height: 100%; margin: 0; }
 .icon-button:hover, .icon-button:focus-visible { opacity: 1; background: #8883; outline: none; }
 .icon-button.icon-on { opacity: 0.9; }
 .icon { display: block; }
-/* The window: a top bar, then the activity bar beside the pane grid. */
+/* The window: a top bar above the pane grid. */
 .shell { display: flex; flex-direction: column; height: 100%; }
 .shell-body { display: flex; flex: 1; min-height: 0; }
 .top-bar {
@@ -39,13 +39,6 @@ html, body, #root { height: 100%; margin: 0; }
 .top-title { font-weight: 600; }
 .pr-badge { font-size: 11px; padding: 0 6px; border-radius: 8px; background: #8883; }
 .pr-badge-green { background: #2a43; color: #2a4; }
-.activity-bar {
-    display: flex; flex-direction: column; align-items: center; gap: 4px; width: 40px;
-    padding: 6px 0; border-right: 1px solid #8884; flex: none;
-}
-.activity-bar .icon-button { width: 32px; height: 32px; }
-.activity-bar .icon-on { opacity: 1; box-shadow: inset 2px 0 0 #38f; }
-.activity-bar .bar-popped { color: #38f; opacity: 1; }
 .layout { flex: 1; min-width: 0; }
 /* A collapsed or popped-out pane: a 24 px strip, the name turned sideways. */
 .strip {

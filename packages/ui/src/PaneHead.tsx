@@ -1,6 +1,6 @@
 // The chrome around the panes: the icon set (inline SVG, no dependency), the icon button, a
-// pane header, the strip of a collapsed or popped-out pane, the activity bar at the left and
-// the top bar with the left-panel toggle. Chrome shows icons with tooltips, never link text.
+// pane header, the strip of a collapsed or popped-out pane and the top bar with the side-panel
+// toggle. Chrome shows icons with tooltips, never link text.
 import type { PrFacts } from "@spinner/protocol";
 
 import type { PaneName } from "./layout.ts";
@@ -94,7 +94,7 @@ export function PaneHead({ name, controls }: PaneHeadProps) {
     return (
         <header className="pane-head">
             <h2>{name}</h2>
-            {controls !== undefined && (
+            {controls !== undefined && controls.length > 0 && (
                 <span className="pane-controls">
                     {controls.map((control) => (
                         <IconButton key={control.label} {...control} />
@@ -128,7 +128,10 @@ export function PaneStrip({ name, popped, onRestore }: PaneStripProps) {
     );
 }
 
-/** A view of the left panel. Today there is one; the board, threads and settings come later. */
+/**
+ * A view of the left panel. Today there is one; the board, threads and settings come later as
+ * tabs inside the panel. The panel itself shows and hides from the top bar's toggle.
+ */
 export interface PanelView {
     id: "sessions";
     icon: IconName;
@@ -138,41 +141,6 @@ export interface PanelView {
 export const PANEL_VIEWS: readonly PanelView[] = [
     { id: "sessions", icon: "sessions", label: "Sessions" },
 ];
-
-export interface ActivityBarProps {
-    /** The view the left panel shows, or undefined while the panel is hidden. */
-    shown: PanelView["id"] | undefined;
-    /** True when the left panel lives in its own window; its icon then docks it back. */
-    popped: boolean;
-    onPick: (view: PanelView["id"]) => void;
-}
-
-/**
- * The narrow bar at the left, one icon per left-panel view. A click on the active icon hides
- * the panel; a click on any icon shows the panel on that view.
- */
-export function ActivityBar({ shown, popped, onPick }: ActivityBarProps) {
-    return (
-        <nav className="activity-bar" aria-label="Views">
-            {PANEL_VIEWS.map((view) => {
-                const on = shown === view.id;
-                const label = popped
-                    ? `Dock ${view.label.toLowerCase()} back`
-                    : `${on ? "Hide" : "Show"} ${view.label.toLowerCase()}`;
-                return (
-                    <IconButton
-                        key={view.id}
-                        icon={view.icon}
-                        label={label}
-                        active={on}
-                        className={popped ? "bar-popped" : ""}
-                        onClick={() => onPick(view.id)}
-                    />
-                );
-            })}
-        </nav>
-    );
-}
 
 /** `⑂ 4`: the session's PR count; green once every PR's checks are green. */
 export function PrBadge({ prs }: { prs: PrFacts[] }) {

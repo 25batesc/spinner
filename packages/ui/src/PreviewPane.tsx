@@ -3,7 +3,7 @@ import { useState } from "react";
 import { preview_key, type ServiceView, type SessionView } from "@spinner/protocol";
 
 import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
-import { Preview, type PopOutRequest } from "./Preview.tsx";
+import { Preview } from "./Preview.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
 import { Tabs } from "./Tabs.tsx";
 
@@ -11,17 +11,13 @@ export interface PreviewPaneProps {
     view: SessionView | undefined;
     busy: boolean;
     run: RunAction;
-    /**
-     * Header icons; absent when the pane is rendered alone by the `?pane=` route. Pop out
-     * names the preview on show, so the desktop app can move that view to the new window.
-     */
+    /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?:
         | {
               /** Collapses the pane to the edge strip. */
               onToggle: () => void;
               expanded: boolean;
               onExpand: (expanded: boolean) => void;
-              onPopOut: (preview: PopOutRequest["preview"]) => void;
           }
         | undefined;
 }
@@ -59,10 +55,6 @@ export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
     const service = services.find((candidate) => candidate.name === selected);
     const grey = services.filter((candidate) => !isLive(candidate)).map((c) => c.name);
-    const shown =
-        view !== undefined && service?.url != null && isLive(service)
-            ? { key: preview_key(view.summary.dir, service.name), url: service.url }
-            : undefined;
     const head: IconButtonProps[] | undefined =
         controls === undefined
             ? undefined
@@ -72,11 +64,6 @@ export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
                       label: controls.expanded ? "Restore layout" : "Expand previews",
                       active: controls.expanded,
                       onClick: () => controls.onExpand(!controls.expanded),
-                  },
-                  {
-                      icon: "pop-out",
-                      label: "Pop out previews",
-                      onClick: () => controls.onPopOut(shown),
                   },
                   { icon: "panel-right", label: "Collapse previews", onClick: controls.onToggle },
               ];

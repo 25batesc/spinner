@@ -2,9 +2,9 @@
 // Usage: node e2e/drive.ts <ui url> <screenshot dir> [flow]. Chrome must already listen on
 // port 9333 (`--remote-debugging-port=9333`) or on `E2E_CDP_PORT`. The flow `lifecycle` runs:
 // new session, up, previews, verify, close. The flow `agents` prompts the first running agent
-// of the first session with a pi agent. The flow `panes` collapses, hides, restores, pops out
-// and opens the `?pane=` route; `bridge-popout` does the pop-out through a stub of the desktop
-// bridge. It works against the fixture server or the real daemon.
+// of the first session with a pi agent. The flow `panes` collapses, hides, restores, expands
+// and opens the `?pane=` route; `bridge-popout` docks the desktop's popped-out windows back
+// through a stub of the bridge. It works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
@@ -263,13 +263,12 @@ if (flow === "bridge-stub") {
 }
 
 if (flow === "panes") {
-    // The workbench layout in a browser: the activity bar and the top-left toggle show and
-    // hide the left panel (no strip; the top bar then names the session with its PR badge), a
-    // drag of its divider past the threshold hides it too; the previews collapse to the edge
-    // strip by drag or by their header toggle and the strip restores them; the agents pane
-    // never folds, its minimum stops a drag; expand gives the previews the window and Escape
-    // or the same button brings the layout back; widths survive a reload; `pop out` opens the
-    // pane in its own window and the strip docks it back (or a closed window docks itself);
+    // The workbench layout in a browser: the top-left toggle shows and hides the side panel
+    // (no strip; the top bar then names the session with its PR badge), a drag of its divider
+    // past the threshold hides it too; the previews collapse to the edge strip by drag or by
+    // their header toggle and the strip restores them; the agents pane never folds, its 280 px
+    // minimum stops a drag and nothing else caps the previews; expand gives the previews the
+    // window and Escape or the same button brings the layout back; widths survive a reload;
     // the `?pane=` route renders one pane alone without strips, dividers or controls.
     const widthOf = (selector: string) =>
         `Math.round(document.querySelector(${JSON.stringify(selector)})` +
@@ -308,7 +307,6 @@ if (flow === "panes") {
         await until("reloaded", `window.__stale === undefined`);
         await until("sessions pane", `document.querySelector("[aria-label=Sessions]") !== null`);
     };
-    const barButton = ".activity-bar .icon-button";
     const topToggle = ".top-bar .icon-button";
     const noStrips = `document.querySelectorAll(".strip").length === 0`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
@@ -316,7 +314,8 @@ if (flow === "panes") {
         `document.querySelector(".session-selected .muted").innerText`,
     )) as string;
     const chrome = await evaluate(`({
-        bar: document.querySelectorAll("${barButton}").length,
+        bar: document.querySelectorAll(".activity-bar").length,
+        popOuts: document.querySelectorAll("button[aria-label^='Pop out']").length,
         top: document.querySelectorAll("${topToggle}").length,
         links: document.querySelectorAll(".pane-head a, .pane-head .link, .browser-bar a")
             .length,
@@ -324,8 +323,9 @@ if (flow === "panes") {
             .length,
     })`);
     console.log("chrome:", JSON.stringify(chrome));
-    if (JSON.stringify(chrome) !== JSON.stringify({ bar: 1, top: 1, links: 0, icons: 9 })) {
-        throw new Error("expected one bar icon, one top toggle, 9 chrome icons and no links");
+    const wanted = { bar: 0, popOuts: 0, top: 1, links: 0, icons: 6 };
+    if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
+        throw new Error("expected no bar, no pop-out, one top toggle, 6 chrome icons, no links");
     }
     await shot("39-default");
     // 1. The left divider dragged 200 px left: 260 - 200 is below the 180 threshold; no strip.
@@ -334,10 +334,10 @@ if (flow === "panes") {
     await until("no strip", noStrips);
     await until("top bar names the session", `${text(".top-title")} === "Refund flow"`);
     await until("pr badge", `${text(".pr-badge")}.includes("2")`);
-    await until("bar icon off", `document.querySelector("${barButton}").ariaPressed === "false"`);
+    await until("toggle off", `document.querySelector("${topToggle}").ariaPressed === "false"`);
     await shot("40-left-hidden");
-    // 2. The bar icon shows it again at the width before the drag; the top toggle hides it.
-    await click(barButton);
+    // 2. The toggle shows it again at the width before the drag, and hides it again.
+    await click(topToggle);
     await until("left panel back at 260", `${widthOf(".sessions-pane")} === 260`);
     await until("title gone", `document.querySelector(".top-title") === null`);
     await click(topToggle);
@@ -356,24 +356,25 @@ if (flow === "panes") {
     await until("collapsed by the header", `${strip("previews")} !== null`);
     await doubleClick(1);
     await until("restored by double-click", `${widthOf(".preview-pane")} === 520`);
-    // 5. The agents pane never folds: a 900 px drag stops at its 240 px minimum (and the
-    // previews maximum of 900).
-    await drag(1, -900);
-    await until("previews at their maximum", `${widthOf(".preview-pane")} === 900`);
-    const agentsWidth = (await evaluate(widthOf(".agents-pane"))) as number;
-    console.log("agents width at the stop:", agentsWidth);
-    if (agentsWidth < 240) {
-        throw new Error("the agents pane went below its minimum");
+    // 5. The agents pane never folds and nothing else caps the previews: a 1200 px drag stops
+    // exactly where the agents pane is at its 280 px minimum, with the previews at the rest
+    // of the width (1500 - 260 - 12 - 280 = 948 px, past any fraction of the window).
+    await drag(1, -1200);
+    await until("agents at their minimum", `${widthOf(".agents-pane")} === 280`);
+    const previewsWidth = (await evaluate(widthOf(".preview-pane"))) as number;
+    console.log("previews width at the stop:", previewsWidth);
+    if (previewsWidth !== 948) {
+        throw new Error("the previews stopped short of the agents minimum");
     }
     await shot("42-agents-minimum");
-    await drag(1, 400);
-    await until("previews narrower again", `${widthOf(".preview-pane")} < 600`);
+    await drag(1, 448);
+    await until("previews narrower again", `${widthOf(".preview-pane")} === 500`);
     // 6. Left panel hidden plus previews collapsed: the agents take the window.
     await click(topToggle);
     await click("button[aria-label='Collapse previews']");
     await until("agents fill the window", `${widthOf(".agents-pane")} > 1400`);
     await shot("43-agents-whole-window");
-    await click(barButton);
+    await click(topToggle);
     await click(".strip[data-pane=previews]");
     await until("three panes again", `${widthOf(".sessions-pane")} === 260`);
     // 7. Expand: the previews alone; Escape and the same button bring the layout back.
@@ -398,47 +399,15 @@ if (flow === "panes") {
     await reload();
     await until("still 400", `${widthOf(".sessions-pane")} === 400`);
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
-    // 9. Pop out: a new window on the `?pane=` route, the strip docks it back.
+    // 9. Stale pop-out windows of an earlier run must not count below.
     const targets = async () =>
         ((await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()) as {
             id: string; url: string;
         }[]).filter((t) => t.url.includes("pane=") && t.id !== target.id);
     const closeTarget = (id: string) => fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${id}`);
-    // Windows left by an earlier run would be counted below; this Chrome is the test's own.
     for (const stale of await targets()) {
         await closeTarget(stale.id);
     }
-    const popups = async () => {
-        // The strip renders before Chrome lists the new window; give the target a moment.
-        let found = await targets();
-        for (let tries = 0; found.length === 0 && tries < 20; tries += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 250));
-            found = await targets();
-        }
-        return found;
-    };
-    await click("button[aria-label='Pop out previews']", "", true);
-    await until("previews popped strip", `${strip("previews")}?.textContent.includes("popped")`);
-    let windows = await popups();
-    console.log("popped-out windows:", JSON.stringify(windows.map((t) => t.url)));
-    if (windows.length !== 1 || !windows[0]?.url.includes(`pane=previews&session=${session}`)) {
-        throw new Error("pop out did not open the ?pane=previews route for the session");
-    }
-    await shot("45-previews-popped");
-    await click(".strip[data-pane=previews]");
-    await until("previews docked", `document.querySelector(".preview-pane") !== null`);
-    for (let tries = 0; (await targets()).length > 0 && tries < 20; tries += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    if ((await targets()).length !== 0) {
-        throw new Error("dock back left the popped-out window open");
-    }
-    // The other way round: the operator closes the window and the pane docks itself.
-    await click("button[aria-label='Pop out agents']", "", true);
-    await until("agents popped strip", `${strip("agents")}?.textContent.includes("popped")`);
-    windows = await popups();
-    await closeTarget(windows[0]?.id ?? "");
-    await until("agents docked on close", `document.querySelector(".agents-pane") !== null`);
     // 10. The route alone: one pane, no bar, strips, dividers or controls, same session.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
     await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
@@ -557,54 +526,42 @@ if (flow === "bridge-bar") {
 }
 
 if (flow === "bridge-popout") {
-    // The desktop path of Plan 3 without Electron, with the stub above: `pop out` on the
-    // previews pane calls `previews.popOut` with the shown tab's key and the pane becomes a
-    // strip; the strip calls `previews.dockBack`, the docked event restores the pane and it
-    // places the view again with `set`. The agents pane goes through `panes.popOut`, and a
-    // docked event alone (the window's close button) restores it. After a reload the page asks
-    // `panes.list` and shows the strip of a window that is still open.
+    // The dormant pop-out handling with the stub: no header opens a window, but the desktop
+    // app still can, so after a load the page asks `panes.list` and shows a strip per window;
+    // the strip calls `dockBack` (`previews.dockBack` for a preview key, `panes.dockBack` for
+    // a pane page), and a docked event alone (the window's close button) restores the pane.
     const calls = `window.bridgeCalls`;
     const lastCall = (method: string) =>
         `${calls}.filter((c) => c.method === ${JSON.stringify(method)}).at(-1)`;
     const strip = (pane: string) => `document.querySelector(".strip[data-pane=${pane}]")`;
+    const argsOf = (method: string, args: string[]) =>
+        `JSON.stringify(${lastCall(method)}?.args) === ${JSON.stringify(JSON.stringify(args))}`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     const session = (await evaluate(
         `document.querySelector(".session-selected .muted").innerText`,
     )) as string;
-    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
-    await click(".preview-pane .tab", "web");
-    await until("set called", `${lastCall("set")} !== undefined`);
     const key = `${session}/web`;
-    const sets = (await evaluate(`${calls}.filter((c) => c.method === "set").length`)) as number;
-    await click("button[aria-label='Pop out previews']");
-    const quotedKey = JSON.stringify(key);
-    await until("previews.popOut", `${lastCall("previews.popOut")}?.args[0] === ${quotedKey}`);
-    await until("previews strip", `${strip("previews")}?.textContent.includes("popped")`);
-    await shot("43-bridge-preview-popped");
-    await click(".strip[data-pane=previews]");
-    await until("previews.dockBack", `${lastCall("previews.dockBack")}?.args[0] === ${quotedKey}`);
-    await until("pane back", `document.querySelector(".preview-pane .preview-box") !== null`);
-    await until("view placed again", `${calls}.filter((c) => c.method === "set").length > ${sets}`);
-    await click("button[aria-label='Pop out agents']");
-    const argsOf = (method: string, args: string[]) =>
-        `JSON.stringify(${lastCall(method)}?.args) === ${JSON.stringify(JSON.stringify(args))}`;
-    await until("panes.popOut", argsOf("panes.popOut", ["agents", session]));
-    await until("agents strip", `${strip("agents")}?.textContent.includes("popped")`);
-    await evaluate(`window.bridgeDock({ pane: "agents", session: ${JSON.stringify(session)} })`);
-    await until("agents back on close", `document.querySelector(".agents-pane") !== null`);
-    if ((await evaluate(`${lastCall("panes.dockBack")}`)) !== undefined) {
-        throw new Error("a close from the desktop side must not call dockBack");
-    }
-    const popped = JSON.stringify([{ pane: "sessions", session }]);
+    const popped = JSON.stringify([
+        { pane: "sessions", session },
+        { pane: "agents", session },
+        { pane: "previews", session, key },
+    ]);
     await evaluate(`sessionStorage.setItem("e2e-popped", ${JSON.stringify(popped)})`);
     await evaluate(`window.__stale = true`);
     await send("Page.reload");
     await until("reloaded", `window.__stale === undefined`);
-    await until("strip after reload", `${strip("sessions")}?.textContent.includes("popped")`);
-    await shot("44-bridge-resumed-strip");
-    await click(".strip[data-pane=sessions]");
-    await until("panes.dockBack", argsOf("panes.dockBack", ["sessions", session]));
-    await until("sessions back", `document.querySelector(".sessions-pane") !== null`);
+    for (const pane of ["sessions", "agents", "previews"]) {
+        await until(`${pane} strip`, `${strip(pane)}?.textContent.includes("popped")`);
+    }
+    await shot("43-bridge-resumed-strips");
+    await click(".strip[data-pane=previews]");
+    await until("previews.dockBack", `${lastCall("previews.dockBack")}?.args[0] === "${key}"`);
+    await until("previews back", `document.querySelector(".preview-pane") !== null`);
+    await click(".strip[data-pane=agents]");
+    await until("panes.dockBack", argsOf("panes.dockBack", ["agents", session]));
+    await until("agents back", `document.querySelector(".agents-pane") !== null`);
+    await evaluate(`window.bridgeDock({ pane: "sessions", session: ${JSON.stringify(session)} })`);
+    await until("sessions back on close", `document.querySelector(".sessions-pane") !== null`);
     console.log("calls:", JSON.stringify(await evaluate(`${calls}.map((c) => c.method)`)));
     console.log("bridge popout ok");
     socket.close();

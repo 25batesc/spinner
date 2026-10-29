@@ -4,13 +4,8 @@ import { AgentsPane } from "./AgentsPane.tsx";
 import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
-import { ActivityBar, PaneStrip, TopBar, type IconButtonProps } from "./PaneHead.tsx";
-import {
-    popOutPane,
-    resumePoppedOut,
-    type PoppedOut,
-    type PopOutRequest,
-} from "./Preview.tsx";
+import { PaneStrip, TopBar } from "./PaneHead.tsx";
+import { resumePoppedOut, type PoppedOut } from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { revisionsOf, runningJob, sortedSessions, type UiState } from "./state.ts";
@@ -100,16 +95,8 @@ export function App() {
         delete popped.current[pane];
         layout.setPopped(pane, false);
     };
-    const popOut = (pane: PaneName, preview?: PopOutRequest["preview"]) => {
-        const handle = popOutPane({ pane, session: selected, preview }, docked(pane));
-        if (typeof handle === "string") {
-            app.setActionError(handle);
-            return;
-        }
-        popped.current[pane] = handle;
-        layout.setPopped(pane, true);
-    };
-    // In the desktop app the windows outlive a reload of this page; show their strips again.
+    // The desktop app can still pop a pane out (its tray); its window outlives a reload of
+    // this page, so the strips come back and dock the pane on a click. No header opens one.
     useEffect(() => {
         if (route !== undefined) {
             return;
@@ -143,11 +130,6 @@ export function App() {
             layout.restore(pane);
         }
     };
-    const popOutButton = (pane: PaneName): IconButtonProps => ({
-        icon: "pop-out",
-        label: `Pop out ${pane}`,
-        onClick: () => popOut(pane),
-    });
     const inRoute = route !== undefined;
     const sessionsState = layout.layout.panes.sessions;
     const panelShown = !sessionsState.hidden && !sessionsState.popped;
@@ -167,7 +149,7 @@ export function App() {
             selected={selected}
             onSelect={setPicked}
             run={run}
-            controls={inRoute ? undefined : [popOutButton("sessions")]}
+            controls={inRoute ? undefined : []}
         />
     );
     const agentsPane = (
@@ -178,7 +160,7 @@ export function App() {
             transcripts={transcriptsFor(selected, state.transcripts)}
             feed={feed}
             revisions={revisionsOf(state, selected)}
-            controls={inRoute ? undefined : [popOutButton("agents")]}
+            controls={inRoute ? undefined : []}
         >
             {drawer}
         </AgentsPane>
@@ -195,7 +177,6 @@ export function App() {
                           onToggle: () => layout.fold("previews"),
                           expanded,
                           onExpand: layout.setExpanded,
-                          onPopOut: (preview) => popOut("previews", preview),
                       }
             }
         />
@@ -243,11 +224,6 @@ export function App() {
                 prs={view?.board?.prs ?? []}
             />
             <div className="shell-body">
-                <ActivityBar
-                    shown={panelShown ? "sessions" : undefined}
-                    popped={sessionsState.popped}
-                    onPick={togglePanel}
-                />
                 <div
                     className={layout.dragging ? "layout layout-dragging" : "layout"}
                     style={{ gridTemplateColumns: layout.columns }}

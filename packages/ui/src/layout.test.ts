@@ -128,8 +128,9 @@ describe("loadLayout and saveLayout", () => {
         const loaded = loadLayout(partial);
         expect(loaded.panes.sessions).toEqual(DEFAULT_LAYOUT.panes.sessions);
         expect(loaded.panes.agents.hidden).toBe(false);
+        // The previews have no cap of their own: the agents minimum bounds the drag instead.
         expect(loaded.panes.previews).toEqual({
-            width: 900, collapsed: false, hidden: false, popped: false,
+            width: 5000, collapsed: false, hidden: false, popped: false,
         });
     });
 

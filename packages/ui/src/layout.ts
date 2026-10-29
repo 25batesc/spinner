@@ -7,7 +7,8 @@
 // and a drag of its divider past the threshold hides it; no strip stays. The agents pane is the
 // work area: never hidden, never a strip; its minimum stops a drag. The previews pane collapses
 // to a 24 px strip at the right edge, by a drag past its threshold or by its toggle icon; a
-// click on the strip restores it. A popped-out pane is a strip too, so one click docks it back.
+// click on the strip restores it. A popped-out pane (the desktop's tray can still open one) is
+// a strip too, so one click docks it back.
 // `expanded` gives the previews the whole window; the panes keep their state for the return.
 
 export type PaneName = "sessions" | "agents" | "previews";
@@ -43,8 +44,9 @@ export interface PaneLimits {
 
 export const LIMITS: Record<PaneName, PaneLimits> = {
     sessions: { min: 180, max: 480 },
-    agents: { min: 240, max: Infinity },
-    previews: { min: 240, max: 900 },
+    agents: { min: 280, max: Infinity },
+    // No cap of its own: the previews grow until the agents pane is at its minimum.
+    previews: { min: 240, max: Infinity },
 };
 
 /** What a drag past the threshold, or the header's toggle, does to each pane. */
