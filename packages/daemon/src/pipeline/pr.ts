@@ -101,7 +101,6 @@ export async function open_prs(
         const response = await fetch_pr_response(deps.gh, ref);
         const context = { config: deps.config.github, owner_login };
         const facts = pr_facts_from_response(response, context);
-        facts.title = response.data.repository.pullRequest.title;
         // The first `threads/` render comes from the same response, so the fixer and the UI
         // see the PR's threads before the first poll.
         const view = threads_from_response(repo, response, context, null);

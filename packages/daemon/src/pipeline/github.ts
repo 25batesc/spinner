@@ -213,6 +213,9 @@ export function pr_facts_from_response(response: PrResponse, context: FactsConte
         queue: queue.state,
         queue_reason: queue.reason,
         last_activity: node.updatedAt,
+        // The Slack post and the approval dialog show the title; without it here, the first
+        // poll after `pr` dropped the title `pr` had set (live loop, s007).
+        title: node.title,
     };
 }
 

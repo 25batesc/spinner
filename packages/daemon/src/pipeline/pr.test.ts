@@ -14,7 +14,7 @@ import type { Session, SessionSummary } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { create_session, read_session, write_session } from "../store/session-store.js";
 import { pipeline_config_from_spec } from "./config.js";
-import type { GhRunner, PrResponse } from "./github.js";
+import { pr_facts_from_response, type GhRunner, type PrResponse } from "./github.js";
 import {
     github_write,
     is_write_allowed,
@@ -197,6 +197,12 @@ describe("spinner pr", () => {
         ) as Session;
         expect(session.repos["backend"]?.pr?.number).toBe(4825);
         expect(session.repos["backend"]?.pr?.title).toContain("example feature");
+        // The title comes from the collector, so a later poll keeps it.
+        const polled = pr_facts_from_response(load("pr-fixing"), {
+            config: spec_with([]).github,
+            owner_login: "owner-1",
+        });
+        expect(polled.title).toContain("example feature");
         expect(session.repos["backend"]?.changed).toBe(true);
         expect(session.repos["web"]?.pr ?? null).toBeNull();
         expect(session.stage).toBe("fixing");
