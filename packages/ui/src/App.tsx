@@ -7,6 +7,7 @@ import { isStrip, PANES, type PaneName } from "./layout.ts";
 import { ActivityBar, ContextBar, PaneStrip, type IconButtonProps } from "./PaneHead.tsx";
 import { resumePoppedOut, type PoppedOut } from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
+import type { ComposeKind } from "./SessionForms.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { revisionsOf, runningJob, sortedSessions, type UiState } from "./state.ts";
 import type { Transcript } from "./transcript.ts";
@@ -47,6 +48,8 @@ function useAppState(state: UiState, initial: string | undefined) {
     const [picked, setPicked] = useState<string | undefined>(initial);
     const [watched, setWatched] = useState<string | undefined>(undefined);
     const [actionError, setActionError] = useState<string | null>(null);
+    // The `new` or `adopt` form shown by the middle pane; it closes when the session exists.
+    const [compose, setCompose] = useState<ComposeKind | undefined>(undefined);
 
     const sessions = sortedSessions(state);
     const selected = picked !== undefined && picked in state.sessions ? picked : sessions[0]?.[0];
@@ -60,6 +63,7 @@ function useAppState(state: UiState, initial: string | undefined) {
         const created = job?.state === "ok" && (job.action === "new" || job.action === "adopt");
         if (created && job.session !== null) {
             setPicked(job.session);
+            setCompose(undefined);
         }
     }, [job?.state, job?.action, job?.session]);
 
@@ -80,7 +84,10 @@ function useAppState(state: UiState, initial: string | undefined) {
             }}
         />
     );
-    return { sessions, selected, view, feed, busy, run, drawer, setPicked, setActionError };
+    return {
+        sessions, selected, view, feed, busy, run, drawer, setPicked, setActionError,
+        compose, setCompose,
+    };
 }
 
 export function App() {
@@ -157,6 +164,7 @@ export function App() {
             selected={selected}
             onSelect={setPicked}
             run={run}
+            onCompose={app.setCompose}
             controls={inRoute ? undefined : []}
             leading={inRoute ? undefined : panelToggle}
         />
@@ -170,6 +178,11 @@ export function App() {
             feed={feed}
             revisions={revisionsOf(state, selected)}
             controls={inRoute ? undefined : []}
+            compose={
+                app.compose === undefined
+                    ? undefined
+                    : { kind: app.compose, onCancel: () => app.setCompose(undefined) }
+            }
         >
             {drawer}
         </AgentsPane>

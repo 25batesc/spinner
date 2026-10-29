@@ -623,6 +623,56 @@ if (flow === "bridge-popout") {
     process.exit(0);
 }
 
+if (flow === "sessions-panel") {
+    // The side panel: a split card at the top (Adopt | + New session), then one block per
+    // session of one height (title clamped to two lines, a badge line with the stage, the
+    // stack and the PR count, a needs-you line), the per-PR lines as the card's tooltip and
+    // no form in the panel. Either half of the top card opens its form as the middle pane's
+    // view; cancel returns to agents; a created session is selected and the view returns.
+    const cards = `[...document.querySelectorAll(".session")]`;
+    const shape = (await evaluate(`({
+        heights: [...new Set(${cards}.map((c) => c.getBoundingClientRect().height))],
+        composeHeight: document.querySelector(".compose-card").getBoundingClientRect().height,
+        prLines: document.querySelectorAll(".pr-line").length,
+        forms: document.querySelectorAll(".sessions-pane form").length,
+        tooltip: document.querySelector(".session").title,
+        badge: document.querySelector(".session .pr-badge")?.innerText ?? null,
+    })`)) as { heights: number[]; composeHeight: number; prLines: number; forms: number;
+        tooltip: string; badge: string | null };
+    console.log("cards:", JSON.stringify(shape));
+    const uniform = shape.heights.length === 1 && shape.heights[0] === shape.composeHeight;
+    if (!uniform || shape.prLines !== 0 || shape.forms !== 0) {
+        throw new Error("the cards are not uniform blocks without forms");
+    }
+    if (!shape.tooltip.includes("web#412") || shape.badge !== "⑂ 2") {
+        throw new Error("the PR lines did not move into the tooltip with a count badge");
+    }
+    await shot("52-session-cards");
+    await click(".compose-adopt");
+    const adoptForm = `document.querySelector(".agents-pane form[aria-label='Adopt PRs']")`;
+    await until("adopt form in the middle pane", `${adoptForm} !== null`);
+    await until("no agent tabs", `document.querySelectorAll(".agents-pane .tabs").length === 0`);
+    await shot("53-compose-adopt");
+    await click(".compose-actions button", "cancel");
+    await until("back to agents", `document.querySelectorAll(".agents-pane .tabs").length > 0`);
+    await click(".compose-new");
+    const newForm = `document.querySelector(".agents-pane form[aria-label='New session']")`;
+    await until("new form in the middle pane", `${newForm} !== null`);
+    const name = `E2E card ${Date.now() % 100000}`;
+    await fill("[aria-label='New session title']", name);
+    await shot("54-compose-new");
+    await click(".compose-actions .primary");
+    const picked = text(".session-selected");
+    await until("new session selected", `${picked}.includes(${JSON.stringify(name)})`);
+    const tabsBack = `document.querySelectorAll(".agents-pane .tabs").length > 0`;
+    await until("view back to agents", tabsBack);
+    await until("form gone", `${newForm} === null`);
+    await shot("55-created-and-selected");
+    console.log("sessions panel ok");
+    socket.close();
+    process.exit(0);
+}
+
 if (flow === "history") {
     const session = process.env["E2E_SESSION"] ?? "";
     const listed = text(".session-list");
@@ -928,6 +978,10 @@ if (flow === "agents") {
 }
 
 const title = `E2E ${Date.now() % 100000}`;
+// The form is a view of the middle pane, opened from the card at the top of the list.
+await click(".compose-new");
+const newForm = `document.querySelector(".agents-pane form[aria-label='New session']")`;
+await until("new form shown", `${newForm} !== null`);
 await fill("[aria-label='New session title']", title);
 const project = process.env["E2E_PROJECT"] ?? "sample-stack";
 await evaluate(`(() => {

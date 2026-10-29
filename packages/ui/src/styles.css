@@ -71,16 +71,38 @@ html, body, #root { height: 100%; margin: 0; }
 .status { grid-column: 1 / -1; padding: 2px 8px; font-size: 12px; border-top: 1px solid #8884; }
 .muted { opacity: 0.6; }
 .session-list { list-style: none; margin: 0; padding: 0; }
+/* Every card is the same height: two title lines, one badge line, one needs-you line. */
 .session {
-    display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
-    margin-bottom: 6px; padding: 6px; border: 1px solid #8886; border-radius: 4px;
-    background: transparent; color: inherit; cursor: pointer;
+    display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
+    height: 92px; box-sizing: border-box; margin-bottom: 6px; padding: 6px;
+    border: 1px solid #8886; border-radius: 4px;
+    background: transparent; color: inherit; cursor: pointer; overflow: hidden;
 }
+.session-title {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; line-height: 1.3; height: 2.6em;
+}
+.session-needs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 1.3em; }
+/* The block above the list: Adopt on the left third, New session on the right two thirds. */
+.compose-card { display: flex; gap: 6px; height: 92px; margin-bottom: 6px; }
+.compose-card button {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; border: 1px dashed #8888; border-radius: 4px; background: transparent;
+    color: inherit; cursor: pointer; font: inherit; opacity: 0.75;
+}
+.compose-card button:hover { opacity: 1; background: #8882; }
+.compose-adopt { flex: 1; font-size: 12px; }
+.compose-new { flex: 2; }
+.compose-plus { font-size: 28px; line-height: 1; }
+.compose-form { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
+.compose-form h3 { margin: 0; }
+.compose-form input, .compose-form select, .compose-form textarea { font: inherit; }
+.compose-actions { display: flex; gap: 6px; }
+.compose-actions .primary { font-weight: 600; border-color: #38f; }
 .session-selected { border-color: #38f; }
-.badges { display: flex; gap: 4px; }
+.badges { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
 .badge { font-size: 11px; padding: 0 5px; border-radius: 8px; background: #8883; }
 .needs-human { color: #d80; font-size: 12px; }
-.new-session { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .agents-pane { display: flex; flex-direction: column; gap: 8px; }
 .agents-top { display: flex; gap: 8px; flex: 1; min-height: 0; }
 .chat { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow: auto; }
@@ -103,7 +125,6 @@ html, body, #root { height: 100%; margin: 0; }
 .dot-failed, .dot-unhealthy { background: #d33; }
 .dot-unknown { background: #38f; }
 .pr-line { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.8; }
-.new-session select, .new-session textarea { font: inherit; }
 .tab-grey { opacity: 0.4; }
 .services { border-collapse: collapse; font-size: 12px; }
 .services th, .services td { text-align: left; padding: 2px 8px; border-bottom: 1px solid #8883; }

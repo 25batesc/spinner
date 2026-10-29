@@ -13,7 +13,7 @@ import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
 import type { SessionView } from "@spinner/protocol";
 
-import type { RunAction } from "./SessionsPane.tsx";
+import { ComposeForm, type ComposeKind, type RunAction } from "./SessionForms.tsx";
 
 export interface AgentsPaneProps {
     view: SessionView | undefined;
@@ -30,6 +30,8 @@ export interface AgentsPaneProps {
     controls?: IconButtonProps[] | undefined;
     /** The side-panel toggle, at the left of the title. */
     leading?: IconButtonProps | undefined;
+    /** The `new` or `adopt` form as the pane's view, in place of the agents tabs. */
+    compose?: { kind: ComposeKind; onCancel: () => void } | undefined;
 }
 
 function Actions(props: {
@@ -58,7 +60,8 @@ function agentBase(dir: string, agent: string): string {
 const VIEWS = ["agents", "mission", "threads"];
 
 export function AgentsPane(props: AgentsPaneProps) {
-    const { view, busy, run, transcripts, feed, revisions, children, controls, leading } = props;
+    const { view, busy, run, transcripts, feed, revisions, children } = props;
+    const { controls, leading, compose } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const [shown, setShown] = useState("agents");
     const [agentTab, setAgentTab] = useState("chat");
@@ -67,6 +70,19 @@ export function AgentsPane(props: AgentsPaneProps) {
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
     const agent = selected === undefined ? undefined : session?.agents[selected];
 
+    if (compose !== undefined) {
+        return (
+            <section className="pane agents-pane" aria-label="Agents">
+                <PaneHead name="agents" controls={controls} leading={leading} />
+                <div className="agents-top">
+                    <div className="chat">
+                        <ComposeForm kind={compose.kind} run={run} onCancel={compose.onCancel} />
+                        {children}
+                    </div>
+                </div>
+            </section>
+        );
+    }
     return (
         <section className="pane agents-pane" aria-label="Agents">
             <PaneHead name="agents" controls={controls} leading={leading} />
