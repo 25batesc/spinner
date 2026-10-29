@@ -14,7 +14,11 @@ export type IconName =
     | "pop-out"
     | "globe"
     | "reload"
-    | "devtools";
+    | "devtools"
+    | "back"
+    | "forward"
+    | "more"
+    | "close";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
 const GLYPHS: Record<IconName, string> = {
@@ -29,6 +33,10 @@ const GLYPHS: Record<IconName, string> = {
         "M8 2c-2.5 2.5-2.5 9.5 0 12M8 2c2.5 2.5 2.5 9.5 0 12",
     reload: "M13 8a5 5 0 1 1-1.6-3.7M13.5 2.5v3h-3",
     devtools: "M6 4L2 8l4 4M10 4l4 4-4 4",
+    back: "M10 3L5 8l5 5",
+    forward: "M6 3l5 5-5 5",
+    more: "M3 8h.01M8 8h.01M13 8h.01",
+    close: "M4 4l8 8M12 4l-8 8",
 };
 
 export function Icon({ name }: { name: IconName }) {

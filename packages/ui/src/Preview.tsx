@@ -3,25 +3,26 @@
 // In a browser it is an iframe. In the desktop app the preview is a native top-level view that
 // the main process positions over an empty box rendered here; this file measures the box and
 // sends the rectangle. Nothing else in the UI changes.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import type {
+    FindResult,
     PaneName,
     PoppedPane,
     PreviewKey,
+    PreviewNavigation,
     PreviewRect,
     SpinnerDesktop,
+    ZoomDirection,
 } from "@spinner/protocol";
 
-import { IconButton } from "./PaneHead.tsx";
+import { Icon, IconButton } from "./PaneHead.tsx";
 
 export interface PreviewProps {
     /** `<session dir>/<service name>` from `preview_key`: the desktop keeps one view per key. */
     previewKey: PreviewKey;
     url: string;
     title: string;
-    /** Incremented by the reload button; the iframe remounts, the bridge reloads its view. */
-    reloads: number;
     /** The service's `preview: top-level` flag: its login lives in cookies, a frame logs it out. */
     topLevel: boolean;
 }
@@ -187,21 +188,201 @@ function sameRect(a: PreviewRect | null, b: PreviewRect): boolean {
     return a !== null && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }
 
+/** What the browser bar can do; the parts a path cannot offer are left out and not drawn. */
+export interface BrowserBarProps {
+    nav: PreviewNavigation;
+    onNavigate: (url: string) => void;
+    onReload: () => void;
+    onOpenExternal: () => void;
+    onBack?: (() => void) | undefined;
+    onForward?: (() => void) | undefined;
+    onDevtools?: (() => void) | undefined;
+    /** The ellipsis menu: zoom, find in page, clear storage. Desktop only. */
+    menu?:
+        | {
+              onZoom: (direction: ZoomDirection) => void;
+              onFind: (text: string | null) => Promise<FindResult | null>;
+              onClearStorage: () => void;
+          }
+        | undefined;
+}
+
+/** The inline find field: Enter finds (the same text again: the next match), Escape clears. */
+function FindField({
+    onFind,
+    onClose,
+}: {
+    onFind: (text: string | null) => Promise<FindResult | null>;
+    onClose: () => void;
+}) {
+    const [text, setText] = useState("");
+    const [result, setResult] = useState<FindResult | null>(null);
+    const close = () => {
+        void onFind(null);
+        onClose();
+    };
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        if (text !== "") {
+            void onFind(text).then(setResult);
+        }
+    };
+    const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Escape") {
+            close();
+        }
+    };
+    return (
+        <form className="find-field" onSubmit={submit} aria-label="Find in page">
+            <input
+                autoFocus
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder="Find in page"
+                aria-label="Find text"
+            />
+            <span className="find-count muted">
+                {result === null ? "" : `${result.active}/${result.matches}`}
+            </span>
+            <IconButton icon="close" label="Close find" onClick={close} />
+        </form>
+    );
+}
+
+/** The ellipsis menu of the browser bar. */
+function BrowserMenu({
+    menu,
+    onFind,
+}: {
+    menu: NonNullable<BrowserBarProps["menu"]>;
+    onFind: () => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const pick = (action: () => void) => () => {
+        setOpen(false);
+        action();
+    };
+    const clear = () => {
+        if (window.confirm("Clear this app's cookies and storage? The page reloads.")) {
+            menu.onClearStorage();
+        }
+    };
+    const items: [string, () => void][] = [
+        ["Zoom in", () => menu.onZoom("in")],
+        ["Zoom out", () => menu.onZoom("out")],
+        ["Reset zoom", () => menu.onZoom("reset")],
+        ["Find in page", onFind],
+        ["Clear this app's storage", clear],
+    ];
+    return (
+        <span className="browser-menu">
+            <IconButton icon="more" label="More" active={open} onClick={() => setOpen(!open)} />
+            {open && (
+                <div className="menu" role="menu">
+                    {items.map(([label, action]) => (
+                        <button key={label} role="menuitem" onClick={pick(action)}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </span>
+    );
+}
+
+/**
+ * The browser bar above the preview content: back, forward, reload, the URL field (Enter
+ * navigates; the page title is its tooltip), open in the external browser, devtools, and the
+ * ellipsis menu. A path that cannot do a thing passes no handler and the button is not drawn;
+ * back and forward are drawn disabled so the bar keeps its shape.
+ */
+export function BrowserBar(props: BrowserBarProps) {
+    const { nav, onNavigate, onReload, onOpenExternal, onBack, onForward, onDevtools } = props;
+    const { menu } = props;
+    const [draft, setDraft] = useState(nav.url);
+    const [editing, setEditing] = useState(false);
+    const [finding, setFinding] = useState(false);
+    // The field follows the page while the operator is not typing in it.
+    useEffect(() => {
+        if (!editing) {
+            setDraft(nav.url);
+        }
+    }, [nav.url, editing]);
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        const url = draft.trim();
+        if (url !== "") {
+            onNavigate(url);
+        }
+        setEditing(false);
+    };
+    return (
+        <div className="browser-bar">
+            <button
+                type="button"
+                className="icon-button"
+                title="Back"
+                aria-label="Back"
+                disabled={onBack === undefined || !nav.canGoBack}
+                onClick={onBack}
+            >
+                <Icon name="back" />
+            </button>
+            <button
+                type="button"
+                className="icon-button"
+                title="Forward"
+                aria-label="Forward"
+                disabled={onForward === undefined || !nav.canGoForward}
+                onClick={onForward}
+            >
+                <Icon name="forward" />
+            </button>
+            <IconButton icon="reload" label="Reload" onClick={onReload} />
+            <form className="url-form" onSubmit={submit}>
+                <input
+                    className="url-field"
+                    value={draft}
+                    title={nav.title}
+                    aria-label="Address"
+                    spellCheck={false}
+                    onFocus={() => setEditing(true)}
+                    onBlur={() => setEditing(false)}
+                    onChange={(event) => setDraft(event.target.value)}
+                />
+            </form>
+            <IconButton icon="globe" label="Open in the browser" onClick={onOpenExternal} />
+            {onDevtools !== undefined && (
+                <IconButton icon="devtools" label="Developer tools" onClick={onDevtools} />
+            )}
+            {menu !== undefined && <BrowserMenu menu={menu} onFind={() => setFinding(true)} />}
+            {menu !== undefined && finding && (
+                <FindField onFind={menu.onFind} onClose={() => setFinding(false)} />
+            )}
+        </div>
+    );
+}
+
+function initialNavigation(url: string): PreviewNavigation {
+    return { url, title: "", canGoBack: false, canGoForward: false, loading: false };
+}
+
 /**
  * The bridge path: an empty box whose rectangle follows the pane. The box resizes on a window
  * resize and on a drag of the preview pane's handle (the pane is pinned to the window's right
  * edge, so the other handle does not move it); `ResizeObserver` reports both. Scrolling any
  * ancestor moves the box without resizing it, so scroll is observed in the capture phase.
  * `set` shows the view (contract rule 1); `hide` on unmount keeps its page alive for the next
- * tab switch (rule 2).
+ * tab switch (rule 2). The browser bar follows the view's `navigated` events.
  */
 function BridgePreview({
     bridge,
     previewKey,
     url,
-    reloads,
-}: Pick<PreviewProps, "previewKey" | "url" | "reloads"> & { bridge: SpinnerDesktop }) {
+}: Pick<PreviewProps, "previewKey" | "url"> & { bridge: SpinnerDesktop }) {
     const box = useRef<HTMLDivElement>(null);
+    const [nav, setNav] = useState(() => initialNavigation(url));
 
     useEffect(() => {
         const element = box.current;
@@ -241,31 +422,65 @@ function BridgePreview({
         };
     }, [bridge, previewKey, url]);
 
-    // The counter is pane state shared by all tabs, so a tab mounted after a reload click sees a
-    // count above zero; only a change after mount is a reload of this view.
-    const seen = useRef(reloads);
     useEffect(() => {
-        if (reloads !== seen.current) {
-            seen.current = reloads;
-            void bridge.previews.reload(previewKey);
-        }
-    }, [bridge, previewKey, reloads]);
+        setNav(initialNavigation(url));
+        return bridge.previews.subscribe((event) => {
+            if (event.key === previewKey && event.type === "navigated") {
+                const { url: at, title, canGoBack, canGoForward, loading } = event;
+                setNav({ url: at, title, canGoBack, canGoForward, loading });
+            }
+        });
+    }, [bridge, previewKey, url]);
 
+    const call = (method: (key: PreviewKey) => Promise<unknown>) => () => void method(previewKey);
     return (
         <>
-            <div className="preview-bar">
-                <IconButton
-                    icon="globe"
-                    label="Open in the browser"
-                    onClick={() => void bridge.previews.openExternal(previewKey)}
-                />
-                <IconButton
-                    icon="devtools"
-                    label="Developer tools"
-                    onClick={() => void bridge.previews.devtools(previewKey)}
-                />
-            </div>
+            <BrowserBar
+                nav={nav}
+                onNavigate={(to) => void bridge.previews.navigate(previewKey, to)}
+                onReload={call((key) => bridge.previews.reload(key))}
+                onOpenExternal={call((key) => bridge.previews.openExternal(key))}
+                onBack={call((key) => bridge.previews.back(key))}
+                onForward={call((key) => bridge.previews.forward(key))}
+                onDevtools={call((key) => bridge.previews.devtools(key))}
+                menu={{
+                    onZoom: (direction) => void bridge.previews.zoom(previewKey, direction),
+                    onFind: (text) => bridge.previews.find(previewKey, text),
+                    onClearStorage: call((key) => bridge.previews.clearStorage(key)),
+                }}
+            />
             <div ref={box} className="preview-frame preview-box" data-preview={previewKey} />
+        </>
+    );
+}
+
+/**
+ * The iframe path. The bar's URL field starts at the URL Spinner set; Enter reloads the frame
+ * at the typed URL. The frame's own history and title are out of reach across origins, so
+ * back and forward stay disabled and the menu is absent.
+ */
+function FramePreview({ url, title, topLevel }: Omit<PreviewProps, "previewKey">) {
+    const [address, setAddress] = useState(url);
+    const [reloads, setReloads] = useState(0);
+    useEffect(() => setAddress(url), [url]);
+    return (
+        <>
+            <BrowserBar
+                nav={initialNavigation(address)}
+                onNavigate={(to) => {
+                    setAddress(to);
+                    setReloads((count) => count + 1);
+                }}
+                onReload={() => setReloads((count) => count + 1)}
+                onOpenExternal={() => window.open(address, "_blank", "noreferrer")}
+            />
+            {topLevel && <TopLevelNote url={url} />}
+            <iframe
+                className="preview-frame"
+                key={`${address}#${reloads}`}
+                src={address}
+                title={title}
+            />
         </>
     );
 }
@@ -280,17 +495,10 @@ function TopLevelNote({ url }: Pick<PreviewProps, "url">) {
     );
 }
 
-export function Preview({ previewKey, url, title, reloads, topLevel }: PreviewProps) {
+export function Preview({ previewKey, url, title, topLevel }: PreviewProps) {
     const bridge = window.spinnerDesktop;
     if (bridge !== undefined) {
-        return (
-            <BridgePreview bridge={bridge} previewKey={previewKey} url={url} reloads={reloads} />
-        );
+        return <BridgePreview bridge={bridge} previewKey={previewKey} url={url} />;
     }
-    return (
-        <>
-            {topLevel && <TopLevelNote url={url} />}
-            <iframe className="preview-frame" key={reloads} src={url} title={title} />
-        </>
-    );
+    return <FramePreview url={url} title={title} topLevel={topLevel} />;
 }

@@ -101,7 +101,28 @@ html, body, #root { height: 100%; margin: 0; }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; }
 .drawer-log { margin: 4px 0 0; max-height: 160px; overflow: auto; font-size: 11px; }
 .verified { display: flex; align-items: center; gap: 4px; }
-.preview-bar { display: flex; gap: 2px; align-items: center; }
+/* The browser bar above the preview content. */
+.browser-bar { display: flex; gap: 2px; align-items: center; position: relative; }
+.browser-bar .icon-button:disabled { opacity: 0.25; cursor: default; background: transparent; }
+.url-form { flex: 1; display: flex; min-width: 0; }
+.url-field {
+    flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 2px 6px;
+    border: 1px solid #8886; border-radius: 4px; background: #8881; color: inherit;
+}
+.browser-menu { position: relative; }
+.menu {
+    position: absolute; right: 0; top: 26px; z-index: 5; min-width: 180px; padding: 4px;
+    display: flex; flex-direction: column; background: Canvas; color: CanvasText;
+    border: 1px solid #8886; border-radius: 4px; box-shadow: 0 2px 8px #0004;
+}
+.menu button {
+    text-align: left; font: inherit; font-size: 12px; padding: 4px 8px; border: 0;
+    background: transparent; color: inherit; cursor: pointer; border-radius: 3px;
+}
+.menu button:hover { background: #8883; }
+.find-field { display: flex; gap: 4px; align-items: center; }
+.find-field input { font: inherit; font-size: 12px; width: 140px; }
+.find-count { font-size: 11px; min-width: 28px; }
 .entry { list-style: none; margin: 2px 0; padding: 4px 6px; border-radius: 4px; overflow-wrap: anywhere; }
 .entry-user { background: #38f3; }
 .entry-assistant { background: #8882; white-space: pre-wrap; }

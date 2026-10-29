@@ -92,11 +92,12 @@ const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
 await send("Page.enable");
-if (flow === "bridge-stub" || flow === "bridge-popout") {
+if (flow === "bridge-stub" || flow === "bridge-popout" || flow === "bridge-bar") {
     // A stand-in for the desktop preload: records every bridge call on `window.bridgeCalls`.
     // `dockBack` answers with the `pane.docked` event the desktop sends; `window.bridgeDock`
     // sends one by hand, as the window's close button would; `panes.list` reads the windows
     // the test put in `sessionStorage` under `e2e-popped`, as a reload would find them.
+    // `window.bridgeNavigate` sends a `navigated` event, as the view does after a load.
     await send("Page.addScriptToEvaluateOnNewDocument", {
         source: `window.bridgeCalls = [];
             const record = (method) => (...args) => {
@@ -104,14 +105,29 @@ if (flow === "bridge-stub" || flow === "bridge-popout") {
                 return Promise.resolve();
             };
             const listeners = new Set();
+            const previewListeners = new Set();
             window.bridgeDock = (event) =>
                 listeners.forEach((l) => l({ type: "docked", ...event }));
+            window.bridgeNavigate = (event) =>
+                previewListeners.forEach((l) => l({ type: "navigated", ...event }));
             const docked = (event) => setTimeout(() => window.bridgeDock(event), 10);
             window.spinnerDesktop = {
                 previews: {
                     set: record("set"), show: record("show"), hide: record("hide"),
                     reload: record("reload"), openExternal: record("openExternal"),
-                    devtools: record("devtools"), subscribe: () => () => {},
+                    devtools: record("devtools"),
+                    subscribe: (l) => {
+                        previewListeners.add(l);
+                        return () => previewListeners.delete(l);
+                    },
+                    navigate: record("navigate"), back: record("back"),
+                    forward: record("forward"), zoom: record("zoom"),
+                    find: (key, text) => {
+                        record("find")(key, text);
+                        const found = { matches: 3, active: 1 };
+                        return Promise.resolve(text === null ? null : found);
+                    },
+                    clearStorage: record("clearStorage"),
                     popOut: record("previews.popOut"),
                     dockBack: (key) => {
                         docked({ pane: "previews", session: key.split("/")[0], key });
@@ -206,7 +222,7 @@ if (flow === "bridge-stub") {
         throw new Error("set() did not carry the box rectangle and the web key");
     }
     await shot("37-bridge-box");
-    await click(".preview-bar button", "reload");
+    await click("button[aria-label=Reload]");
     await until("reload called", `${lastCall("reload")}?.args[0] === ${JSON.stringify(first.key)}`);
     // Drag the preview pane's handle 100 px to the left: the pane widens, the box with it.
     const handle = (await evaluate(`(() => {
@@ -302,13 +318,14 @@ if (flow === "panes") {
     const chrome = await evaluate(`({
         bar: document.querySelectorAll("${barButton}").length,
         top: document.querySelectorAll("${topToggle}").length,
-        links: document.querySelectorAll(".pane-head a, .pane-head .link, .preview-bar a").length,
-        icons: document.querySelectorAll(".pane-head .icon-button, .preview-bar .icon-button")
+        links: document.querySelectorAll(".pane-head a, .pane-head .link, .browser-bar a")
+            .length,
+        icons: document.querySelectorAll(".pane-head .icon-button, .browser-bar .icon-button")
             .length,
     })`);
     console.log("chrome:", JSON.stringify(chrome));
-    if (JSON.stringify(chrome) !== JSON.stringify({ bar: 1, top: 1, links: 0, icons: 7 })) {
-        throw new Error("expected one bar icon, one top toggle, 7 header icons and no links");
+    if (JSON.stringify(chrome) !== JSON.stringify({ bar: 1, top: 1, links: 0, icons: 9 })) {
+        throw new Error("expected one bar icon, one top toggle, 9 chrome icons and no links");
     }
     await shot("39-default");
     // 1. The left divider dragged 200 px left: 260 - 200 is below the 180 threshold; no strip.
@@ -443,6 +460,99 @@ if (flow === "panes") {
     socket.close();
     // This tab now sits on a `pane=` URL; the next run must not count it as a popped window.
     await closeTarget(target.id);
+    process.exit(0);
+}
+
+if (flow === "browser-bar") {
+    // The iframe path of the browser bar: back and forward stay disabled, there is no menu
+    // and no devtools, the URL field shows the URL Spinner set, and Enter reloads the frame
+    // at the typed URL.
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
+    await click(".preview-pane .tab", "web");
+    await until("bar shown", `document.querySelector(".browser-bar") !== null`);
+    const shape = (await evaluate(`({
+        back: document.querySelector("button[aria-label=Back]").disabled,
+        forward: document.querySelector("button[aria-label=Forward]").disabled,
+        menu: document.querySelectorAll("button[aria-label=More]").length,
+        devtools: document.querySelectorAll("button[aria-label='Developer tools']").length,
+        url: document.querySelector(".url-field").value,
+        src: document.querySelector("iframe.preview-frame").src,
+    })`)) as { back: boolean; forward: boolean; menu: number; devtools: number; url: string;
+        src: string };
+    console.log("browser bar:", JSON.stringify(shape));
+    const asBrowser = shape.back && shape.forward && shape.menu === 0 && shape.devtools === 0;
+    if (!asBrowser || new URL(shape.url).href !== shape.src) {
+        throw new Error("the iframe bar did not have the browser shape");
+    }
+    await shot("47-browser-bar-iframe");
+    const typed = new URL("about", shape.url).href;
+    await fill(".url-field", typed);
+    await evaluate(`document.querySelector(".url-form").requestSubmit(), true`);
+    const src = `document.querySelector("iframe.preview-frame").src`;
+    await until("frame at the typed URL", `${src} === ${JSON.stringify(typed)}`);
+    await until("field shows it", `document.querySelector(".url-field").value.endsWith("about")`);
+    await shot("48-browser-bar-navigated");
+    console.log("browser bar ok");
+    socket.close();
+    process.exit(0);
+}
+
+if (flow === "bridge-bar") {
+    // The desktop path with the stub: a `navigated` event fills the URL field and the title
+    // tooltip and enables back; the buttons call `back`, `navigate` (Enter in the field),
+    // `zoom` (from the menu), `find` (the inline field, then null on close) and
+    // `clearStorage` after the confirm.
+    const calls = `window.bridgeCalls`;
+    const lastCall = (method: string) =>
+        `${calls}.filter((c) => c.method === ${JSON.stringify(method)}).at(-1)`;
+    const field = `document.querySelector(".url-field")`;
+    const back = `document.querySelector("button[aria-label=Back]")`;
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
+    await click(".preview-pane .tab", "web");
+    await until("set called", `${lastCall("set")} !== undefined`);
+    const key = (await evaluate(`${lastCall("set")}.args[0]`)) as string;
+    const url = (await evaluate(`${lastCall("set")}.args[1]`)) as string;
+    const quotedKey = JSON.stringify(key);
+    await until("field at the set URL", `${field}.value === ${JSON.stringify(url)}`);
+    await until("back disabled", `${back}.disabled`);
+    await evaluate(`window.bridgeNavigate({ key: ${quotedKey}, title: "About us",
+        url: ${JSON.stringify(new URL("about", url).href)}, canGoBack: true,
+        canGoForward: false, loading: false })`);
+    await until("field follows", `${field}.value.endsWith("/about")`);
+    await until("title tooltip", `${field}.title === "About us"`);
+    await until("back enabled", `!${back}.disabled`);
+    await shot("49-bridge-bar-navigated");
+    await click("button[aria-label=Back]");
+    await until("back called", `${lastCall("back")}?.args[0] === ${quotedKey}`);
+    const typed = new URL("pricing", url).href;
+    await fill(".url-field", typed);
+    await evaluate(`document.querySelector(".url-form").requestSubmit(), true`);
+    const quotedTyped = JSON.stringify(typed);
+    await until("navigate called", `${lastCall("navigate")}?.args[1] === ${quotedTyped}`);
+    await click("button[aria-label=More]");
+    await until("menu open", `document.querySelector(".menu") !== null`);
+    await shot("50-bridge-bar-menu");
+    await click(".menu button", "Zoom in");
+    await until("zoom called", `${lastCall("zoom")}?.args[1] === "in"`);
+    await click("button[aria-label=More]");
+    await click(".menu button", "Find in page");
+    await until("find field", `document.querySelector(".find-field") !== null`);
+    await fill("input[aria-label='Find text']", "refund");
+    await evaluate(`document.querySelector(".find-field").requestSubmit(), true`);
+    await until("find called", `${lastCall("find")}?.args[1] === "refund"`);
+    await until("count shown", `${text(".find-count")} === "1/3"`);
+    await shot("51-bridge-bar-find");
+    await click("button[aria-label='Close find']");
+    await until("find cleared", `${lastCall("find")}?.args[1] === null`);
+    await evaluate(`window.confirm = () => true, true`);
+    await click("button[aria-label=More]");
+    await click(".menu button", "Clear this app's storage");
+    await until("clearStorage called", `${lastCall("clearStorage")}?.args[0] === ${quotedKey}`);
+    console.log("calls:", JSON.stringify(await evaluate(`${calls}.map((c) => c.method)`)));
+    console.log("bridge bar ok");
+    socket.close();
     process.exit(0);
 }
 

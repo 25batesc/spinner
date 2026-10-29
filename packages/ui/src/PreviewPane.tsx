@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { preview_key, type ServiceView, type SessionView } from "@spinner/protocol";
 
-import { IconButton, PaneHead, type IconButtonProps } from "./PaneHead.tsx";
+import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
 import { Preview, type PopOutRequest } from "./Preview.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
 import { Tabs } from "./Tabs.tsx";
@@ -54,7 +54,6 @@ function Verified({ view, busy, run }: PreviewPaneProps & { view: SessionView })
 
 export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
     const [picked, setPicked] = useState<string | undefined>(undefined);
-    const [reloads, setReloads] = useState(0);
     const services = (view?.stack.services ?? []).filter((service) => service.url !== null);
     const names = services.map((service) => service.name);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
@@ -89,24 +88,11 @@ export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
             <Tabs labels={names} selected={selected} onSelect={setPicked} grey={grey} />
             {view !== undefined && service?.url != null && isLive(service) ? (
                 <>
-                    <div className="preview-bar">
-                        <IconButton
-                            icon="globe"
-                            label="Open in a tab"
-                            onClick={() => window.open(service.url ?? "", "_blank", "noreferrer")}
-                        />
-                        <IconButton
-                            icon="reload"
-                            label="Reload"
-                            onClick={() => setReloads(reloads + 1)}
-                        />
-                    </div>
                     <Preview
                         key={service.url}
                         previewKey={preview_key(view.summary.dir, service.name)}
                         url={service.url}
                         title={service.name}
-                        reloads={reloads}
                         topLevel={service.preview === "top-level"}
                     />
                 </>
