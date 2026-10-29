@@ -64,6 +64,8 @@ export interface PiRpcHarnessOptions {
     daemon_url?: () => string;
     /** The extension entry; `default_extension_path()` when absent, none when null. */
     extension?: string | null;
+    /** `provider/model` for an agent that names none (`config.yaml` `default_model`). */
+    default_model?: string;
 }
 
 /**
@@ -119,6 +121,7 @@ export class PiRpcHarness implements AgentHarness {
             extra_args.push("--append-system-prompt", brief);
         }
         const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
+        const model = agent.model ?? this.options.default_model;
         const env: Record<string, string> = {
             [EXTENSION_ENV.session_dir]: session.path,
             [EXTENSION_ENV.agent]: agent.name,
@@ -131,7 +134,7 @@ export class PiRpcHarness implements AgentHarness {
             cwd: agent.cwd,
             session_dir,
             session_id: agent.name,
-            ...(agent.model === undefined ? {} : { model: agent.model }),
+            ...(model === undefined ? {} : { model }),
             extra_args,
             env,
             on_stderr: (line) => on_stderr?.(agent.name, line),

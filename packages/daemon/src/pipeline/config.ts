@@ -68,7 +68,10 @@ export function pipeline_config_from_spec(spec: Pick<StackSpec, "pipeline">): Pi
     if (owner_login !== undefined) {
         config.github.owner_login = owner_login;
     }
-    const channel = string_value(slack["channel"]);
+    // The home's `config.yaml` `slack.channel` reaches here as `SPINNER_SLACK_CHANNEL`
+    // (`main.ts` exports it); a project's own channel wins over it.
+    const channel =
+        string_value(slack["channel"]) ?? string_value(process.env["SPINNER_SLACK_CHANNEL"]);
     if (channel !== undefined) {
         config.slack.channel = channel;
     }

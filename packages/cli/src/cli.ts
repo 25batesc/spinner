@@ -5,6 +5,7 @@
 import { resolve_home } from "@spinner/daemon";
 import type { CliIo, Command } from "./commands/command.js";
 import { approve_command } from "./commands/approve.js";
+import { daemon_command } from "./commands/daemon.js";
 import { fix_command } from "./commands/fix.js";
 import { land_command } from "./commands/land.js";
 import { PIPELINE_COMMANDS } from "./commands/pipeline.js";
@@ -24,6 +25,7 @@ const COMMANDS: Command[] = [
     approve_command,
     land_command,
     reset_command,
+    daemon_command,
 ];
 
 export const USAGE = render_usage(COMMANDS);

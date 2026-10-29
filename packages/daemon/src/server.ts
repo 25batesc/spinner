@@ -18,6 +18,7 @@ import type {
     AgentEventsResponse,
     AgentNotRunningResponse,
     AgentResponse,
+    BuildInfo,
     ErrorResponse,
     HealthResponse,
     JobAction,
@@ -98,6 +99,10 @@ export interface DaemonOptions {
     pi?: string;
     /** The Spinner pi extension entry; the checkout's `packages/pi-extension` when absent. */
     extension?: string | null;
+    /** `provider/model` for an agent that names none; pi's own default when absent. */
+    default_model?: string;
+    /** What `GET /health` reports as the build; `main.ts` reads it from the checkout. */
+    build?: BuildInfo;
 }
 
 export interface Daemon {
@@ -115,6 +120,7 @@ export interface Daemon {
 export interface AppDeps {
     home: SpinnerHome;
     started: string;
+    build: BuildInfo;
     log: (line: string) => void;
     ctx: ActionContext;
     jobs: JobRunner;
@@ -145,7 +151,12 @@ export function create_app(deps: AppDeps): Hono {
     app.use("*", cors());
 
     app.get("/health", (c) => {
-        const body: HealthResponse = { ok: true, home: deps.home.root, started: deps.started };
+        const body: HealthResponse = {
+            ok: true,
+            home: deps.home.root,
+            started: deps.started,
+            build: deps.build,
+        };
         return c.json(body);
     });
 
@@ -458,6 +469,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         on_stderr: (agent, line) => log(`pi ${agent}: ${line}`),
         daemon_url: () => `http://${host}:${bound_port}`,
         ...(options.extension === undefined ? {} : { extension: options.extension }),
+        ...(options.default_model === undefined ? {} : { default_model: options.default_model }),
     });
     const agents = new AgentManager(home, harness, bus, { log });
     const writer = new MissionWriter(home, bus);
@@ -500,6 +512,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const app = create_app({
         home,
         started,
+        build: options.build ?? { version: "0.0.0", commit: null, built: null },
         log,
         ctx,
         jobs,

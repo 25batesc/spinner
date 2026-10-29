@@ -109,6 +109,17 @@ export interface HealthResponse {
     home: string;
     /** Process start time, ISO 8601. */
     started: string;
+    /** What runs: for `spinner daemon status` and for telling a stale build from a fresh one. */
+    build: BuildInfo;
+}
+
+export interface BuildInfo {
+    /** `@spinner/daemon`'s package version. */
+    version: string;
+    /** Short commit of the checkout the daemon runs from, or null outside a git checkout. */
+    commit: string | null;
+    /** Modification time of the daemon's `dist/main.js`, ISO 8601, or null when not built. */
+    built: string | null;
 }
 
 /** A `spinner.yaml` the daemon found: in `<home>/projects`, `local/` or `examples/`. */
