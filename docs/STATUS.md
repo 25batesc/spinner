@@ -133,7 +133,7 @@ Record: engine $36.60 (claude-fable-5-1, 58 min), ext $15.23 (claude-fable-5-1, 
 | Agent tabs rendering the pi event stream, prompt / steer / abort, model picker | done | `45f3e86`, `241c8ed`; history on reload from `GET .../agents/:name/events` |
 | Preview pane: iframe tabs per hostname, grey until healthy, open-in-tab, reload, the verified tick | done | the sample stack from new to close in headless Chrome, screenshots in the session's `artifacts/` |
 | Mission panel, Context tab, `threads/` rendering, `create PR / fix / post / land` buttons | done | s005 (`fd271f5`, `88df4dd`): editable Goal and Done when through the daemon, threads with reply, resolve and flag, confirm dialogs for `post` and `approve`, the context tab with editable files; verified on the real daemon with screenshots |
-| A feature goes from new session to merged PRs without a terminal; a new user follows the README on their own stack in under an hour | open | after M2 |
+| A feature goes from new session to merged PRs without a terminal; a new user follows the README on their own stack in under an hour | partial | s006: the README's Quick start, timed by the agent on 2026-10-29 in a fresh clone (`8f763c4`) with a fresh `SPINNER_HOME`: `pnpm install` to the sample stack up in the UI in 15.6 s, warm caches (`up` 3.1 s, build 3.4 s, `close` 2.9 s). Open: a new user on their own stack, and the terminal-free feature |
 
 Record: engine $19.40 (claude-fable-5-1, 38 min), ui $2.56 (claude-sonnet-5-5, 30 min in two runs). Operator relays 2, inbox messages 2, blocking decisions 0. The operator deferred the two-session run of his own stack from the UI; the stack side is proven in s002. Full record: [sessions/s003-MISSION.md](sessions/s003-MISSION.md).
 

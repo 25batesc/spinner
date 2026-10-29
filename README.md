@@ -8,7 +8,94 @@ Spinner does not make one feature faster by adding agents to it. Communication c
 
 > Status: **M2 done except the operator's first real feature; M3 partial** (2026-10-29). `pnpm daemon` serves the web UI at `http://localhost:7777`: sessions and board, stack actions with live job logs, previews, agent tabs backed by pi, the mission panel, review threads, and `create PR / fix / post / approve / land / reset` as jobs. The loop ran live on a throwaway repository: the fixer agent resolved a review thread, the post went to Slack as the operator, the PR merged. The board works on real PRs (`spinner adopt`, `spinner board --watch`; a live merge-queue pop-out notified in 19 s). The stack runner brings up `examples/sample-stack` in 3 s and the operator's own three-repo stack, two sessions side by side on their own hostnames and database clones. The soak week runs before M2. Details in [docs/STATUS.md](docs/STATUS.md).
 >
-> Try it: `pnpm install && pnpm -r build`, then `pnpm spinner new --project examples/sample-stack "try it"`, `pnpm spinner seed rebuild s001`, `pnpm spinner up s001`. `pnpm spinner` is a root script; for a plain `spinner` on your PATH run `pnpm link --global` once in `packages/cli`. The daemon is not needed for the stack runner. `spinner close s001` removes the stack, the database and the worktree, and keeps the branch `feat/try-it` in the repo. Run `pnpm install && pnpm -r build && pnpm daemon`, then `pnpm --filter ui dev`. Start with [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
+> Try it: [Quick start](#quick-start) below takes you from a clone to the sample stack in the UI. Then read [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/SESSION_PROTOCOL.md](docs/SESSION_PROTOCOL.md).
+
+## Quick start
+
+This is the newcomer path: a fresh clone to a running UI on `examples/sample-stack`, then your own stack. An agent timed it on 2026-10-29 in a fresh clone with a fresh `SPINNER_HOME`; the table is at the end.
+
+You need macOS 14 or newer, Node 24, pnpm 10, Docker Desktop or OrbStack, `gh` logged in, and `pi` 1.x with a provider configured. `.node-version` names the Node version; `fnm use` or `nvm use` picks it. Linux: the `stack` CI job runs this path on `ubuntu-latest`; a Linux laptop is untested.
+
+1. Clone and build.
+
+   ```bash
+   git clone https://github.com/25batesc/Spinner.git && cd Spinner
+   pnpm install
+   pnpm -r build
+   ```
+
+   `pnpm spinner` runs the CLI from the repo root. For a plain `spinner` on your PATH, add `alias spinner="node $PWD/packages/cli/dist/main.js"` to your shell.
+
+2. Check the machine.
+
+   ```bash
+   pnpm spinner doctor
+   ```
+
+   One line per check: the home outside git, Node, Docker, `gh`, `pi`, the shared proxy and Postgres, the `env` file, the Slack token, the daemon. A `FAIL` line says what to do. `pi` not found: put its path in `~/.spinner/config.yaml` (step 3) or set `SPINNER_PI`.
+
+3. Settings. The daemon reads `~/.spinner/config.yaml` once at start. Every key is optional; the environment overrides each one (`SPINNER_PI`, `SPINNER_PORT`, `SPINNER_DEFAULT_MODEL`, `SPINNER_SLACK_CHANNEL`).
+
+   ```yaml
+   # ~/.spinner/config.yaml
+   pi_bin: /opt/homebrew/bin/pi          # the pi executable; `pi` on PATH when absent
+   port: 7777                            # the daemon's port
+   default_model: anthropic/claude-fable-5-1   # for an agent tab that names no model
+   slack:
+     channel: C0123456789                # where `spinner post` posts when a project names none
+   ```
+
+   Secrets never go in that file; the daemon refuses a key that looks like one. Put them in `~/.spinner/env`, mode 600, one `NAME=value` per line. The launch agent (step 4) sources it at login; in a terminal, `source ~/.spinner/env` before `spinner daemon start`. Today the only secret is `SLACK_USER_TOKEN`, for `spinner post`. Spinner never writes that file.
+
+   ```bash
+   touch ~/.spinner/env && chmod 600 ~/.spinner/env
+   ```
+
+4. Start the daemon.
+
+   ```bash
+   pnpm spinner daemon start      # background; log in ~/.spinner/daemon.log
+   pnpm spinner daemon status     # pid, URL, build (commit and build time)
+   open http://localhost:7777
+   ```
+
+   `daemon logs` tails the log, `daemon stop` stops it, `start` twice is a no-op. On macOS, `pnpm spinner daemon install` writes `~/Library/LaunchAgents/dev.spinner.daemon.plist`, which starts the daemon at login with your shell's PATH and `~/.spinner/env`; `daemon uninstall` removes it. The daemon runs from this checkout's build, so run `pnpm -r build` and `daemon stop && daemon start` after a `git pull`.
+
+5. Run the sample stack.
+
+   ```bash
+   pnpm spinner new --project examples/sample-stack "try it"   # session s001, worktree on feat/try-it
+   pnpm spinner seed rebuild s001                              # once per machine; starts spinner-postgres
+   pnpm spinner up s001                                        # proxy, 3 containers, a database clone
+   ```
+
+   The UI shows `s001` with its services up; the preview pane shows `web.s001.localhost`. The first `up` builds the dev image and pulls Traefik, Postgres and Temporal; the second takes about 3 s. `curl` does not resolve `*.localhost` on macOS, so use `curl -H 'Host: api.s001.localhost' http://127.0.0.1/items`; browsers resolve it.
+
+6. Your own stack. Write a `spinner.yaml` for it ([docs/STACK_SPEC.md](docs/STACK_SPEC.md), recipes in [docs/stacks/](docs/stacks/README.md)) in `local/<name>/` of this checkout (gitignored) or `~/.spinner/projects/<name>/`. Then `pnpm spinner new --project <name> "<title>"`, `seed rebuild`, `up`, as in step 5. Add an agent from the session's tab in the UI, or let the board drive an existing PR with `pnpm spinner adopt <pr-url>`.
+
+7. Clean up.
+
+   ```bash
+   pnpm spinner close s001        # containers, network, database clone, worktree; the branch stays
+   pnpm spinner daemon stop
+   ```
+
+Timed run, 2026-10-29: a fresh clone at commit `8f763c4` and a fresh `SPINNER_HOME`, on a laptop. The pnpm store was warm, the dev image was built, and the shared proxy and Postgres ran already. A cold machine adds the image pulls and one image build: a few minutes on a normal connection.
+
+| Step | Time |
+|---|---|
+| `git clone` (local) | 0.7 s |
+| `pnpm install --frozen-lockfile` | 1.2 s |
+| `pnpm -r build` | 3.4 s |
+| `spinner doctor` | 2.0 s |
+| `spinner daemon start` | 0.7 s |
+| `spinner new --project examples/sample-stack` | 0.6 s |
+| `spinner seed rebuild s001` | 0.4 s |
+| `spinner up s001` | 3.1 s |
+| UI `/` 200, session view `stack: up`, `web.s001.localhost` 200 | 0.2 s |
+| `spinner close s001` | 2.9 s |
+| `spinner daemon stop` | 0.4 s |
+| Total | 15.6 s |
 
 ## The problem
 
