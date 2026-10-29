@@ -515,6 +515,10 @@
                 "pid": {
                     "type": "number"
                 },
+                "started": {
+                    "type": "string",
+                    "description": "The process start time as `ps` prints it. A pid is reused once its process exits; the start time tells Spinner's process from a stranger that inherited the number."
+                },
                 "port": {
                     "type": "number",
                     "description": "The port the service listens on; the proxy routes its hostname here."

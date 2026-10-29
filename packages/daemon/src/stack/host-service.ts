@@ -3,7 +3,7 @@
 // `host.docker.internal`. For a backend whose dependencies have no wheel for the container
 // platform. The process outlives the CLI; `down` and `close` stop it by pid.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
     closeSync,
     existsSync,
@@ -62,8 +62,9 @@ export function start_host_service(input: HostServiceInput): HostProcess {
     assert.ok(child.pid !== undefined, `could not start ${input.name}`);
     // `detached` made the child a session and process-group leader, so its pid is the pgid.
     // The pid file survives a lost session.yaml and lets a later `down` find the group.
-    write_pid_file(input.session_dir, input.name, child.pid);
-    return { pid: child.pid, port: input.port, log };
+    const started = process_start_time(child.pid) ?? "";
+    write_pid_file(input.session_dir, input.name, child.pid, started);
+    return { pid: child.pid, started, port: input.port, log };
 }
 
 /**
@@ -263,16 +264,16 @@ export function pid_file(session_dir: string, name: string): string {
     return join(session_dir, "stack", "pids", `${name}.pid`);
 }
 
-function write_pid_file(session_dir: string, name: string, pid: number): void {
+function write_pid_file(session_dir: string, name: string, pid: number, started: string): void {
     const path = pid_file(session_dir, name);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${pid}\n`);
+    writeFileSync(path, `${pid} ${started}\n`);
 }
 
 /** The pid files of a session, by service name. */
-export function read_pid_files(session_dir: string): Record<string, number> {
+export function read_pid_files(session_dir: string): Record<string, ProcessIdentity> {
     const dir = join(session_dir, "stack", "pids");
-    const found: Record<string, number> = {};
+    const found: Record<string, ProcessIdentity> = {};
     if (!existsSync(dir)) {
         return found;
     }
@@ -280,12 +281,65 @@ export function read_pid_files(session_dir: string): Record<string, number> {
         if (!entry.endsWith(".pid")) {
             continue;
         }
-        const pid = Number.parseInt(readFileSync(join(dir, entry), "utf8"), 10);
+        const text = readFileSync(join(dir, entry), "utf8").trim();
+        const space = text.indexOf(" ");
+        const pid = Number.parseInt(space === -1 ? text : text.slice(0, space), 10);
         if (Number.isInteger(pid) && pid > 1) {
-            found[entry.slice(0, -".pid".length)] = pid;
+            const started = space === -1 ? undefined : text.slice(space + 1).trim();
+            found[entry.slice(0, -".pid".length)] = {
+                pid,
+                session_dir,
+                ...(started === undefined || started.length === 0 ? {} : { started }),
+            };
         }
     }
     return found;
+}
+
+/** What a pid file or `session.yaml` remembers about a service's process. */
+export interface ProcessIdentity {
+    pid: number;
+    /** `ps -o lstart=` at spawn; absent for pid files written before it was recorded. */
+    started?: string;
+    /** The session directory; a legacy entry is trusted only with its cwd inside it. */
+    session_dir?: string;
+}
+
+/** The start time of a live process as `ps` prints it, or null when it is gone. */
+export function process_start_time(pid: number): string | null {
+    const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" });
+    const text = String(result.stdout).trim();
+    return result.status === 0 && text.length > 0 ? text : null;
+}
+
+/**
+ * True when the pid is alive, leads its own process group (`detached` made it so), sits
+ * outside the daemon's own group, and is the process Spinner started: the same start time,
+ * or, for an entry without one, a working directory inside the session. Anything else is a
+ * reused pid and must not be signalled.
+ */
+export async function is_spinner_leader(identity: ProcessIdentity): Promise<boolean> {
+    const { pid } = identity;
+    const result = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" });
+    const pgid = Number.parseInt(String(result.stdout).trim(), 10);
+    if (result.status !== 0 || pgid !== pid || pgid === own_process_group()) {
+        return false;
+    }
+    if (identity.started !== undefined) {
+        return process_start_time(pid) === identity.started;
+    }
+    if (identity.session_dir !== undefined) {
+        const under = await processes_with_cwd_under(identity.session_dir);
+        return under.includes(pid);
+    }
+    return false;
+}
+
+function own_process_group(): number {
+    const args = ["-o", "pgid=", "-p", String(process.pid)];
+    const result = spawnSync("ps", args, { encoding: "utf8" });
+    const pgid = Number.parseInt(String(result.stdout).trim(), 10);
+    return Number.isInteger(pgid) ? pgid : 0;
 }
 
 /** True while any member of the process group is alive. */
@@ -303,8 +357,16 @@ export function group_alive(pgid: number): boolean {
  * left, then SIGKILL to the group. The group is the one the service leads (pgid = pid).
  * Returns `absent` when nothing of it was alive.
  */
-export async function stop_host_process(pgid: number): Promise<"stopped" | "absent"> {
-    if (!group_alive(pgid)) {
+export async function stop_host_process(identity: ProcessIdentity): Promise<"stopped" | "absent"> {
+    const pgid = identity.pid;
+    assert.ok(Number.isInteger(pgid), "pgid must be an integer");
+    // A pid is reused by the OS once its process exits. A stale pid file then names someone
+    // else's process, and `kill(-pid)` would take down that process's whole group: a browser,
+    // a login session. So the pid is signalled only while it is still Spinner's leader.
+    if (pgid <= 1 || pgid === process.pid) {
+        return "absent";
+    }
+    if (!(await is_spinner_leader(identity))) {
         return "absent";
     }
     signal_group(pgid, "SIGTERM");

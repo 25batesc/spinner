@@ -78,7 +78,7 @@ export async function collect_show_data(entry: SessionSummary): Promise<ShowData
                 row.url = `http://${url}`;
             }
             if (service.runtime === "host") {
-                const pgid = pids[name] ?? processes[name]?.pid;
+                const pgid = pids[name]?.pid ?? processes[name]?.pid;
                 const port = processes[name]?.port;
                 row.where = port === undefined ? "host" : `host :${port}`;
                 row.state = host_state(pgid, session);

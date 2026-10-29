@@ -76,7 +76,7 @@ import {
     processes_with_cwd_under,
     read_pid_files,
     process_alive,
-    group_alive,
+    is_spinner_leader,
     homes_in_route_files,
     proxy_routes_path,
     route_files_in,
@@ -537,11 +537,15 @@ async function stop_host_services(
     // failed `up` never wrote it. Each pid is the leader of its own process group.
     const groups = { ...read_pid_files(summary.path) };
     for (const [name, process_info] of Object.entries(summary.session.stack.processes ?? {})) {
-        groups[name] = process_info.pid;
+        groups[name] = {
+            pid: process_info.pid,
+            session_dir: summary.path,
+            ...(process_info.started === undefined ? {} : { started: process_info.started }),
+        };
     }
-    for (const [name, pgid] of Object.entries(groups)) {
-        const outcome = await stop_host_process(pgid);
-        log(`${name} on the host (process group ${pgid}): ${outcome}`);
+    for (const [name, identity] of Object.entries(groups)) {
+        const outcome = await stop_host_process(identity);
+        log(`${name} on the host (process group ${identity.pid}): ${outcome}`);
         const file = pid_file(summary.path, name);
         if (existsSync(file)) {
             rmSync(file);
@@ -865,7 +869,7 @@ async function wait_healthy(
                 grace_over &&
                 log_shows_traceback(readFileSync(join(summary.path, process_info.log), "utf8"));
             if (crashed && !(await host_answers(process_info.port, entry.path))) {
-                await stop_host_process(process_info.pid);
+                await stop_host_process({ ...process_info, session_dir: summary.path });
                 throw new Error(await describe_host_exit(summary, spec, entry.name, process_info));
             }
         }
@@ -1012,7 +1016,7 @@ export async function shared_down(
     const lines = shared_use_lines({
         projects: await spinner_projects(),
         route_files: route_files_in(proxy_dir),
-        live_pids: live_pid_files(homes),
+        live_pids: await live_pid_files(homes),
     });
     if (lines.length > 0 && options.force !== true) {
         throw new Error(
@@ -1043,7 +1047,7 @@ export interface SeedOptions {
 }
 
 /** Host-service pid files, of every session of the given homes, whose group is alive. */
-function live_pid_files(home_roots: string[]): string[] {
+async function live_pid_files(home_roots: string[]): Promise<string[]> {
     const live: string[] = [];
     for (const root of new Set(home_roots)) {
         const sessions = join(root, "sessions");
@@ -1052,8 +1056,9 @@ function live_pid_files(home_roots: string[]): string[] {
         }
         for (const dir of readdirSync(sessions)) {
             const pids = read_pid_files(join(sessions, dir));
-            for (const [service, pgid] of Object.entries(pids)) {
-                if (group_alive(pgid)) {
+            for (const [service, identity] of Object.entries(pids)) {
+                // A reused pid is not a live service; only Spinner's own leader counts.
+                if (await is_spinner_leader(identity)) {
                     live.push(`${dir}/${service}`);
                 }
             }

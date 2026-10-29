@@ -133,6 +133,11 @@ export interface StackState {
 /** A `runtime: host` service's process, as `spinner up` started it. */
 export interface HostProcess {
     pid: number;
+    /**
+     * The process start time as `ps` prints it. A pid is reused once its process exits; the
+     * start time tells Spinner's process from a stranger that inherited the number.
+     */
+    started?: string;
     /** The port the service listens on; the proxy routes its hostname here. */
     port: number;
     /** Log file, relative to the session directory. */

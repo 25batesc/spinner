@@ -16,6 +16,8 @@ import { describe, expect, it } from "vitest";
 import {
     diagnose_host_exit,
     group_alive,
+    is_spinner_leader,
+    process_start_time,
     kill_pids,
     processes_with_cwd_under,
     read_pid_files,
@@ -53,14 +55,17 @@ describe("host services", () => {
         await new Promise((resolve) => setTimeout(resolve, 300));
         expect(readFileSync(join(session_dir, record.log), "utf8")).toContain("fake on 23456");
 
-        expect(await stop_host_process(record.pid)).toBe("stopped");
+        expect(await stop_host_process(record)).toBe("stopped");
+        // The leader is dead but this process reaps it asynchronously; until then it answers
+        // signal 0 as a zombie. The group's end is waited for the same way.
+        for (let poll = 0; poll < 50 && process_alive(record.pid); poll += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
         expect(process_alive(record.pid)).toBe(false);
-        // The group leader is gone; a member may still be between SIGKILL and its reaping
-        // under load, so the group's end is waited for before the second call.
         for (let poll = 0; poll < 50 && group_alive(record.pid); poll += 1) {
             await new Promise((resolve) => setTimeout(resolve, 100));
         }
-        expect(await stop_host_process(record.pid)).toBe("absent");
+        expect(await stop_host_process(record)).toBe("absent");
     });
 
     it("writes a Traefik file-provider route to host.docker.internal and upstreams", () => {
@@ -103,12 +108,14 @@ describe("process groups and strays", () => {
             env: {},
         });
         await new Promise((resolve) => setTimeout(resolve, 500));
-        expect(read_pid_files(session_dir)).toEqual({ forky: record.pid });
+        expect(read_pid_files(session_dir)).toEqual({
+            forky: { pid: record.pid, started: record.started, session_dir },
+        });
         expect(group_alive(record.pid)).toBe(true);
         const before = await processes_with_cwd_under(session_dir);
         expect(before.length).toBeGreaterThanOrEqual(3);
 
-        expect(await stop_host_process(record.pid)).toBe("stopped");
+        expect(await stop_host_process(record)).toBe("stopped");
         expect(group_alive(record.pid)).toBe(false);
         const strays = await processes_with_cwd_under(session_dir);
         expect(strays).toHaveLength(1);
@@ -140,7 +147,7 @@ describe("Spinner's env inside the wrapper", () => {
         await new Promise((resolve) => setTimeout(resolve, 300));
         const log = readFileSync(join(session_dir, record.log), "utf8");
         expect(log).toContain("db=postgres://x/spinner_s17 port=23457 quote=it's a b");
-        await stop_host_process(record.pid);
+        await stop_host_process(record);
     });
 
     it("renders env after the wrapper and quotes values", () => {
@@ -241,5 +248,37 @@ describe("import_error_line", () => {
             "Cannot find module",
         );
         expect(import_error_line("all good\n")).toBeNull();
+    });
+});
+
+describe("is_spinner_leader", () => {
+    it("signals only the leader Spinner started; a reused pid is absent", async () => {
+        const { spawn } = await import("node:child_process");
+        const leader = spawn("sh", ["-c", "sleep 30"], { detached: true, stdio: "ignore" });
+        leader.unref();
+        const pid = leader.pid ?? -1;
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            const started = process_start_time(pid);
+            expect(started).not.toBeNull();
+            // The recorded start time matches: this is Spinner's process.
+            expect(await is_spinner_leader({ pid, started: started ?? "" })).toBe(true);
+            // A different start time means the pid was reused by a stranger: never signalled.
+            const stranger = { pid, started: "Mon Jan  1 00:00:00 2001" };
+            expect(await is_spinner_leader(stranger)).toBe(false);
+            expect(await stop_host_process(stranger)).toBe("absent");
+            // A legacy entry with no start time and no session cwd is not trusted either.
+            expect(await is_spinner_leader({ pid })).toBe(false);
+            // The daemon's own pid is never a service.
+            const own = { pid: process.pid, started: process_start_time(process.pid) ?? "" };
+            expect(await is_spinner_leader(own)).toBe(false);
+            expect(await stop_host_process({ pid, started: started ?? "" })).toBe("stopped");
+        } finally {
+            try {
+                process.kill(-pid, "SIGKILL");
+            } catch {
+                // Already gone.
+            }
+        }
     });
 });
