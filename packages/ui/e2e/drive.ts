@@ -331,7 +331,7 @@ if (flow === "panes") {
     const noStrips = `document.querySelectorAll(".strip").length === 0`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     const session = (await evaluate(
-        `document.querySelector(".session-selected .muted").innerText`,
+        `document.querySelector(".session-selected").dataset.dir`,
     )) as string;
     const chrome = await evaluate(`({
         bar: document.querySelectorAll("${barButton}").length,
@@ -347,13 +347,19 @@ if (flow === "panes") {
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
-        bar: 1, barOn: "true", popOuts: 0, top: 1, inSessions: 1,
+        bar: 1, barOn: "true", popOuts: 1, top: 1, inSessions: 1,
         context: ["Refund flow", "peer-review", "stack up", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
-        links: 0, icons: 7,
+        links: 0, icons: 8,
     };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
-        throw new Error("expected the bar icon lit, the toggle in the sessions header, 7 icons");
+        throw new Error("expected the bar lit, the toggle beside sessions, one pop-out, 8 icons");
+    }
+    const popOutOwner = await evaluate(
+        `document.querySelector("button[aria-label^='Pop out']").closest(".pane").className`,
+    );
+    if (popOutOwner !== "pane preview-pane") {
+        throw new Error("the pop-out icon must be on the previews pane only");
     }
     await shot("39-default");
     // 1. A brush: 150 px left parks the panel at its 140 px minimum (260 - 150 = 110 is past
@@ -463,6 +469,38 @@ if (flow === "panes") {
     for (const stale of await targets()) {
         await closeTarget(stale.id);
     }
+    // The previews pop out into a window on the `?pane=previews` route; the strip docks it
+    // back; a window the operator closes docks itself.
+    const popups = async () => {
+        // The strip renders before Chrome lists the new window; give the target a moment.
+        let found = await targets();
+        for (let tries = 0; found.length === 0 && tries < 20; tries += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            found = await targets();
+        }
+        return found;
+    };
+    await click("button[aria-label='Pop out previews']", "", true);
+    await until("previews popped strip", `${strip("previews")}?.textContent.includes("popped")`);
+    let windows = await popups();
+    console.log("popped-out windows:", JSON.stringify(windows.map((t) => t.url)));
+    if (windows.length !== 1 || !windows[0]?.url.includes(`pane=previews&session=${session}`)) {
+        throw new Error("pop out did not open the ?pane=previews route for the session");
+    }
+    await shot("45-previews-popped");
+    await click(".strip[data-pane=previews]");
+    await until("previews docked", `document.querySelector(".preview-pane") !== null`);
+    for (let tries = 0; (await targets()).length > 0 && tries < 20; tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if ((await targets()).length !== 0) {
+        throw new Error("dock back left the popped-out window open");
+    }
+    await click("button[aria-label='Pop out previews']", "", true);
+    await until("popped again", `${strip("previews")}?.textContent.includes("popped")`);
+    windows = await popups();
+    await closeTarget(windows[0]?.id ?? "");
+    await until("docked on close", `document.querySelector(".preview-pane") !== null`);
     // 10. The route alone: one pane, no bar, strips, dividers or controls, same session.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
     await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
@@ -581,10 +619,12 @@ if (flow === "bridge-bar") {
 }
 
 if (flow === "bridge-popout") {
-    // The dormant pop-out handling with the stub: no header opens a window, but the desktop
-    // app still can, so after a load the page asks `panes.list` and shows a strip per window;
-    // the strip calls `dockBack` (`previews.dockBack` for a preview key, `panes.dockBack` for
-    // a pane page), and a docked event alone (the window's close button) restores the pane.
+    // The pop-out handling with the stub: the previews header calls `previews.popOut` with
+    // the shown tab's key and the pane becomes a strip; the strip calls `previews.dockBack`
+    // and the docked event restores the pane, which places its view again with `set`. After
+    // a load the page asks `panes.list` and shows a strip per window the desktop still has
+    // (its tray can open pane pages too); `panes.dockBack` docks those, and a docked event
+    // alone (the window's close button) restores the pane.
     const calls = `window.bridgeCalls`;
     const lastCall = (method: string) =>
         `${calls}.filter((c) => c.method === ${JSON.stringify(method)}).at(-1)`;
@@ -593,9 +633,21 @@ if (flow === "bridge-popout") {
         `JSON.stringify(${lastCall(method)}?.args) === ${JSON.stringify(JSON.stringify(args))}`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     const session = (await evaluate(
-        `document.querySelector(".session-selected .muted").innerText`,
+        `document.querySelector(".session-selected").dataset.dir`,
     )) as string;
     const key = `${session}/web`;
+    await until("web tab", `document.querySelector(".preview-pane .tab") !== null`);
+    await click(".preview-pane .tab", "web");
+    await until("set called", `${lastCall("set")}?.args[0] === ${JSON.stringify(key)}`);
+    const sets = (await evaluate(`${calls}.filter((c) => c.method === "set").length`)) as number;
+    await click("button[aria-label='Pop out previews']");
+    await until("previews.popOut", `${lastCall("previews.popOut")}?.args[0] === "${key}"`);
+    await until("previews strip", `${strip("previews")}?.textContent.includes("popped")`);
+    await shot("43-bridge-preview-popped");
+    await click(".strip[data-pane=previews]");
+    await until("previews.dockBack", `${lastCall("previews.dockBack")}?.args[0] === "${key}"`);
+    await until("pane back", `document.querySelector(".preview-pane .preview-box") !== null`);
+    await until("view placed again", `${calls}.filter((c) => c.method === "set").length > ${sets}`);
     const popped = JSON.stringify([
         { pane: "sessions", session },
         { pane: "agents", session },
@@ -608,7 +660,7 @@ if (flow === "bridge-popout") {
     for (const pane of ["sessions", "agents", "previews"]) {
         await until(`${pane} strip`, `${strip(pane)}?.textContent.includes("popped")`);
     }
-    await shot("43-bridge-resumed-strips");
+    await shot("43b-bridge-resumed-strips");
     await click(".strip[data-pane=previews]");
     await until("previews.dockBack", `${lastCall("previews.dockBack")}?.args[0] === "${key}"`);
     await until("previews back", `document.querySelector(".preview-pane") !== null`);

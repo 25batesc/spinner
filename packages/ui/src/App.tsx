@@ -5,7 +5,12 @@ import { postAction } from "./events-client.ts";
 import { JobDrawer } from "./JobDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
 import { ActivityBar, ContextBar, PaneStrip, type IconButtonProps } from "./PaneHead.tsx";
-import { resumePoppedOut, type PoppedOut } from "./Preview.tsx";
+import {
+    popOutPane,
+    resumePoppedOut,
+    type PoppedOut,
+    type PopOutRequest,
+} from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import type { ComposeKind } from "./SessionForms.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
@@ -102,8 +107,19 @@ export function App() {
         delete popped.current[pane];
         layout.setPopped(pane, false);
     };
-    // The desktop app can still pop a pane out (its tray); its window outlives a reload of
-    // this page, so the strips come back and dock the pane on a click. No header opens one.
+    // The previews header pops its pane out: the desktop app moves the current tab's view
+    // into a window, a browser opens the `?pane=previews` route. The strip docks it back.
+    const popOut = (pane: PaneName, preview?: PopOutRequest["preview"]) => {
+        const handle = popOutPane({ pane, session: selected, preview }, docked(pane));
+        if (typeof handle === "string") {
+            app.setActionError(handle);
+            return;
+        }
+        popped.current[pane] = handle;
+        layout.setPopped(pane, true);
+    };
+    // A popped-out window outlives a reload of this page (the desktop app also opens one from
+    // its tray), so the strips come back and dock the pane on a click.
     useEffect(() => {
         if (route !== undefined) {
             return;
@@ -199,6 +215,7 @@ export function App() {
                           onToggle: () => layout.fold("previews"),
                           expanded,
                           onExpand: layout.setExpanded,
+                          onPopOut: (preview) => popOut("previews", preview),
                       }
             }
         />
