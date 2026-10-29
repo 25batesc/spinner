@@ -33,6 +33,7 @@ describe("link_seed_dirs", () => {
 
         const outcome = link_seed_dirs(primary, worktree, ["web/node_modules", "apps/api/.venv"]);
         expect(outcome.linked).toEqual(["apps/api/.venv"]);
+        expect(outcome.present).toEqual([]);
         expect(outcome.skipped).toEqual([
             {
                 dir: "web/node_modules",
@@ -60,6 +61,22 @@ describe("copy_seed_files", () => {
         expect(existsSync(join(worktree, "vendor", "darwin-arm64", "binding.node"))).toBe(true);
         const second = copy_seed_files(primary, worktree, [".env", "vendor/darwin-arm64"]);
         expect(second).toEqual(["vendor/darwin-arm64"]);
+    });
+
+    it("reports a path the worktree already has and skips a copy into a linked directory", () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-seed-"));
+        const primary = join(root, "primary");
+        const worktree = join(root, "worktree");
+        mkdirSync(join(primary, "node_modules", "sass", "vendor"), { recursive: true });
+        writeFileSync(join(primary, "node_modules", "sass", "vendor", "binding.node"), "bin");
+        mkdirSync(worktree);
+
+        const links = link_seed_dirs(primary, worktree, ["node_modules"]);
+        expect(links.linked).toEqual(["node_modules"]);
+        const again = link_seed_dirs(primary, worktree, ["node_modules"]);
+        expect(again.present).toEqual(["node_modules"]);
+        const copied = copy_seed_files(primary, worktree, ["node_modules/sass/vendor"]);
+        expect(copied).toEqual([]);
     });
 });
 

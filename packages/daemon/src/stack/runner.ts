@@ -11,6 +11,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     renameSync,
     rmSync,
     statSync,
@@ -185,15 +186,15 @@ export async function attach_project(
     }));
     for (const { name, repo, worktree, branch, outcome } of outcomes) {
         log(`worktree ${worktree} ${outcome} (${repo.path} on ${branch})`);
-        const files = repo.seed_files ?? [];
-        const copied = copy_seed_files(repo.path, join(summary.path, worktree), files);
-        if (copied.length > 0) {
-            log(`  copied from the primary checkout: ${copied.join(", ")}`);
-        }
+        // Links and installs come before the file copies: a copy into `node_modules/...`
+        // would create that directory and block the link.
         const links = repo.seed_links ?? [];
         const links_done = link_seed_dirs(repo.path, join(summary.path, worktree), links);
         if (links_done.linked.length > 0) {
             log(`  linked to the primary checkout: ${links_done.linked.join(", ")}`);
+        }
+        if (links_done.present.length > 0) {
+            log(`  already in the worktree, not linked: ${links_done.present.join(", ")}`);
         }
         for (const skipped of links_done.skipped) {
             log(`  not linked: ${skipped.dir}; ${skipped.lockfile} differs from the primary`);
@@ -207,6 +208,11 @@ export async function attach_project(
             if (code !== 0) {
                 throw new Error(`install for ${name}/${skipped.dir} failed with exit code ${code}`);
             }
+        }
+        const files = repo.seed_files ?? [];
+        const copied = copy_seed_files(repo.path, join(summary.path, worktree), files);
+        if (copied.length > 0) {
+            log(`  copied from the primary checkout: ${copied.join(", ")}`);
         }
         // An adopted session already tracks the repo's PR; the worktree joins that entry.
         const current = session.repos[name];
@@ -242,6 +248,10 @@ export function copy_seed_files(repo_path: string, worktree: string, files: stri
         if (!existsSync(source)) {
             continue;
         }
+        if (existsSync(target) && realpathSync(target) === realpathSync(source)) {
+            // The target lives inside a linked directory: it is the source itself.
+            continue;
+        }
         mkdirSync(dirname(target), { recursive: true });
         if (statSync(source).isDirectory()) {
             // A directory entry (a vendored binary's folder) is copied whole, every time.
@@ -268,6 +278,8 @@ interface SkippedLink {
 interface LinkOutcome {
     linked: string[];
     skipped: SkippedLink[];
+    /** Entries the worktree already had at that path; nothing was done to them. */
+    present: string[];
 }
 
 /** Lockfiles that pin what a linked directory holds, next to it, in lookup order. */
@@ -287,12 +299,16 @@ const LINK_LOCKFILES = [
  * directory the primary checkout lacks is skipped.
  */
 export function link_seed_dirs(repo_path: string, worktree: string, dirs: string[]): LinkOutcome {
-    const outcome: LinkOutcome = { linked: [], skipped: [] };
+    const outcome: LinkOutcome = { linked: [], skipped: [], present: [] };
     for (const dir of dirs) {
         assert.ok(!dir.startsWith("/") && !dir.includes(".."), `seed_links entry: ${dir}`);
         const source = join(repo_path, dir);
         const target = join(worktree, dir);
-        if (!existsSync(source) || existsSync(target) || lstat_exists(target)) {
+        if (!existsSync(source)) {
+            continue;
+        }
+        if (existsSync(target) || lstat_exists(target)) {
+            outcome.present.push(dir);
             continue;
         }
         const parent = dirname(dir);
