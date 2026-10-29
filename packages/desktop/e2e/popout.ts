@@ -15,6 +15,7 @@
 // per on-screen window of `E2E_APP_PID` (see MISSION Log); without it no screenshots.
 import { execFileSync } from "node:child_process";
 import { Page, sleep, target_with, targets, text } from "./cdp.ts";
+import { close_session, create_sample_session, open_web_tab, run_local } from "./sample-session.ts";
 
 const [out_dir] = process.argv.slice(2);
 if (out_dir === undefined) {
@@ -116,53 +117,13 @@ const bridge = (call: string) => ui.evaluate(`window.spinnerDesktop.${call}`);
 const docked = () => ui.evaluate(`window.__docked`) as Promise<Record<string, unknown>[]>;
 const listed = () => bridge("panes.list()") as Promise<Record<string, unknown>[]>;
 
-const title = `Desktop popout ${Date.now() % 100000}`;
-await ui.fill("[aria-label='New session title']", title);
-const picked = await ui.evaluate(`(() => {
-    const select = document.querySelector("form[aria-label='New session'] select");
-    const option = [...select.options].find((o) => o.textContent === ${JSON.stringify(PROJECT)});
-    if (!option) return false;
-    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
-    setter.call(select, option.value);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-})()`);
-if (picked !== true) {
-    throw new Error(`no project named ${PROJECT} in the new-session form`);
-}
-await ui.click("form[aria-label='New session'] button");
-const quoted = JSON.stringify(title);
-await ui.until("new session selected", `${text(".session-selected")}.includes(${quoted})`);
-const dir = (await ui.evaluate(
-    `document.querySelector(".session-selected")?.innerText.match(/s\\d+-[a-z0-9-]+/)?.[0]`,
-)) as string | undefined;
-if (dir === undefined) {
-    throw new Error("could not read the new session's dir from the pane");
-}
-const id = dir.split("-")[0];
-console.log(`session ${dir}`);
-
-await ui.until(
-    "run local enabled",
-    `[...document.querySelectorAll(".actions button")]
-        .some((b) => b.textContent === "run local" && !b.disabled)`,
-);
-await ui.click(".actions button", "run local");
-await ui.until(
-    "web healthy",
-    `[...document.querySelectorAll(".services tbody tr")]
-        .some((r) => r.innerText.includes("web") && r.innerText.includes("healthy"))`,
-);
-await ui.until("job finished", `${text(".drawer")}.includes("ok")`);
-await ui.click(".drawer button", "close");
+const session = await create_sample_session(ui, PROJECT, `Desktop popout ${Date.now() % 100000}`);
+const { dir, id } = session;
+await run_local(ui);
 
 const web_url = `http://web.${id}.localhost`;
 const key = `${dir}/web`;
-await ui.click(".preview-pane .tab", "web");
-await ui.until("box rendered", `document.querySelector(".preview-box") !== null`);
-await sleep(2500);
-await ui.click(".preview-bar button", "reload");
-await sleep(2000);
+await open_web_tab(ui);
 const before = await inner_size(web_url);
 {
     const page = await Page.open(await target_with(web_url));
@@ -275,9 +236,7 @@ expect("pane target gone after dockBack", !(await targets()).some((t) => t.url =
 // Close the session with the web preview popped out: its window goes, the renderer hears it.
 await bridge(`previews.popOut(${JSON.stringify(key)})`);
 await sleep(1000);
-await ui.click(".actions button", "close");
-await ui.until("session gone", `!${text(".sessions-pane")}.includes(${quoted})`);
-await sleep(1500);
+await close_session(ui, session);
 const leftover = (await targets()).filter((t) => t.url.includes(`.${id}.localhost`));
 expect("views gone with the session", leftover.length === 0, `${leftover.length} left`);
 events = await docked();
