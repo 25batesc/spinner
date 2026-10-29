@@ -3,8 +3,16 @@
 // clears the verify tick, and a merge-queue pop-out notifies within one round. Method: a fake
 // `gh` runner serves the scrubbed fixtures (and mutated copies of them) from memory; a
 // capturing notifier records banners; everything runs against a temporary SPINNER_HOME with
-// a temporary project spec.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+// a temporary project spec whose one repo is a real clone of a bare origin, so adopt with a
+// project can check the PR branches out.
+import {
+    existsSync,
+    lstatSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +20,8 @@ import { parse } from "yaml";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Session } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
-import { adopt_prs } from "./adopt.js";
+import { run_ok } from "../stack/shell.js";
+import { adopt_prs, attach_adopted } from "./adopt.js";
 import { load_pipeline_config } from "./config.js";
 import type { GhRunner, PrResponse } from "./github.js";
 import { poll_once } from "./poller.js";
@@ -29,7 +38,7 @@ const SPEC = [
     "name: acme",
     "base: develop",
     "repos:",
-    "  backend: { path: ~/code/backend }",
+    "  backend: { path: ../code/backend }",
     "services: {}",
     "pipeline:",
     "  github:",
@@ -114,35 +123,118 @@ function queued_variant(base: PrResponse): PrResponse {
     };
 }
 
-beforeEach(() => {
+/**
+ * A bare origin with `develop` and the two fixture PR branches, cloned to `<root>/code/backend`
+ * (the spec's repo path), so adopt with a project can check a PR branch out.
+ */
+async function make_backend(root: string): Promise<void> {
+    const seed = join(root, "seed");
+    await run_ok("git", ["init", "--quiet", "--initial-branch", "develop", seed]);
+    await run_ok("git", ["-C", seed, "config", "user.email", "t@example.com"]);
+    await run_ok("git", ["-C", seed, "config", "user.name", "t"]);
+    writeFileSync(join(seed, "README.md"), "hi\n");
+    await run_ok("git", ["-C", seed, "add", "README.md"]);
+    await run_ok("git", ["-C", seed, "commit", "--quiet", "-m", "init"]);
+    for (const branch of ["devin/example-feature", "feat/example-feature"]) {
+        await run_ok("git", ["-C", seed, "branch", branch, "develop"]);
+    }
+    const origin = join(root, "origin.git");
+    await run_ok("git", ["clone", "--quiet", "--bare", seed, origin]);
+    await run_ok("git", ["clone", "--quiet", origin, join(root, "code", "backend")]);
+}
+
+beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "spinner-board-"));
     home = resolve_home({ SPINNER_HOME: join(root, "home") });
     project = join(root, "acme");
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, "spinner.yaml"), SPEC);
+    await make_backend(root);
     gh = new FakeGh();
     banners = [];
 });
 
 describe("spinner adopt", () => {
-    it("creates a session from a PR URL with the derived stage and no worktree", async () => {
+    it("with a project: derives the stage and checks the PR branch out as a worktree", async () => {
         gh.responses.set(4812, load("pr-approving"));
+        const lines: string[] = [];
         const summary = await adopt_prs(home, {
             urls: ["https://github.com/acme/backend/pull/4812"],
             project,
             cwd: root,
             gh: gh.runner,
             now: () => new Date("2026-10-27T00:00:00Z"),
+            log: (line) => lines.push(line),
         });
         const session = read_yaml(summary.dir);
-        expect(session.project).toBe(project);
+        expect(session.project).toBe("acme");
         expect(session.branch).toBe("devin/example-feature");
         expect(session.base).toBe("develop");
         expect(session.stage).toBe("verifying");
         expect(session.needs_human).toBe("verify locally (backend#4812)");
         expect(session.repos["backend"]?.pr?.threads.resolved).toBe(2);
-        expect(session.repos["backend"]?.worktree).toBeUndefined();
-        expect(readFileSync(join(summary.path, "MISSION.md"), "utf8")).toContain("## Goal");
+        expect(session.repos["backend"]?.worktree).toBe("worktrees/backend");
+        expect(session.repos["backend"]?.changed).toBe(true);
+        expect(session.stack.state).toBe("down");
+        const worktree = join(summary.path, "worktrees", "backend");
+        const branch = await run_ok("git", ["-C", worktree, "branch", "--show-current"]);
+        expect(branch.trim()).toBe("devin/example-feature");
+        expect(lstatSync(join(worktree, ".spinner")).isSymbolicLink()).toBe(true);
+        const exclude = join(root, "code", "backend", ".git", "info", "exclude");
+        expect(readFileSync(exclude, "utf8")).toMatch(/^\.spinner$/m);
+        const clone = join(root, "code", "backend");
+        expect(lines).toContain(`branch devin/example-feature created in ${clone}`);
+        const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
+        expect(mission).toContain("Adopted by `spinner adopt`");
+        expect(mission).toContain("- https://github.com/acme/backend/pull/4812");
+        expect(mission).toContain("operator: session adopted from 1 PR");
+    });
+
+    it("without a project: board only, and attach adds the worktree later", async () => {
+        gh.responses.set(4812, load("pr-approving"));
+        const summary = await adopt_prs(home, {
+            urls: ["https://github.com/acme/backend/pull/4812"],
+            cwd: root,
+            gh: gh.runner,
+        });
+        const before = read_yaml(summary.dir);
+        expect(before.project).toBeUndefined();
+        expect(before.repos["backend"]?.worktree).toBeUndefined();
+        expect(before.repos["backend"]?.path).toBe("https://github.com/acme/backend");
+        expect(existsSync(join(summary.path, "worktrees", "backend"))).toBe(false);
+
+        const attached = await attach_adopted(home, summary, {
+            spec_path: join(project, "spinner.yaml"),
+            gh: gh.runner,
+        });
+        const after = read_yaml(attached.dir);
+        expect(after.project).toBe("acme");
+        expect(after.branch).toBe("devin/example-feature");
+        expect(after.repos["backend"]?.worktree).toBe("worktrees/backend");
+        expect(after.repos["backend"]?.path).toBe(join(root, "code", "backend"));
+        expect(after.repos["backend"]?.pr?.number).toBe(4812);
+        expect(after.stack.state).toBe("down");
+        const worktree = join(attached.path, "worktrees", "backend");
+        const branch = await run_ok("git", ["-C", worktree, "branch", "--show-current"]);
+        expect(branch.trim()).toBe("devin/example-feature");
+        // Attach again: nothing changes and nothing fails.
+        const again = await attach_adopted(home, attached, {
+            spec_path: join(project, "spinner.yaml"),
+            gh: gh.runner,
+        });
+        expect(read_yaml(again.dir).repos["backend"]?.worktree).toBe("worktrees/backend");
+    });
+
+    it("attach refuses a session that tracks no PR", async () => {
+        gh.responses.set(4812, load("pr-approving"));
+        const summary = await adopt_prs(home, {
+            urls: ["https://github.com/acme/backend/pull/4812"],
+            cwd: root,
+            gh: gh.runner,
+        });
+        summary.session.repos = {};
+        const input = { spec_path: join(project, "spinner.yaml"), gh: gh.runner };
+        await expect(attach_adopted(home, summary, input)).rejects.toThrow(/tracks no PR/);
     });
 
     it("rejects a URL that is not a pull request", async () => {

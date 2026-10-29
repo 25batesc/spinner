@@ -127,6 +127,42 @@ export async function fetch_base(repo_path: string, base: string): Promise<void>
     });
 }
 
+export type BranchFetchOutcome = "created" | "fast-forwarded" | "kept";
+
+/**
+ * Makes the local branch of a PR's head ready for `add_worktree`: fetches `origin/<branch>`,
+ * creates the local branch tracking it when there is none, and fast-forwards a local branch
+ * that is behind. A local branch that diverged, or that a checkout holds, is kept as it is:
+ * git refuses to move a checked-out branch, and a diverged branch holds the operator's own
+ * commits. The caller logs the outcome.
+ */
+export async function fetch_branch(
+    repo_path: string,
+    branch: string,
+): Promise<BranchFetchOutcome> {
+    assert.ok(isAbsolute(repo_path), "repo_path must be absolute");
+    assert.ok(branch.length > 0, "branch must not be empty");
+    const remote = `origin/${branch}`;
+    const fetched = await run("git", ["-C", repo_path, "fetch", "--quiet", "origin", branch], {
+        timeout_ms: FETCH_TIMEOUT_MS,
+    });
+    if (fetched.code !== 0 || !(await ref_exists(repo_path, remote))) {
+        throw new Error(`branch ${branch} does not exist on origin of ${repo_path}`);
+    }
+    if (!(await branch_exists(repo_path, branch))) {
+        await run_ok("git", ["-C", repo_path, "branch", "--quiet", "--track", branch, remote]);
+        return "created";
+    }
+    const ancestor = ["merge-base", "--is-ancestor", branch, remote];
+    const behind = await run("git", ["-C", repo_path, ...ancestor]);
+    if (behind.code !== 0) {
+        return "kept";
+    }
+    // `branch -f` refuses a branch that a worktree has checked out; that one is kept too.
+    const moved = await run("git", ["-C", repo_path, "branch", "--quiet", "-f", branch, remote]);
+    return moved.code === 0 ? "fast-forwarded" : "kept";
+}
+
 async function start_point(input: WorktreeInput): Promise<string> {
     const remote = `origin/${input.base}`;
     const fetched = await run(

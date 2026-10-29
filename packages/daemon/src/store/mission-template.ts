@@ -6,14 +6,28 @@ export interface MissionTemplateInput {
     title: string;
     /** Local time `HH:MM` for the first Log line. */
     time: string;
+    /** PR URLs the session was adopted from, when `spinner adopt` created it. */
+    adopted?: string[];
 }
 
 export function render_mission(input: MissionTemplateInput): string {
+    const adopted = input.adopted ?? [];
+    const goal =
+        adopted.length === 0
+            ? ["(One paragraph. Operator-owned.)"]
+            : [
+                  "Adopted by `spinner adopt`: drive these PRs home.",
+                  ...adopted.map((url) => `- ${url}`),
+              ];
+    const first_log =
+        adopted.length === 0
+            ? "session created"
+            : `session adopted from ${adopted.length} PR${adopted.length === 1 ? "" : "s"}`;
     return [
         `# ${input.id} · ${input.title}`,
         "",
         "## Goal",
-        "(One paragraph. Operator-owned.)",
+        ...goal,
         "",
         "## Done when",
         "- [ ] ",
@@ -30,7 +44,7 @@ export function render_mission(input: MissionTemplateInput): string {
         "## Open questions",
         "",
         "## Log",
-        `- ${input.time} operator: session created`,
+        `- ${input.time} operator: ${first_log}`,
         "",
     ].join("\n");
 }

@@ -129,6 +129,8 @@ export interface CreateSessionInput {
     slug?: string;
     /** Clock for `created` and the first Log line. Defaults to the wall clock. */
     now?: Date;
+    /** PR URLs the session is adopted from; the mission says so and lists them. */
+    adopted?: string[];
 }
 
 /**
@@ -171,7 +173,12 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
         mkdirSync(join(path, subdir));
     }
     writeFileSync(join(path, "session.yaml"), stringify(session));
-    const mission = render_mission({ id, title: input.title, time: hhmm(now) });
+    const mission = render_mission({
+        id,
+        title: input.title,
+        time: hhmm(now),
+        ...(input.adopted === undefined ? {} : { adopted: input.adopted }),
+    });
     writeFileSync(join(path, "MISSION.md"), mission);
     writeFileSync(join(path, "AGENTS.md"), render_agents_file({ id, dir }));
 

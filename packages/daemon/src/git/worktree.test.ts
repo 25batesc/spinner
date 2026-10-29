@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { run_ok } from "../stack/shell.js";
-import { add_worktree, list_worktrees, remove_worktree } from "./worktree.js";
+import { add_worktree, fetch_branch, list_worktrees, remove_worktree } from "./worktree.js";
 
 async function make_repo(root: string): Promise<string> {
     const repo = join(root, "repo");
@@ -106,5 +106,58 @@ describe("start point", () => {
         expect(head).toBe(ahead);
         const after = (await run_ok("git", ["-C", clone, "rev-parse", "develop"])).trim();
         expect(after).toBe(local);
+    });
+});
+
+describe("fetch_branch", () => {
+    async function commit(repo: string, file: string): Promise<string> {
+        writeFileSync(join(repo, file), `${file}\n`);
+        await run_ok("git", ["-C", repo, "add", file]);
+        await run_ok("git", ["-C", repo, "commit", "--quiet", "-m", file]);
+        return (await run_ok("git", ["-C", repo, "rev-parse", "HEAD"])).trim();
+    }
+
+    it("creates, fast-forwards, keeps a diverged branch, rejects a missing one", async () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-wt-"));
+        const origin = await make_repo(root);
+        const clone = join(root, "clone");
+        await run_ok("git", ["clone", "--quiet", origin, clone]);
+        await run_ok("git", ["-C", clone, "config", "user.email", "t@example.com"]);
+        await run_ok("git", ["-C", clone, "config", "user.name", "t"]);
+        // The PR branch exists on origin only, one commit ahead of develop.
+        await run_ok("git", ["-C", origin, "checkout", "--quiet", "-b", "devin/pr-1"]);
+        const first = await commit(origin, "pr.txt");
+
+        expect(await fetch_branch(clone, "devin/pr-1")).toBe("created");
+        const local = (await run_ok("git", ["-C", clone, "rev-parse", "devin/pr-1"])).trim();
+        expect(local).toBe(first);
+        const upstream = ["rev-parse", "--abbrev-ref", "devin/pr-1@{upstream}"];
+        expect((await run_ok("git", ["-C", clone, ...upstream])).trim()).toBe("origin/devin/pr-1");
+
+        // A push on the PR moves origin; the local branch follows.
+        const second = await commit(origin, "pr2.txt");
+        expect(await fetch_branch(clone, "devin/pr-1")).toBe("fast-forwarded");
+        expect((await run_ok("git", ["-C", clone, "rev-parse", "devin/pr-1"])).trim()).toBe(second);
+
+        // A local commit that origin lacks is kept.
+        await run_ok("git", ["-C", clone, "checkout", "--quiet", "devin/pr-1"]);
+        const mine = await commit(clone, "local.txt");
+        await commit(origin, "pr3.txt");
+        expect(await fetch_branch(clone, "devin/pr-1")).toBe("kept");
+        expect((await run_ok("git", ["-C", clone, "rev-parse", "devin/pr-1"])).trim()).toBe(mine);
+
+        await expect(fetch_branch(clone, "devin/nope")).rejects.toThrow(/does not exist on origin/);
+
+        // `add_worktree` then checks the fetched branch out as it is, without `-b`.
+        await run_ok("git", ["-C", clone, "checkout", "--quiet", "develop"]);
+        const worktree_path = join(root, "session", "worktrees", "app");
+        await add_worktree({
+            repo_path: clone,
+            worktree_path,
+            branch: "devin/pr-1",
+            base: "develop",
+            session_dir: join(root, "session"),
+        });
+        expect((await run_ok("git", ["-C", worktree_path, "rev-parse", "HEAD"])).trim()).toBe(mine);
     });
 });

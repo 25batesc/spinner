@@ -1,6 +1,8 @@
 // `spinner adopt <pr-url>... [--project <name|path>] [--title <title>]`: put PRs that were
 // opened outside Spinner on the board. Creates the session directory with `session.yaml` and
-// a minimal `MISSION.md`; no worktrees, no stack.
+// a `MISSION.md` that lists the PRs. With `--project`, each PR's head branch becomes the
+// repo's worktree, so `up`, the agents, `fix` and `land` work on the session; without it, the
+// session is board-only until `POST /sessions/:dir/attach` (the UI's attach button).
 import { parseArgs } from "node:util";
 import { actions, gh_runner, type SpinnerHome } from "@spinner/daemon";
 import { describe_error, type CliIo, type Command } from "./command.js";
@@ -8,7 +10,7 @@ import { describe_error, type CliIo, type Command } from "./command.js";
 export const adopt_command: Command = {
     name: "adopt",
     usage: "<pr-url>... [--project <name|path>] [--title <title>]",
-    summary: "track existing PRs as a session (no worktrees)",
+    summary: "track existing PRs as a session; --project checks their branches out",
     run: (args, home, io) => run_adopt(args, home, io),
 };
 

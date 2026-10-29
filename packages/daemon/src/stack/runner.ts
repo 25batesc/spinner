@@ -131,6 +131,16 @@ export function read_session_spec(summary: SessionSummary): LoadedSpec {
     return load_spec(path);
 }
 
+export interface AttachOptions {
+    /**
+     * Repo name to branch for a repo whose worktree is not on the session branch: an adopted
+     * PR's head branch, fetched by the caller. Other repos use the session branch.
+     */
+    branches?: Record<string, string>;
+    /** The branch the adopted PRs target, kept instead of the spec's base. */
+    base?: string;
+}
+
 /**
  * Copies the spec into the session, records the repos and makes one worktree per repo on
  * the session branch. Runs at `spinner new --project` and is safe to run again.
@@ -139,6 +149,7 @@ export async function attach_project(
     summary: SessionSummary,
     loaded: LoadedSpec,
     log: Log,
+    options: AttachOptions = {},
 ): Promise<SessionSummary> {
     const { spec } = loaded;
     const session = summary.session;
@@ -148,7 +159,7 @@ export async function attach_project(
         write_spec_copy(copy, spec);
     }
     session.project = spec.name;
-    session.base = spec.base;
+    session.base = options.base ?? spec.base;
     // One fetch per checkout, together: two services in one repo must not fetch at once,
     // and two checkouts need not wait for each other. The copy and install stay in order.
     const repos = Object.entries(spec.repos);
@@ -160,17 +171,18 @@ export async function attach_project(
     await Promise.all([...fetches.values()].map((item) => fetch_base(item.path, item.base)));
     const outcomes = await Promise.all(repos.map(async ([name, repo]) => {
         const worktree = join("worktrees", name);
+        const branch = options.branches?.[name] ?? session.branch;
         const outcome = await add_worktree({
             repo_path: repo.path,
             worktree_path: join(summary.path, worktree),
-            branch: session.branch,
+            branch,
             base: repo.base ?? spec.base,
             session_dir: summary.path,
         });
-        return { name, repo, worktree, outcome };
+        return { name, repo, worktree, branch, outcome };
     }));
-    for (const { name, repo, worktree, outcome } of outcomes) {
-        log(`worktree ${worktree} ${outcome} (${repo.path} on ${session.branch})`);
+    for (const { name, repo, worktree, branch, outcome } of outcomes) {
+        log(`worktree ${worktree} ${outcome} (${repo.path} on ${branch})`);
         const files = repo.seed_files ?? [];
         const copied = copy_seed_files(repo.path, join(summary.path, worktree), files);
         if (copied.length > 0) {
@@ -194,7 +206,14 @@ export async function attach_project(
                 throw new Error(`install for ${name}/${skipped.dir} failed with exit code ${code}`);
             }
         }
-        session.repos[name] = { path: repo.path, worktree, changed: false, pr: null };
+        // An adopted session already tracks the repo's PR; the worktree joins that entry.
+        const current = session.repos[name];
+        session.repos[name] = {
+            path: repo.path,
+            worktree,
+            changed: current?.changed ?? false,
+            pr: current?.pr ?? null,
+        };
     }
     session.stack = {
         project: compose_project(session.id),

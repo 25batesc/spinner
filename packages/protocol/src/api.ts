@@ -36,6 +36,8 @@ export const ROUTES = {
     "POST /sessions": "JobResponse",
     /** Adopt PRs opened outside Spinner. Body: AdoptRequest. The job creates the session. */
     "POST /sessions/adopt": "JobResponse",
+    /** Attach a project to an adopted session: worktrees on the PR branches. Body: AttachRequest */
+    "POST /sessions/:dir/attach": "JobResponse",
     /** Bring the stack up. Body: UpRequest (optional). */
     "POST /sessions/:dir/up": "JobResponse",
     /** Stop the stack; volumes and the database stay. */
@@ -78,7 +80,9 @@ export const ROUTES = {
     "GET /sessions/:dir/agents/:name/context": "ContextResponse",
     /** Write one context file of the chain. Body: ContextFileRequest. */
     "PUT /sessions/:dir/agents/:name/context": "ContextFileResponse",
-    /** Add an agent from a brief and start it. Body: AddAgentRequest. 201 when the brief exists. */
+    /** The brief the daemon writes for a new agent without one. Query: `repo=<name>`, optional. */
+    "GET /sessions/:dir/agents/default-brief": "DefaultBriefResponse",
+    /** Add an agent and start it. Body: AddAgentRequest. 201 once a brief exists or is written. */
     "POST /sessions/:dir/agents": "AgentResponse",
     /** Send a prompt to a running agent. Body: AgentMessageRequest. */
     "POST /sessions/:dir/agents/:name/prompt": "AgentCommandResponse",
@@ -205,6 +209,7 @@ export interface SessionResponse {
 export type JobAction =
     | "new"
     | "adopt"
+    | "attach"
     | "up"
     | "down"
     | "close"
@@ -219,6 +224,7 @@ export type JobAction =
 export const JOB_ACTIONS: readonly JobAction[] = [
     "new",
     "adopt",
+    "attach",
     "up",
     "down",
     "close",
@@ -276,6 +282,11 @@ export interface AdoptRequest {
     urls: string[];
     project?: string;
     title?: string;
+}
+
+export interface AttachRequest {
+    /** Project name or spec path (`ProjectView.path`). */
+    project: string;
 }
 
 export interface UpRequest {
@@ -442,8 +453,13 @@ export interface ContextFileResponse {
 }
 
 export interface AddAgentRequest {
-    /** Agent name; `agents/<name>/BRIEF.md` must exist in the session. */
+    /** Agent name; the brief is `agents/<name>/BRIEF.md` in the session. */
     name: string;
+    /**
+     * Brief text to write when the session has none for the agent. Without it, the daemon
+     * writes its default brief. An existing brief is kept either way.
+     */
+    brief?: string;
     /** pi model id as `provider/model`. The harness default when absent. */
     model?: string;
     /** Repo key of `session.repos`; the agent runs in its worktree. The session dir when absent. */
@@ -452,6 +468,11 @@ export interface AddAgentRequest {
 
 export interface AgentMessageRequest {
     text: string;
+}
+
+/** `GET /sessions/:dir/agents/default-brief`. */
+export interface DefaultBriefResponse {
+    brief: string;
 }
 
 export interface AgentResponse {

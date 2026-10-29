@@ -1,20 +1,27 @@
 // The agent-plumbing routes: `PUT /sessions/:dir/mission/section` (the serialized mission
 // writer the extension's `mission_*` tools and the UI call), `POST /sessions/:dir/inbox` (a
-// message file, delivered at once) and `GET|PUT /sessions/:dir/agents/:name/context` (the
-// Context tab). Mounted on the daemon's Hono app by one registry line in `server.ts`, like
-// the pipeline routes.
+// message file, delivered at once), `GET|PUT /sessions/:dir/agents/:name/context` (the
+// Context tab) and `POST /sessions/:dir/attach` (worktrees for a session adopted without a
+// project, so an agent has somewhere to work). Mounted on the daemon's Hono app by one
+// registry line in `server.ts`, like the pipeline routes.
 import type { Context, Hono } from "hono";
 import type {
+    AttachRequest,
     ContextFileRequest,
     ContextFileResponse,
     ContextResponse,
     ErrorResponse,
     InboxMessageRequest,
     InboxMessageResponse,
+    JobResponse,
     MissionSectionRequest,
     MissionSectionResponse,
 } from "@spinner/protocol";
+import * as actions from "../actions.js";
+import type { ActionContext } from "../actions.js";
 import type { SpinnerHome } from "../home.js";
+import type { JobRunner, JobWork } from "../jobs/jobs.js";
+import { attach_adopted } from "../pipeline/adopt.js";
 import { find_session } from "../store/session-store.js";
 import { MissionWriteError, type MissionWriter } from "../store/mission-writer.js";
 import { agent_context, write_context_file, type ContextDeps } from "./context.js";
@@ -27,6 +34,10 @@ export interface AgentRouteDeps {
     agents: AgentManager;
     writer: MissionWriter;
     deliverer: Deliverer;
+    ctx: ActionContext;
+    jobs: JobRunner;
+    /** Called after a job on `dir` finished, so the view carries fresh stack facts. */
+    refresh: (dir: string) => Promise<void>;
     now?: () => Date;
 }
 
@@ -68,6 +79,31 @@ export function mount_agent_routes(app: Hono, deps: AgentRouteDeps): void {
         await deps.deliverer.deliver_inbox(summary.dir, file);
         const body: InboxMessageResponse = { file };
         return c.json(body, 201);
+    });
+
+    app.post("/sessions/:dir/attach", async (c) => {
+        const request = parse_attach(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        let spec_path: string;
+        try {
+            spec_path = actions.resolve_project(deps.ctx, request.project);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 400);
+        }
+        return start_job(c, deps, summary.dir, async (log) => {
+            const attached = await attach_adopted(deps.home, summary, {
+                spec_path,
+                gh: deps.ctx.gh,
+                log,
+            });
+            log(`project attached; next: spinner up ${attached.session.id}`);
+        });
     });
 
     app.get("/sessions/:dir/agents/:name/context", async (c) => {
@@ -153,6 +189,36 @@ export function parse_inbox(input: unknown): InboxMessageRequest | string {
     const request = fields as InboxMessageRequest;
     const reason = validate_inbox_message(request);
     return reason ?? request;
+}
+
+export function parse_attach(input: unknown): AttachRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const project = record["project"];
+    if (typeof project !== "string" || project.length === 0) {
+        return "`project` must be a non-empty string";
+    }
+    return { project };
+}
+
+/** Starts the attach job and answers 202, or 409 when the session is busy. */
+function start_job(c: Context, deps: AgentRouteDeps, session: string, work: JobWork): Response {
+    const refreshed: JobWork = async (log, set_session) => {
+        try {
+            await work(log, set_session);
+        } finally {
+            await deps.refresh(session);
+        }
+    };
+    try {
+        const job = deps.jobs.start("attach", session, refreshed);
+        const body: JobResponse = { job };
+        return c.json(body, 202);
+    } catch (error) {
+        return c.json(error_body(describe_error(error)), 409);
+    }
 }
 
 export function parse_context_file(input: unknown): ContextFileRequest | string {
