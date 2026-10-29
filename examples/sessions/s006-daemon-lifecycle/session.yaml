@@ -1,0 +1,24 @@
+version: 1
+id: s006
+slug: daemon-lifecycle
+title: "Daemon lifecycle and the newcomer path"
+created: 2026-10-29
+stage: planned
+needs_human: null
+branch: main
+base: main
+repos:
+  spinner:
+    path: .
+    changed: true
+    pr: null
+pipeline:
+  verified_locally: false
+  slack_post: null
+stack:
+  state: none
+agents:
+  engine:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
