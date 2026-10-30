@@ -40,6 +40,9 @@ export function describeEvent(event: SpinnerEvent): string | null {
         case "usage":
             // A sample every few seconds is not a feed line.
             return null;
+        case "settings":
+            // The operator's own change; every window follows it without a line.
+            return null;
         case "mission.changed":
             return `${event.author} changed ${event.sections.join(", ")}`;
         case "inbox.message":

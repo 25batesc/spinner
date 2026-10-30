@@ -1,10 +1,16 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
 import { AgentsPane } from "./AgentsPane.tsx";
-import { postAction } from "./events-client.ts";
+import { fetchThemes, postAction, putSettings } from "./events-client.ts";
 import { ActivityDrawer } from "./ActivityDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
-import { ActivityBar, ContextBar, PaneStrip, type IconButtonProps } from "./PaneHead.tsx";
+import {
+    ActivityBar,
+    ContextBar,
+    PaneStrip,
+    type IconButtonProps,
+    type PanelView,
+} from "./PaneHead.tsx";
 import {
     popOutPane,
     resumePoppedOut,
@@ -13,7 +19,10 @@ import {
 } from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import type { ComposeKind } from "./SessionForms.tsx";
+import { useLoaded } from "./remote.ts";
 import { SessionsPane } from "./SessionsPane.tsx";
+import { SettingsPane } from "./SettingsPane.tsx";
+import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
 import { revisionsOf, runningJob, sortedSessions, type UiState } from "./state.ts";
 import type { Transcript } from "./transcript.ts";
 import { useLayout } from "./useResizable.ts";
@@ -95,6 +104,22 @@ export function App() {
     const app = useAppState(state, route?.session);
     const { sessions, selected, view, feed, busy, run, setPicked } = app;
     const layout = useLayout();
+    // The side panel shows the sessions or, from the gear at the bottom of the bar, settings.
+    const [panelView, setPanelView] = useState<PanelView["id"]>("sessions");
+    // The themes list follows the settings: a change may name a file written since the load.
+    const settingsKey = JSON.stringify(state.settings);
+    const themes = useLoaded(`themes#${settingsKey}`, fetchThemes).value ?? null;
+    // The page's palette follows `settings.theme` in every window; `system` is the stylesheet.
+    const themeName = state.settings?.theme;
+    useEffect(() => {
+        const palette =
+            themeName === undefined ? null : paletteFor(themeName, themes?.themes ?? []);
+        if (palette === null) {
+            clearPalette();
+        } else {
+            applyPalette(palette);
+        }
+    }, [themeName, themes]);
     const drawer = (
         <ActivityDrawer
             feed={feed}
@@ -170,6 +195,18 @@ export function App() {
             layout.fold("sessions");
         }
     };
+    // The bar: the active view's icon hides the panel; another view's icon shows it on that
+    // view, opening the panel when it is hidden.
+    const pickPanel = (view: PanelView["id"]) => {
+        if (panelShown && view === panelView) {
+            togglePanel();
+            return;
+        }
+        setPanelView(view);
+        if (!panelShown) {
+            togglePanel();
+        }
+    };
     // The toggle sits at the left of the sessions header; while the panel hides, the activity
     // bar's sessions icon is the way back.
     const panelToggle: IconButtonProps = {
@@ -226,7 +263,19 @@ export function App() {
             }
         />
     );
-    const panes = { sessions: sessionsPane, agents: agentsPane, previews: previewsPane };
+    const settingsPane = (
+        <SettingsPane
+            settings={state.settings}
+            themes={themes}
+            onChange={async (next) => {
+                await putSettings(next);
+            }}
+            controls={inRoute ? undefined : []}
+            leading={inRoute ? undefined : panelToggle}
+        />
+    );
+    const sidePanel = panelView === "settings" ? settingsPane : sessionsPane;
+    const panes = { sessions: sidePanel, agents: agentsPane, previews: previewsPane };
     const status = <footer className="status">daemon: {state.connection}</footer>;
 
     if (route !== undefined) {
@@ -265,9 +314,9 @@ export function App() {
             <ContextBar view={view} usage={state.usage} />
             <div className="shell-body">
                 <ActivityBar
-                    shown={panelShown ? "sessions" : undefined}
+                    shown={panelShown ? panelView : undefined}
                     popped={sessionsState.popped}
-                    onPick={togglePanel}
+                    onPick={pickPanel}
                 />
                 <div
                     className={layout.dragging ? "layout layout-dragging" : "layout"}

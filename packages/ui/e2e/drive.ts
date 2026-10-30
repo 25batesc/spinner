@@ -356,13 +356,13 @@ if (flow === "panes") {
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
-        bar: 1, barOn: "true", popOuts: 1, top: 1, inSessions: 1,
+        bar: 2, barOn: "true", popOuts: 1, top: 1, inSessions: 1,
         context: ["Refund flow", "peer-review", "stack up", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
         links: 0, icons: 8,
     };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
-        throw new Error("expected the bar lit, the toggle beside sessions, one pop-out, 8 icons");
+        throw new Error("expected the bar (sessions, gear) lit, the toggle, one pop-out, 8 icons");
     }
     const popOutOwner = await evaluate(
         `document.querySelector("button[aria-label^='Pop out']").closest(".pane").className`,
@@ -1040,6 +1040,92 @@ if (flow === "m2-context") {
     await shot("34-m2-context-edited");
     console.log("m2-context ok");
     socket.close();
+    process.exit(0);
+}
+
+if (flow === "settings") {
+    // The settings view and the themes, against the fixture: the gear at the bottom of the
+    // activity bar opens the view in the side panel; the theme select lists system, light,
+    // dark and the valid custom theme, the invalid one is struck through with its missing
+    // keys; picking light changes the page's `--bg` and the terminal's background, dark
+    // changes them again, system brings the stylesheet's defaults back; each change arrives
+    // as the `settings` event, which the select follows.
+    const root = `getComputedStyle(document.documentElement)`;
+    const bg = `${root}.getPropertyValue("--bg").trim()`;
+    // xterm paints its theme's background on the viewport and the foreground on the rows.
+    const xterm = `document.querySelector(".agent-terminal:not([hidden]) .xterm")`;
+    const xtermBg = `getComputedStyle(${xterm}.querySelector(".xterm-viewport")).backgroundColor`;
+    const xtermFg = `getComputedStyle(${xterm}.querySelector(".xterm-rows")).color`;
+    const pick = (value: string) =>
+        evaluate(`(() => {
+            const select = document.querySelector("select[aria-label=Theme]");
+            const proto = HTMLSelectElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
+            setter.call(select, ${JSON.stringify(value)});
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+            return true;
+        })()`);
+    const selectValue = `document.querySelector("select[aria-label=Theme]")?.value`;
+    await click(".session", "Refund flow");
+    await until("terminal", `${xterm} !== null`);
+    const systemBg = (await evaluate(bg)) as string;
+    const systemXterm = (await evaluate(xtermBg)) as string;
+    const systemFg = (await evaluate(xtermFg)) as string;
+    console.log("system:", systemBg, systemXterm, systemFg);
+    await click("button[aria-label='Show settings']");
+    await until("settings view", `document.querySelector(".settings-pane") !== null`);
+    await until("path loaded", `${text(".settings-hint")}.includes("settings.yaml")`);
+    const hideGear = `document.querySelector("button[aria-label='Hide settings']")`;
+    await until("gear lit", `${hideGear} !== null`);
+    const shape = await evaluate(`({
+        options: [...document.querySelectorAll("select[aria-label=Theme] option")]
+            .map((o) => o.value),
+        value: ${selectValue},
+        swatches: document.querySelectorAll(".swatch").length,
+        invalid: [...document.querySelectorAll(".invalid-themes li")].map((li) => li.textContent),
+        hint: document.querySelector(".settings-hint")?.textContent,
+        harness: document.querySelector("select[aria-label=Harness]")?.value,
+        model: document.querySelector("select[aria-label='Default model']")?.value,
+    })`);
+    console.log("settings view:", JSON.stringify(shape));
+    const wantedShape = {
+        options: ["system", "light", "dark", "solar"], value: "system", swatches: 10,
+        invalid: ["broken missing terminal.red"],
+        hint: "Custom themes live in ~/.spinner/themes/<name>.json" +
+            " (settings: /home/fixture/.spinner/settings.yaml). copy dark as a starting point",
+        harness: "tty", model: "",
+    };
+    if (JSON.stringify(shape) !== JSON.stringify(wantedShape)) {
+        throw new Error("the settings view is not the theme, model and harness expected");
+    }
+    await shot("76-settings-view");
+    await pick("light");
+    await until("select follows the event", `${selectValue} === "light"`);
+    await until("light --bg", `${bg} === "#f6f7f9"`);
+    await until("light terminal", `${xtermBg} === "rgb(255, 255, 255)"`);
+    await until("light terminal text", `${xtermFg} === "rgb(27, 31, 36)"`);
+    await until("light scheme", `document.documentElement.dataset.scheme === "light"`);
+    await shot("77-settings-light");
+    await pick("dark");
+    await until("dark --bg", `${bg} === "#0f1216"`);
+    await until("dark terminal", `${xtermBg} === "rgb(15, 18, 22)"`);
+    await until("dark terminal text", `${xtermFg} === "rgb(230, 233, 238)"`);
+    await pick("solar");
+    await until("solar accent", `${root}.getPropertyValue("--accent").trim() === "#e0a63a"`);
+    await shot("78-settings-solar");
+    await pick("system");
+    await until("system --bg back", `${bg} === ${JSON.stringify(systemBg)}`);
+    await until("system terminal back", `${xtermBg} === ${JSON.stringify(systemXterm)}`);
+    await until("system terminal text back", `${xtermFg} === ${JSON.stringify(systemFg)}`);
+    await until("no scheme override", `document.documentElement.dataset.scheme === undefined`);
+    // The gear again hides the panel; the sessions icon brings the sessions view back.
+    await click("button[aria-label='Hide settings']");
+    await until("panel hidden", `document.querySelector(".sessions-pane") === null`);
+    await click("button[aria-label='Show sessions']");
+    await until("sessions view back", `document.querySelector(".session-list") !== null`);
+    console.log("settings ok");
+    socket.close();
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
     process.exit(0);
 }
 

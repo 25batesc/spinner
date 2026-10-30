@@ -12,7 +12,10 @@ import {
     type ProjectsResponse,
     type ProjectView,
     type SessionsResponse,
+    type Settings,
+    type SettingsResponse,
     type SpinnerEvent,
+    type ThemesResponse,
     type SpinnerEventType,
     type UsageResponse,
 } from "@spinner/protocol";
@@ -37,7 +40,8 @@ function hasEnvelope(value: unknown): value is SpinnerEvent {
         KNOWN_TYPES.has(type) &&
         typeof ts === "string" &&
         (typeof session === "string" ||
-            (session === null && (type.startsWith("job.") || type === "usage")))
+            (session === null &&
+                (type.startsWith("job.") || type === "usage" || type === "settings")))
     );
 }
 
@@ -56,6 +60,46 @@ export async function fetchSessions(signal: AbortSignal): Promise<SessionsRespon
         throw new Error(`GET /sessions failed with status ${response.status}`);
     }
     return (await response.json()) as SessionsResponse;
+}
+
+/** The operator's settings; null from an older daemon without the route. */
+export async function fetchSettings(signal: AbortSignal): Promise<Settings | null> {
+    const response = await fetch("/settings", { signal });
+    if (!response.ok) {
+        return null;
+    }
+    return ((await response.json()) as SettingsResponse).settings;
+}
+
+/** Where the settings file lives, for the hint in the settings view. */
+export async function fetchSettingsPath(signal: AbortSignal): Promise<string | null> {
+    const response = await fetch("/settings", { signal });
+    if (!response.ok) {
+        return null;
+    }
+    return ((await response.json()) as SettingsResponse).path;
+}
+
+/** Replaces the settings; the change comes back as a `settings` event to every window. */
+export async function putSettings(settings: Settings): Promise<SettingsResponse> {
+    const response = await fetch("/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(settings),
+    });
+    if (!response.ok) {
+        throw new Error(`PUT /settings failed (${response.status}): ${await response.text()}`);
+    }
+    return (await response.json()) as SettingsResponse;
+}
+
+/** The themes the daemon lists, with the custom files that did not validate. */
+export async function fetchThemes(signal: AbortSignal): Promise<ThemesResponse> {
+    const response = await fetch("/themes", { signal });
+    if (!response.ok) {
+        throw new Error(`GET /themes failed with status ${response.status}`);
+    }
+    return (await response.json()) as ThemesResponse;
 }
 
 /** The last usage sample; null from an older daemon without the route. */

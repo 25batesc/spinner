@@ -29,6 +29,7 @@ export type IconName =
     | "more"
     | "close"
     | "minimize"
+    | "gear"
     | "pull-request";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
@@ -49,6 +50,9 @@ const GLYPHS: Record<IconName, string> = {
     more: "M3 8h.01M8 8h.01M13 8h.01",
     close: "M4 4l8 8M12 4l-8 8",
     minimize: "M3 11h10",
+    gear:
+        "M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2" +
+        "M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
     "pull-request":
         "M4 5v8M4 5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M4 13a1.5 1.5 0 1 0 0 3" +
         "M12 13V8a3 3 0 0 0-3-3H7M9 3L7 5l2 2M12 13a1.5 1.5 0 1 0 0 3",
@@ -100,7 +104,8 @@ export function IconButton({ icon, label, onClick, active, className }: IconButt
 }
 
 export interface PaneHeadProps {
-    name: PaneName;
+    /** The pane, or a view that takes a pane's place (`settings` in the side panel). */
+    name: PaneName | "settings";
     /** The icon buttons at the right; none when the `?pane=` route renders the pane alone. */
     controls: IconButtonProps[] | undefined;
     /** An icon button at the left of the title, for example the side-panel toggle. */
@@ -153,13 +158,16 @@ export function PaneStrip({ name, popped, onRestore }: PaneStripProps) {
  * threads and settings come later.
  */
 export interface PanelView {
-    id: "sessions";
+    id: "sessions" | "settings";
     icon: IconName;
     label: string;
+    /** Drawn at the bottom of the bar, apart from the views above. */
+    bottom?: boolean;
 }
 
 export const PANEL_VIEWS: readonly PanelView[] = [
     { id: "sessions", icon: "sessions", label: "Sessions" },
+    { id: "settings", icon: "gear", label: "Settings", bottom: true },
 ];
 
 export interface ActivityBarProps {
@@ -182,13 +190,17 @@ export function ActivityBar({ shown, popped, onPick }: ActivityBarProps) {
                 const label = popped
                     ? `Dock ${view.label.toLowerCase()} back`
                     : `${on ? "Hide" : "Show"} ${view.label.toLowerCase()}`;
+                const classes = [
+                    popped ? "bar-popped" : "",
+                    view.bottom === true ? "bar-bottom" : "",
+                ];
                 return (
                     <IconButton
                         key={view.id}
                         icon={view.icon}
                         label={label}
                         active={on}
-                        className={popped ? "bar-popped" : ""}
+                        className={classes.join(" ").trim()}
                         onClick={() => onPick(view.id)}
                     />
                 );

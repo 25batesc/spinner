@@ -1,0 +1,169 @@
+// The settings view of the side panel (the gear at the bottom of the activity bar): the
+// theme, the default model for new agents and the harness. Each change is one `PUT /settings`
+// of the whole document; the daemon answers with the `settings` event, which every window
+// follows, so nothing here keeps a draft. Custom themes come from `GET /themes`; the invalid
+// ones are listed greyed with their missing keys, and a button downloads `dark` as a start.
+import { useState } from "react";
+
+import {
+    BUILTIN_THEMES,
+    PALETTE_COLOR_KEYS,
+    THEME_SYSTEM,
+    type ModelView,
+    type Settings,
+    type ThemePalette,
+    type ThemesResponse,
+} from "@spinner/protocol";
+
+import { fetchModels, fetchSettingsPath } from "./events-client.ts";
+import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
+import { useLoaded } from "./remote.ts";
+import { paletteFor } from "./theme.ts";
+
+export interface SettingsPaneProps {
+    /** From the app's state: `GET /settings` at load, then the `settings` event. */
+    settings: Settings | null;
+    themes: ThemesResponse | null;
+    onChange: (settings: Settings) => Promise<void>;
+    controls?: IconButtonProps[] | undefined;
+    leading?: IconButtonProps | undefined;
+}
+
+/** Where a custom theme goes; the daemon's `path` names the settings file beside it. */
+export const THEMES_DIR_HINT = "~/.spinner/themes/<name>.json";
+
+/** The ten UI colours as a row of swatches, each with the key as its tooltip. */
+export function Swatches({ palette }: { palette: ThemePalette }) {
+    return (
+        <span className="swatches" aria-label="Palette">
+            {PALETTE_COLOR_KEYS.map((key) => (
+                <span
+                    key={key}
+                    className="swatch"
+                    title={`${key} ${palette[key]}`}
+                    style={{ background: palette[key] }}
+                />
+            ))}
+        </span>
+    );
+}
+
+/** The `dark` built-in as a file, for the operator to edit into a custom theme. */
+export function downloadDark(): void {
+    const text = JSON.stringify(BUILTIN_THEMES.dark, null, 4);
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "my-theme.json";
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+export function SettingsPane(props: SettingsPaneProps) {
+    const { settings, themes, onChange, controls, leading } = props;
+    const [error, setError] = useState<string | null>(null);
+    const models: ModelView[] = useLoaded("models", fetchModels).value ?? [];
+    const path = useLoaded("settings-path", fetchSettingsPath).value ?? null;
+    const change = (next: Settings) => {
+        onChange(next).then(
+            () => setError(null),
+            (failure: unknown) => setError(String(failure)),
+        );
+    };
+    if (settings === null) {
+        return (
+            <section className="pane sessions-pane settings-pane" aria-label="Settings">
+                <PaneHead name="settings" controls={controls} leading={leading} />
+                <p className="muted">Loading the settings…</p>
+            </section>
+        );
+    }
+    const listed = themes?.themes ?? [];
+    const custom = listed.filter((entry) => entry.source === "user");
+    const palette =
+        paletteFor(settings.theme, listed) ??
+        (window.matchMedia("(prefers-color-scheme: light)").matches
+            ? BUILTIN_THEMES.light
+            : BUILTIN_THEMES.dark);
+    return (
+        <section className="pane sessions-pane settings-pane" aria-label="Settings">
+            <PaneHead name="settings" controls={controls} leading={leading} />
+            <form className="settings" onSubmit={(event) => event.preventDefault()}>
+                <label className="setting">
+                    <span>Theme</span>
+                    <select
+                        aria-label="Theme"
+                        value={settings.theme}
+                        onChange={(event) => change({ ...settings, theme: event.target.value })}
+                    >
+                        <option value={THEME_SYSTEM}>system</option>
+                        <option value="light">light</option>
+                        <option value="dark">dark</option>
+                        {custom.map((entry) => (
+                            <option key={entry.name} value={entry.name}>{entry.name}</option>
+                        ))}
+                    </select>
+                    <Swatches palette={palette} />
+                </label>
+                {themes !== null && themes.invalid.length > 0 && (
+                    <ul className="invalid-themes" aria-label="Invalid themes">
+                        {themes.invalid.map((entry) => (
+                            <li key={entry.name} className="muted" title={entry.path}>
+                                <s>{entry.name}</s>{" "}
+                                {entry.missing.length > 0
+                                    ? `missing ${entry.missing.join(", ")}`
+                                    : entry.reason}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                <p className="muted settings-hint">
+                    Custom themes live in <code>{THEMES_DIR_HINT}</code>
+                    {path !== null && <> (settings: <code>{path}</code>)</>}.{" "}
+                    <button type="button" className="link" onClick={downloadDark}>
+                        copy dark as a starting point
+                    </button>
+                </p>
+                <label className="setting">
+                    <span>Default model</span>
+                    <select
+                        aria-label="Default model"
+                        value={settings.default_model ?? ""}
+                        onChange={(event) => {
+                            const value = event.target.value;
+                            const next = { ...settings };
+                            if (value === "") {
+                                delete next.default_model;
+                            } else {
+                                next.default_model = value;
+                            }
+                            change(next);
+                        }}
+                    >
+                        <option value="">pi's default</option>
+                        {models.map((m) => (
+                            <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
+                                {m.provider}/{m.id}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <label className="setting">
+                    <span>Harness</span>
+                    <select
+                        aria-label="Harness"
+                        value={settings.agents?.harness ?? "tty"}
+                        onChange={(event) => {
+                            const harness = event.target.value === "rpc" ? "rpc" : "tty";
+                            change({ ...settings, agents: { ...settings.agents, harness } });
+                        }}
+                    >
+                        <option value="tty">tty (pi's terminal in the tab)</option>
+                        <option value="rpc">rpc (headless chat)</option>
+                    </select>
+                </label>
+                {error !== null && <p className="needs-human">{error}</p>}
+            </form>
+        </section>
+    );
+}

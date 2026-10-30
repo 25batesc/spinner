@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
+import { terminalTheme, THEME_EVENT } from "./theme.ts";
 import { connectTty, ttyUrl, type TtyConnection, type TtyStatus } from "./tty-client.ts";
 
 export interface AgentTerminalProps {
@@ -22,13 +23,6 @@ export interface AgentTerminalProps {
     onResume?: () => Promise<void>;
 }
 
-/** The pane's dark background with pi's colours, which are the terminal's default palette. */
-const THEME = {
-    background: "#1b1b1f",
-    foreground: "#d6d6d6",
-    cursor: "#d6d6d6",
-    selectionBackground: "#3a4a6a",
-};
 /** The font the app uses for code (see `.pr-line` in `styles.css`), at 13 px. */
 const FONT_FAMILY = "ui-monospace, monospace";
 const FONT_SIZE_PX = 13;
@@ -67,7 +61,8 @@ function makeTerminal(): Opened {
     const terminal = new Terminal({
         fontFamily: FONT_FAMILY,
         fontSize: FONT_SIZE_PX,
-        theme: THEME,
+        // The palette's terminal block, from the stylesheet's variables (`theme.ts`).
+        theme: terminalTheme(),
         cursorBlink: true,
         scrollback: SCROLLBACK_LINES,
         macOptionIsMeta: true,
@@ -115,7 +110,13 @@ export function AgentTerminal({ path, running, visible, onResume }: AgentTermina
         made.terminal.onData((data) => link.current?.input(data));
         made.terminal.onBinary((data) => link.current?.input(bytesOf(data)));
         opened.current = made;
+        // A theme change re-reads the variables; xterm repaints on a new theme object.
+        const retheme = () => {
+            made.terminal.options.theme = terminalTheme();
+        };
+        window.addEventListener(THEME_EVENT, retheme);
         return () => {
+            window.removeEventListener(THEME_EVENT, retheme);
             made.terminal.dispose();
             opened.current = null;
         };

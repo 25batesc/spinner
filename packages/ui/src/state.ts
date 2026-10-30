@@ -3,7 +3,7 @@
 // widths) live in components, not in this state, because the daemon never sends them.
 // A session changes only through `session.created` and `session.updated`, which carry the whole
 // `SessionView`; partial events such as `stack.state` show up in the feed but do not edit it.
-import type { Job, SessionView, SpinnerEvent } from "@spinner/protocol";
+import type { Job, SessionView, Settings, SpinnerEvent } from "@spinner/protocol";
 
 import { describeEvent } from "./describe.ts";
 import { emptyTranscript, foldEvent, type Transcript } from "./transcript.ts";
@@ -35,6 +35,8 @@ export interface UiState {
     revisions: Record<string, Revisions>;
     /** The last usage sample: `GET /usage` at load, then every `usage` event. */
     usage: UsageSample | null;
+    /** The operator's settings: `GET /settings` at load, then every `settings` event. */
+    settings: Settings | null;
 }
 
 export interface Revisions {
@@ -51,7 +53,8 @@ export type Action =
     | { kind: "jobs"; jobs: Job[] }
     | { kind: "event"; event: SpinnerEvent }
     | { kind: "connection"; status: ConnectionStatus }
-    | { kind: "usage"; usage: UsageSample };
+    | { kind: "usage"; usage: UsageSample }
+    | { kind: "settings"; settings: Settings };
 
 export const initialState: UiState = {
     sessions: {},
@@ -61,6 +64,7 @@ export const initialState: UiState = {
     connection: "connecting",
     revisions: {},
     usage: null,
+    settings: null,
 };
 
 export function transcriptKey(dir: string, agent: string): string {
@@ -112,6 +116,8 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
         }
         case "usage":
             return { ...state, usage: { machine: event.machine, sessions: event.sessions } };
+        case "settings":
+            return { ...state, settings: event.settings };
         default:
             return state;
     }
@@ -182,6 +188,8 @@ export function reduce(state: UiState, action: Action): UiState {
             return applySnapshot(state, action.sessions);
         case "usage":
             return { ...state, usage: action.usage };
+        case "settings":
+            return { ...state, settings: action.settings };
         case "jobs":
             return applyJobs(state, action.jobs);
         case "event":

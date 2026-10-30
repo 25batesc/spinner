@@ -5,8 +5,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import {
+    BUILTIN_THEMES,
     DAEMON_HOST,
     EVENTS_PATH,
+    SETTINGS_DEFAULT,
+    THEME_SYSTEM,
+    validate_palette,
     type Job,
     type JobAction,
     type PiAssistantMessage,
@@ -14,7 +18,10 @@ import {
     type SessionView,
     type ServiceUsage,
     type SessionUsage,
+    type Settings,
+    type SettingsResponse,
     type SpinnerEvent,
+    type ThemesResponse,
     type UsageResponse,
 } from "@spinner/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -112,6 +119,8 @@ class FixtureDaemon {
     ptys = new Map<string, EchoPty>();
     /** How many samples went out; each one moves the numbers a little. */
     ticks = 0;
+    /** The operator's settings, as `~/.spinner/settings.yaml` would hold them. */
+    settings: Settings = { ...SETTINGS_DEFAULT };
 
     pipeline = new PipelineFixture(this);
 
@@ -177,6 +186,49 @@ class FixtureDaemon {
         const { machine, sessions } = this.usage();
         const ts = new Date().toISOString();
         this.emit({ type: "usage", ts, session: null, machine, sessions });
+    }
+
+    /**
+     * `GET /themes`: the two built-ins, one valid custom theme (`solar`, the dark palette
+     * with a warm accent) and one invalid file (`broken`, the terminal block short of `red`).
+     */
+    themes(): ThemesResponse {
+        const solar = {
+            ...BUILTIN_THEMES.dark, accent: "#e0a63a", link: "#f2c14e",
+            terminal: { ...BUILTIN_THEMES.dark.terminal, blue: "#e0a63a" },
+        };
+        const short: Record<string, string> = { ...BUILTIN_THEMES.dark.terminal };
+        delete short["red"];
+        const broken = validate_palette({ ...BUILTIN_THEMES.dark, terminal: short });
+        return {
+            themes: [
+                { name: "light", source: "builtin", palette: BUILTIN_THEMES.light },
+                { name: "dark", source: "builtin", palette: BUILTIN_THEMES.dark },
+                { name: "solar", source: "user", palette: solar },
+            ],
+            invalid: broken.ok ? [] : [{
+                name: "broken", path: "/home/fixture/.spinner/themes/broken.json",
+                missing: broken.missing, reason: broken.reason,
+            }],
+        };
+    }
+
+    settingsResponse(): SettingsResponse {
+        return { settings: this.settings, path: "/home/fixture/.spinner/settings.yaml" };
+    }
+
+    /** `PUT /settings`: the theme must be `system`, a built-in or a listed custom theme. */
+    putSettings(body: Record<string, unknown>, response: ServerResponse): void {
+        const theme = body["theme"];
+        const known = [THEME_SYSTEM, ...this.themes().themes.map((t) => t.name)];
+        if (typeof theme !== "string" || !known.includes(theme)) {
+            sendJson(response, { error: `unknown theme ${String(theme)}` }, 400);
+            return;
+        }
+        this.settings = body as unknown as Settings;
+        const ts = new Date().toISOString();
+        this.emit({ type: "settings", ts, session: null, settings: this.settings });
+        sendJson(response, this.settingsResponse());
     }
 
     emit(event: SpinnerEvent): void {
@@ -406,6 +458,12 @@ class FixtureDaemon {
             sendJson(response, { jobs: [...this.jobs.values()] });
         } else if (method === "GET" && jobId !== undefined && this.jobs.has(jobId)) {
             sendJson(response, { job: this.jobs.get(jobId) });
+        } else if (method === "GET" && path === "/settings") {
+            sendJson(response, this.settingsResponse());
+        } else if (method === "PUT" && path === "/settings") {
+            this.putSettings(await readBody(request), response);
+        } else if (method === "GET" && path === "/themes") {
+            sendJson(response, this.themes());
         } else if (method === "GET" && path === "/usage") {
             sendJson(response, this.usage());
         } else if (method === "GET" && path === "/health") {
