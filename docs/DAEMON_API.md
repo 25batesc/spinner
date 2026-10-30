@@ -1,9 +1,68 @@
 # spinnerd API
 
 The daemon listens on `http://localhost:7777`. The REST routes are the keys of `ROUTES` in
-`packages/protocol/src/api.ts`; each value names the response type next to it. This page
-documents the two WebSockets and the routes the Spinner pi extension calls, because those
-are not plain request and response pairs.
+`packages/protocol/src/api.ts`; each value names the response type next to it. The table
+below lists every route with its body and response type from `@spinner/protocol`. The later
+sections document the two WebSockets and the routes the Spinner pi extension calls, because
+those are not plain request and response pairs.
+
+## Routes
+
+A request body is JSON. A route without a body takes none. A `JobResponse` names a job; its
+progress arrives as `job.*` events and `GET /jobs/:id`. An error is `{ "error": string }`
+with a 4xx or 5xx status. The daemon also serves the web UI at `GET /` and the two
+WebSockets below.
+
+| Route | Body | Response | Notes |
+|---|---|---|---|
+| `GET /health` | | `HealthResponse` | The home, the start time and the build. |
+| `GET /projects` | | `ProjectsResponse` | Every `spinner.yaml` the daemon can find. |
+| `GET /sessions` | | `SessionsResponse` | Every session as the daemon sees it. |
+| `GET /sessions/:dir` | | `SessionResponse` | 404 without the session. |
+| `GET /sessions/:dir/mission` | | `text/markdown` | The raw `MISSION.md`. |
+| `POST /sessions` | `NewSessionRequest` | `JobResponse` | The job creates the session and attaches the project. |
+| `POST /sessions/adopt` | `AdoptRequest` | `JobResponse` | PRs opened outside Spinner. |
+| `POST /sessions/:dir/attach` | `AttachRequest` | `JobResponse` | Worktrees on the PR branches. |
+| `POST /sessions/:dir/up` | `UpRequest`, optional | `JobResponse` | `build: true` rebuilds the dev images. |
+| `POST /sessions/:dir/down` | | `JobResponse` | Volumes and the database stay. |
+| `POST /sessions/:dir/close` | | `JobResponse` | Containers, database, worktrees; the session is archived. |
+| `POST /sessions/:dir/verify` | `VerifyRequest`, optional | `JobResponse` | The operator's local test. |
+| `POST /sessions/:dir/pr` | `PrRequest` | `JobResponse` | One PR per changed repo, as the operator. |
+| `POST /sessions/:dir/fix` | `FixRequest` | `JobResponse` | Renders `threads/`, then starts or steers the fixer. |
+| `GET /sessions/:dir/threads` | | `ThreadsResponse` | From the last render. |
+| `POST /sessions/:dir/threads/refresh` | | `ThreadsResponse` | Re-renders from GitHub now. |
+| `POST /sessions/:dir/threads/:id/reply` | `ThreadReplyRequest` | `ThreadResponse` | As the operator. |
+| `POST /sessions/:dir/threads/:id/resolve` | | `ThreadResponse` | 409 without a reply, or for a human thread when `resolve_human` is off. |
+| `POST /sessions/:dir/threads/:id/flag` | `ThreadFlagRequest` | `ThreadResponse` | Flags the thread for the operator. |
+| `GET /sessions/:dir/post` | | `PostResponse` | The composed Slack message. |
+| `POST /sessions/:dir/post` | `PostRequest` | `JobResponse` | `confirm: true` or 400. |
+| `GET /sessions/:dir/approve` | | `ApproveResponse` | Head, diff stat and open threads per PR. |
+| `POST /sessions/:dir/approve` | `ApproveRequest` | `JobResponse` | `confirm: true` or 400. |
+| `POST /sessions/:dir/land` | `LandRequest`, optional | `JobResponse` | Enqueue, watch, rebase and re-enqueue on a pop-out. |
+| `POST /sessions/:dir/reset` | `ResetRequest`, optional | `JobResponse` | The next round. |
+| `PUT /sessions/:dir/mission/section` | `MissionSectionRequest` | `MissionSectionResponse` | The daemon serializes writes. |
+| `POST /sessions/:dir/inbox` | `InboxMessageRequest` | `InboxMessageResponse` | Writes the message and delivers it. |
+| `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
+| `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201; the harness comes from `config.yaml`. |
+| `POST /sessions/:dir/agents/:name/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 with the state for a stopped agent. |
+| `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. |
+| `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |
+| `POST /sessions/:dir/agents/:name/stop` | | `AgentCommandResponse` | The transcript stays. |
+| `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
+| `GET /sessions/:dir/agents/:name/context` | | `ContextResponse` | The context chain and the loaded commands. |
+| `PUT /sessions/:dir/agents/:name/context` | `ContextFileRequest` | `ContextFileResponse` | Writes one file of the chain. |
+| `POST /sessions/:dir/agents/:name/hello` | `AgentHelloRequest` | `AgentCommandResponse` | Extension only; below. |
+| `GET /sessions/:dir/agents/:name/commands` | | `AgentCommandPollResponse` | Extension only; the long-poll below. |
+| `POST /sessions/:dir/agents/:name/events` | `AgentEventsRequest` | `AgentCommandResponse` | Extension only; 202. |
+| `GET /sessions/:dir/agents/:name/tty` | | WebSocket | Below. |
+| `GET /sessions/:dir/stack/logs/:service` | | `StackLogsResponse` | Query `lines`, 1 to 2000. |
+| `GET /usage` | | `UsageResponse` | The machine and every up stack. |
+| `GET /settings` | | `SettingsResponse` | Defaults when the file is absent. |
+| `PUT /settings` | `Settings` | `SettingsResponse` | The whole document; 400 names the first problem. |
+| `GET /themes` | | `ThemesResponse` | Built-ins and user palettes. |
+| `GET /models` | | `ModelsResponse` | The models pi can run. |
+| `GET /jobs` | | `JobsResponse` | Running jobs and the last finished ones. |
+| `GET /jobs/:id` | | `JobResponse` | 404 when the daemon never ran it. |
 
 ## Events WebSocket
 
@@ -160,7 +219,7 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 
 | Key | Meaning |
 |---|---|
-| `theme` | `system`, `light`, `dark`, or the name of a valid `~/.spinner/themes/<name>.json`. `system` follows the OS. |
+| `theme` | `system`, `light`, `dark`, `rainbow`, or the name of a valid `~/.spinner/themes/<name>.json`. `system` follows the OS. |
 | `default_model` | Optional. `provider/model` for an agent tab that names none. |
 | `agents.harness` | Optional. `tty` or `rpc`. |
 
@@ -176,9 +235,9 @@ A hand edit of the file shows on the next `GET`; the daemon does not watch it.
 A theme is one `ThemePalette`. The UI colours are `bg`, `surface`, `border`, `text`, `muted`,
 `accent`, `ok`, `warn`, `fail` and `link`. The `terminal` block has `foreground`,
 `background`, `cursor` and the 16 ANSI colours (`black` … `white`, `bright_black` …
-`bright_white`). Every value is a CSS colour string. The built-ins `light` and `dark` are the
-JSON files under `packages/protocol/src/themes/`, exported as `BUILTIN_THEMES`, so the web UI
-and the desktop app share one definition. The operator adds `~/.spinner/themes/<name>.json`;
+`bright_white`). Every value is a CSS colour string. The built-ins `light`, `dark` and `rainbow`
+are the JSON files under `packages/protocol/src/themes/`, exported as `BUILTIN_THEMES`. The web UI
+and the desktop app share that one definition. The operator adds `~/.spinner/themes/<name>.json`;
 the name must match `[a-z0-9][a-z0-9_-]{0,63}`.
 
 `GET /themes` answers `ThemesResponse { themes, invalid }`. `themes` lists the built-ins first,
