@@ -141,11 +141,18 @@ html, body, #root { height: 100%; margin: 0; }
     border: 1px solid #8886; border-radius: 4px; padding: 6px; margin-top: auto;
 }
 .drawer-handle {
-    position: absolute; top: -4px; left: 0; right: 0; height: 8px; cursor: row-resize;
+    position: absolute; top: -5px; left: 0; right: 0; height: 10px; cursor: row-resize;
     touch-action: none;
 }
-.drawer-handle:hover { background: #8886; }
-.drawer-head { display: flex; justify-content: space-between; align-items: center; }
+.drawer-handle::after {
+    content: ""; position: absolute; left: 50%; top: 3px; width: 32px; height: 3px;
+    margin-left: -16px; border-radius: 2px; background: #8888;
+}
+.drawer-handle:hover, .drawer-handle:hover::after { background: #888c; }
+.drawer-head {
+    display: flex; justify-content: space-between; align-items: center; cursor: row-resize;
+    touch-action: none; user-select: none;
+}
 .drawer-controls { display: flex; gap: 4px; align-items: center; }
 .drawer-log { margin: 4px 0 0; flex: 1; min-height: 0; overflow: auto; font-size: 11px; }
 .drawer-bar {

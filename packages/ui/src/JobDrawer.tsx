@@ -104,9 +104,15 @@ export function JobDrawer(props: JobDrawerProps) {
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
             />
-            <div className="drawer-head">
+            <div
+                className="drawer-head"
+                title="Drag to resize; drag down to minimize"
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+            >
                 <strong>{drawerTitle(job)}</strong>
-                <span className="drawer-controls">
+                <span className="drawer-controls" onPointerDown={(e) => e.stopPropagation()}>
                     <IconButton
                         icon="minimize"
                         label="Minimize job log"
