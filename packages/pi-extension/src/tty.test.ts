@@ -158,6 +158,8 @@ describe("the tty channel", () => {
         const ctx = fake_ctx(true, aborted);
         await pi.fire("session_start", { type: "session_start" }, ctx);
         await until(() => aborted.count === 1);
+        // The ack for the abort is the poll after it; wait for the request, not the effect.
+        await until(() => served.requests.some((r) => r.path.includes("ack=c-4")));
         const hello = served.requests.find((r) => r.path.endsWith("/hello"));
         expect(hello?.body).toEqual({
             pid: 4242,
