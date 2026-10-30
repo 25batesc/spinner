@@ -1091,6 +1091,10 @@ if (flow === "usage") {
     await until("card follows", `${cardLine("Refund flow")} === ${barLine}`);
     await until("share line follows", `${text(".usage-share")}.includes(${barLine})`);
     await until("table kept", `document.querySelector(".services").dataset.mark === "kept"`);
+    // The sample carries the services too: the api row's cpu follows the stack's nudge.
+    const apiCpu = `document.querySelectorAll(".services tbody tr")[1].children[2].textContent`;
+    await until("service cell follows the sample", `${apiCpu} !== "14 %"`);
+    console.log("api cpu after a sample:", await evaluate(apiCpu));
     console.log("line before and after a sample:", before, await evaluate(barLine));
     await shot("75-usage-updated");
     console.log("usage ok");

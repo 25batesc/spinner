@@ -1,6 +1,7 @@
 // The services view: one row per service with its state and its last usage sample (cpu,
 // memory, i/o, process), under a line with the machine totals and this session's share. The
-// cells read the latest numbers on every render, so a sample updates them in place.
+// cells read the latest sample (the `usage` event) on every render, so it updates them in
+// place without a `session.updated`.
 import type { ServiceUsage, SessionView } from "@spinner/protocol";
 
 import {
@@ -8,6 +9,7 @@ import {
     ioCell,
     memoryCell,
     processCell,
+    serviceUsageOf,
     shareLine,
     stackUsageOf,
     type UsageSample,
@@ -70,7 +72,7 @@ export function ServiceTable({ view, usage }: { view: SessionView; usage: UsageS
                             <td>
                                 <span className={`dot dot-${service.status}`} /> {service.status}
                             </td>
-                            <UsageCells usage={service.usage} />
+                            <UsageCells usage={serviceUsageOf(view, service, usage)} />
                         </tr>
                     ))}
                 </tbody>

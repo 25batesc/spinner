@@ -1,10 +1,11 @@
 // Resource usage at a glance: how the UI prints the daemon's samples (`MachineUsage`,
 // `StackUsage`, `ServiceUsage` in `@spinner/protocol`). The `usage` event carries the machine
-// and each up stack's sum; a service's own numbers ride on its `ServiceView.usage` and arrive
-// with `session.updated`.
+// and each up session's stack total and services; a `SessionView` carries the last sample on
+// its stack and services too, for a page that loads before the next one.
 import type {
     MachineUsage,
     ServiceUsage,
+    ServiceView,
     SessionView,
     StackUsage,
     UsageResponse,
@@ -19,14 +20,26 @@ export const MEMORY_LOW_SHARE = 0.1;
 const GB = 1024 ** 3;
 
 /**
- * This session's stack sum: the latest sample first, else what its `SessionView` carries.
+ * This session's stack total: the latest sample first, else what its `SessionView` carries.
  * Nothing while the stack is not up.
  */
 export function stackUsageOf(view: SessionView, latest: UsageSample | null): StackUsage | null {
     if (view.stack.state !== "up") {
         return null;
     }
-    return latest?.sessions[view.summary.dir] ?? view.stack.usage ?? null;
+    return latest?.sessions[view.summary.dir]?.stack ?? view.stack.usage ?? null;
+}
+
+/** One service's sample: the latest event first, else what its `ServiceView` carries. */
+export function serviceUsageOf(
+    view: SessionView,
+    service: ServiceView,
+    latest: UsageSample | null,
+): ServiceUsage | null {
+    if (view.stack.state !== "up") {
+        return null;
+    }
+    return latest?.sessions[view.summary.dir]?.services[service.name] ?? service.usage ?? null;
 }
 
 /** Gigabytes with one decimal: `1.2 GB`. */

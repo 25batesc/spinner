@@ -12,8 +12,9 @@ import {
     type PiAssistantMessage,
     type PiEvent,
     type SessionView,
+    type ServiceUsage,
+    type SessionUsage,
     type SpinnerEvent,
-    type StackUsage,
     type UsageResponse,
 } from "@spinner/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -136,21 +137,33 @@ class FixtureDaemon {
         return made;
     }
 
-    /** `GET /usage` and the `usage` event: each up stack's sum, nudged per tick; the machine. */
+    /**
+     * `GET /usage` and the `usage` event: each up session's stack total and services, nudged
+     * per tick (the cpu by a whole percent, the memory by a few MB); the machine.
+     */
     usage(): UsageResponse {
-        const sessions: Record<string, StackUsage> = {};
+        const sessions: Record<string, SessionUsage> = {};
         let total = 0;
         for (const current of this.sessions.values()) {
             const base = current.stack.usage;
             if (current.stack.state !== "up" || base === null || base === undefined) {
                 continue;
             }
+            const nudge = this.ticks % 3;
             const wobble = (this.ticks % 4) * 8 * 1024 * 1024;
             const stack = {
-                cpu_pct: base.cpu_pct + (this.ticks % 3), mem_bytes: base.mem_bytes + wobble,
+                cpu_pct: base.cpu_pct + nudge, mem_bytes: base.mem_bytes + wobble,
                 sampled: new Date().toISOString(),
             };
-            sessions[current.summary.dir] = stack;
+            const services: Record<string, ServiceUsage> = {};
+            for (const service of current.stack.services) {
+                if (service.usage !== null && service.usage !== undefined) {
+                    services[service.name] = {
+                        ...service.usage, cpu_pct: service.usage.cpu_pct + nudge,
+                    };
+                }
+            }
+            sessions[current.summary.dir] = { stack, services };
             total += stack.mem_bytes;
         }
         const up = Object.keys(sessions).length;
