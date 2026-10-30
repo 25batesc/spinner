@@ -6,6 +6,13 @@ import type { PrFacts, SessionView } from "@spinner/protocol";
 
 import type { PaneName } from "./layout.ts";
 import { needsHuman, stageOf } from "./state.ts";
+import {
+    machineLine,
+    memoryLow,
+    stackLine,
+    stackUsageOf,
+    type UsageSample,
+} from "./usage.ts";
 
 export type IconName =
     | "sessions"
@@ -208,11 +215,38 @@ export function PrBadge({ prs }: { prs: PrFacts[] }) {
  * The bar above the panes, always visible: the active session's title, stage, stack, PR count
  * and `needs you` line, from `SessionView` alone. One line, the title truncated; no controls.
  */
-export function ContextBar({ view }: { view: SessionView | undefined }) {
+export interface ContextBarProps {
+    view: SessionView | undefined;
+    /** The last usage sample: the session's line and the machine line. */
+    usage: UsageSample | null;
+}
+
+/** The machine line: `machine 9.8 / 32 GB · 3 stacks up`, red when free memory is low. */
+function MachineLine({ usage }: { usage: UsageSample | null }) {
+    if (usage === null) {
+        return null;
+    }
+    const low = memoryLow(usage.machine);
+    return (
+        <span
+            className={low ? "needs-human machine-line" : "muted machine-line"}
+            title={low ? "Free memory is under 10 %" : "Memory used of the total"}
+        >
+            {machineLine(usage.machine)}
+        </span>
+    );
+}
+
+export function ContextBar({ view, usage }: ContextBarProps) {
     if (view === undefined) {
-        return <div className="context-bar muted">No session selected.</div>;
+        return (
+            <div className="context-bar muted">
+                No session selected. <MachineLine usage={usage} />
+            </div>
+        );
     }
     const needs = needsHuman(view);
+    const stack = stackUsageOf(view, usage);
     return (
         <div className="context-bar" aria-label="Session">
             <span className="context-title" title={view.summary.session.title}>
@@ -221,6 +255,8 @@ export function ContextBar({ view }: { view: SessionView | undefined }) {
             <span className="badge">{stageOf(view)}</span>
             <span className={`dot dot-${view.stack.state}`} />
             <span className="muted">stack {view.stack.state}</span>
+            {stack !== null && <span className="muted usage-line">{stackLine(stack)}</span>}
+            <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
             {needs !== null && <span className="needs-human">{needs}</span>}
         </div>

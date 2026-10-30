@@ -345,7 +345,10 @@ if (flow === "panes") {
         popOuts: document.querySelectorAll("button[aria-label^='Pop out']").length,
         top: document.querySelectorAll("${topToggle}").length,
         inSessions: document.querySelectorAll(".sessions-pane ${topToggle}").length,
-        context: document.querySelector(".context-bar").innerText,
+        context: [...document.querySelector(".context-bar").children]
+            .filter((c) => !c.classList.contains("usage-line")
+                && !c.classList.contains("machine-line"))
+            .map((c) => c.innerText).filter((t) => t !== "").join("\\n"),
         links: document.querySelectorAll(".pane-head a, .pane-head .link, .browser-bar a")
             .length,
         icons: document.querySelectorAll(".pane-head .icon-button, .browser-bar .icon-button")
@@ -1037,6 +1040,62 @@ if (flow === "m2-context") {
     await shot("34-m2-context-edited");
     console.log("m2-context ok");
     socket.close();
+    process.exit(0);
+}
+
+if (flow === "usage") {
+    // Resource usage at a glance, against the fixture's made-up samples: the card of a
+    // session with its stack up carries `1.2 GB · 19 %` beside the stack state and a session
+    // without a stack carries nothing; the context bar carries the same line and the machine
+    // line; the services view has the six columns with the cells per kind of service and the
+    // share line above; a `usage` event moves the numbers in place.
+    const cardLine = (title: string) =>
+        `([...document.querySelectorAll(".session")].find((c) => c.textContent.includes(
+            ${JSON.stringify(title)}))?.querySelector(".usage-line")?.textContent ?? null)`;
+    const barLine = `(document.querySelector(".context-bar .usage-line")?.textContent ?? null)`;
+    const machine = `document.querySelector(".context-bar .machine-line")`;
+    await click(".session", "Refund flow");
+    await until("card line", `${cardLine("Refund flow")} === "1.2 GB · 19 %"`);
+    await until("no line without a stack", `${cardLine("Bootstrap")} === null`);
+    await until("context bar line", `${barLine} === "1.2 GB · 19 %"`);
+    await until("machine line", `${machine}?.textContent === "machine 9.8 / 32 GB · 1 stack up"`);
+    await until("machine line not red", `!${machine}.classList.contains("needs-human")`);
+    await shot("73-usage-cards-and-bar");
+    await click(".agents-pane .tab", "services");
+    await until("table shown", `document.querySelector(".services") !== null`);
+    const table = await evaluate(`({
+        head: [...document.querySelectorAll(".services th")].map((h) => h.textContent),
+        rows: [...document.querySelectorAll(".services tbody tr")].map((r) =>
+            [...r.querySelectorAll("td")].slice(2).map((d) => d.textContent)),
+        share: document.querySelector(".usage-share")?.textContent,
+    })`);
+    console.log("services table:", JSON.stringify(table));
+    const wantedTable = {
+        head: ["service", "state", "cpu", "memory", "i/o", "process"],
+        rows: [
+            ["3 %", "180 MB", "—", "pid 44823"],
+            ["14 %", "412 MB / 2.0 GB", "net ↓12 kB ↑3.4 MB · disk r 0 B w 1.2 MB", "9f3c2a1b7d6e"],
+            ["1 %", "640 MB", "net ↓800 kB ↑2.0 MB · disk r 40 MB w 96 MB", "c1d2e3f4a5b6"],
+        ],
+        share: "machine 9.8 / 32 GB · 1 stack up · this session 1.2 GB · 19 % (3.8 % of memory)",
+    };
+    if (JSON.stringify(table) !== JSON.stringify(wantedTable)) {
+        throw new Error("the services table does not show the usage columns expected");
+    }
+    await shot("74-usage-services");
+    // A `usage` event (the fixture samples every 2 s and nudges the cpu) updates the lines in
+    // place: the table element stays the same node.
+    await evaluate(`document.querySelector(".services").dataset.mark = "kept", true`);
+    const before = (await evaluate(barLine)) as string;
+    await until("a sample moved the line", `${barLine} !== ${JSON.stringify(before)}`);
+    await until("card follows", `${cardLine("Refund flow")} === ${barLine}`);
+    await until("share line follows", `${text(".usage-share")}.includes(${barLine})`);
+    await until("table kept", `document.querySelector(".services").dataset.mark === "kept"`);
+    console.log("line before and after a sample:", before, await evaluate(barLine));
+    await shot("75-usage-updated");
+    console.log("usage ok");
+    socket.close();
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
     process.exit(0);
 }
 

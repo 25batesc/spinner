@@ -13,16 +13,22 @@ import {
     type PiEvent,
     type SessionView,
     type SpinnerEvent,
+    type StackUsage,
+    type UsageResponse,
 } from "@spinner/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { PipelineFixture } from "./pipeline.ts";
-import { FIXTURE_PORT, initialSessions, PROJECTS, pr, session, stackView, view } from "./data.ts";
+import {
+    FIXTURE_PORT, initialSessions, machineUsage, PROJECTS, pr, session, stackView, view,
+} from "./data.ts";
 import { EchoPty } from "./tty.ts";
 
 export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
 
 export const STEP_DELAY_MS = 300;
+/** The fixture samples faster than the daemon (5 s), so a driver sees an update soon. */
+export const USAGE_TICK_MS = 2000;
 
 function sendJson(response: ServerResponse, body: unknown, status = 200): void {
     response.writeHead(status, { "content-type": "application/json" });
@@ -103,6 +109,8 @@ class FixtureDaemon {
     history = new Map<string, PiEvent[]>();
     /** One fake pty per `<dir>/<agent>` that a terminal attached to; it outlives the socket. */
     ptys = new Map<string, EchoPty>();
+    /** How many samples went out; each one moves the numbers a little. */
+    ticks = 0;
 
     pipeline = new PipelineFixture(this);
 
@@ -126,6 +134,36 @@ class FixtureDaemon {
         const made = new EchoPty(name);
         this.ptys.set(key, made);
         return made;
+    }
+
+    /** `GET /usage` and the `usage` event: each up stack's sum, nudged per tick; the machine. */
+    usage(): UsageResponse {
+        const sessions: Record<string, StackUsage> = {};
+        let total = 0;
+        for (const current of this.sessions.values()) {
+            const base = current.stack.usage;
+            if (current.stack.state !== "up" || base === null || base === undefined) {
+                continue;
+            }
+            const wobble = (this.ticks % 4) * 8 * 1024 * 1024;
+            const stack = {
+                cpu_pct: base.cpu_pct + (this.ticks % 3), mem_bytes: base.mem_bytes + wobble,
+                sampled: new Date().toISOString(),
+            };
+            sessions[current.summary.dir] = stack;
+            total += stack.mem_bytes;
+        }
+        const up = Object.keys(sessions).length;
+        return {
+            machine: machineUsage(up, total), sessions, sampled: new Date().toISOString(),
+        };
+    }
+
+    tick(): void {
+        this.ticks += 1;
+        const { machine, sessions } = this.usage();
+        const ts = new Date().toISOString();
+        this.emit({ type: "usage", ts, session: null, machine, sessions });
     }
 
     emit(event: SpinnerEvent): void {
@@ -355,6 +393,8 @@ class FixtureDaemon {
             sendJson(response, { jobs: [...this.jobs.values()] });
         } else if (method === "GET" && jobId !== undefined && this.jobs.has(jobId)) {
             sendJson(response, { job: this.jobs.get(jobId) });
+        } else if (method === "GET" && path === "/usage") {
+            sendJson(response, this.usage());
         } else if (method === "GET" && path === "/health") {
             sendJson(response, { ok: true, home: "fixture", started: new Date().toISOString() });
         } else if (method === "POST" && (await this.run(request, response, path))) {
@@ -369,6 +409,8 @@ class FixtureDaemon {
 
 export function startFixture(port: number = FIXTURE_PORT) {
     const daemon = new FixtureDaemon();
+    const sampler = setInterval(() => daemon.tick(), USAGE_TICK_MS);
+    sampler.unref();
     const server = createServer((request, response) => {
         daemon
             .handle(request, response)

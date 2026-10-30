@@ -2,7 +2,7 @@
 // One snapshot per load (`/sessions`, `/jobs`), then events only.
 import { useEffect, useReducer } from "react";
 
-import { connectEvents, fetchJobs, fetchSessions } from "./events-client.ts";
+import { connectEvents, fetchJobs, fetchSessions, fetchUsage } from "./events-client.ts";
 import { initialState, reduce, type UiState } from "./state.ts";
 
 export function useSpinner(): UiState {
@@ -27,6 +27,13 @@ export function useSpinner(): UiState {
         fetchJobs(abort.signal)
             .then((jobs) => dispatch({ kind: "jobs", jobs }))
             .catch(report("jobs"));
+        fetchUsage(abort.signal)
+            .then((usage) => {
+                if (usage !== null) {
+                    dispatch({ kind: "usage", usage });
+                }
+            })
+            .catch(report("usage"));
         return () => {
             abort.abort();
             stop();

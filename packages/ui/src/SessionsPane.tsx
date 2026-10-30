@@ -4,6 +4,7 @@ import { Icon, PaneHead, PrBadge, type IconButtonProps } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import type { ComposeKind, RunAction } from "./SessionForms.tsx";
+import { stackLine, stackUsageOf, type UsageSample } from "./usage.ts";
 
 export type { RunAction } from "./SessionForms.tsx";
 
@@ -18,6 +19,8 @@ export interface SessionsPaneProps {
     controls?: IconButtonProps[] | undefined;
     /** The side-panel toggle, at the left of the title. */
     leading?: IconButtonProps | undefined;
+    /** The last usage sample, for the line beside each up stack. */
+    usage: UsageSample | null;
 }
 
 function stackDot(view: SessionView): string {
@@ -60,9 +63,11 @@ function SessionCard(props: {
     view: SessionView;
     selected: boolean;
     onSelect: (dir: string) => void;
+    usage: UsageSample | null;
 }) {
-    const { dir, view, selected, onSelect } = props;
+    const { dir, view, selected, onSelect, usage } = props;
     const needs = needsHuman(view);
+    const stack = stackUsageOf(view, usage);
     const prs = view.board?.prs ?? [];
     const detail = [dir, ...prs.map(prLine)].join("\n");
     return (
@@ -78,6 +83,9 @@ function SessionCard(props: {
                     <span className="badge">{stageOf(view)}</span>
                     <span className={stackDot(view)} />
                     <span className="muted">stack {view.stack.state}</span>
+                    {stack !== null && (
+                        <span className="muted usage-line">{stackLine(stack)}</span>
+                    )}
                     <PrBadge prs={prs} />
                 </span>
                 <span className="needs-human session-needs">{needs ?? ""}</span>
@@ -87,7 +95,7 @@ function SessionCard(props: {
 }
 
 export function SessionsPane(props: SessionsPaneProps) {
-    const { sessions, selected, onSelect, onCompose, controls, leading } = props;
+    const { sessions, selected, onSelect, onCompose, controls, leading, usage } = props;
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
             <PaneHead name="sessions" controls={controls} leading={leading} />
@@ -98,6 +106,7 @@ export function SessionsPane(props: SessionsPaneProps) {
                         key={dir}
                         dir={dir}
                         view={view}
+                        usage={usage}
                         selected={dir === selected}
                         onSelect={onSelect}
                     />

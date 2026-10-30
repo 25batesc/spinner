@@ -182,6 +182,7 @@ export function App() {
     const sessionsPane = (
         <SessionsPane
             sessions={sessions}
+            usage={state.usage}
             selected={selected}
             onSelect={setPicked}
             run={run}
@@ -196,6 +197,7 @@ export function App() {
             busy={busy}
             run={run}
             transcripts={transcriptsFor(selected, state.transcripts)}
+            usage={state.usage}
             revisions={revisionsOf(state, selected)}
             controls={inRoute ? undefined : []}
             compose={
@@ -260,7 +262,7 @@ export function App() {
     const agentsOff = expanded || isStrip(layout.layout.panes.agents);
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
-            <ContextBar view={view} />
+            <ContextBar view={view} usage={state.usage} />
             <div className="shell-body">
                 <ActivityBar
                     shown={panelShown ? "sessions" : undefined}

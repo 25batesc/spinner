@@ -7,6 +7,7 @@ import type { Job, SessionView, SpinnerEvent } from "@spinner/protocol";
 
 import { describeEvent } from "./describe.ts";
 import { emptyTranscript, foldEvent, type Transcript } from "./transcript.ts";
+import type { UsageSample } from "./usage.ts";
 
 export const FEED_LIMIT = 100;
 export const JOB_LOG_LIMIT = 500;
@@ -32,6 +33,8 @@ export interface UiState {
      * (mission, threads) reloads when its counter moves; the counter holds no data of its own.
      */
     revisions: Record<string, Revisions>;
+    /** The last usage sample: `GET /usage` at load, then every `usage` event. */
+    usage: UsageSample | null;
 }
 
 export interface Revisions {
@@ -47,7 +50,8 @@ export type Action =
     | { kind: "snapshot"; sessions: SessionView[] }
     | { kind: "jobs"; jobs: Job[] }
     | { kind: "event"; event: SpinnerEvent }
-    | { kind: "connection"; status: ConnectionStatus };
+    | { kind: "connection"; status: ConnectionStatus }
+    | { kind: "usage"; usage: UsageSample };
 
 export const initialState: UiState = {
     sessions: {},
@@ -56,6 +60,7 @@ export const initialState: UiState = {
     transcripts: {},
     connection: "connecting",
     revisions: {},
+    usage: null,
 };
 
 export function transcriptKey(dir: string, agent: string): string {
@@ -105,6 +110,8 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
             const folded = foldEvent(earlier, event.event);
             return { ...state, transcripts: { ...state.transcripts, [key]: folded } };
         }
+        case "usage":
+            return { ...state, usage: { machine: event.machine, sessions: event.sessions } };
         default:
             return state;
     }
@@ -173,6 +180,8 @@ export function reduce(state: UiState, action: Action): UiState {
     switch (action.kind) {
         case "snapshot":
             return applySnapshot(state, action.sessions);
+        case "usage":
+            return { ...state, usage: action.usage };
         case "jobs":
             return applyJobs(state, action.jobs);
         case "event":

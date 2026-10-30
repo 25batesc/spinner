@@ -37,6 +37,9 @@ export function describeEvent(event: SpinnerEvent): string | null {
             return `agent ${event.agent} exited (code ${event.code ?? "none"})`;
         case "stack.state":
             return `stack ${event.state}`;
+        case "usage":
+            // A sample every few seconds is not a feed line.
+            return null;
         case "mission.changed":
             return `${event.author} changed ${event.sections.join(", ")}`;
         case "inbox.message":

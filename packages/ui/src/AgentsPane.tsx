@@ -13,6 +13,7 @@ import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
+import type { UsageSample } from "./usage.ts";
 import { tty_path, type AgentSpec, type SessionView } from "@spinner/protocol";
 
 import { ComposeForm, type ComposeKind, type RunAction } from "./SessionForms.tsx";
@@ -24,6 +25,8 @@ export interface AgentsPaneProps {
     run: RunAction;
     /** Folded `agent.event` stream per agent name for the selected session. */
     transcripts: Record<string, Transcript>;
+    /** The last usage sample, for the services view. */
+    usage: UsageSample | null;
     revisions: Revisions;
     /** The activity drawer, at the bottom of the pane. */
     children?: ReactNode;
@@ -196,7 +199,7 @@ function ViewTabs(props: {
 }
 
 export function AgentsPane(props: AgentsPaneProps) {
-    const { view, busy, run, transcripts, revisions, children } = props;
+    const { view, busy, run, transcripts, usage, revisions, children } = props;
     const { controls, leading, compose } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const [shown, setShown] = useState("agents");
@@ -259,7 +262,9 @@ export function AgentsPane(props: AgentsPaneProps) {
                         run={run}
                     />
                 )}
-                {view !== undefined && shown === "services" && <ServiceTable view={view} />}
+                {view !== undefined && shown === "services" && (
+                    <ServiceTable view={view} usage={usage} />
+                )}
                 {/* Hidden, not unmounted, while another view shows: the terminals keep
                     their sockets and buffers. */}
                 <div className="agents-view" hidden={shown !== "agents"}>

@@ -101,6 +101,12 @@ html, body, #root { height: 100%; margin: 0; }
 .compose-actions .primary { font-weight: 600; border-color: #38f; }
 .session-selected { border-color: #38f; }
 .badges { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+/* The usage line beside the stack state, on the cards and the context bar: `1.2 GB · 14 %`. */
+.session .badges { font-size: 12px; }
+.badges .dot { flex: none; }
+.usage-line { font-size: 11px; }
+.machine-line { font-size: 11px; white-space: nowrap; }
+.usage-share { margin: 0; font-size: 12px; }
 .badge { font-size: 11px; padding: 0 5px; border-radius: 8px; background: #8883; }
 .needs-human { color: #d80; font-size: 12px; }
 .agents-pane { display: flex; flex-direction: column; gap: 6px; }
@@ -180,6 +186,9 @@ html, body, #root { height: 100%; margin: 0; }
 .tab-grey { opacity: 0.4; }
 .services { border-collapse: collapse; font-size: 12px; }
 .services th, .services td { text-align: left; padding: 2px 8px; border-bottom: 1px solid #8883; }
+.services td { white-space: nowrap; }
+.services td:nth-child(5) { white-space: normal; }
+.service-url { font-size: 11px; display: block; }
 /* The activity drawer: a fixed height from the layout record, the divider on its top edge,
    the job log then the events inside. The terminal above refits as the drawer changes. */
 .drawer {

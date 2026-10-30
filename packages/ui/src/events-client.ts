@@ -14,6 +14,7 @@ import {
     type SessionsResponse,
     type SpinnerEvent,
     type SpinnerEventType,
+    type UsageResponse,
 } from "@spinner/protocol";
 
 export const RECONNECT_DELAY_MS_MIN = 500;
@@ -35,7 +36,8 @@ function hasEnvelope(value: unknown): value is SpinnerEvent {
         typeof type === "string" &&
         KNOWN_TYPES.has(type) &&
         typeof ts === "string" &&
-        (typeof session === "string" || (session === null && type.startsWith("job.")))
+        (typeof session === "string" ||
+            (session === null && (type.startsWith("job.") || type === "usage")))
     );
 }
 
@@ -54,6 +56,15 @@ export async function fetchSessions(signal: AbortSignal): Promise<SessionsRespon
         throw new Error(`GET /sessions failed with status ${response.status}`);
     }
     return (await response.json()) as SessionsResponse;
+}
+
+/** The last usage sample; null from an older daemon without the route. */
+export async function fetchUsage(signal: AbortSignal): Promise<UsageResponse | null> {
+    const response = await fetch("/usage", { signal });
+    if (!response.ok) {
+        return null;
+    }
+    return (await response.json()) as UsageResponse;
 }
 
 export async function fetchJobs(signal: AbortSignal): Promise<Job[]> {

@@ -2,12 +2,15 @@
 // `@spinner/protocol` that breaks the fixture also breaks `pnpm --filter ui typecheck`.
 import type {
     BoardView,
+    MachineUsage,
     PrFacts,
     ProjectView,
     ServiceStatus,
+    ServiceUsage,
     ServiceView,
     Session,
     SessionView,
+    StackUsage,
     StackView,
 } from "@spinner/protocol";
 
@@ -61,16 +64,60 @@ export function pr(number: number, repo: string, partial: Partial<PrFacts> = {})
     };
 }
 
+const MB = 1024 ** 2;
+const GB = 1024 ** 3;
+
+/** Made-up samples: a host process, a container with a limit, a container without one. */
+export function serviceUsages(status: ServiceStatus): Record<string, ServiceUsage | null> {
+    if (status !== "healthy") {
+        return { web: null, api: null, db: null };
+    }
+    return {
+        web: { cpu_pct: 3.2, mem_bytes: 180 * MB, pid: 44823 },
+        api: {
+            cpu_pct: 14.4, mem_bytes: 412 * MB, mem_limit_bytes: 2 * GB,
+            net_rx_bytes: 12 * 1024, net_tx_bytes: 3.4 * MB, block_read_bytes: 0,
+            block_write_bytes: 1.2 * MB, container: "9f3c2a1b7d6e4f5a",
+        },
+        db: {
+            cpu_pct: 1.1, mem_bytes: 640 * MB, net_rx_bytes: 800 * 1024, net_tx_bytes: 2 * MB,
+            block_read_bytes: 40 * MB, block_write_bytes: 96 * MB, container: "c1d2e3f4a5b6c7d8",
+        },
+    };
+}
+
+/** The stack's sum over `serviceUsages`, or null when the stack is not up. */
+export function stackUsage(status: ServiceStatus): StackUsage | null {
+    if (status !== "healthy") {
+        return null;
+    }
+    const usages = Object.values(serviceUsages(status)).filter((u) => u !== null);
+    return {
+        cpu_pct: usages.reduce((sum, u) => sum + u.cpu_pct, 0),
+        mem_bytes: usages.reduce((sum, u) => sum + u.mem_bytes, 0),
+        sampled: new Date().toISOString(),
+    };
+}
+
+/** The fixture machine: 32 GB with 22.2 GB free, so the context bar is not red. */
+export function machineUsage(stacksUp: number, sessionsBytes: number): MachineUsage {
+    return {
+        mem_total_bytes: 32 * GB, mem_free_bytes: 22.2 * GB, cpu_count: 10, load_1m: 2.3,
+        stacks_up: stacksUp, mem_sessions_bytes: sessionsBytes,
+    };
+}
+
 export function serviceViews(id: string, status: ServiceStatus): ServiceView[] {
     const url = (host: string) => `http://${host}.${id}.localhost:${FIXTURE_PORT}`;
+    const usage = serviceUsages(status);
     // `web` keeps its login in cookies (`preview: top-level`), the case the desktop app exists for.
     return [
         { name: "web", where: "host", status, host: `web.${id}.localhost`, url: url("web"),
-          process: null, preview: "top-level" },
+          process: null, preview: "top-level", usage: usage["web"] ?? null },
         { name: "api", where: "container", status, host: `api.${id}.localhost`, url: url("api"),
-          process: null, preview: "frame" },
+          process: null, preview: "frame", usage: usage["api"] ?? null },
         { name: "db", where: "container", status, host: null, url: null, process: null,
-          preview: "frame" },
+          preview: "frame", usage: usage["db"] ?? null },
     ];
 }
 
@@ -89,6 +136,7 @@ export function stackView(id: string, state: "none" | keyof typeof STACK_STATUS)
         services: serviceViews(id, STACK_STATUS[state]),
         observed: new Date().toISOString(),
         last_job: null,
+        usage: stackUsage(STACK_STATUS[state]),
     };
 }
 
