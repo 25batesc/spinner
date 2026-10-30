@@ -31,6 +31,7 @@ import type {
     SessionResponse,
     SessionsResponse,
     SessionSummary,
+    SettingsResponse,
     StackLogsResponse,
     StackSpec,
     UsageResponse,
@@ -67,6 +68,7 @@ import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { watch_stack_jobs } from "./stack/job-record.js";
 import { service_log_lines, StackLogsError } from "./stack/logs.js";
 import { start_usage_sampler, type UsageSampler } from "./stack/usage.js";
+import { list_themes, read_settings, write_settings } from "./settings.js";
 import { list_projects } from "./projects.js";
 import {
     parse_add_agent,
@@ -397,6 +399,37 @@ export function create_app(deps: AppDeps): Hono {
             const status = error instanceof StackLogsError ? error.status : 500;
             return c.json(error_body(describe_error(error)), status);
         }
+    });
+
+    app.get("/settings", (c) => {
+        try {
+            const body: SettingsResponse = read_settings(deps.home);
+            return c.json(body);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 500);
+        }
+    });
+
+    app.put("/settings", async (c) => {
+        const input = await json_body(c);
+        if (input === undefined || input === null) {
+            return c.json(error_body("request body must be the settings document"), 400);
+        }
+        const written = write_settings(deps.home, input);
+        if (typeof written === "string") {
+            return c.json(error_body(written), 400);
+        }
+        deps.bus.publish({
+            type: "settings",
+            ts: new Date().toISOString(),
+            session: null,
+            settings: written.settings,
+        });
+        return c.json(written);
+    });
+
+    app.get("/themes", (c) => {
+        return c.json(list_themes(deps.home));
     });
 
     app.get("/usage", (c) => {

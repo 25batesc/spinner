@@ -147,6 +147,43 @@ Where the numbers appear:
 comes from `os`. The fields are total and free memory, the cpu count, and the 1-minute load
 average. `stacks_up` counts the sampled stacks and `mem_sessions_bytes` sums their `mem_bytes`.
 
+## Settings
+
+`~/.spinner/settings.yaml` holds the operator's preferences, which the UI and the desktop app
+edit. The daemon's own configuration (`pi_bin`, `port`, `default_model`, `agents.harness`,
+Slack) stays in `config.yaml`. The document is `Settings`:
+
+| Key | Meaning |
+|---|---|
+| `theme` | `system`, `light`, `dark`, or the name of a valid `~/.spinner/themes/<name>.json`. `system` follows the OS. |
+| `default_model` | Optional. `provider/model` for an agent tab that names none. |
+| `agents.harness` | Optional. `tty` or `rpc`. |
+
+`GET /settings` answers `SettingsResponse { settings, path }`; without a file, `settings` is
+`{ theme: "system" }`. `PUT /settings` takes the whole document as the body, validates it, and
+writes the file. A problem is a 400 with the first reason. The reasons are an unknown key, a wrong
+type, or a theme that is not built-in and not a valid user file. On success the daemon answers
+`SettingsResponse` and publishes the bus event `settings { type, ts, session: null, settings }`.
+A hand edit of the file shows on the next `GET`; the daemon does not watch it.
+
+## Themes
+
+A theme is one `ThemePalette`. The UI colours are `bg`, `surface`, `border`, `text`, `muted`,
+`accent`, `ok`, `warn`, `fail` and `link`. The `terminal` block has `foreground`,
+`background`, `cursor` and the 16 ANSI colours (`black` … `white`, `bright_black` …
+`bright_white`). Every value is a CSS colour string. The built-ins `light` and `dark` are the
+JSON files under `packages/protocol/src/themes/`, exported as `BUILTIN_THEMES`, so the web UI
+and the desktop app share one definition. The operator adds `~/.spinner/themes/<name>.json`;
+the name must match `[a-z0-9][a-z0-9_-]{0,63}`.
+
+`GET /themes` answers `ThemesResponse { themes, invalid }`. `themes` lists the built-ins first,
+then every valid user file by name, each as `{ name, source: "builtin" | "user", palette }`.
+`invalid` names each user file that did not validate: `{ name, path, missing, reason }`, where
+`missing` lists the absent keys (as `terminal.red` for the terminal block). A file that shadows
+a built-in name, does not parse, or has a bad name is `invalid` too, with `missing` empty. An
+invalid theme is not under `themes` and `PUT /settings` refuses it. `validate_palette` in the
+protocol package is the same check, for a UI preview.
+
 ## Agent records in `session.yaml`
 
 `agents.<name>` holds `harness`, `model` and `process`. `harness` is `tty` or `rpc`; `pi`
