@@ -48,6 +48,7 @@ describe("build_stack", () => {
             services: [],
             observed: null,
             last_job: null,
+            usage: null,
         });
     });
 
@@ -75,6 +76,7 @@ describe("build_stack", () => {
                 url: "http://api.s017.localhost:8080",
                 process: null,
                 preview: "top-level",
+                usage: null,
             },
             {
                 name: "worker",
@@ -84,6 +86,7 @@ describe("build_stack", () => {
                 url: null,
                 process: null,
                 preview: "frame",
+                usage: null,
             },
             {
                 name: "backend",
@@ -93,6 +96,7 @@ describe("build_stack", () => {
                 url: "http://backend.s017.localhost:8080",
                 process: { pid: 42, port: 65501, log: "log/backend.log" },
                 preview: "frame",
+                usage: null,
             },
         ]);
     });

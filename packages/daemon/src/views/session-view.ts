@@ -10,6 +10,7 @@ import type {
     ServiceStatus,
     ServiceView,
     SessionSummary,
+    SessionUsage,
     SessionView,
     StackSpec,
     StackView,
@@ -34,6 +35,8 @@ export interface ViewContext {
     cwd: string;
     /** The last observation per session directory, or none before the first round. */
     observation: (dir: string) => StackObservation | null;
+    /** The last usage sample per session directory; none when the stack is down or unsampled. */
+    usage?: (dir: string) => SessionUsage | null;
     /** Agents whose pi process the daemon hosts, per session directory. */
     agents_running: (dir: string) => string[];
     now: () => Date;
@@ -48,7 +51,12 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
     return {
         summary,
         board: build_board(ctx, summary),
-        stack: build_stack(summary, spec, ctx.observation(summary.dir)),
+        stack: build_stack(
+            summary,
+            spec,
+            ctx.observation(summary.dir),
+            ctx.usage?.(summary.dir) ?? null,
+        ),
         agents_running: ctx.agents_running(summary.dir),
         can_verify: summary.session.stack?.state === "up",
     };
@@ -82,6 +90,7 @@ export function build_stack(
     summary: SessionSummary,
     spec: StackSpec | null,
     observation: StackObservation | null,
+    usage: SessionUsage | null = null,
 ): StackView {
     const stack: SessionSummary["session"]["stack"] = summary.session.stack ?? { state: "none" };
     if (spec === null) {
@@ -92,6 +101,7 @@ export function build_stack(
             services: [],
             observed: null,
             last_job: stack.last_job ?? null,
+            usage: null,
         };
     }
     const http_port = spec.proxy?.http_port ?? PROXY_PORT_DEFAULT;
@@ -107,6 +117,7 @@ export function build_stack(
             url: host === null ? null : service_url(host, http_port),
             process,
             preview: service.preview ?? "frame",
+            usage: usage?.services[name] ?? null,
         });
     }
     return {
@@ -116,6 +127,7 @@ export function build_stack(
         services,
         observed: observation?.observed ?? null,
         last_job: stack.last_job ?? null,
+        usage: usage?.stack ?? null,
     };
 }
 

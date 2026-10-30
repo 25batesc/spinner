@@ -223,7 +223,10 @@ export interface ServiceView {
 export interface ServiceUsage {
     cpu_pct: number;
     mem_bytes: number;
-    /** The container's memory limit; absent for a host service or an unlimited container. */
+    /**
+     * The limit `docker stats` prints: the container's own, or the engine's memory (Docker
+     * Desktop's VM) for a container without one. Absent for a host service.
+     */
     mem_limit_bytes?: number;
     /** Network and block I/O totals since the container started; containers only. */
     net_rx_bytes?: number;
@@ -244,6 +247,12 @@ export interface StackUsage {
     sampled: string;
 }
 
+/** One session's sample: the stack total and each service, by service name. */
+export interface SessionUsage {
+    stack: StackUsage;
+    services: Record<string, ServiceUsage>;
+}
+
 /** The machine around the stacks, from `os`: `GET /usage` and the `usage` event. */
 export interface MachineUsage {
     mem_total_bytes: number;
@@ -260,7 +269,8 @@ export interface MachineUsage {
 /** `GET /usage`: the last sample, or `machine` alone with no stack up. */
 export interface UsageResponse {
     machine: MachineUsage;
-    sessions: Record<string, StackUsage>;
+    /** By session directory: the stack total and every service, so a table needs no view. */
+    sessions: Record<string, SessionUsage>;
     /** ISO 8601 time of the last sample, or null before the first one. */
     sampled: string | null;
 }

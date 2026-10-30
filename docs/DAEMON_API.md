@@ -108,6 +108,45 @@ session has no such service and no log file for it. It answers 400 for a bad `li
 service name, and 502 when docker fails.
 The extension's `stack logs` calls this route; `spinner logs` keeps its attached `tail -f`.
 
+## Resource usage
+
+A sampler runs every 5 s (`USAGE_INTERVAL_MS`) while at least one stack is up or starting,
+one sample in flight at a time. It stops when no stack is up and starts again after a job or
+a stack change. Each sample runs three commands. `docker ps` with the compose labels maps containers
+to a session and a service. `docker stats --no-stream` reads every container. `ps -axo
+pid,ppid,rss,%cpu` lists every process. A host service's numbers are the sum over its
+process tree: the pid in `stack/pids/<name>.pid` and every descendant. The sample lives in the
+daemon's memory; nothing is written to `session.yaml`.
+
+`ServiceUsage` fields:
+
+| Field | Meaning |
+|---|---|
+| `cpu_pct` | A percentage of one core, as docker and ps report it; 200 means two cores busy. |
+| `mem_bytes` | A container's memory usage, or the sum of RSS over a host service's tree. |
+| `mem_limit_bytes` | Containers only. The limit docker prints: the container's own, or the engine's memory for a container without one. |
+| `net_rx_bytes`, `net_tx_bytes` | Containers only. Network totals since the container started. |
+| `block_read_bytes`, `block_write_bytes` | Containers only. Block I/O totals since the container started. |
+| `container` | Containers only. The container id. |
+| `pid` | Host services only. The root of the process tree. |
+ Host services carry `pid` (the root of the tree). A service without a
+sample (a container not yet started, a host process that is gone) has no entry.
+
+`StackUsage { cpu_pct, mem_bytes, sampled }` is the sum over a stack's services and the ISO
+8601 time of the sample. `SessionUsage { stack, services }` is one session's sample.
+
+Where the numbers appear:
+
+| Surface | Shape |
+|---|---|
+| `GET /sessions/:dir`, `GET /sessions` | `stack.usage: StackUsage \| null`, `stack.services[].usage: ServiceUsage \| null`; null when the stack is down or not sampled yet. |
+| `GET /usage` | `UsageResponse { machine, sessions: { [dir]: SessionUsage }, sampled }`; `sampled` is null before the first sample. |
+| Bus event `usage` | `{ type: "usage", ts, session: null, machine, sessions: { [dir]: SessionUsage } }`, once per sample; none while no stack is up. |
+
+`MachineUsage { mem_total_bytes, mem_free_bytes, cpu_count, load_1m, stacks_up, mem_sessions_bytes }`
+comes from `os`. The fields are total and free memory, the cpu count, and the 1-minute load
+average. `stacks_up` counts the sampled stacks and `mem_sessions_bytes` sums their `mem_bytes`.
+
 ## Agent records in `session.yaml`
 
 `agents.<name>` holds `harness`, `model` and `process`. `harness` is `tty` or `rpc`; `pi`

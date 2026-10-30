@@ -30,7 +30,10 @@ import type {
     ProjectsResponse,
     SessionResponse,
     SessionsResponse,
+    SessionSummary,
     StackLogsResponse,
+    StackSpec,
+    UsageResponse,
     SessionView,
 } from "@spinner/protocol";
 import {
@@ -39,6 +42,7 @@ import {
     EVENTS_PATH,
     STACK_LOGS_LINES_DEFAULT,
     STACK_LOGS_LINES_MAX,
+    USAGE_INTERVAL_MS,
 } from "@spinner/protocol";
 import * as actions from "./actions.js";
 import type { ActionContext } from "./actions.js";
@@ -62,6 +66,7 @@ import { start_poller, type Poller } from "./pipeline/poller.js";
 import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { watch_stack_jobs } from "./stack/job-record.js";
 import { service_log_lines, StackLogsError } from "./stack/logs.js";
+import { start_usage_sampler, type UsageSampler } from "./stack/usage.js";
 import { list_projects } from "./projects.js";
 import {
     parse_add_agent,
@@ -107,6 +112,8 @@ export interface DaemonOptions {
     /** The built UI. Null means none; `GET /` then says how to build it. */
     ui_dir?: string | null;
     observe_interval_ms?: number;
+    /** The usage sampler's interval; tests shorten it. */
+    usage_interval_ms?: number;
     /** The pi executable; `SPINNER_PI` or `pi` on PATH when absent. Tests pass a fake. */
     pi?: string;
     /** The Spinner pi extension entry; the checkout's `packages/pi-extension` when absent. */
@@ -147,6 +154,8 @@ export interface AppDeps {
     agents: AgentManager;
     /** The tty harness, for the pty WebSocket and the extension's routes; null without one. */
     tty?: PiTtyHarness | null;
+    /** `GET /usage`; a route test passes a stub. */
+    usage?: () => UsageResponse;
     models: () => Promise<ModelView[]>;
     bus: EventBus;
     /** ext: the mission writer and the deliverer; the agent routes mount when both are set. */
@@ -390,6 +399,14 @@ export function create_app(deps: AppDeps): Hono {
         }
     });
 
+    app.get("/usage", (c) => {
+        if (deps.usage === undefined) {
+            return c.json(error_body("usage sampling is not available"), 503);
+        }
+        const body: UsageResponse = deps.usage();
+        return c.json(body);
+    });
+
     app.get("/models", async (c) => {
         try {
             const body: ModelsResponse = { models: await deps.models() };
@@ -526,10 +543,12 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     ctx.fixer = fixer_driver({ home, agents, cwd });
 
     let observer: StackObserver | null = null;
+    let usage: UsageSampler | null = null;
     const view_ctx: ViewContext = {
         home,
         cwd,
         observation: (dir) => observer?.get(dir) ?? null,
+        usage: (dir) => usage?.get(dir) ?? null,
         agents_running: (dir) => agents.running(dir),
         now: () => new Date(),
         log,
@@ -542,19 +561,29 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             bus.publish({ type: "session.updated", ts, session: dir, data: view(read.summary) });
         }
     };
+    const sessions_with_specs = (): { summary: SessionSummary; spec: StackSpec | null }[] =>
+        list_sessions(home).sessions.map((summary) => ({
+            summary,
+            spec: session_spec_or_null(summary),
+        }));
     observer = start_stack_observer(
         {
-            sessions: () =>
-                list_sessions(home).sessions.map((summary) => ({
-                    summary,
-                    spec: session_spec_or_null(summary),
-                })),
-            on_change: (dir) => publish_view(dir),
+            sessions: sessions_with_specs,
+            on_change: (dir) => {
+                usage?.wake();
+                publish_view(dir);
+            },
         },
         options.observe_interval_ms ?? OBSERVE_INTERVAL_MS,
     );
+    usage = start_usage_sampler(
+        { sessions: sessions_with_specs, bus, log },
+        options.usage_interval_ms ?? USAGE_INTERVAL_MS,
+    );
+    const sampler = usage;
     const refresh = async (dir: string): Promise<void> => {
         await observer?.round();
+        sampler.wake();
         publish_view(dir);
     };
 
@@ -570,6 +599,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         ui_dir: options.ui_dir === undefined ? default_ui_dir() : options.ui_dir,
         agents,
         tty,
+        usage: () => sampler.response(),
         models: models_source(pi, home.root),
         bus,
         writer,
@@ -612,6 +642,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             await agents.stop_all();
             poller?.stop();
             observer?.stop();
+            sampler.stop();
             deliverer.close();
             await files.close();
             await watcher.close();
