@@ -4,7 +4,7 @@
 // fixture server and the UI can agree on the shape before the daemon fills it in.
 
 import type { PiEvent } from "./agent-event.js";
-import type { Job, SessionView } from "./api.js";
+import type { Job, MachineUsage, SessionView, StackUsage } from "./api.js";
 import type { AgentProcessState, PullRequest, Stage, StackStateName } from "./session.js";
 
 /** Fields every event carries. `ts` is an ISO 8601 timestamp set by the daemon. */
@@ -190,6 +190,18 @@ export interface JobFinishedEvent extends JobEventBase {
     data: Job;
 }
 
+/**
+ * One usage sample, every `USAGE_INTERVAL_MS` while a stack is up: the machine and each up
+ * stack's share. Not tied to one session, so `session` is null.
+ */
+export interface UsageEvent {
+    type: "usage";
+    ts: string;
+    session: null;
+    machine: MachineUsage;
+    sessions: Record<string, StackUsage>;
+}
+
 export type SpinnerEvent =
     | JobStartedEvent
     | JobLogEvent
@@ -211,7 +223,8 @@ export type SpinnerEvent =
     | StackLogEvent
     | MissionChangedEvent
     | InboxMessageEvent
-    | MessageDeliveredEvent;
+    | MessageDeliveredEvent
+    | UsageEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
 
@@ -238,4 +251,5 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "job.started",
     "job.log",
     "job.finished",
+    "usage",
 ];

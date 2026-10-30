@@ -798,6 +798,17 @@
                         }
                     ],
                     "description": "The last `up`, `down` or `reset` job, or null before the first one. The daemon always sets it; optional so a fixture written before s011 still type-checks."
+                },
+                "usage": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/StackUsage"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The last usage sample over the stack's services, or null when down or unsampled."
                 }
             },
             "required": [
@@ -850,6 +861,17 @@
                 "preview": {
                     "$ref": "#/definitions/PreviewMode",
                     "description": "`services.<name>.preview` of the spec, `frame` when the spec leaves it out."
+                },
+                "usage": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ServiceUsage"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The last usage sample for this service, or null when the stack is down or unsampled."
                 }
             },
             "required": [
@@ -889,6 +911,70 @@
                 "top-level"
             ],
             "description": "How the UI embeds the service's preview. `frame` (the default) is an iframe. `top-level` marks an app that needs its own top-level page, for example one whose login cookie is `SameSite=Lax`: the desktop app shows it in a `WebContentsView`, and the browser UI keeps the iframe but tells the operator to open it in a tab."
+        },
+        "ServiceUsage": {
+            "type": "object",
+            "properties": {
+                "cpu_pct": {
+                    "type": "number"
+                },
+                "mem_bytes": {
+                    "type": "number"
+                },
+                "mem_limit_bytes": {
+                    "type": "number",
+                    "description": "The container's memory limit; absent for a host service or an unlimited container."
+                },
+                "net_rx_bytes": {
+                    "type": "number",
+                    "description": "Network and block I/O totals since the container started; containers only."
+                },
+                "net_tx_bytes": {
+                    "type": "number"
+                },
+                "block_read_bytes": {
+                    "type": "number"
+                },
+                "block_write_bytes": {
+                    "type": "number"
+                },
+                "pid": {
+                    "type": "number",
+                    "description": "The host service's root pid."
+                },
+                "container": {
+                    "type": "string",
+                    "description": "The container's id."
+                }
+            },
+            "required": [
+                "cpu_pct",
+                "mem_bytes"
+            ],
+            "additionalProperties": false,
+            "description": "What one service takes of the machine, from `docker stats` for a container and from `ps` (the process and its descendants) for a host service. Bytes for memory and I/O, and cpu as a percentage of one core, as docker and ps report it (200 means two cores busy)."
+        },
+        "StackUsage": {
+            "type": "object",
+            "properties": {
+                "cpu_pct": {
+                    "type": "number"
+                },
+                "mem_bytes": {
+                    "type": "number"
+                },
+                "sampled": {
+                    "type": "string",
+                    "description": "ISO 8601 time of the sample."
+                }
+            },
+            "required": [
+                "cpu_pct",
+                "mem_bytes",
+                "sampled"
+            ],
+            "additionalProperties": false,
+            "description": "The sum over a stack's services, from one sample."
         }
     },
     "$id": "https://spinner.dev/schema/session-view.json",

@@ -106,6 +106,8 @@ export const ROUTES = {
     "GET /sessions/:dir/agents/:name/tty": "websocket",
     /** A service's last log lines: a host service's file or `docker logs`. Query: `lines` */
     "GET /sessions/:dir/stack/logs/:service": "StackLogsResponse",
+    /** The machine's memory, cpu and load, and each up stack's share. */
+    "GET /usage": "UsageResponse",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
     /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
@@ -209,7 +211,62 @@ export interface ServiceView {
     process: HostProcess | null;
     /** `services.<name>.preview` of the spec, `frame` when the spec leaves it out. */
     preview: PreviewMode;
+    /** The last usage sample for this service, or null when the stack is down or unsampled. */
+    usage?: ServiceUsage | null;
 }
+
+/**
+ * What one service takes of the machine, from `docker stats` for a container and from `ps`
+ * (the process and its descendants) for a host service. Bytes for memory and I/O, and cpu as
+ * a percentage of one core, as docker and ps report it (200 means two cores busy).
+ */
+export interface ServiceUsage {
+    cpu_pct: number;
+    mem_bytes: number;
+    /** The container's memory limit; absent for a host service or an unlimited container. */
+    mem_limit_bytes?: number;
+    /** Network and block I/O totals since the container started; containers only. */
+    net_rx_bytes?: number;
+    net_tx_bytes?: number;
+    block_read_bytes?: number;
+    block_write_bytes?: number;
+    /** The host service's root pid. */
+    pid?: number;
+    /** The container's id. */
+    container?: string;
+}
+
+/** The sum over a stack's services, from one sample. */
+export interface StackUsage {
+    cpu_pct: number;
+    mem_bytes: number;
+    /** ISO 8601 time of the sample. */
+    sampled: string;
+}
+
+/** The machine around the stacks, from `os`: `GET /usage` and the `usage` event. */
+export interface MachineUsage {
+    mem_total_bytes: number;
+    mem_free_bytes: number;
+    cpu_count: number;
+    /** The 1-minute load average. */
+    load_1m: number;
+    /** Sessions whose stack is up and sampled. */
+    stacks_up: number;
+    /** The sum of every sampled stack's `mem_bytes`. */
+    mem_sessions_bytes: number;
+}
+
+/** `GET /usage`: the last sample, or `machine` alone with no stack up. */
+export interface UsageResponse {
+    machine: MachineUsage;
+    sessions: Record<string, StackUsage>;
+    /** ISO 8601 time of the last sample, or null before the first one. */
+    sampled: string | null;
+}
+
+/** How often the sampler runs while at least one stack is up. */
+export const USAGE_INTERVAL_MS = 5_000;
 
 /** Stack state assembled from `session.yaml` and the daemon's last docker observation. */
 export interface StackView {
@@ -227,6 +284,8 @@ export interface StackView {
      * sets it; optional so a fixture written before s011 still type-checks.
      */
     last_job?: StackLastJob | null;
+    /** The last usage sample over the stack's services, or null when down or unsampled. */
+    usage?: StackUsage | null;
 }
 
 /** `GET /sessions/:dir/stack/logs/:service`. */
