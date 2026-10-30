@@ -4,6 +4,7 @@ import type { FeedLine } from "./state.ts";
 import { showsTerminal } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
+import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
 import { MissionPanel } from "./MissionPanel.tsx";
 import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
@@ -85,6 +86,8 @@ export function AgentsPane(props: AgentsPaneProps) {
                       key={`${view.summary.dir}/${name}`}
                       path={tty_path(view.summary.dir, name)}
                       running={view.agents_running.includes(name)}
+                      onResume={() => postAgent(`/sessions/${view.summary.dir}/agents`, { name })}
+                      onStop={() => postAgent(`${agentBase(view.summary.dir, name)}/stop`, {})}
                       visible={
                           shown === "agents" && !adding && agentTab !== "context" &&
                           name === selected

@@ -18,6 +18,10 @@ export interface AgentTerminalProps {
     running: boolean;
     /** True while this tab is the one shown; a hidden terminal keeps its socket and buffer. */
     visible: boolean;
+    /** Starts the agent again on its transcript; the status line offers it while not running. */
+    onResume?: () => Promise<void>;
+    /** Stops the agent's process; the status line offers it while running. */
+    onStop?: () => Promise<void>;
 }
 
 /** The pane's dark background with pi's colours, which are the terminal's default palette. */
@@ -84,7 +88,23 @@ function bytesOf(binary: string): Uint8Array {
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-export function AgentTerminal({ path, running, visible }: AgentTerminalProps) {
+export function AgentTerminal({ path, running, visible, onResume, onStop }: AgentTerminalProps) {
+    const [busy, setBusy] = useState(false);
+    const [failure, setFailure] = useState<string | null>(null);
+    const act = (action: (() => Promise<void>) | undefined) => () => {
+        if (action === undefined) {
+            return;
+        }
+        setBusy(true);
+        setFailure(null);
+        action().then(
+            () => setBusy(false),
+            (error: unknown) => {
+                setBusy(false);
+                setFailure(String(error));
+            },
+        );
+    };
     const host = useRef<HTMLDivElement>(null);
     const opened = useRef<Opened | null>(null);
     const link = useRef<TtyConnection | null>(null);
@@ -172,7 +192,22 @@ export function AgentTerminal({ path, running, visible }: AgentTerminalProps) {
     const line = statusLine(status, running);
     return (
         <div className="agent-terminal" hidden={!visible}>
-            {line !== null && <p className="muted tty-status">{line}</p>}
+            {(line !== null || failure !== null) && (
+                <p className="muted tty-status">
+                    {line !== null && <span>{line} </span>}
+                    {!running && onResume !== undefined && (
+                        <button type="button" disabled={busy} onClick={act(onResume)}>
+                            resume
+                        </button>
+                    )}
+                    {failure !== null && <span className="error"> {failure}</span>}
+                </p>
+            )}
+            {running && onStop !== undefined && (
+                <div className="tty-controls">
+                    <button type="button" disabled={busy} onClick={act(onStop)}>stop</button>
+                </div>
+            )}
             <div className="terminal-host" ref={host} />
         </div>
     );

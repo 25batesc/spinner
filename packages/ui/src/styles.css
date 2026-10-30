@@ -254,9 +254,13 @@ html, body, #root { height: 100%; margin: 0; }
 .agents-view[hidden] { display: none; }
 /* A tty agent's tab: xterm on the pane's dark background, the status line above it while the
    socket is not open. The host takes the chat column's remaining height. */
-.agent-terminal { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 240px; }
+.agent-terminal {
+    display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 240px; position: relative;
+}
 .agent-terminal[hidden] { display: none; }
 .tty-status { margin: 0; font-size: 12px; }
+.tty-controls { position: absolute; top: 2px; right: 6px; z-index: 1; opacity: 0.6; }
+.tty-controls:hover { opacity: 1; }
 .terminal-host { flex: 1; min-height: 0; background: #1b1b1f; padding: 4px; border-radius: 4px; }
 .terminal-host .xterm { height: 100%; }
 /* xterm.css paints the viewport black by default; keep it the theme's background. */
