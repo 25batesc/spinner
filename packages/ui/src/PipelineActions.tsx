@@ -83,7 +83,19 @@ function ApproveDialog(props: DialogProps) {
     );
 }
 
-/** The pipeline buttons. `post` and `approve` open a dialog that shows what they will send. */
+/** One sentence per button, as its tooltip. */
+export const PIPELINE_TIPS = {
+    pr: "Open a pull request from this session's branch, one per changed repo.",
+    fix: "Have the fixer answer the open review threads.",
+    post: "Post the review request to Slack as you, after a preview.",
+    approve: "Approve the pull request as you, after a preview.",
+    land: "Enqueue the PR in the merge queue and watch it to the merge.",
+} as const;
+
+/**
+ * The pipeline group of the toolbar: `post` and `approve` open a dialog that shows what they
+ * will send; `land` is the irreversible one and looks it.
+ */
 export function PipelineActions({ dir, busy, run, revision }: PipelineActionsProps) {
     const [confirm, setConfirm] = useState<Confirm>(null);
     const off = dir === undefined || busy;
@@ -91,12 +103,26 @@ export function PipelineActions({ dir, busy, run, revision }: PipelineActionsPro
     const close = () => setConfirm(null);
     return (
         <>
-            <button disabled={off} onClick={job("pr")}>create PR</button>
-            <button disabled={off} onClick={job("fix")}>fix</button>
-            <button disabled={off} onClick={() => setConfirm("post")}>post</button>
-            <button disabled={off} onClick={() => setConfirm("approve")}>approve</button>
-            <button disabled={off} onClick={job("land")}>land</button>
-            <button disabled={off} onClick={job("reset")}>reset</button>
+            <button disabled={off} title={PIPELINE_TIPS.pr} onClick={job("pr")}>create PR</button>
+            <button disabled={off} title={PIPELINE_TIPS.fix} onClick={job("fix")}>fix</button>
+            <button disabled={off} title={PIPELINE_TIPS.post} onClick={() => setConfirm("post")}>
+                post
+            </button>
+            <button
+                disabled={off}
+                title={PIPELINE_TIPS.approve}
+                onClick={() => setConfirm("approve")}
+            >
+                approve
+            </button>
+            <button
+                className="danger"
+                disabled={off}
+                title={PIPELINE_TIPS.land}
+                onClick={job("land")}
+            >
+                land
+            </button>
             {dir !== undefined && confirm === "post" && (
                 <PostDialog dir={dir} revision={revision} run={run} close={close} />
             )}

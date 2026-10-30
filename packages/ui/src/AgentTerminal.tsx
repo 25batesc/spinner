@@ -20,8 +20,6 @@ export interface AgentTerminalProps {
     visible: boolean;
     /** Starts the agent again on its transcript; the status line offers it while not running. */
     onResume?: () => Promise<void>;
-    /** Stops the agent's process; the status line offers it while running. */
-    onStop?: () => Promise<void>;
 }
 
 /** The pane's dark background with pi's colours, which are the terminal's default palette. */
@@ -88,7 +86,7 @@ function bytesOf(binary: string): Uint8Array {
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-export function AgentTerminal({ path, running, visible, onResume, onStop }: AgentTerminalProps) {
+export function AgentTerminal({ path, running, visible, onResume }: AgentTerminalProps) {
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<string | null>(null);
     const act = (action: (() => Promise<void>) | undefined) => () => {
@@ -202,11 +200,6 @@ export function AgentTerminal({ path, running, visible, onResume, onStop }: Agen
                     )}
                     {failure !== null && <span className="error"> {failure}</span>}
                 </p>
-            )}
-            {running && onStop !== undefined && (
-                <div className="tty-controls">
-                    <button type="button" disabled={busy} onClick={act(onStop)}>stop</button>
-                </div>
             )}
             <div className="terminal-host" ref={host} />
         </div>

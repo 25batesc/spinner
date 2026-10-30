@@ -1,20 +1,19 @@
 import { useState, type ReactNode } from "react";
 
-import type { FeedLine } from "./state.ts";
 import { showsTerminal } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
 import { MissionPanel } from "./MissionPanel.tsx";
-import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
+import { IconButton, type IconButtonProps } from "./PaneHead.tsx";
 import { PipelineActions } from "./PipelineActions.tsx";
 import type { Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
-import { tty_path, type SessionView } from "@spinner/protocol";
+import { tty_path, type AgentSpec, type SessionView } from "@spinner/protocol";
 
 import { ComposeForm, type ComposeKind, type RunAction } from "./SessionForms.tsx";
 
@@ -25,9 +24,8 @@ export interface AgentsPaneProps {
     run: RunAction;
     /** Folded `agent.event` stream per agent name for the selected session. */
     transcripts: Record<string, Transcript>;
-    feed: FeedLine[];
     revisions: Revisions;
-    /** The job drawer, drawn above the prompt. */
+    /** The activity drawer, at the bottom of the pane. */
     children?: ReactNode;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?: IconButtonProps[] | undefined;
@@ -37,7 +35,19 @@ export interface AgentsPaneProps {
     compose?: { kind: ComposeKind; onCancel: () => void } | undefined;
 }
 
-function Actions(props: {
+/** One sentence per session button, as its tooltip. */
+const SESSION_TIPS = {
+    up: "Start this session's stack on this machine.",
+    down: "Stop the local stack; the database and the volumes stay.",
+    reset: "Start the next round: a new branch from a fresh base, the facts cleared.",
+    close: "Remove the containers, the database and the worktrees, and archive the session.",
+} as const;
+
+/**
+ * The toolbar under the view tabs: the local stack, the pipeline, then the two that end a
+ * round or the session. `land`, `reset` and `close` are the irreversible ones and look it.
+ */
+function Toolbar(props: {
     dir: string | undefined;
     busy: boolean;
     run: RunAction;
@@ -45,13 +55,103 @@ function Actions(props: {
 }) {
     const { dir, busy, run } = props;
     const off = dir === undefined || busy;
-    const post = (action: string) => () => void run(`/sessions/${dir}/${action}`);
+    const post = (action: keyof typeof SESSION_TIPS) => () =>
+        void run(`/sessions/${dir}/${action}`);
+    const button = (action: keyof typeof SESSION_TIPS, label: string, danger = false) => (
+        <button
+            disabled={off}
+            title={SESSION_TIPS[action]}
+            className={danger ? "danger" : undefined}
+            onClick={post(action)}
+        >
+            {label}
+        </button>
+    );
     return (
-        <div className="actions">
-            <PipelineActions dir={dir} busy={busy} run={run} revision={props.revision} />
-            <button disabled={off} onClick={post("up")}>run local</button>
-            <button disabled={off} onClick={post("down")}>stop local</button>
-            <button disabled={off} onClick={post("close")}>close</button>
+        <div className="actions toolbar" role="toolbar" aria-label="Session actions">
+            <span className="toolbar-group">
+                {button("up", "run local")}
+                {button("down", "stop local")}
+            </span>
+            <span className="toolbar-sep" />
+            <span className="toolbar-group">
+                <PipelineActions dir={dir} busy={busy} run={run} revision={props.revision} />
+            </span>
+            <span className="toolbar-sep" />
+            <span className="toolbar-group">
+                {button("reset", "reset", true)}
+                {button("close", "close", true)}
+            </span>
+        </div>
+    );
+}
+
+/** The chip's dot: in a turn, hosted and idle, or not hosted at all. */
+export function agentState(spec: AgentSpec, hosted: boolean): "working" | "idle" | "off" {
+    if (!hosted) {
+        return "off";
+    }
+    return spec.process === "running" ? "working" : "idle";
+}
+
+/**
+ * The agent row: one chip per agent (a state dot, the name; the harness, model and state as
+ * the tooltip), the selected one filled with an × that stops it, and the `+` chip at the end.
+ */
+function AgentChips(props: {
+    view: SessionView;
+    selected: string | undefined;
+    adding: boolean;
+    onPick: (name: string) => void;
+    onAdd: () => void;
+    onStop: (name: string) => void;
+}) {
+    const { view, selected, adding, onPick, onAdd, onStop } = props;
+    const agents = view.summary.session.agents;
+    return (
+        <div className="chips" role="tablist" aria-label="Agents">
+            {Object.entries(agents).map(([name, spec]) => {
+                const hosted = view.agents_running.includes(name);
+                const state = agentState(spec, hosted);
+                const current = !adding && name === selected;
+                const classes = ["chip", `chip-${state}`, current ? "chip-selected" : ""];
+                return (
+                    <span key={name} className={classes.join(" ").trim()}>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={current}
+                            className={current ? "tab chip-name tab-selected" : "tab chip-name"}
+                            title={`${spec.harness} · ${spec.model} · ${state}`}
+                            data-name={name}
+                            onClick={() => onPick(name)}
+                        >
+                            <span className={`dot chip-dot dot-${state}`} />
+                            {name}
+                        </button>
+                        {current && hosted && (
+                            <button
+                                type="button"
+                                className="chip-stop"
+                                aria-label={`Stop ${name}`}
+                                title="Stop the agent's process; its transcript stays"
+                                onClick={() => onStop(name)}
+                            >
+                                ×
+                            </button>
+                        )}
+                    </span>
+                );
+            })}
+            <button
+                type="button"
+                className={adding ? "tab tab-add tab-selected" : "tab tab-add"}
+                aria-label="Add agent"
+                aria-pressed={adding}
+                onClick={onAdd}
+            >
+                +
+            </button>
         </div>
     );
 }
@@ -62,13 +162,46 @@ function agentBase(dir: string, agent: string): string {
 
 const VIEWS = ["agents", "mission", "threads", "services"];
 
+/** The view tabs across the top of the pane; the pane's icons sit at the right of the row. */
+function ViewTabs(props: {
+    shown: string;
+    onSelect: (view: string) => void;
+    controls: IconButtonProps[] | undefined;
+    leading: IconButtonProps | undefined;
+}) {
+    const { shown, onSelect, controls, leading } = props;
+    return (
+        <nav className="view-tabs" role="tablist" aria-label="Views">
+            {leading !== undefined && <IconButton {...leading} />}
+            {VIEWS.map((label) => (
+                <button
+                    key={label}
+                    role="tab"
+                    aria-selected={label === shown}
+                    className={label === shown ? "tab view-tab tab-selected" : "tab view-tab"}
+                    onClick={() => onSelect(label)}
+                >
+                    {label}
+                </button>
+            ))}
+            {controls !== undefined && controls.length > 0 && (
+                <span className="pane-controls">
+                    {controls.map((control) => (
+                        <IconButton key={control.label} {...control} />
+                    ))}
+                </span>
+            )}
+        </nav>
+    );
+}
+
 export function AgentsPane(props: AgentsPaneProps) {
-    const { view, busy, run, transcripts, feed, revisions, children } = props;
+    const { view, busy, run, transcripts, revisions, children } = props;
     const { controls, leading, compose } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const [shown, setShown] = useState("agents");
     const [agentTab, setAgentTab] = useState("chat");
-    // The `+` tab at the end of the agent row: the add-agent form as the pane's view.
+    // The `+` chip at the end of the agent row: the add-agent form as the pane's view.
     const [adding, setAdding] = useState(false);
     const session = view?.summary.session;
     const names = session === undefined ? [] : Object.keys(session.agents);
@@ -87,7 +220,6 @@ export function AgentsPane(props: AgentsPaneProps) {
                       path={tty_path(view.summary.dir, name)}
                       running={view.agents_running.includes(name)}
                       onResume={() => postAgent(`/sessions/${view.summary.dir}/agents`, { name })}
-                      onStop={() => postAgent(`${agentBase(view.summary.dir, name)}/stop`, {})}
                       visible={
                           shown === "agents" && !adding && agentTab !== "context" &&
                           name === selected
@@ -99,117 +231,93 @@ export function AgentsPane(props: AgentsPaneProps) {
     if (compose !== undefined) {
         return (
             <section className="pane agents-pane" aria-label="Agents">
-                <PaneHead name="agents" controls={controls} leading={leading} />
-                <div className="agents-top">
-                    <div className="chat">
-                        <ComposeForm kind={compose.kind} run={run} onCancel={compose.onCancel} />
-                        {children}
-                    </div>
+                <div className="chat">
+                    <ComposeForm kind={compose.kind} run={run} onCancel={compose.onCancel} />
+                    {children}
                 </div>
             </section>
         );
     }
     return (
         <section className="pane agents-pane" aria-label="Agents">
-            <PaneHead name="agents" controls={controls} leading={leading} />
-            <div className="agents-top">
-                <div className="chat">
-                    <Tabs labels={VIEWS} selected={shown} onSelect={setShown} />
-                    {view !== undefined && shown === "mission" && (
-                        <MissionPanel dir={view.summary.dir} revision={revisions.mission} />
-                    )}
-                    {view !== undefined && shown === "threads" && (
-                        <ThreadsPanel
-                            dir={view.summary.dir}
-                            revision={revisions.threads}
-                            busy={busy}
-                            run={run}
+            <ViewTabs shown={shown} onSelect={setShown} controls={controls} leading={leading} />
+            <Toolbar
+                dir={view?.summary.dir}
+                busy={busy}
+                run={run}
+                revision={revisions.pipeline}
+            />
+            <div className="chat">
+                {view !== undefined && shown === "mission" && (
+                    <MissionPanel dir={view.summary.dir} revision={revisions.mission} />
+                )}
+                {view !== undefined && shown === "threads" && (
+                    <ThreadsPanel
+                        dir={view.summary.dir}
+                        revision={revisions.threads}
+                        busy={busy}
+                        run={run}
+                    />
+                )}
+                {view !== undefined && shown === "services" && <ServiceTable view={view} />}
+                {/* Hidden, not unmounted, while another view shows: the terminals keep
+                    their sockets and buffers. */}
+                <div className="agents-view" hidden={shown !== "agents"}>
+                    {view !== undefined && (
+                        <AgentChips
+                            view={view}
+                            selected={selected}
+                            adding={adding}
+                            onPick={(name) => {
+                                setPicked(name);
+                                setAdding(false);
+                            }}
+                            onAdd={() => setAdding(true)}
+                            onStop={(name) =>
+                                void postAgent(`${agentBase(view.summary.dir, name)}/stop`, {})
+                            }
                         />
                     )}
-                    {view !== undefined && shown === "services" && <ServiceTable view={view} />}
-                    {/* Hidden, not unmounted, while another view shows: the terminals keep
-                        their sockets and buffers. */}
-                    <div className="agents-view" hidden={shown !== "agents"}>
-                        <div className="tabs-row">
-                            <Tabs
-                                labels={names}
-                                selected={adding ? undefined : selected}
-                                onSelect={(name) => {
-                                    setPicked(name);
-                                    setAdding(false);
-                                }}
-                            />
-                            {view !== undefined && (
-                                <button
-                                    type="button"
-                                    className={adding ? "tab tab-add tab-selected" : "tab tab-add"}
-                                    aria-label="Add agent"
-                                    aria-pressed={adding}
-                                    onClick={() => setAdding(true)}
-                                >
-                                    +
-                                </button>
-                            )}
-                        </div>
-                        {view !== undefined && adding && (
-                            <AddAgent
-                                view={view}
-                                run={run}
-                                onDone={(name) => {
-                                    setPicked(name);
-                                    setAdding(false);
-                                }}
-                                onCancel={() => setAdding(false)}
-                            />
-                        )}
-                        {!adding && (agent === undefined || view === undefined ||
-                            selected === undefined ? (
-                                <p className="muted">This session has no agents.</p>
-                            ) : (
-                                <>
-                                    <p className="muted">
-                                        {agent.harness} · {agent.model} · {agent.process}
-                                    </p>
-                                    <Tabs
-                                        labels={[mainTab, "context"]}
-                                        selected={agentTab === "context" ? "context" : mainTab}
-                                        onSelect={setAgentTab}
+                    {view !== undefined && adding && (
+                        <AddAgent
+                            view={view}
+                            run={run}
+                            onDone={(name) => {
+                                setPicked(name);
+                                setAdding(false);
+                            }}
+                            onCancel={() => setAdding(false)}
+                        />
+                    )}
+                    {!adding && (agent === undefined || view === undefined ||
+                        selected === undefined ? (
+                            <p className="muted">This session has no agents.</p>
+                        ) : (
+                            <>
+                                <Tabs
+                                    variant="sub"
+                                    labels={[mainTab, "context"]}
+                                    selected={agentTab === "context" ? "context" : mainTab}
+                                    onSelect={setAgentTab}
+                                />
+                                {agentTab === "context" && (
+                                    <ContextTab
+                                        base={agentBase(view.summary.dir, selected)}
+                                        revision={agent.process}
                                     />
-                                    {agentTab === "context" && (
-                                        <ContextTab
-                                            base={agentBase(view.summary.dir, selected)}
-                                            revision={agent.process}
-                                        />
-                                    )}
-                                    {agentTab !== "context" && mainTab === "chat" && (
-                                        <AgentChat
-                                            view={view}
-                                            agent={selected}
-                                            transcript={transcripts[selected]}
-                                        />
-                                    )}
-                                </>
-                            ))}
-                        {terminals}
-                    </div>
-                    {children}
+                                )}
+                                {agentTab !== "context" && mainTab === "chat" && (
+                                    <AgentChat
+                                        view={view}
+                                        agent={selected}
+                                        transcript={transcripts[selected]}
+                                    />
+                                )}
+                            </>
+                        ))}
+                    {terminals}
                 </div>
-                <Actions
-                    dir={view?.summary.dir}
-                    busy={busy}
-                    run={run}
-                    revision={revisions.pipeline}
-                />
-            </div>
-            <div className="feed" aria-label="Activity">
-                <h2>Activity</h2>
-                <ul>
-                    {[...feed].reverse().map((line, index) => (
-                        <li key={index}>
-                            <span className="muted">{line.session}</span> {line.text}
-                        </li>
-                    ))}
-                </ul>
+                {children}
             </div>
         </section>
     );

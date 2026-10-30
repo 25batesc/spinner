@@ -103,21 +103,67 @@ html, body, #root { height: 100%; margin: 0; }
 .badges { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
 .badge { font-size: 11px; padding: 0 5px; border-radius: 8px; background: #8883; }
 .needs-human { color: #d80; font-size: 12px; }
-.agents-pane { display: flex; flex-direction: column; gap: 8px; }
-.agents-top { display: flex; gap: 8px; flex: 1; min-height: 0; }
+.agents-pane { display: flex; flex-direction: column; gap: 6px; }
 .chat { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow: auto; }
-.actions { display: flex; flex-direction: column; gap: 4px; align-self: flex-start; }
+/* The view tabs across the top of the agents pane: underlined, no borders, the pane's icons at
+   the right. The agent chips under them read as a selection, not as a second tab row. */
+.view-tabs {
+    display: flex; align-items: center; gap: 2px; border-bottom: 1px solid #8884;
+    margin: -8px -8px 0; padding: 0 8px;
+}
+.view-tabs .view-tab {
+    padding: 6px 10px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    background: transparent; font: inherit; font-size: 13px; text-transform: uppercase;
+    letter-spacing: 0.04em; opacity: 0.7; cursor: pointer;
+}
+.view-tabs .view-tab:hover { opacity: 1; }
+.view-tabs .view-tab.tab-selected { opacity: 1; font-weight: 600; border-bottom-color: #38f; }
+.view-tabs .pane-controls { margin-left: auto; }
+/* The toolbar under the view tabs: three groups, a separator between two. */
+.actions.toolbar { display: flex; flex-direction: row; align-items: center; gap: 4px; flex-wrap: wrap; }
+.toolbar-group { display: flex; gap: 4px; }
+.toolbar-sep { width: 1px; height: 18px; background: #8886; margin: 0 4px; }
+.toolbar button { font: inherit; font-size: 12px; }
+.toolbar .danger { background: transparent; border: 1px solid #8886; color: inherit; }
+.toolbar .danger:hover:not(:disabled) { border-color: #d33; background: #d332; color: #d33; }
 .prompt { margin-top: auto; padding: 6px; }
 .transcript { margin: 0; padding-left: 18px; font-size: 12px; overflow-wrap: anywhere; }
-.feed { max-height: 30%; overflow: auto; border-top: 1px solid #8884; padding-top: 6px; }
-.feed ul { margin: 0; padding-left: 16px; font-size: 12px; }
 .tabs { display: flex; gap: 2px; }
-/* The agent tabs with the `+` tab at the end: the add-agent form opens as the pane's view. */
-.tabs-row { display: flex; gap: 2px; }
-.tab-add { border-style: dashed; opacity: 0.75; padding: 2px 8px; }
-.tab-add:hover, .tab-add.tab-selected { opacity: 1; }
 .tab { padding: 2px 10px; border: 1px solid #8886; background: transparent; color: inherit; }
 .tab-selected { border-color: #38f; font-weight: 600; }
+/* The small underlined tabs under the agent chips: terminal (or chat) and context. */
+.tabs-sub { gap: 0; border-bottom: 1px solid #8884; }
+.tabs-sub .tab {
+    padding: 2px 8px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    font-size: 12px; opacity: 0.7; cursor: pointer;
+}
+.tabs-sub .tab:hover { opacity: 1; }
+.tabs-sub .tab.tab-selected { opacity: 1; border-bottom-color: #38f; }
+/* The agent chips: a dot for the state, the name, an × on the selected one that stops it, the
+   dashed `+` at the end. */
+.chips { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; border: 1px solid #8886; border-radius: 12px; }
+.chip .chip-name {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border: 0;
+    border-radius: 12px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.chip-off .chip-name { opacity: 0.55; }
+.chip-selected { border-color: #38f; background: #38f3; }
+.chip .chip-name.tab-selected { font-weight: 600; }
+.chip-dot { width: 7px; height: 7px; }
+.chip-dot.dot-working { background: #2a4; }
+.chip-dot.dot-idle { background: #8888; }
+.chip-dot.dot-off { background: #8884; }
+.chip-stop {
+    border: 0; background: transparent; color: inherit; padding: 0 7px 0 0; font-size: 14px;
+    line-height: 1; cursor: pointer; opacity: 0.6;
+}
+.chip-stop:hover { opacity: 1; color: #d33; }
+.tab-add {
+    border: 1px dashed #8886; border-radius: 12px; opacity: 0.75; padding: 2px 8px;
+    background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer;
+}
+.tab-add:hover, .tab-add.tab-selected { opacity: 1; border-color: #38f; }
 .preview-pane { display: flex; flex-direction: column; gap: 6px; }
 .preview-frame { flex: 1; width: 100%; border: 1px solid #8886; background: white; }
 /* The native view covers the box; a transparent box keeps the view's own background visible. */
@@ -134,8 +180,8 @@ html, body, #root { height: 100%; margin: 0; }
 .tab-grey { opacity: 0.4; }
 .services { border-collapse: collapse; font-size: 12px; }
 .services th, .services td { text-align: left; padding: 2px 8px; border-bottom: 1px solid #8883; }
-/* The job drawer: a fixed height from the layout record, the divider on its top edge, the
-   log taking the rest. The terminal above refits as the drawer grows or collapses. */
+/* The activity drawer: a fixed height from the layout record, the divider on its top edge,
+   the job log then the events inside. The terminal above refits as the drawer changes. */
 .drawer {
     position: relative; display: flex; flex-direction: column; flex: none; box-sizing: border-box;
     border: 1px solid #8886; border-radius: 4px; padding: 6px; margin-top: auto;
@@ -153,8 +199,20 @@ html, body, #root { height: 100%; margin: 0; }
     display: flex; justify-content: space-between; align-items: center; cursor: row-resize;
     touch-action: none; user-select: none;
 }
-.drawer-controls { display: flex; gap: 4px; align-items: center; }
+.drawer-head h2 { margin: 0; }
+.drawer-controls { display: flex; gap: 8px; align-items: center; }
+.drawer-job-line { font-size: 12px; }
+.drawer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.drawer-section { flex: none; }
+.drawer-section.feed { flex: 1; min-height: 0; overflow: auto; }
+.drawer-section-head {
+    display: flex; justify-content: space-between; align-items: center; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+}
+.drawer-job { max-height: 50%; display: flex; flex-direction: column; }
 .drawer-log { margin: 4px 0 0; flex: 1; min-height: 0; overflow: auto; font-size: 11px; }
+.feed ul { margin: 0; padding-left: 16px; font-size: 12px; }
+.drawer-bar span { margin-right: 8px; }
 .drawer-bar {
     flex: none; margin-top: auto; padding: 3px 8px; text-align: left; font: inherit;
     font-size: 12px; border: 1px solid #8886; border-radius: 4px; background: #8881;
@@ -163,9 +221,9 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .drawer-bar:hover { background: #8883; }
 .drawer-failed, .drawer-bar.drawer-failed { border-color: #d33; }
-.drawer-bar.drawer-failed strong { color: #d33; }
+.drawer-bar.drawer-failed strong, .drawer-failed .drawer-job-line { color: #d33; }
 .drawer-error, .drawer-bar.drawer-error { border-color: #d80; }
-.drawer-bar.drawer-error strong { color: #d80; }
+.drawer-bar.drawer-error strong, .drawer-error .drawer-job-line { color: #d80; }
 .verified { display: flex; align-items: center; gap: 4px; }
 /* The browser bar above the preview content. */
 .browser-bar { display: flex; gap: 2px; align-items: center; position: relative; }
@@ -259,8 +317,6 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .agent-terminal[hidden] { display: none; }
 .tty-status { margin: 0; font-size: 12px; }
-.tty-controls { position: absolute; top: 2px; right: 6px; z-index: 1; opacity: 0.6; }
-.tty-controls:hover { opacity: 1; }
 .terminal-host { flex: 1; min-height: 0; background: #1b1b1f; padding: 4px; border-radius: 4px; }
 .terminal-host .xterm { height: 100%; }
 /* xterm.css paints the viewport black by default; keep it the theme's background. */

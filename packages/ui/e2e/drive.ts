@@ -710,10 +710,11 @@ if (flow === "sessions-panel") {
     await click(".compose-adopt");
     const adoptForm = `document.querySelector(".agents-pane form[aria-label='Adopt PRs']")`;
     await until("adopt form in the middle pane", `${adoptForm} !== null`);
-    await until("no agent tabs", `document.querySelectorAll(".agents-pane .tabs").length === 0`);
+    const viewTabs = `document.querySelectorAll(".agents-pane .view-tabs").length`;
+    await until("no view tabs", `${viewTabs} === 0`);
     await shot("53-compose-adopt");
     await click(".compose-actions button", "cancel");
-    await until("back to agents", `document.querySelectorAll(".agents-pane .tabs").length > 0`);
+    await until("back to agents", `${viewTabs} > 0`);
     await click(".compose-new");
     const newForm = `document.querySelector(".agents-pane form[aria-label='New session']")`;
     await until("new form in the middle pane", `${newForm} !== null`);
@@ -723,7 +724,7 @@ if (flow === "sessions-panel") {
     await click(".compose-actions .primary");
     const picked = text(".session-selected");
     await until("new session selected", `${picked}.includes(${JSON.stringify(name)})`);
-    const tabsBack = `document.querySelectorAll(".agents-pane .tabs").length > 0`;
+    const tabsBack = `document.querySelectorAll(".agents-pane .view-tabs").length > 0`;
     await until("view back to agents", tabsBack);
     await until("form gone", `${newForm} === null`);
     await shot("55-created-and-selected");
@@ -778,8 +779,8 @@ if (flow === "real-agent") {
     if (process.env["E2E_SKIP_ADD"] === undefined) {
         await click("form[aria-label='Add agent'] button");
     }
-    const tabs = text(".agents-pane .tabs");
-    await until("agent tab", `${tabs}.includes(${JSON.stringify(agent)})`);
+    const tabs = text(".agents-pane .chips");
+    await until("agent chip", `${tabs}.includes(${JSON.stringify(agent)})`);
     await click(".agents-pane .tab", agent);
     await until(
         "prompt enabled",
@@ -1073,6 +1074,26 @@ if (flow === "drawer") {
     await click(".actions button", "run local");
     await until("drawer open", `${heightOf} === 200`);
     await until("job finished", `${text(".drawer")}.includes("up · ok")`);
+    // One drawer: the Activity header with the job's line at the right, the job log as the
+    // first section, the events as the second; nothing else under the terminal.
+    const sections = await evaluate(`({
+        head: document.querySelector(".drawer-head h2")?.textContent,
+        line: document.querySelector(".drawer-head .drawer-job-line")?.textContent,
+        order: [...document.querySelectorAll(".drawer .drawer-section")]
+            .map((s) => s.getAttribute("aria-label")),
+        events: document.querySelectorAll(".drawer .feed li").length > 0,
+        feedsOutside: document.querySelectorAll(".agents-pane > .feed").length,
+        after: document.querySelector(".agents-pane .drawer")?.nextElementSibling?.className
+            ?? null,
+    })`);
+    console.log("drawer sections:", JSON.stringify(sections));
+    const wantedSections = {
+        head: "Activity", line: "up · ok", order: ["Job log", "Events"], events: true,
+        feedsOutside: 0, after: null,
+    };
+    if (JSON.stringify(sections) !== JSON.stringify(wantedSections)) {
+        throw new Error("the drawer is not the merged Activity drawer");
+    }
     const before = (await evaluate(lastSize)) as string;
     await shot("67-drawer-default");
     await dragHandle(-100);
@@ -1089,7 +1110,7 @@ if (flow === "drawer") {
     console.log("ceiling:", ceiling);
     await dragHandle(ceiling - 300);
     await until("back at 300", `${heightOf} === 300`);
-    await click("button[aria-label='Minimize job log']");
+    await click("button[aria-label='Minimize activity']");
     await until("bar shown", `${bar} !== null && ${drawer} === null`);
     await until("bar names the job", `${text(".drawer-bar")}.includes("up · ok")`);
     await shot("69-drawer-bar");
@@ -1236,6 +1257,70 @@ if (flow === "terminal") {
         await shot("59c-added-agent-selected");
         await click(".agents-pane .tab", "backend");
         await until("back on backend", `${rows}.includes("hello")`);
+        // The pane's chrome: view tabs underlined with no title, the toolbar in three groups
+        // with a tooltip per button and the irreversible ones marked, the agents as chips with
+        // a state dot and a tooltip, the × only on the selected hosted chip, and the sub-tabs.
+        const chrome = await evaluate(`({
+            title: document.querySelectorAll(".agents-pane .pane-head").length,
+            views: [...document.querySelectorAll(".view-tabs .view-tab")].map((t) => t.textContent),
+            viewSelected: document.querySelector(".view-tabs .tab-selected")?.textContent,
+            groups: [...document.querySelectorAll(".toolbar .toolbar-group")]
+                .map((g) => [...g.querySelectorAll("button")].map((b) => b.textContent)),
+            seps: document.querySelectorAll(".toolbar .toolbar-sep").length,
+            untitled: [...document.querySelectorAll(".toolbar button")]
+                .filter((b) => !b.title.endsWith(".")).map((b) => b.textContent),
+            danger: [...document.querySelectorAll(".toolbar .danger")].map((b) => b.textContent),
+            chips: [...document.querySelectorAll(".chip")].map((c) => ({
+                name: c.querySelector(".chip-name").textContent,
+                state: c.querySelector(".chip-dot").className.replace(/.*dot-/, ""),
+                tip: c.querySelector(".chip-name").title,
+                selected: c.classList.contains("chip-selected"),
+                stop: c.querySelector(".chip-stop")?.getAttribute("aria-label") ?? null,
+            })),
+            statusLine: [...document.querySelectorAll(".agents-view p.muted")]
+                .filter((p) => p.textContent.includes(" · ")).length,
+            sub: [...document.querySelectorAll(".tabs-sub .tab")].map((t) => t.textContent),
+            corner: document.querySelectorAll(".tty-controls").length,
+        })`);
+        console.log("chrome:", JSON.stringify(chrome));
+        const wantedChrome = {
+            title: 0,
+            views: ["agents", "mission", "threads", "services"],
+            viewSelected: "agents",
+            groups: [["run local", "stop local"], ["create PR", "fix", "post", "approve", "land"],
+                ["reset", "close"]],
+            seps: 2,
+            untitled: [],
+            danger: ["land", "reset", "close"],
+            chips: [
+                { name: "backend", state: "working",
+                  tip: "tty · anthropic/claude-fable-5-1 · working",
+                  selected: true, stop: "Stop backend" },
+                { name: "frontend", state: "off", tip: "rpc · anthropic/claude-sonnet-5-5 · off",
+                  selected: false, stop: null },
+                { name: "scout", state: "idle", tip: "tty · fixture/default · idle",
+                  selected: false, stop: null },
+            ],
+            statusLine: 0,
+            sub: ["terminal", "context"],
+            corner: 0,
+        };
+        if (JSON.stringify(chrome) !== JSON.stringify(wantedChrome)) {
+            throw new Error("the pane's chrome is not the tabs, toolbar and chips expected");
+        }
+        await shot("71-pane-chrome");
+        // The × on the selected chip stops the agent: the fixture drops it from the running
+        // list, the chip dims, the × goes, and the terminal's status line offers resume.
+        await click(".agents-pane .tab", "scout");
+        await click("button[aria-label='Stop scout']");
+        const scoutChip = `document.querySelector(".chip-off .chip-name[data-name=scout]")`;
+        await until("scout stopped", `${scoutChip} !== null`);
+        const scoutStop = `document.querySelector("button[aria-label='Stop scout']")`;
+        await until("no × on a stopped agent", `${scoutStop} === null`);
+        const resume = `${shown}?.querySelector(".tty-status button")?.textContent`;
+        await until("resume offered", `${resume} === "resume"`);
+        await shot("72-chip-stopped");
+        await click(".agents-pane .tab", "backend");
     }
     // The pane route, as a pop-out window loads it: a second attachment, the scrollback
     // replayed, so the typed line is there before any keystroke.

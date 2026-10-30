@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 
 import { AgentsPane } from "./AgentsPane.tsx";
 import { postAction } from "./events-client.ts";
-import { JobDrawer } from "./JobDrawer.tsx";
+import { ActivityDrawer } from "./ActivityDrawer.tsx";
 import { isStrip, PANES, type PaneName } from "./layout.ts";
 import { ActivityBar, ContextBar, PaneStrip, type IconButtonProps } from "./PaneHead.tsx";
 import {
@@ -96,7 +96,8 @@ export function App() {
     const { sessions, selected, view, feed, busy, run, setPicked } = app;
     const layout = useLayout();
     const drawer = (
-        <JobDrawer
+        <ActivityDrawer
+            feed={feed}
             job={app.job}
             error={app.actionError}
             onDismiss={app.dismiss}
@@ -195,7 +196,6 @@ export function App() {
             busy={busy}
             run={run}
             transcripts={transcriptsFor(selected, state.transcripts)}
-            feed={feed}
             revisions={revisionsOf(state, selected)}
             controls={inRoute ? undefined : []}
             compose={

@@ -8,11 +8,13 @@ export interface TabsProps {
     grey?: string[];
     /** A status dot before a label: the state word, which is the dot's colour and tooltip. */
     dots?: Partial<Record<string, string>>;
+    /** `sub`: the small underlined tabs under the agent chips. Default: bordered buttons. */
+    variant?: "sub";
 }
 
-export function Tabs({ labels, selected, onSelect, grey = [], dots = {} }: TabsProps) {
+export function Tabs({ labels, selected, onSelect, grey = [], dots = {}, variant }: TabsProps) {
     return (
-        <div className="tabs" role="tablist">
+        <div className={variant === undefined ? "tabs" : `tabs tabs-${variant}`} role="tablist">
             {labels.map((label) => (
                 <button
                     key={label}
