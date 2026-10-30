@@ -392,6 +392,9 @@ app.on("before-quit", () => {
     registry?.close_all();
 });
 
+// In a dev run the binary is Electron's, and the app menu would take that name.
+app.setName("Spinner");
+
 void app.whenReady().then(async () => {
     Menu.setApplicationMenu(
         Menu.buildFromTemplate([
