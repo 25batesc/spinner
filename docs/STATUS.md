@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-29 15:10, after s008. A fresh session starts from [HANDOFF.md](HANDOFF.md).
+Updated: 2026-10-30, after s011. A fresh session starts from [HANDOFF.md](HANDOFF.md).
 
 ## Summary
 
@@ -18,20 +18,20 @@ Updated: 2026-10-29 15:10, after s008. A fresh session starts from [HANDOFF.md](
 | M1 · Board + stack runner | done, 2026-10-27 | s002 (5 rounds) | $77.68 | 161 min | 132 |
 | M2 · Agents drive PRs home | done except the operator's real feature | s003, s005 | $75.53 | 170 min | 233 |
 | M3 · Web UI | done (record), 2026-10-29 | s003, s005, s006 | (in s003, s005, s006) | | |
-| M4 · Desktop | built, in daily use; signing open | s007, s008 | $65.98 | 198 min | 329 |
+| M4 · Desktop | built, in daily use; signing open | s007, s008, s011 | $65.98 + s011 | 198 min + s011 | 386 |
 | M5 · Release | open | | | | |
 
-The repo holds 138 commits, 33 by the operator and 105 by agents (one by a review agent). `pnpm -r build && pnpm lint && pnpm -r test` is green at commit `5d5e834` with 329 tests (one daemon test, `plumbing.test.ts`, is flaky under a loaded machine).
+The repo holds 171 commits at `91307dd`, 130 of them by agents. `pnpm -r build && pnpm lint && pnpm -r test` is green at that commit with 386 tests: protocol 16, daemon 206, desktop 68, pi-extension 12, ui 60, cli 24. One daemon test, `plumbing.test.ts`, is flaky under a loaded machine; it failed once in the 2026-10-30 run and passed alone.
 
 ## What exists
 
 | Package | Contents | Hides |
 |---|---|---|
 | `@spinner/protocol` | `Session` (session.yaml), `SpinnerEvent` (17 types), `ROUTES`, `PipelineFacts`, `StackSpec` (spinner.yaml); generated JSON schemas for both files, with a drift test | the file formats |
-| `@spinner/daemon` | session store; Hono server on `127.0.0.1:7777` with a WebSocket at `/events`; serves the UI at `/`; `jobs/` (one job per action, bounded log); `actions.ts` (shared by the CLI and the routes); `views/` (`SessionView` from the store, the tracker and a stack observer); the poller and the notifier as a daemon loop; `pipeline/` (GitHub collector, `derive_stage`, adopt, verify); `stack/` (spec loader, compose renderer, Docker and Traefik, Postgres template clone, host services, runner); `git/` (worktrees); `agents/` (`PiRpcHarness` over pi's RPC mode, manager, models, history) | GitHub, Docker, Postgres, git, pi |
+| `@spinner/daemon` | session store; Hono server on `127.0.0.1:7777` with a WebSocket at `/events`; serves the UI at `/`; `jobs/` (one job per action, bounded log); `actions.ts` (shared by the CLI and the routes); `views/` (`SessionView` from the store, the tracker and a stack observer); the poller and the notifier as a daemon loop; `pipeline/` (GitHub collector, `derive_stage`, adopt, verify); `stack/` (spec loader, compose renderer, Docker and Traefik, Postgres template clone, host services, runner); `git/` (worktrees); `agents/` (`PiTtyHarness` over a pty and the extension channel, `PiRpcHarness` over pi's RPC mode, manager, models, history); `settings.ts` (`settings.yaml`, themes); `stack/usage.ts` (the sampler) | GitHub, Docker, Postgres, git, pi |
 | `@spinner/cli` | `spinner new`, `show`, `adopt`, `board`, `verify`, `seed`, `up`, `down`, `logs`, `exec`, `close`; the actions call the daemon's `actions` module | the daemon's internals |
 | `@spinner/desktop` | Electron 45: a window on the daemon's UI, a tray, daemon discovery and start, one `WebContentsView` per preview (hidden tabs kept, destroyed on close, pop-out into a window that adopts the view), the browser-bar actions (navigate, back, forward, zoom, find, clear storage) and the `navigated` event, a DevTools-protocol e2e driver, `pnpm desktop:build` → a local unsigned `.app` | Electron |
-| `ui` | the sketch: sessions and board pane (sorted by `needs_human`, stage badge, per-PR lines, new and adopt forms), session view (service table, action buttons, job log drawer), previews (grey until healthy, open-in-tab, reload, the verified tick), agent tabs (transcript from `agent.event`, history on reload, prompt, steer, abort, model and repo pickers); fixture server; a DevTools-protocol driver for end-to-end runs | how a preview is embedded (`Preview.tsx`) |
+| `ui` | the sketch: sessions and board pane (sorted by `needs_human`, stage badge, per-PR lines, new and adopt forms), session view (service table, action buttons, job log drawer), previews (grey until healthy, open-in-tab, reload, the verified tick), agent tabs (pi's terminal over the tty socket for a `tty` agent, the chat from `agent.event` for an `rpc` one, the context sub-tab, stop and resume); the Activity drawer; the services view with usage; the settings view with themes; fixture server; a DevTools-protocol driver for end-to-end runs | how a preview is embedded (`Preview.tsx`) |
 | `examples/sample-stack` | API with `GET /items` and `GET /health`, one web page, Postgres in template mode, Temporal, `seed.sql`, `spinner.yaml` | nothing; it is the test vehicle |
 
 ## M0 · Bootstrap (done, 2026-10-26)
@@ -143,8 +143,20 @@ Record: engine $36.60 (claude-fable-5-1, 58 min), ext $15.23 (claude-fable-5-1, 
 | Pop-out: a preview into its own window that adopts the view; dock back | done | `66ce18f`..`8ffd028`; the CDP target survives pop out, dock back, close |
 | Tray item with the daemon state | done, minimal | lists popped-out windows |
 | A signed, notarized `.app` | open | M5; needs an Apple developer account |
+| s011: an agent tab is pi's own terminal (`PiTtyHarness`, the tty WebSocket, the extension channel for `prompt`, `steer`, `abort`, `notify`; reattach after a daemon restart) | done | `542c646`..`d506e09`; `tty.test.ts` (7) through a real daemon and a fake pi; `e2e/tty.ts` PASS against the real pi; the terminal in the desktop window, 11 checks (`e2e/desktop-terminal.ts`) |
+| s011, the passes of 2026-10-30: the Activity drawer, the toolbar, view tabs and agent chips, resource usage on cards and in the services view, settings and themes | done | `9fe3395`, `272ef59`..`46281e1`, `04e73e0`; driver flows `terminal`, `drawer`, `usage`, `settings` and ten others green on the fixture; screenshots in the session's `artifacts/` |
+| s011 checks | done | `pnpm -r test` at `91307dd`: protocol 16, daemon 206, desktop 68, pi-extension 12, ui 60, cli 24; `pnpm lint` exit 0; `doc-metrics --fail` exit 0 |
 
 Record: s007 desktop $14.21 (50 min), ui $4.55 (38 min); s008 desktop $20.67 (68 min), ui $25.54 (80 min, seven passes). Operator relays 5, decisions 2. One incident: a destructive e2e driver on the shared daemon archived the operator's merged s003; restored within minutes; lesson 27.
+
+s011 record: engine and ui; the operator fills the cost. Mission record: [sessions/s011-MISSION.md](sessions/s011-MISSION.md).
+
+### Next
+
+1. The manager reads `settings.yaml` (`default_model`, `agents.harness`) at `add`.
+2. `pnpm.onlyBuiltDependencies: ["node-pty"]` in the root `package.json`, so the prebuilt's `spawn-helper` has its exec bit after `pnpm install`.
+3. The ui fixture's default port off 7777; the agents pane under a 1000 px window; the desktop chrome on the palette.
+4. A UI snapshot per daemon start, so a ui rebuild does not change the operator's window under a daemon without the matching routes.
 
 ## M3 · Web UI (done, 2026-10-29)
 
