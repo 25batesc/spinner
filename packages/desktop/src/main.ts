@@ -87,6 +87,13 @@ function create_window(): BrowserWindow {
             created.hide();
         }
     });
+    // A reload or a new page drops the renderer that placed the preview views; without this
+    // the old views stay painted at their last rectangles over the new page.
+    created.webContents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) {
+            registry?.close_docked();
+        }
+    });
     created.webContents.setWindowOpenHandler(({ url }) => {
         void shell.openExternal(url);
         return { action: "deny" };

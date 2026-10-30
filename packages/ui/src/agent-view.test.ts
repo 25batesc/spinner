@@ -8,8 +8,8 @@ describe("showsTerminal", () => {
         expect(showsTerminal("rpc", "")).toBe(false);
     });
 
-    it("reads the pre-s009 harness name `pi` as rpc, the chat", () => {
-        expect(showsTerminal("pi", "?session=s1")).toBe(false);
+    it("reads the pre-s009 harness name `pi` as tty: resume spawns the default harness", () => {
+        expect(showsTerminal("pi", "?session=s1")).toBe(true);
     });
 
     it("forces the chat with ?chat=1", () => {

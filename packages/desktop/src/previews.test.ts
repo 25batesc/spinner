@@ -186,6 +186,19 @@ describe("PreviewRegistry", () => {
         expect(registry.keys()).toEqual([]);
     });
 
+    it("destroys the docked views on a page reload and keeps the popped-out ones", () => {
+        const host = fake_host();
+        const registry = new PreviewRegistry(host);
+        registry.set("s1-a/web", "http://web.s1.localhost", rect);
+        registry.set("s1-a/api", "http://api.s1.localhost", rect);
+        expect(registry.pop_out("s1-a/api", () => {})).toBe(true);
+        expect(registry.close_docked()).toBe(1);
+        expect(registry.keys()).toEqual(["s1-a/api"]);
+        expect(host.views.get("s1-a/web")?.destroyed).toBe(true);
+        expect(host.views.get("s1-a/api")?.destroyed).toBe(false);
+        registry.close_all();
+    });
+
     it("evicts the least recently shown hidden view past the bound", () => {
         const host = fake_host();
         const registry = new PreviewRegistry(host, 2);

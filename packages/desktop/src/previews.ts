@@ -255,6 +255,23 @@ export class PreviewRegistry {
         return closed;
     }
 
+    /**
+     * Destroys every docked view: the window's page reloaded or navigated, so the renderer
+     * that placed them is gone and would otherwise leave them painted at stale rectangles.
+     * Popped-out views live in their own windows and are re-adopted through `panes.list`.
+     */
+    close_docked(): number {
+        let closed = 0;
+        for (const [key, entry] of [...this.entries]) {
+            if (!entry.popped) {
+                entry.view.destroy();
+                this.entries.delete(key);
+                closed += 1;
+            }
+        }
+        return closed;
+    }
+
     close_all(): void {
         for (const [key, entry] of [...this.entries]) {
             entry.view.destroy();
