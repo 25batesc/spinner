@@ -13,13 +13,15 @@ Spinner is a local daemon with three clients: a CLI, a web UI, and (later) a des
 │  ├─ session store    (session.yaml, MISSION.md, watcher) │
 │  ├─ pipeline tracker (GitHub PRs, checks, threads, queue;│
 │  │                    Slack post; stage + needs_human) │
-│  ├─ agent manager    (pi RPC subprocess per agent tab)   │
+│  ├─ agent manager    (pi in a pty per agent tab; rpc opt)│
+│  ├─ settings         (settings.yaml, themes/*.json)      │
+│  ├─ usage sampler    (docker stats + ps every 5 s)       │
 │  ├─ stack runner     (docker compose per session, Traefik)
 │  ├─ git/gh           (worktrees, branches, PRs)          │
 │  └─ event bus        (everything the UI renders)         │
 └───┬──────────────┬───────────────┬──────────────┬────────┘
     │              │               │              │
- ~/.spinner/   GitHub API      pi --mode rpc   docker compose -p spinner-s17
+ ~/.spinner/   GitHub API      pi (in a pty)   docker compose -p spinner-s17
  sessions/s17/ Slack API       cwd=worktrees/…  backend · admin · insights
                (poll/webhook)  (one per agent)  postgres(db) · temporal · traefik
 ```
@@ -122,7 +124,7 @@ interface AgentHandle {
 
 Two implementations share one spawn builder (`pi_spawn_options` in `harness.ts`): `cwd` = the agent's primary worktree, `--session-dir <session>/agents/<name>/pi`, `--session-id <name>`, `--extension <spinner-extension>`, `--skill <session>/skills` when that directory has content, and the model chosen for that tab (OpenRouter is just a provider setting in pi). `resume` is the same spawn: pi reopens the transcript with that id when it exists. `config.yaml` `agents.harness` names the one `POST /sessions/:dir/agents` uses; `session.yaml` records the choice per agent under `agents.<name>.harness`.
 
-**`PiTtyHarness`** (`tty-harness.ts`, the default since s009). pi runs interactively, in a pseudo-terminal from `node-pty`, with `SPINNER_HARNESS=tty` and `TERM=xterm-256color`. The agent tab renders that terminal with xterm.js over one WebSocket, `GET /sessions/:dir/agents/:name/tty` ([DAEMON_API.md](DAEMON_API.md#tty-websocket)). Binary frames carry the pty's bytes both ways and one text frame carries a resize. The daemon replays a 64 KiB scrollback on attach. Up to 8 clients (a browser tab and the desktop window) share one pty. The daemon never types into the pty for the operator. `prompt`, `steer` and `abort` go through the Spinner extension inside pi: the extension long-polls `GET .../commands`, turns each command into `pi.sendUserMessage` (plain, `deliverAs: "followUp"` when busy, `deliverAs: "steer"` for a steer) or `ctx.abort()`, and acks on its next poll; the route resolves with that disposition. The extension posts `agent_start`, `agent_end`, `agent_settled`, `turn_end` and `tool_execution_*` to `POST .../events`, so the manager's fold, the bus and the board run unchanged. `spawn` resolves on the extension's `hello`, or 3 s after the pty started. The grace exists because pi can wait on a startup notice the operator answers in the tab.
+**`PiTtyHarness`** (`tty-harness.ts`, the default since s009). pi runs interactively, in a pseudo-terminal from `node-pty`, with `SPINNER_HARNESS=tty` and `TERM=xterm-256color`. The agent tab renders that terminal with xterm.js over one WebSocket, `GET /sessions/:dir/agents/:name/tty` ([DAEMON_API.md](DAEMON_API.md#tty-websocket)). Binary frames carry the pty's bytes both ways and one text frame carries a resize. The daemon replays a 64 KiB scrollback on attach. Up to 8 clients (a browser tab and the desktop window) share one pty. The daemon never types into the pty for the operator. `prompt`, `steer` and `abort` go through the Spinner extension inside pi: the extension long-polls `GET .../commands`, turns each command into `pi.sendUserMessage` (plain, `deliverAs: "followUp"` when busy, `deliverAs: "steer"` for a steer) or `ctx.abort()`, and acks on its next poll; the route resolves with that disposition. A failed stack job sends one `notify` command the same way. The extension delivers it as a custom message that starts a turn or steers the running one. The extension posts `agent_start`, `agent_end`, `agent_settled`, `turn_end` and `tool_execution_*` to `POST .../events`, so the manager's fold, the bus and the board run unchanged. `spawn` resolves on the extension's `hello`, or 3 s after the pty started. The grace exists because pi can wait on a startup notice the operator answers in the tab.
 
 A daemon restart: the pty master dies with the daemon and pi gets SIGHUP, so no pty survives. On start the manager (`adopt_all`) reads `agents.<name>.{pid,started}` for every agent that is not `exited`, stops a pi whose identity still matches, and resumes each `tty` agent on its transcript. The scrollback starts empty; pi redraws the transcript. An `rpc` agent is marked `exited` and resumes from the tab.
 
@@ -155,6 +157,18 @@ Two things the operator asked for by name, and the daemon treats them as first-c
 
 - **Skills.** Your pi skills load unchanged (user skills from `~/.pi/agent/skills/`, project skills from the repo's `.pi/skills/` once the project is trusted, pi packages). A session can add its own under `<session>/skills/`. The daemon asks each agent for `get_commands` and shows the loaded skills, prompt templates and extension commands with their source paths.
 - **Context files.** The daemon computes each agent's context chain (user file → session `AGENTS.md` → repo → subdirectory) from its working directory, watches the files, and exposes them read-write through the API. The UI's *Context* tab shows the chain, marks which files git tracks, and edits any of them in place. The daemon regenerates the session `AGENTS.md` whenever the mission, the brief or the stack hostnames change, and reloads the agent's context before its next turn.
+
+### Settings and themes (packages/daemon/src/settings.ts)
+
+Two files hold configuration under `~/.spinner/`, for two readers. `config.yaml` is the daemon's: `pi_bin`, `port`, `default_model`, `agents.harness`, Slack. The daemon reads it once at start and nobody edits it from the app. `settings.yaml` is the operator's: `theme`, `default_model`, `agents.harness`. The UI and the desktop app edit it through `PUT /settings`, which validates the whole document, writes the file, and publishes the `settings` event. Every window follows the event, so a theme change applies at once. A hand edit shows on the next `GET /settings`.
+
+A theme is one `ThemePalette`: ten UI colours and a `terminal` block with the foreground, background, cursor and the 16 ANSI colours. The built-ins (`light`, `dark`, `rainbow`) are JSON files in the protocol package, so the web UI and the desktop app share one definition. A user palette is `~/.spinner/themes/<name>.json`. `GET /themes` lists the built-ins and the valid user files, and names each invalid file with its missing keys. The UI maps the palette onto CSS variables and hands the `terminal` block to xterm.js. The reason for palette files over CSS: an operator writes one JSON file and both the page and the terminal follow it. [DAEMON_API.md](DAEMON_API.md#settings) has the shapes.
+
+### Usage sampling (packages/daemon/src/stack/usage.ts)
+
+The operator asked how much each session costs the machine. A sampler runs every 5 s while at least one stack is up or starting, one sample in flight at a time. It stops when no stack is up and wakes after a job or a stack change. One sample runs three commands. `docker ps` with the compose labels maps containers to a session and a service. `docker stats --no-stream` reads every container. `ps -axo pid,ppid,rss,%cpu` lists every process. A host service's numbers are the sum over its process tree, from the pid in `stack/pids/<name>.pid` down. The sample lives in the daemon's memory, never in `session.yaml`.
+
+The view carries the last sample as `stack.usage` and `services[].usage`. `GET /usage` and the `usage` event carry the machine line (total and available memory, cpu count, load) and every up stack with its services. The UI shows the stack line on each session card, the machine line in the context bar, and six columns in the `services` view. The reason for one sampler over per-request probes: `docker stats` takes about a second, and every open window would otherwise run it. [DAEMON_API.md](DAEMON_API.md#resource-usage) has the fields.
 
 ### Storage
 
@@ -265,6 +279,8 @@ slack.activity   (post, author, kind: reply | mention | reaction)
 agent.spawned    | agent.event (pi JSON event passthrough) | agent.settled | agent.exited
 stack.state      (per service: starting | healthy | unhealthy | stopped) | stack.log
 mission.changed  (section diff, author) | inbox.message
+usage            (machine, every up stack and its services; once per sample)
+settings         (the whole settings document, after a PUT)
 ```
 
 `agent.event` is pi's own JSON event stream forwarded untouched, so the UI renders exactly what a pi TUI would and nothing is lost in translation.
@@ -281,7 +297,9 @@ mission.changed  (section diff, author) | inbox.message
 - Your harness configuration is inherited: pi runs with your agent directory, so your skills, extensions and `AGENTS.md` apply.
 - `spinner verify` and `spinner approve` are explicit operator gates; verify is cleared by any new push, approvals are re-requested after a rebase.
 - No stage waits for a bot re-review; new bot threads re-enter *fixing* whenever they appear.
-- pi via RPC subprocess per agent; adapter interface kept narrow so another harness can be added.
+- pi in a pseudo-terminal per agent, rendered in the tab; the RPC subprocess stays for headless runs. The adapter interface is kept narrow so another harness can be added.
+- The daemon's configuration and the operator's preferences are two files; the app edits only the second.
+- Resource usage is sampled by the daemon, kept in memory, and pushed on the bus; nothing is written to the session.
 - Hostname-per-service-per-session behind one Traefik, no host ports per service.
 - Shared Postgres with template-database clones by default; per-session Postgres as the escape hatch.
 - Temporal per session, never shared.
