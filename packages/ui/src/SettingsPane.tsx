@@ -99,6 +99,7 @@ export function SettingsPane(props: SettingsPaneProps) {
                         <option value={THEME_SYSTEM}>system</option>
                         <option value="light">light</option>
                         <option value="dark">dark</option>
+                        <option value="rainbow">rainbow</option>
                         {custom.map((entry) => (
                             <option key={entry.name} value={entry.name}>{entry.name}</option>
                         ))}

@@ -429,3 +429,22 @@ html, body, #root { height: 100%; margin: 0; }
 .settings-hint { margin: 0; font-size: 12px; }
 .settings-hint .link { margin-left: 0; padding: 0; }
 .settings-hint code { overflow-wrap: anywhere; }
+
+/* The rainbow theme: the accent walks the hue wheel and the titles wear a gradient. */
+@property --rainbow-accent { syntax: "<color>"; inherits: true; initial-value: #ff5bb0; }
+[data-theme="rainbow"] {
+    --accent: var(--rainbow-accent); animation: rainbow-accent 9s linear infinite;
+}
+@keyframes rainbow-accent {
+    0% { --rainbow-accent: #ff5b5b; } 17% { --rainbow-accent: #ffb347; }
+    33% { --rainbow-accent: #ffe74c; } 50% { --rainbow-accent: #4ade80; }
+    67% { --rainbow-accent: #38bdf8; } 83% { --rainbow-accent: #c084fc; }
+    100% { --rainbow-accent: #ff5b5b; }
+}
+[data-theme="rainbow"] .pane-head h2, [data-theme="rainbow"] .context-title,
+[data-theme="rainbow"] .view-tabs [aria-selected="true"] {
+    background: linear-gradient(90deg, #ff5b5b, #ffb347, #ffe74c, #4ade80, #38bdf8, #c084fc);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+[data-theme="rainbow"] .activity-bar { animation: rainbow-hue 12s linear infinite; }
+@keyframes rainbow-hue { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }

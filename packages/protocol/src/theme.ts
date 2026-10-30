@@ -8,6 +8,7 @@
 // preferences, distinct from the daemon's `config.yaml`.
 import dark from "./themes/dark.json" with { type: "json" };
 import light from "./themes/light.json" with { type: "json" };
+import rainbow from "./themes/rainbow.json" with { type: "json" };
 
 /** The 16 ANSI colours as xterm.js names them, plus the three the terminal needs. */
 export const TERMINAL_COLOR_KEYS = [
@@ -55,7 +56,7 @@ export type TerminalPalette = Record<TerminalColorKey, string>;
 export type ThemePalette = Record<PaletteColorKey, string> & { terminal: TerminalPalette };
 
 /** The names `settings.theme` takes besides a custom theme's file name. */
-export const THEME_BUILTIN_NAMES = ["light", "dark"] as const;
+export const THEME_BUILTIN_NAMES = ["light", "dark", "rainbow"] as const;
 export type ThemeBuiltinName = (typeof THEME_BUILTIN_NAMES)[number];
 
 /** `system` follows the OS; the UI picks `light` or `dark` from `prefers-color-scheme`. */
@@ -64,6 +65,8 @@ export const THEME_SYSTEM = "system";
 export const BUILTIN_THEMES: Record<ThemeBuiltinName, ThemePalette> = {
     light: light as ThemePalette,
     dark: dark as ThemePalette,
+    /** The silly one: the palette is static; the UI animates its accent and its titles. */
+    rainbow: rainbow as ThemePalette,
 };
 
 /** A custom theme's name is its file name without `.json`. */

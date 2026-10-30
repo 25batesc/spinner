@@ -141,10 +141,11 @@ describe("themes", () => {
         expect(body.themes.map((theme) => `${theme.source}:${theme.name}`)).toEqual([
             "builtin:light",
             "builtin:dark",
+            "builtin:rainbow",
             "user:ocean",
         ]);
         expect(body.themes[0]?.palette).toEqual(BUILTIN_THEMES.light);
-        expect(body.themes[2]?.palette.accent).toBe("#0ea5e9");
+        expect(body.themes[3]?.palette.accent).toBe("#0ea5e9");
         const invalid_names = body.invalid.map((entry) => entry.name).sort();
         expect(invalid_names).toEqual(["broken", "dark", "garbage"]);
         const failed = body.invalid.find((entry) => entry.name === "broken");

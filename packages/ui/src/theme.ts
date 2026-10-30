@@ -9,8 +9,10 @@ import type { ITheme } from "@xterm/xterm";
 import {
     BUILTIN_THEMES,
     PALETTE_COLOR_KEYS,
+    THEME_BUILTIN_NAMES,
     THEME_SYSTEM,
     type TerminalColorKey,
+    type ThemeBuiltinName,
     type ThemeEntry,
     type ThemePalette,
 } from "@spinner/protocol";
@@ -49,7 +51,11 @@ export function paletteFor(theme: string, themes: ThemeEntry[]): ThemePalette | 
     if (listed !== undefined) {
         return listed.palette;
     }
-    return theme === "light" || theme === "dark" ? BUILTIN_THEMES[theme] : null;
+    return isBuiltin(theme) ? BUILTIN_THEMES[theme] : null;
+}
+
+function isBuiltin(name: string): name is ThemeBuiltinName {
+    return (THEME_BUILTIN_NAMES as readonly string[]).includes(name);
 }
 
 /**
@@ -67,6 +73,7 @@ export function schemeOf(palette: ThemePalette): "light" | "dark" {
 export function applyPalette(
     palette: ThemePalette,
     root: HTMLElement = document.documentElement,
+    name?: string,
 ): void {
     for (const key of PALETTE_COLOR_KEYS) {
         root.style.setProperty(`--${key}`, palette[key]);
@@ -75,6 +82,12 @@ export function applyPalette(
         root.style.setProperty(terminalVariable(key), palette.terminal[snake(key)]);
     }
     root.dataset["scheme"] = schemeOf(palette);
+    // The stylesheet keys its animations on the theme's name (`rainbow`).
+    if (name === undefined) {
+        delete root.dataset["theme"];
+    } else {
+        root.dataset["theme"] = name;
+    }
     window.dispatchEvent(new Event(THEME_EVENT));
 }
 
@@ -87,6 +100,7 @@ export function clearPalette(root: HTMLElement = document.documentElement): void
         root.style.removeProperty(terminalVariable(key));
     }
     delete root.dataset["scheme"];
+    delete root.dataset["theme"];
     window.dispatchEvent(new Event(THEME_EVENT));
 }
 

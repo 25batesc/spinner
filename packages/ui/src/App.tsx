@@ -8,7 +8,6 @@ import {
     ActivityBar,
     ContextBar,
     PaneStrip,
-    type IconButtonProps,
     type PanelView,
 } from "./PaneHead.tsx";
 import {
@@ -117,7 +116,7 @@ export function App() {
         if (palette === null) {
             clearPalette();
         } else {
-            applyPalette(palette);
+            applyPalette(palette, document.documentElement, themeName);
         }
     }, [themeName, themes]);
     const drawer = (
@@ -207,15 +206,6 @@ export function App() {
             togglePanel();
         }
     };
-    // The toggle sits at the left of the sessions header; while the panel hides, the activity
-    // bar's sessions icon is the way back.
-    const panelToggle: IconButtonProps = {
-        icon: "panel-left",
-        label: panelShown ? "Hide side panel" : "Show side panel",
-        active: panelShown,
-        onClick: togglePanel,
-    };
-
     const sessionsPane = (
         <SessionsPane
             sessions={sessions}
@@ -225,7 +215,6 @@ export function App() {
             run={run}
             onCompose={app.setCompose}
             controls={inRoute ? undefined : []}
-            leading={inRoute ? undefined : panelToggle}
         />
     );
     const agentsPane = (
@@ -271,7 +260,6 @@ export function App() {
                 await putSettings(next);
             }}
             controls={inRoute ? undefined : []}
-            leading={inRoute ? undefined : panelToggle}
         />
     );
     const sidePanel = panelView === "settings" ? settingsPane : sessionsPane;

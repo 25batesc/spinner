@@ -204,6 +204,7 @@ class FixtureDaemon {
             themes: [
                 { name: "light", source: "builtin", palette: BUILTIN_THEMES.light },
                 { name: "dark", source: "builtin", palette: BUILTIN_THEMES.dark },
+                { name: "rainbow", source: "builtin", palette: BUILTIN_THEMES.rainbow },
                 { name: "solar", source: "user", palette: solar },
             ],
             invalid: broken.ok ? [] : [{

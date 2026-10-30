@@ -356,13 +356,13 @@ if (flow === "panes") {
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
-        bar: 2, barOn: "true", popOuts: 1, top: 1, inSessions: 1,
+        bar: 2, barOn: "true", popOuts: 1, top: 0, inSessions: 0,
         context: ["Refund flow", "peer-review", "stack up", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
-        links: 0, icons: 8,
+        links: 0, icons: 7,
     };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
-        throw new Error("expected the bar (sessions, gear) lit, the toggle, one pop-out, 8 icons");
+        throw new Error("expected the bar (sessions, gear) lit, no toggle, one pop-out, 7 icons");
     }
     const popOutOwner = await evaluate(
         `document.querySelector("button[aria-label^='Pop out']").closest(".pane").className`,
@@ -396,19 +396,15 @@ if (flow === "panes") {
     await until("bar still in place", `${widthOf(".activity-bar")} >= 40`);
     await shot("40-left-hidden");
     // 2. The bar icon shows it again at the width before the drag and lights up; the active
-    // icon hides it; the header toggle beside SESSIONS hides it too.
+    // icon hides it. There is no toggle in the pane header.
     await click(barButton);
     await until("left panel back at 260", `${widthOf(".sessions-pane")} === 260`);
     await until("bar icon on", `document.querySelector("${barButton}").ariaPressed === "true"`);
-    await until("toggle beside sessions", `document.querySelectorAll("${topToggle}").length === 1`);
+    await until("no header toggle", `document.querySelectorAll("${topToggle}").length === 0`);
     await click(barButton);
     await until("hidden by the bar", `document.querySelector(".sessions-pane") === null`);
     await click(barButton);
     await until("shown by the bar", `${widthOf(".sessions-pane")} === 260`);
-    await click(topToggle);
-    await until("hidden by the header toggle", `document.querySelector(".sessions-pane") === null`);
-    await click(barButton);
-    await until("shown again", `${widthOf(".sessions-pane")} === 260`);
     // 3. The previews divider dragged 400 px right: 520 - 400 is 60 px past the 200 minimum.
     const releaseRight = await dragHold(1, 400);
     const armedRight = `document.querySelector(".layout[data-armed=previews]") !== null`;
@@ -440,7 +436,7 @@ if (flow === "panes") {
     await drag(1, 408);
     await until("previews narrower again", `${widthOf(".preview-pane")} < 520`);
     // 6. Left panel hidden plus previews collapsed: the agents take the window.
-    await click(topToggle);
+    await click(barButton);
     await click("button[aria-label='Collapse previews']");
     await until("agents fill the window", `${widthOf(".agents-pane")} > 1400`);
     await shot("43-agents-whole-window");
@@ -1089,7 +1085,7 @@ if (flow === "settings") {
     })`);
     console.log("settings view:", JSON.stringify(shape));
     const wantedShape = {
-        options: ["system", "light", "dark", "solar"], value: "system", swatches: 10,
+        options: ["system", "light", "dark", "rainbow", "solar"], value: "system", swatches: 10,
         invalid: ["broken missing terminal.red"],
         hint: "Custom themes live in ~/.spinner/themes/<name>.json" +
             " (settings: /home/fixture/.spinner/settings.yaml). copy dark as a starting point",
