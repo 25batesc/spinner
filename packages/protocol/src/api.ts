@@ -262,6 +262,10 @@ export interface SessionUsage {
 /** The machine around the stacks, from `os`: `GET /usage` and the `usage` event. */
 export interface MachineUsage {
     mem_total_bytes: number;
+    /**
+     * Memory available to new work, not only "free" pages: on macOS free + inactive +
+     * speculative pages from `vm_stat`, on linux `MemAvailable`, else `os.freemem()`.
+     */
     mem_free_bytes: number;
     cpu_count: number;
     /** The 1-minute load average. */

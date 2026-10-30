@@ -144,8 +144,13 @@ Where the numbers appear:
 | Bus event `usage` | `{ type: "usage", ts, session: null, machine, sessions: { [dir]: SessionUsage } }`, once per sample; none while no stack is up. |
 
 `MachineUsage { mem_total_bytes, mem_free_bytes, cpu_count, load_1m, stacks_up, mem_sessions_bytes }`
-comes from `os`. The fields are total and free memory, the cpu count, and the 1-minute load
-average. `stacks_up` counts the sampled stacks and `mem_sessions_bytes` sums their `mem_bytes`.
+comes from `os`, with one exception. `mem_free_bytes` is the memory *available* to new work,
+not only the "free" pages. On macOS it is free + inactive + speculative pages from `vm_stat`,
+at the page size its header prints. On linux it is `MemAvailable` from `/proc/meminfo`.
+Where neither is readable it is `os.freemem()`. `os.freemem()` alone reported 1.4 GB of 52 GB on a
+Mac with 17 GB reclaimable. The other fields are total memory, the cpu count, and the 1-minute
+load average. `stacks_up` counts the sampled stacks and `mem_sessions_bytes` sums their
+`mem_bytes`.
 
 ## Settings
 

@@ -4,7 +4,7 @@
 // `GET /usage` answers the machine with no stack. Method: fixtures of the two commands'
 // output, pure calls, a sampler with stubbed probes, and a daemon on port 0.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionSummary, SpinnerEvent, StackSpec, UsageResponse } from "@spinner/protocol";
@@ -13,11 +13,14 @@ import { resolve_home } from "../home.js";
 import { start_daemon } from "../server.js";
 import { build_stack } from "../views/session-view.js";
 import {
+    memory_available_bytes,
     parse_bytes,
     parse_container_list,
     parse_docker_stats,
+    parse_meminfo_available,
     parse_percent,
     parse_ps,
+    parse_vm_stat,
     process_tree,
     session_usage,
     start_usage_sampler,
@@ -118,6 +121,40 @@ describe("docker stats parsing", () => {
             { id: "abc", project: "spinner-s017", service: "api" },
             { id: "ghi", project: "spinner-s017", service: "worker" },
         ]);
+    });
+});
+
+describe("available memory", () => {
+    // Real `vm_stat` output from the operator's machine (52 GB, 16 KiB pages).
+    const VM_STAT = [
+        "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+        "Pages free:                                    61128.",
+        "Pages active:                                 999498.",
+        "Pages inactive:                               997924.",
+        "Pages speculative:                              1019.",
+        "Pages throttled:                                   0.",
+        "Pages wired down:                             310472.",
+        "",
+    ].join("\n");
+
+    it("sums free, inactive and speculative pages at the header's page size", () => {
+        expect(parse_vm_stat(VM_STAT)).toBe((61_128 + 997_924 + 1_019) * 16_384);
+        expect(parse_vm_stat("Pages free: 10.")).toBeNull();
+        const header_only = "Mach Virtual Memory Statistics: (page size of 4096 bytes)";
+        expect(parse_vm_stat(header_only)).toBeNull();
+    });
+
+    it("reads MemAvailable from /proc/meminfo in kB", () => {
+        const meminfo = "MemTotal:       16000000 kB\nMemFree:         1000000 kB\n" +
+            "MemAvailable:    9000000 kB\nBuffers:          200000 kB\n";
+        expect(parse_meminfo_available(meminfo)).toBe(9_000_000 * 1_024);
+        expect(parse_meminfo_available("MemTotal: 1 kB\n")).toBeNull();
+    });
+
+    it("answers a positive number at most the machine's memory on this host", () => {
+        const available = memory_available_bytes();
+        expect(available).toBeGreaterThan(0);
+        expect(available).toBeLessThanOrEqual(totalmem());
     });
 });
 

@@ -7,7 +7,9 @@
 // `usage` event per sample. One sample is in flight at a time; the loop stops when no stack
 // is up and `wake()` starts it again (the server calls it after a job and on a stack change).
 import assert from "node:assert/strict";
-import { cpus, freemem, loadavg, totalmem } from "node:os";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { cpus, freemem, loadavg, platform, totalmem } from "node:os";
 import type {
     MachineUsage,
     ServiceUsage,
@@ -290,10 +292,68 @@ function machine_of(
 function machine_usage(): Omit<MachineUsage, "stacks_up" | "mem_sessions_bytes"> {
     return {
         mem_total_bytes: totalmem(),
-        mem_free_bytes: freemem(),
+        mem_free_bytes: memory_available_bytes(),
         cpu_count: cpus().length,
         load_1m: round1(loadavg()[0] ?? 0),
     };
+}
+
+/**
+ * Memory the stacks could still take. `os.freemem()` on macOS counts only the "free" pages
+ * (1.4 GB of 52 GB on the operator's machine while 17 GB were reclaimable), so darwin reads
+ * `vm_stat` and sums free, inactive and speculative pages; linux reads `MemAvailable` from
+ * `/proc/meminfo`. `os.freemem()` stays the fallback when either is unreadable.
+ */
+export function memory_available_bytes(): number {
+    if (platform() === "darwin") {
+        const result = spawnSync("vm_stat", [], { encoding: "utf8" });
+        if (result.status === 0) {
+            const parsed = parse_vm_stat(String(result.stdout));
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+    }
+    if (platform() === "linux" && existsSync("/proc/meminfo")) {
+        const parsed = parse_meminfo_available(readFileSync("/proc/meminfo", "utf8"));
+        if (parsed !== null) {
+            return parsed;
+        }
+    }
+    return freemem();
+}
+
+/**
+ * Pure: `vm_stat` output to (free + inactive + speculative) × page size, the page size from
+ * the header line `Mach Virtual Memory Statistics: (page size of 16384 bytes)`. Null when the
+ * header or the free count is missing.
+ */
+export function parse_vm_stat(out: string): number | null {
+    const header = /page size of (\d+) bytes/.exec(out);
+    if (header === null) {
+        return null;
+    }
+    const page_size = Number.parseInt(header[1] ?? "", 10);
+    const pages = (label: string): number | null => {
+        const match = new RegExp(`^Pages ${label}:\\s+(\\d+)\\.?$`, "m").exec(out);
+        return match === null ? null : Number.parseInt(match[1] ?? "", 10);
+    };
+    const free = pages("free");
+    if (free === null || !Number.isInteger(page_size) || page_size <= 0) {
+        return null;
+    }
+    const inactive = pages("inactive") ?? 0;
+    const speculative = pages("speculative") ?? 0;
+    return (free + inactive + speculative) * page_size;
+}
+
+/** Pure: `/proc/meminfo` to `MemAvailable` in bytes (the file counts kB), or null. */
+export function parse_meminfo_available(text: string): number | null {
+    const match = /^MemAvailable:\s+(\d+)\s*kB$/m.exec(text);
+    if (match === null) {
+        return null;
+    }
+    return Number.parseInt(match[1] ?? "", 10) * 1_024;
 }
 
 // ---------------------------------------------------------------------------------------
