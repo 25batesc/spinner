@@ -5,6 +5,7 @@
 
 import type { PiEvent } from "./agent-event.js";
 import type { Job, MachineUsage, SessionUsage, SessionView } from "./api.js";
+import type { Settings } from "./theme.js";
 import type { AgentProcessState, PullRequest, Stage, StackStateName } from "./session.js";
 
 /** Fields every event carries. `ts` is an ISO 8601 timestamp set by the daemon. */
@@ -203,6 +204,14 @@ export interface UsageEvent {
     sessions: Record<string, SessionUsage>;
 }
 
+/** `PUT /settings` wrote `~/.spinner/settings.yaml`; the whole document follows. */
+export interface SettingsEvent {
+    type: "settings";
+    ts: string;
+    session: null;
+    settings: Settings;
+}
+
 export type SpinnerEvent =
     | JobStartedEvent
     | JobLogEvent
@@ -225,7 +234,8 @@ export type SpinnerEvent =
     | MissionChangedEvent
     | InboxMessageEvent
     | MessageDeliveredEvent
-    | UsageEvent;
+    | UsageEvent
+    | SettingsEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
 
@@ -253,4 +263,5 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "job.log",
     "job.finished",
     "usage",
+    "settings",
 ];

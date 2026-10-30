@@ -923,7 +923,7 @@
                 },
                 "mem_limit_bytes": {
                     "type": "number",
-                    "description": "The container's memory limit; absent for a host service or an unlimited container."
+                    "description": "The limit `docker stats` prints: the container's own, or the engine's memory (Docker Desktop's VM) for a container without one. Absent for a host service."
                 },
                 "net_rx_bytes": {
                     "type": "number",

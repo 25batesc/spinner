@@ -108,6 +108,12 @@ export const ROUTES = {
     "GET /sessions/:dir/stack/logs/:service": "StackLogsResponse",
     /** The machine's memory, cpu and load, and each up stack's share. */
     "GET /usage": "UsageResponse",
+    /** The operator's settings from `~/.spinner/settings.yaml`, defaults when absent. */
+    "GET /settings": "SettingsResponse",
+    /** Replace the settings. Body: the whole `Settings` document; 400 names the first problem. */
+    "PUT /settings": "SettingsResponse",
+    /** The built-in themes and every valid `~/.spinner/themes/<name>.json`; invalid ones named. */
+    "GET /themes": "ThemesResponse",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
     /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
