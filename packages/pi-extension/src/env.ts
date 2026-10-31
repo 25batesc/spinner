@@ -1,7 +1,7 @@
 // What the daemon tells the extension through the environment (`EXTENSION_ENV` in the
 // protocol): the session directory, the agent's name, the daemon's URL and the role. Without
 // the session directory the extension is not running under Spinner and registers nothing.
-import { EXTENSION_ENV, type ExtensionRole } from "@spinner/protocol";
+import { EXTENSION_ENV, EXTENSION_ROLES, type ExtensionRole } from "@spinner/protocol";
 
 export interface SpinnerEnv {
     session_dir: string;
@@ -21,7 +21,10 @@ export function read_env(env: NodeJS.ProcessEnv): SpinnerEnv | null {
         return null;
     }
     const daemon_url = (env[EXTENSION_ENV.daemon_url] ?? "").replace(/\/+$/, "");
-    const role: ExtensionRole = env[EXTENSION_ENV.role] === "fixer" ? "fixer" : "worker";
+    const named = env[EXTENSION_ENV.role];
+    const role: ExtensionRole = EXTENSION_ROLES.includes(named as ExtensionRole)
+        ? (named as ExtensionRole)
+        : "worker";
     const parts = session_dir.replace(/\/+$/, "").split("/");
     const dir = parts[parts.length - 1] ?? "";
     const tty = env[EXTENSION_ENV.harness] === "tty";

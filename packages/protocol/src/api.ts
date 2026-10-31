@@ -116,6 +116,26 @@ export const ROUTES = {
     "PUT /settings": "SettingsResponse",
     /** The built-in themes and every valid `~/.spinner/themes/<name>.json`; invalid ones named. */
     "GET /themes": "ThemesResponse",
+    /** Overwrite `agents/:name/BRIEF.md`. Body: AgentBriefRequest. Creates the directory. */
+    "PUT /sessions/:dir/agents/:name/brief": "AgentBriefResponse",
+    /** The operator agent of this home: process state, pid, model, notices (MISSION.md s013). */
+    "GET /operator": "OperatorResponse",
+    /** Start the operator agent, or resume it on its transcript. 409 while it runs. */
+    "POST /operator/start": "OperatorResponse",
+    /** Stop the operator agent's process. Its transcript stays. 409 when it does not run. */
+    "POST /operator/stop": "OperatorResponse",
+    /** Send a prompt to the operator agent. Body: AgentMessageRequest. 409 when not running. */
+    "POST /operator/prompt": "AgentCommandResponse",
+    /** Queue a steer for the operator agent. Body: AgentMessageRequest. 409 when not running. */
+    "POST /operator/steer": "AgentCommandResponse",
+    /** WebSocket upgrade to the operator agent's pty; the frames of `GET .../agents/:name/tty`. */
+    "GET /operator/tty": "websocket",
+    /** The operator agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
+    "POST /operator/hello": "AgentCommandResponse",
+    /** Long-poll (30 s) for the next command to the operator agent's extension. */
+    "GET /operator/commands": "AgentCommandPollResponse",
+    /** The operator agent's extension posts pi's lifecycle events. Body: AgentEventsRequest. */
+    "POST /operator/events": "AgentCommandResponse",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
     /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
@@ -140,6 +160,9 @@ export const EVENTS_PATH = "/events";
 export function tty_path(dir: string, name: string): string {
     return `/sessions/${encodeURIComponent(dir)}/agents/${encodeURIComponent(name)}/tty`;
 }
+
+/** The operator agent's pty WebSocket: the same frames as `tty_path`, 404 while it is stopped. */
+export const OPERATOR_TTY_PATH = "/operator/tty";
 
 export const TTY_SCROLLBACK_BYTES = 64 * 1024;
 export const TTY_ATTACHMENTS_MAX = 8;
@@ -624,6 +647,51 @@ export interface AgentMessageRequest {
 /** `GET /sessions/:dir/agents/default-brief`. */
 export interface DefaultBriefResponse {
     brief: string;
+}
+
+/** `PUT /sessions/:dir/agents/:name/brief`: the whole file. */
+export interface AgentBriefRequest {
+    brief: string;
+}
+
+export interface AgentBriefResponse {
+    ok: true;
+    /** Absolute path of the brief written. */
+    path: string;
+}
+
+/**
+ * The operator agent of a home (MISSION.md s013): one tty pi under `<home>/operator/`, no
+ * session. `GET /operator` returns it and `operator.updated` carries it on every change.
+ */
+export interface OperatorView {
+    /** `settings.operator.enabled`: the daemon starts the agent at boot when true. */
+    enabled: boolean;
+    /** `idle`: pi runs and waits; `running`: a turn is in progress; `exited`: no process. */
+    process: AgentProcessState;
+    pid: number | null;
+    /** `provider/model` the agent runs with, or null for pi's own default. */
+    model: string | null;
+    /** `<home>/operator`: the transcript (`pi/`), `BRIEF.md` and `inbox/`. */
+    dir: string;
+    /** What the agent waits on: a person in its terminal, the model, or `start`. */
+    waiting_on: "operator" | "model" | "start";
+    /** The last notice the daemon delivered to the agent, or null. */
+    last_notice: OperatorNotice | null;
+    /** Notices batched or held (the agent is stopped) and not yet delivered. */
+    notices_pending: number;
+}
+
+/** One batch of events the daemon turned into a `notify` for the operator agent. */
+export interface OperatorNotice {
+    ts: string;
+    /** One line per event; each starts with the session directory. */
+    text: string;
+}
+
+/** `GET /operator`, `POST /operator/start`, `POST /operator/stop`. */
+export interface OperatorResponse {
+    operator: OperatorView;
 }
 
 export interface AgentResponse {

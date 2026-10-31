@@ -19,7 +19,12 @@ export const EXTENSION_ENV = {
     agent: "SPINNER_AGENT",
     /** Base URL of the daemon, for example `http://localhost:7777`. */
     daemon_url: "SPINNER_DAEMON_URL",
-    /** The agent's role: `worker` or `fixer`. The `thread_*` tools register for `fixer`. */
+    /**
+     * The agent's role: `worker`, `fixer` or `operator`. The `thread_*` tools register for
+     * `fixer`; the `session_*`, `mission_write`, `brief_write`, `agent_*` and `inbox_send`
+     * tools for `operator`, whose session directory is `<home>/operator` and whose routes
+     * are `/operator/*` (MISSION.md s013).
+     */
     role: "SPINNER_ROLE",
     /**
      * `tty` when pi runs interactively in a pty. The extension then opens the `commands`
@@ -28,7 +33,9 @@ export const EXTENSION_ENV = {
     harness: "SPINNER_HARNESS",
 } as const;
 
-export type ExtensionRole = "worker" | "fixer";
+export type ExtensionRole = "worker" | "fixer" | "operator";
+
+export const EXTENSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer", "operator"];
 
 export const EXTENSION_TOOLS = [
     "mission_roster",
@@ -42,6 +49,42 @@ export const EXTENSION_TOOLS = [
     "thread_reply",
     "thread_resolve",
     "thread_flag",
+    "session_new",
+    "session_adopt",
+    "session_attach",
+    "session_list",
+    "session_show",
+    "mission_write",
+    "brief_write",
+    "agent_add",
+    "agent_steer",
+    "inbox_send",
+] as const;
+
+/** The sections `mission_write` takes; the Roster belongs to the agents and the writer. */
+export const OPERATOR_MISSION_SECTIONS = [
+    "goal",
+    "done_when",
+    "plan",
+    "contracts",
+    "open_questions",
+    "log",
+] as const;
+
+export type OperatorMissionSection = (typeof OPERATOR_MISSION_SECTIONS)[number];
+
+/**
+ * The actions the operator agent must leave to a person (MISSION.md s013, Contracts). In the
+ * operator role the extension blocks a `bash` call that runs one of them through `spinner`,
+ * `git push` or `gh`, with a message that says the operator must do it.
+ */
+export const OPERATOR_REFUSED_ACTIONS = [
+    "pr",
+    "post",
+    "approve",
+    "land",
+    "reset",
+    "close",
 ] as const;
 
 export type ExtensionTool = (typeof EXTENSION_TOOLS)[number];
@@ -60,10 +103,13 @@ export interface ExtensionToolArgs {
     mission_question: { text: string };
     /** Writes `inbox/<HHMMSS>-<agent>-<to>.md`. `to` is an agent name, `operator` or `all`. */
     message: { to: string; subject: string; text: string };
-    /** `show` lists services and hosts; `logs` and `restart` take a service. */
-    stack: { command: StackToolCommand; service?: string; lines?: number };
+    /**
+     * `show` lists services and hosts; `logs` and `restart` take a service. `session` names
+     * the session directory in the operator role and is ignored in the others.
+     */
+    stack: { command: StackToolCommand; service?: string; lines?: number; session?: string };
     /** `show` lists the session's PRs with stage, checks and open threads. */
-    pr: { command: "show" };
+    pr: { command: "show"; session?: string };
     /** Open threads of one PR (repo key) or of every PR. */
     thread_list: { pr?: string };
     /** Replies in a thread. `thread` is a `ThreadView.id` or its `label` within `pr`. */
@@ -72,6 +118,32 @@ export interface ExtensionToolArgs {
     thread_resolve: { thread: string; pr?: string };
     /** Marks a thread for the operator with a one-line reason. */
     thread_flag: { thread: string; reason: string; pr?: string };
+    /**
+     * Creates a session; the job attaches `project` (a name `GET /projects` lists, or a path)
+     * and the tool waits for it. Returns the session directory the other tools take.
+     */
+    session_new: { title: string; project?: string; slug?: string };
+    /** Adopts PRs opened outside Spinner. `urls` is whitespace- or comma-separated. */
+    session_adopt: { urls: string; project?: string; title?: string };
+    /** Attaches a project to a session created or adopted without one; waits for the job. */
+    session_attach: { session: string; project: string };
+    /** Every live session: directory, title, stage, agents and what they do. */
+    session_list: Record<string, never>;
+    /** One session: the view digest and its full `MISSION.md`. */
+    session_show: { session: string };
+    /**
+     * One section of a named session's `MISSION.md`, as `operator`. `goal` and `done_when`
+     * replace the body; `plan`, `contracts`, `open_questions` and `log` append one line.
+     */
+    mission_write: { session: string; section: OperatorMissionSection; text: string };
+    /** Writes `agents/<agent>/BRIEF.md` of the session, whole file, over an existing one. */
+    brief_write: { session: string; agent: string; text: string };
+    /** Adds an agent and starts it. Writes `brief` first when the session has none for it. */
+    agent_add: { session: string; name: string; brief?: string; repo?: string; model?: string };
+    /** A steer to a running agent; it starts a turn when the agent is idle. */
+    agent_steer: { session: string; agent: string; text: string };
+    /** An `inbox/` message from `operator` to an agent or `all`. */
+    inbox_send: { session: string; to: string; subject: string; text: string };
 }
 
 /** A tool's JSON-schema parameters, in the subset pi's `Type.Object` can express. */
@@ -87,8 +159,8 @@ export interface ExtensionToolSpec {
     description: string;
     parameters: Record<string, ToolParameterSpec>;
     required: readonly string[];
-    /** `fixer` tools register only when `SPINNER_ROLE` is `fixer`. */
-    role: "all" | "fixer";
+    /** The roles the tool registers for; `SPINNER_ROLE` picks. */
+    roles: readonly ExtensionRole[];
     /** The daemon route the tool calls. `:dir` is the session, `:name` the agent. */
     route: string;
 }
@@ -104,6 +176,15 @@ const THREAD_PARAMS = {
     pr: { type: "string", description: "Repo key of the PR; needed with a label" },
 } as const satisfies Record<string, ToolParameterSpec>;
 
+const SESSION_PARAM = {
+    session: { type: "string", description: "Session directory, as session_list shows it" },
+} as const satisfies Record<string, ToolParameterSpec>;
+
+const SESSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer"];
+const EVERY_ROLE: readonly ExtensionRole[] = ["worker", "fixer", "operator"];
+const FIXER: readonly ExtensionRole[] = ["fixer"];
+const OPERATOR: readonly ExtensionRole[] = ["operator"];
+
 export const EXTENSION_MANIFEST: ExtensionManifest = {
     version: EXTENSION_VERSION,
     env: EXTENSION_ENV,
@@ -116,7 +197,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 blocked: { type: "string", description: "`no` or `yes: <what you wait for>`" },
             },
             required: ["doing", "blocked"],
-            role: "all",
+            roles: SESSION_ROLES,
             route: "PUT /sessions/:dir/mission/section",
         },
         {
@@ -124,7 +205,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             description: "Append one Log line to MISSION.md. The daemon adds time and name.",
             parameters: { text: { type: "string", description: "What happened, one line" } },
             required: ["text"],
-            role: "all",
+            roles: SESSION_ROLES,
             route: "PUT /sessions/:dir/mission/section",
         },
         {
@@ -132,7 +213,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             description: "Append one Contracts & decisions line to MISSION.md.",
             parameters: { text: { type: "string", description: "The contract, one line" } },
             required: ["text"],
-            role: "all",
+            roles: SESSION_ROLES,
             route: "PUT /sessions/:dir/mission/section",
         },
         {
@@ -140,7 +221,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             description: "Append one Open questions line for the operator.",
             parameters: { text: { type: "string", description: "The question, one line" } },
             required: ["text"],
-            role: "all",
+            roles: SESSION_ROLES,
             route: "PUT /sessions/:dir/mission/section",
         },
         {
@@ -152,7 +233,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 text: { type: "string", description: "The message body" },
             },
             required: ["to", "subject", "text"],
-            role: "all",
+            roles: SESSION_ROLES,
             route: "POST /sessions/:dir/inbox",
         },
         {
@@ -168,9 +249,13 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 },
                 service: { type: "string", description: "Service name, for logs and restart" },
                 lines: { type: "number", description: "Log lines to tail (default 100, max 2000)" },
+                session: {
+                    type: "string",
+                    description: "Session directory; needed in the operator role, ignored else",
+                },
             },
             required: ["command"],
-            role: "all",
+            roles: EVERY_ROLE,
             route: "GET /sessions/:dir",
         },
         {
@@ -178,9 +263,13 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             description: "Show the session's PRs: stage, checks, review and open threads.",
             parameters: {
                 command: { type: "string", description: "Only `show`", enum: ["show"] },
+                session: {
+                    type: "string",
+                    description: "Session directory; needed in the operator role, ignored else",
+                },
             },
             required: ["command"],
-            role: "all",
+            roles: EVERY_ROLE,
             route: "GET /sessions/:dir",
         },
         {
@@ -188,7 +277,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             description: "List the open review threads of one PR or of every PR.",
             parameters: { pr: { type: "string", description: "Repo key; all PRs when absent" } },
             required: [],
-            role: "fixer",
+            roles: FIXER,
             route: "GET /sessions/:dir/threads",
         },
         {
@@ -199,7 +288,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 text: { type: "string", description: "The reply" },
             },
             required: ["thread", "text"],
-            role: "fixer",
+            roles: FIXER,
             route: "POST /sessions/:dir/threads/:id/reply",
         },
         {
@@ -208,7 +297,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 "Resolve a thread you replied to, after the fix is pushed and checks are green.",
             parameters: THREAD_PARAMS,
             required: ["thread"],
-            role: "fixer",
+            roles: FIXER,
             route: "POST /sessions/:dir/threads/:id/resolve",
         },
         {
@@ -219,8 +308,135 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 reason: { type: "string", description: "One line" },
             },
             required: ["thread", "reason"],
-            role: "fixer",
+            roles: FIXER,
             route: "POST /sessions/:dir/threads/:id/flag",
+        },
+        {
+            name: "session_new",
+            description:
+                "Create a session and attach a project; waits for the worktrees. Returns the " +
+                "session directory the other tools take.",
+            parameters: {
+                title: { type: "string", description: "Session title, a few words" },
+                project: {
+                    type: "string",
+                    description: "Project name from GET /projects or a spinner.yaml path",
+                },
+                slug: { type: "string", description: "Directory slug; derived from the title" },
+            },
+            required: ["title"],
+            roles: OPERATOR,
+            route: "POST /sessions",
+        },
+        {
+            name: "session_adopt",
+            description: "Adopt pull requests opened outside Spinner into a new session.",
+            parameters: {
+                urls: { type: "string", description: "PR URLs, separated by spaces or commas" },
+                project: { type: "string", description: "Project to attach, optional" },
+                title: { type: "string", description: "Session title, optional" },
+            },
+            required: ["urls"],
+            roles: OPERATOR,
+            route: "POST /sessions/adopt",
+        },
+        {
+            name: "session_attach",
+            description: "Attach a project to a session that has none; waits for the worktrees.",
+            parameters: {
+                ...SESSION_PARAM,
+                project: { type: "string", description: "Project name or spinner.yaml path" },
+            },
+            required: ["session", "project"],
+            roles: OPERATOR,
+            route: "POST /sessions/:dir/attach",
+        },
+        {
+            name: "session_list",
+            description: "List every live session: directory, title, stage, agents.",
+            parameters: {},
+            required: [],
+            roles: OPERATOR,
+            route: "GET /sessions",
+        },
+        {
+            name: "session_show",
+            description: "Show one session: stage, repos, stack, agents and its MISSION.md.",
+            parameters: SESSION_PARAM,
+            required: ["session"],
+            roles: OPERATOR,
+            route: "GET /sessions/:dir",
+        },
+        {
+            name: "mission_write",
+            description:
+                "Write one section of a session's MISSION.md as operator. goal and done_when " +
+                "replace the body; plan, contracts, open_questions and log append one line.",
+            parameters: {
+                ...SESSION_PARAM,
+                section: {
+                    type: "string",
+                    description: "The section",
+                    enum: OPERATOR_MISSION_SECTIONS,
+                },
+                text: { type: "string", description: "The body, or the one line to append" },
+            },
+            required: ["session", "section", "text"],
+            roles: OPERATOR,
+            route: "PUT /sessions/:dir/mission/section",
+        },
+        {
+            name: "brief_write",
+            description: "Write agents/<agent>/BRIEF.md of a session, the whole file.",
+            parameters: {
+                ...SESSION_PARAM,
+                agent: { type: "string", description: "Agent name: lower-case, digits, dashes" },
+                text: { type: "string", description: "The brief, Markdown" },
+            },
+            required: ["session", "agent", "text"],
+            roles: OPERATOR,
+            route: "PUT /sessions/:dir/agents/:name/brief",
+        },
+        {
+            name: "agent_add",
+            description:
+                "Add an agent to a session and start it. Pass brief when the session has no " +
+                "brief for it yet; an existing brief is kept.",
+            parameters: {
+                ...SESSION_PARAM,
+                name: { type: "string", description: "Agent name: lower-case, digits, dashes" },
+                brief: { type: "string", description: "BRIEF.md text when none exists" },
+                repo: { type: "string", description: "Repo key; the agent runs in its worktree" },
+                model: { type: "string", description: "provider/model; the default when absent" },
+            },
+            required: ["session", "name"],
+            roles: OPERATOR,
+            route: "POST /sessions/:dir/agents",
+        },
+        {
+            name: "agent_steer",
+            description: "Steer a running agent; it starts a turn when the agent is idle.",
+            parameters: {
+                ...SESSION_PARAM,
+                agent: { type: "string", description: "Agent name" },
+                text: { type: "string", description: "The message" },
+            },
+            required: ["session", "agent", "text"],
+            roles: OPERATOR,
+            route: "POST /sessions/:dir/agents/:name/steer",
+        },
+        {
+            name: "inbox_send",
+            description: "Send an inbox/ message from operator to an agent or to all.",
+            parameters: {
+                ...SESSION_PARAM,
+                to: { type: "string", description: "Agent name or `all`" },
+                subject: { type: "string", description: "First line of the message" },
+                text: { type: "string", description: "The message body" },
+            },
+            required: ["session", "to", "subject", "text"],
+            roles: OPERATOR,
+            route: "POST /sessions/:dir/inbox",
         },
     ],
 };

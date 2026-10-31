@@ -184,6 +184,8 @@ export async function run_tool(
             }
             return thread_action(client, session, "resolve", args, {});
         }
+        default:
+            throw new Error(`${spec.name} is not implemented in this role`);
     }
 }
 

@@ -56,7 +56,7 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
     });
 
     for (const spec of EXTENSION_MANIFEST.tools) {
-        if (spec.role === "fixer" && env.role !== "fixer") {
+        if (!spec.roles.includes(env.role)) {
             continue;
         }
         const tool: ToolDefinition = {

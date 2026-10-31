@@ -147,6 +147,13 @@ export interface Settings {
     agents?: {
         harness?: "tty" | "rpc";
     };
+    /** The operator agent (MISSION.md s013). Absent means enabled, with the default model. */
+    operator?: {
+        /** The daemon starts the operator agent at boot. Default true. */
+        enabled?: boolean;
+        /** `provider/model`; else `default_model`, else the daemon's default. */
+        model?: string;
+    };
 }
 
 export const SETTINGS_DEFAULT: Settings = { theme: THEME_SYSTEM };

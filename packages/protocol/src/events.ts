@@ -4,7 +4,7 @@
 // fixture server and the UI can agree on the shape before the daemon fills it in.
 
 import type { PiEvent } from "./agent-event.js";
-import type { Job, MachineUsage, SessionUsage, SessionView } from "./api.js";
+import type { Job, MachineUsage, OperatorView, SessionUsage, SessionView } from "./api.js";
 import type { Settings } from "./theme.js";
 import type { AgentProcessState, PullRequest, Stage, StackStateName } from "./session.js";
 
@@ -212,6 +212,17 @@ export interface SettingsEvent {
     settings: Settings;
 }
 
+/**
+ * The operator agent started, stopped, exited, began or ended a turn, or received a notice.
+ * The whole view follows, as `session.updated` carries the session. Not tied to a session.
+ */
+export interface OperatorUpdatedEvent {
+    type: "operator.updated";
+    ts: string;
+    session: null;
+    data: OperatorView;
+}
+
 export type SpinnerEvent =
     | JobStartedEvent
     | JobLogEvent
@@ -235,7 +246,8 @@ export type SpinnerEvent =
     | InboxMessageEvent
     | MessageDeliveredEvent
     | UsageEvent
-    | SettingsEvent;
+    | SettingsEvent
+    | OperatorUpdatedEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
 
@@ -264,4 +276,5 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "job.finished",
     "usage",
     "settings",
+    "operator.updated",
 ];

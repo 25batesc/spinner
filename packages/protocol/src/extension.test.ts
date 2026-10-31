@@ -28,12 +28,37 @@ describe("extension manifest", () => {
     it("types the fixer tools' arguments", () => {
         const args: ExtensionToolArgs["thread_resolve"] = { thread: "T1", pr: "backend" };
         expect(args.thread).toBe("T1");
-        const fixer_tools = EXTENSION_MANIFEST.tools.filter((tool) => tool.role === "fixer");
+        const fixer_tools = EXTENSION_MANIFEST.tools.filter(
+            (tool) => tool.roles.includes("fixer") && !tool.roles.includes("worker"),
+        );
         expect(fixer_tools.map((tool) => tool.name)).toEqual([
             "thread_list",
             "thread_reply",
             "thread_resolve",
             "thread_flag",
         ]);
+    });
+
+    it("gives the operator role its session tools, stack and pr, and nothing session-bound", () => {
+        const operator_tools = EXTENSION_MANIFEST.tools
+            .filter((tool) => tool.roles.includes("operator"))
+            .map((tool) => tool.name);
+        expect(operator_tools).toEqual([
+            "stack",
+            "pr",
+            "session_new",
+            "session_adopt",
+            "session_attach",
+            "session_list",
+            "session_show",
+            "mission_write",
+            "brief_write",
+            "agent_add",
+            "agent_steer",
+            "inbox_send",
+        ]);
+        for (const tool of EXTENSION_MANIFEST.tools) {
+            expect(tool.roles.length).toBeGreaterThan(0);
+        }
     });
 });
