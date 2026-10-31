@@ -61,6 +61,18 @@ Rules that bit and are now in the briefs: stage by path, never `git add -A` or `
 
 The operator adopted a real PR into a session, attached the project, brought the stack up, added an agent, and uses the desktop app. The next steps on that session are `fix` when the review bot posts, `verify`, `post`, `approve`, `land`. The last one is the live test of the merge-queue enqueue, the only M2 fact without a live run.
 
+## Versions and rollback
+
+Releases are annotated git tags `vX.Y.Z`, made with `tools/release.sh vX.Y.Z "summary"` on a clean tree with CI green; the script writes the version into every `package.json`, commits, tags and pushes. The first is `v0.1.0`, the state in daily use on 2026-10-31, tagged before the s012 soak fixes. Every session that changes behaviour ends with a release, so a change that does not satisfy can be undone:
+
+```
+git checkout v0.1.0
+pnpm install --frozen-lockfile && pnpm -r build
+# then restart the daemon (see "What runs"), and `pnpm desktop` or `pnpm desktop:build` for the app
+```
+
+`main` keeps moving; a rollback is a checkout, not a revert. When a tag is the keeper, say so and the next session starts from it.
+
 ## Open decisions
 
 1. **Stacked PRs** (option B in the chat of 2026-10-29): a session holds an ordered list of PRs per repo, with the worktree at the top. `adopt` walks the base chain; `land` goes bottom-up. `session.yaml` moves to version 2. The operator's PR is itself a stack of two. Waiting for the operator's go.
