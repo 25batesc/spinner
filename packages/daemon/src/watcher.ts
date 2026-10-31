@@ -9,6 +9,7 @@ import type { SessionSummary, SessionView, SpinnerEvent } from "@spinner/protoco
 import type { EventBus } from "./event-bus.js";
 import type { SpinnerHome } from "./home.js";
 import { read_session } from "./store/session-store.js";
+import { watcher_live } from "./watch/live.js";
 
 /** Builds the view an event carries; the daemon's view context supplies it. */
 export type ViewBuilder = (summary: SessionSummary) => SessionView;
@@ -68,6 +69,10 @@ export function watch_sessions(
 
     const ready = new Promise<void>((resolve) => {
         watcher.once("ready", () => resolve());
+    }).then(async () => {
+        if (!(await watcher_live(watcher, home.sessions))) {
+            on_error("watcher: the probe file was not reported");
+        }
     });
     return { ready, close: () => watcher.close() };
 }

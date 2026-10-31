@@ -7,6 +7,7 @@ import { mkdirSync } from "node:fs";
 import { basename, relative, sep } from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { SpinnerHome } from "../home.js";
+import { watcher_live } from "./live.js";
 
 export interface SessionFileHandlers {
     /** `MISSION.md` was written. `kind` is `add` when the file appeared (a new session). */
@@ -75,6 +76,10 @@ export function watch_session_files(
     watcher.on("error", (error) => handlers.on_error(`session files watcher: ${String(error)}`));
     const ready = new Promise<void>((resolve) => {
         watcher.once("ready", () => resolve());
+    }).then(async () => {
+        if (!(await watcher_live(watcher, home.sessions))) {
+            handlers.on_error("session files watcher: the probe file was not reported");
+        }
     });
     return { ready, close: () => watcher.close() };
 }
