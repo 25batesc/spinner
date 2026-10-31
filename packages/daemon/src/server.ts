@@ -669,14 +669,10 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         writer,
         deliverer,
     });
-    const server = await listen(app, host, port);
-    const address = server.address();
-    assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
-    bound_port = address.port;
-
+    // The watchers come up before the port opens: a client that sees `/health` answer must
+    // find the daemon whole, so a session it creates at once is watched, and `main.ts`
+    // writes `daemon.pid` right after this returns (the CLI's `daemon start` reads it).
     const unwatch_stack_jobs = watch_stack_jobs({ home, bus, agents, log });
-    const ttys = tty_upgrader({ home, agents, tty, log });
-    const sockets = attach_events_socket(server, bus, log, ttys.handle);
     const watcher = watch_sessions(home, bus, view, { on_error: log });
     await watcher.ready;
     deliverer.prime(list_sessions(home).sessions.map((summary) => summary.dir));
@@ -687,6 +683,13 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         on_error: log,
     });
     await files.ready;
+
+    const server = await listen(app, host, port);
+    const address = server.address();
+    assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
+    bound_port = address.port;
+    const ttys = tty_upgrader({ home, agents, tty, log });
+    const sockets = attach_events_socket(server, bus, log, ttys.handle);
     const poller = start_github_poller(options, ctx, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
     for (const resumed of await agents.adopt_all()) {
