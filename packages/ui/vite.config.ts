@@ -23,6 +23,8 @@ export default defineConfig({
             ),
             // The agent tty route upgrades to a WebSocket under `/sessions`.
             "/sessions": { target: DAEMON_URL, ws: true },
+            // The operator agent's routes and its tty socket, `/operator/tty`.
+            "/operator": { target: DAEMON_URL, ws: true },
             [EVENTS_PATH]: { target: DAEMON_URL, ws: true },
         },
     },

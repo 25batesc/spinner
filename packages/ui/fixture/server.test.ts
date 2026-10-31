@@ -4,7 +4,9 @@ import type { AddressInfo } from "node:net";
 
 import {
     EVENTS_PATH,
+    OPERATOR_TTY_PATH,
     type JobResponse,
+    type OperatorView,
     type SessionResponse,
     type SessionsResponse,
     type SpinnerEvent,
@@ -134,4 +136,55 @@ it("rewrites one mission section and keeps the rest", async () => {
     const text = await (await fetch(base)).text();
     expect(text).toContain("## Goal\nNew goal.\n\n## Done when");
     expect(text).toContain("refund button works");
+});
+
+it("hosts the operator agent: GET /operator, its tty, stop closes the pty, start", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/operator`;
+    const read = async () =>
+        ((await (await fetch(base)).json()) as { operator: OperatorView }).operator;
+    const first = await read();
+    expect(first.process).toBe("idle");
+    expect(first.last_notice?.text).toContain("s17-refund-flow: ");
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${EVENTS_PATH}`);
+    await new Promise((resolve) => socket.on("open", resolve));
+    const events: SpinnerEvent[] = [];
+    socket.on("message", (data) => events.push(JSON.parse(data.toString()) as SpinnerEvent));
+
+    const tty = new WebSocket(`ws://127.0.0.1:${port}${OPERATOR_TTY_PATH}`);
+    const frames: string[] = [];
+    tty.on("message", (data) => frames.push(data.toString()));
+    await new Promise((resolve) => tty.on("open", resolve));
+    await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+            if (frames.some((f) => f.includes("Spinner fixture pty for operator"))) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, 20);
+    });
+    const closed = new Promise<number>((resolve) => tty.on("close", resolve));
+    const stopped = await fetch(`${base}/stop`, { method: "POST" });
+    expect(stopped.status).toBe(200);
+    const view = ((await stopped.json()) as { operator: OperatorView }).operator;
+    expect(view).toMatchObject({ process: "exited", pid: null, waiting_on: "start" });
+    expect(await closed).toBe(1000);
+    expect(frames.at(-1)).toBe(JSON.stringify({ exit: { code: 0 } }));
+    expect((await read()).process).toBe("exited");
+    expect((await fetch(`${base}/stop`, { method: "POST" })).status).toBe(409);
+
+    const refused = new WebSocket(`ws://127.0.0.1:${port}${OPERATOR_TTY_PATH}`);
+    const failure = await new Promise<Error>((resolve) => refused.on("error", resolve));
+    expect(failure.message).toContain("404");
+
+    const started = await fetch(`${base}/start`, { method: "POST" });
+    expect(started.status).toBe(200);
+    expect(await read()).toMatchObject({ process: "idle", waiting_on: "operator" });
+    expect((await fetch(`${base}/start`, { method: "POST" })).status).toBe(409);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    socket.close();
+    const updates = events.filter((e) => e.type === "operator.updated");
+    expect(updates.map((e) => e.type === "operator.updated" && e.data.process)).toEqual([
+        "exited", "idle",
+    ]);
 });

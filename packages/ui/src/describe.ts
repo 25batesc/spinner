@@ -43,6 +43,10 @@ export function describeEvent(event: SpinnerEvent): string | null {
         case "settings":
             // The operator's own change; every window follows it without a line.
             return null;
+        case "operator.updated":
+            // Not tied to a session (`session` is null), so the feed never shows it; the
+            // operator tab follows the view.
+            return null;
         case "mission.changed":
             return `${event.author} changed ${event.sections.join(", ")}`;
         case "inbox.message":

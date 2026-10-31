@@ -13,7 +13,9 @@ import {
     THEME_SYSTEM,
     validate_palette,
     type Job,
+    OPERATOR_TTY_PATH,
     type JobAction,
+    type OperatorView,
     type PiAssistantMessage,
     type PiEvent,
     type SessionView,
@@ -34,6 +36,23 @@ import {
 import { EchoPty } from "./tty.ts";
 
 export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
+
+/** The operator agent at the fixture's start: hosted, idle, one notice behind it. */
+export function initialOperator(): OperatorView {
+    return {
+        enabled: true,
+        process: "idle",
+        pid: 4242,
+        model: "fixture/default",
+        dir: "/home/fixture/.spinner/operator",
+        waiting_on: "operator",
+        last_notice: {
+            ts: "2026-10-30T22:20:00.000Z",
+            text: "s17-refund-flow: needs_human set: Approve the refund copy in PR #412",
+        },
+        notices_pending: 0,
+    };
+}
 
 export const STEP_DELAY_MS = 300;
 /** The fixture samples faster than the daemon (5 s), so a driver sees an update soon. */
@@ -122,6 +141,9 @@ class FixtureDaemon {
     ticks = 0;
     /** The operator's settings, as `~/.spinner/settings.yaml` would hold them. */
     settings: Settings = { ...SETTINGS_DEFAULT };
+    /** The operator agent, `GET /operator`; its pty is made on the first attach. */
+    operator: OperatorView = initialOperator();
+    operatorPty: EchoPty | null = null;
 
     pipeline = new PipelineFixture(this);
 
@@ -145,6 +167,44 @@ class FixtureDaemon {
         const made = new EchoPty(name);
         this.ptys.set(key, made);
         return made;
+    }
+
+    /** The operator agent's pty, as `pty()` for an agent: null while it is not running. */
+    operatorTty(): EchoPty | null {
+        if (this.operator.process === "exited") {
+            return null;
+        }
+        this.operatorPty ??= new EchoPty("operator");
+        return this.operatorPty;
+    }
+
+    /**
+     * `POST /operator/start` and `/operator/stop`, as the daemon: the new view answers at
+     * once and `operator.updated` carries it; 409 when the agent is already in that state. A
+     * stop sends the pty's exit frame and closes its clients; a start hosts the agent again
+     * with a fresh pty, so a resumed terminal sees a new banner.
+     */
+    operatorRoute(response: ServerResponse, path: string): boolean {
+        const running = this.operator.process !== "exited";
+        if (path === "/operator/stop" && running) {
+            this.operatorPty?.exit(0);
+            this.operatorPty = null;
+            this.operator = { ...this.operator, process: "exited", pid: null, waiting_on: "start" };
+        } else if (path === "/operator/start" && !running) {
+            this.operator = {
+                ...this.operator, process: "idle", pid: 4243, waiting_on: "operator",
+            };
+        } else if (path === "/operator/stop" || path === "/operator/start") {
+            const state = running ? "already runs" : "does not run";
+            sendJson(response, { error: `the operator agent ${state}` }, 409);
+            return true;
+        } else {
+            return false;
+        }
+        const ts = new Date().toISOString();
+        this.emit({ type: "operator.updated", ts, session: null, data: this.operator });
+        sendJson(response, { operator: this.operator });
+        return true;
     }
 
     /**
@@ -497,6 +557,10 @@ class FixtureDaemon {
             sendJson(response, this.usage());
         } else if (method === "GET" && path === "/health") {
             sendJson(response, { ok: true, home: "fixture", started: new Date().toISOString() });
+        } else if (method === "GET" && path === "/operator") {
+            sendJson(response, { operator: this.operator });
+        } else if (method === "POST" && this.operatorRoute(response, path)) {
+            return;
         } else if (method === "POST" && (await this.run(request, response, path))) {
             return;
         } else if (method === "DELETE" && this.unverify(response, path)) {
@@ -522,8 +586,10 @@ export function startFixture(port: number = FIXTURE_PORT) {
     server.on("upgrade", (request, socket, head) => {
         const path = (request.url ?? "").split("?")[0] ?? "";
         const tty = TTY_ROUTE.exec(path);
-        if (tty !== null) {
-            const pty = daemon.pty(tty[1] ?? "", tty[2] ?? "");
+        if (tty !== null || path === OPERATOR_TTY_PATH) {
+            const pty = tty === null
+                ? daemon.operatorTty()
+                : daemon.pty(tty[1] ?? "", tty[2] ?? "");
             if (pty === null) {
                 // As the daemon: a plain 404 before the upgrade when the agent is not running.
                 socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");

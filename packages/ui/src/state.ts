@@ -3,7 +3,13 @@
 // widths) live in components, not in this state, because the daemon never sends them.
 // A session changes only through `session.created` and `session.updated`, which carry the whole
 // `SessionView`; partial events such as `stack.state` show up in the feed but do not edit it.
-import type { Job, SessionView, Settings, SpinnerEvent } from "@spinner/protocol";
+import type {
+    Job,
+    OperatorView,
+    SessionView,
+    Settings,
+    SpinnerEvent,
+} from "@spinner/protocol";
 
 import { describeEvent } from "./describe.ts";
 import { emptyTranscript, foldEvent, type Transcript } from "./transcript.ts";
@@ -37,6 +43,11 @@ export interface UiState {
     usage: UsageSample | null;
     /** The operator's settings: `GET /settings` at load, then every `settings` event. */
     settings: Settings | null;
+    /**
+     * The operator agent: `GET /operator` at load, then every `operator.updated` event. Null
+     * until the load answers, and from a daemon without the route.
+     */
+    operator: OperatorView | null;
 }
 
 export interface Revisions {
@@ -54,7 +65,8 @@ export type Action =
     | { kind: "event"; event: SpinnerEvent }
     | { kind: "connection"; status: ConnectionStatus }
     | { kind: "usage"; usage: UsageSample }
-    | { kind: "settings"; settings: Settings };
+    | { kind: "settings"; settings: Settings }
+    | { kind: "operator"; operator: OperatorView };
 
 export const initialState: UiState = {
     sessions: {},
@@ -65,6 +77,7 @@ export const initialState: UiState = {
     revisions: {},
     usage: null,
     settings: null,
+    operator: null,
 };
 
 export function transcriptKey(dir: string, agent: string): string {
@@ -118,6 +131,8 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
             return { ...state, usage: { machine: event.machine, sessions: event.sessions } };
         case "settings":
             return { ...state, settings: event.settings };
+        case "operator.updated":
+            return { ...state, operator: event.data };
         default:
             return state;
     }
@@ -190,6 +205,8 @@ export function reduce(state: UiState, action: Action): UiState {
             return { ...state, usage: action.usage };
         case "settings":
             return { ...state, settings: action.settings };
+        case "operator":
+            return { ...state, operator: action.operator };
         case "jobs":
             return applyJobs(state, action.jobs);
         case "event":

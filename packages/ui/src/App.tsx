@@ -4,6 +4,8 @@ import { AgentsPane } from "./AgentsPane.tsx";
 import { fetchThemes, postAction, putSettings } from "./events-client.ts";
 import { ActivityDrawer } from "./ActivityDrawer.tsx";
 import { isOpen, isStrip, PANES, type PaneName } from "./layout.ts";
+import { operatorNotice, postOperator } from "./operator.ts";
+import { OperatorPane } from "./OperatorPane.tsx";
 import {
     ActivityBar,
     ContextBar,
@@ -114,6 +116,20 @@ export function App() {
     const layout = useLayout();
     // The side panel shows the sessions or, from the gear at the bottom of the bar, settings.
     const [panelView, setPanelView] = useState<PanelView["id"]>("sessions");
+    // The middle pane shows the selected session or, from the headset icon, the operator agent.
+    const [middle, setMiddle] = useState<"agents" | "operator">("agents");
+    const notice = operatorNotice(state.operator);
+    // The link's failure lands where a job's does, in the drawer.
+    const operatorBar =
+        notice === null
+            ? undefined
+            : {
+                  notice,
+                  onResume: () =>
+                      void postOperator("start").catch((failure: unknown) =>
+                          app.setActionError(String(failure)),
+                      ),
+              };
     // The themes list follows the settings: a change may name a file written since the load.
     const settingsKey = JSON.stringify(state.settings);
     const themes = useLoaded(`themes#${settingsKey}`, fetchThemes).value ?? null;
@@ -279,8 +295,12 @@ export function App() {
             controls={inRoute ? undefined : []}
         />
     );
+    const operatorPane = (
+        <OperatorPane view={state.operator} controls={inRoute ? undefined : []} />
+    );
     const sidePanel = panelView === "settings" ? settingsPane : sessionsPane;
-    const panes = { sessions: sidePanel, agents: agentsPane, previews: previewsPane };
+    const middlePane = middle === "operator" ? operatorPane : agentsPane;
+    const panes = { sessions: sidePanel, agents: middlePane, previews: previewsPane };
     const status = <footer className="status">daemon: {state.connection}</footer>;
 
     if (route !== undefined) {
@@ -314,15 +334,20 @@ export function App() {
         const props = layout.handle(before, pane);
         return [<div key={`${before}|${pane}`} className="handle" {...props} />, cell];
     });
-    const agentsOff = expanded || isStrip(layout.fitted.panes.agents);
+    // The drawer sits under the agents pane; with the pane gone or swapped for the operator
+    // tab, it takes a row of its own.
+    const agentsOff =
+        expanded || isStrip(layout.fitted.panes.agents) || middle === "operator";
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
-            <ContextBar view={view} usage={state.usage} />
+            <ContextBar view={view} usage={state.usage} operator={operatorBar} />
             <div className="shell-body">
                 <ActivityBar
                     shown={panelShown ? panelView : undefined}
                     popped={sessionsState.popped}
                     onPick={pickPanel}
+                    operatorShown={middle === "operator"}
+                    onOperator={() => setMiddle(middle === "operator" ? "agents" : "operator")}
                 />
                 <div
                     ref={layout.container}

@@ -415,8 +415,16 @@ html, body, #root { height: 100%; margin: 0; }
 .terminal-host .xterm { height: 100%; }
 /* xterm.css paints the viewport black by default; keep it the theme's background. */
 .terminal-host .xterm-viewport { background-color: var(--terminal-background) !important; }
-/* The gear sits at the bottom of the activity bar, apart from the views. */
+/* The gear sits at the bottom of the activity bar, apart from the views; the operator icon
+   takes the first bottom slot, so the gear under it keeps its place in the flow. */
 .activity-bar .bar-bottom { margin-top: auto; }
+.activity-bar .bar-operator + .bar-bottom { margin-top: 0; }
+/* The operator tab: the stop or resume button, then the waiting line, on one row. */
+.operator-toolbar { font-size: 12px; }
+.operator-waiting { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The context bar's one control: the resume link after the not-running notice. */
+.operator-notice { white-space: nowrap; }
+.operator-notice .link { margin-left: 0; padding: 0; font: inherit; font-size: 12px; }
 /* The settings view in the side panel: one labelled control per line, swatches under the
    theme select, the invalid custom themes struck through with their missing keys. */
 .settings { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }

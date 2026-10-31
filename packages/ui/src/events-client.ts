@@ -41,7 +41,10 @@ function hasEnvelope(value: unknown): value is SpinnerEvent {
         typeof ts === "string" &&
         (typeof session === "string" ||
             (session === null &&
-                (type.startsWith("job.") || type === "usage" || type === "settings")))
+                (type.startsWith("job.") ||
+                    type === "usage" ||
+                    type === "settings" ||
+                    type === "operator.updated")))
     );
 }
 

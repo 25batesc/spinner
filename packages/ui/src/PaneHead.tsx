@@ -30,6 +30,7 @@ export type IconName =
     | "close"
     | "minimize"
     | "gear"
+    | "operator"
     | "pull-request";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
@@ -56,6 +57,10 @@ const GLYPHS: Record<IconName, string> = {
     "pull-request":
         "M4 5v8M4 5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M4 13a1.5 1.5 0 1 0 0 3" +
         "M12 13V8a3 3 0 0 0-3-3H7M9 3L7 5l2 2M12 13a1.5 1.5 0 1 0 0 3",
+    // A headset: the operator agent, the one that talks back.
+    operator:
+        "M3 9V8a5 5 0 0 1 10 0v1M2.5 9h2v4h-2zM11.5 9h2v4h-2z" +
+        "M13.5 13a2 2 0 0 1-2 1.5H9.5",
 };
 
 export function Icon({ name }: { name: IconName }) {
@@ -176,13 +181,29 @@ export interface ActivityBarProps {
     /** True when the left panel lives in its own window; its icon then docks it back. */
     popped: boolean;
     onPick: (view: PanelView["id"]) => void;
+    /** True while the middle pane shows the operator agent's terminal in place of the session. */
+    operatorShown: boolean;
+    /** Shows the operator tab, or the session again when it is shown. */
+    onOperator: () => void;
 }
 
 /**
  * The narrow bar at the left, one icon per left-panel view. A click on the active icon hides
- * the panel; a click on any icon shows the panel on that view.
+ * the panel; a click on any icon shows the panel on that view. The operator icon, above the
+ * gear, is not a panel view: it swaps the middle pane between the session and the operator.
  */
-export function ActivityBar({ shown, popped, onPick }: ActivityBarProps) {
+export function ActivityBar(props: ActivityBarProps) {
+    const { shown, popped, onPick, operatorShown, onOperator } = props;
+    const operator = (
+        <IconButton
+            key="operator"
+            icon="operator"
+            label={operatorShown ? "Hide operator" : "Show operator"}
+            active={operatorShown}
+            className="bar-bottom bar-operator"
+            onClick={onOperator}
+        />
+    );
     return (
         <nav className="activity-bar" aria-label="Views">
             {PANEL_VIEWS.map((view) => {
@@ -190,11 +211,8 @@ export function ActivityBar({ shown, popped, onPick }: ActivityBarProps) {
                 const label = popped
                     ? `Dock ${view.label.toLowerCase()} back`
                     : `${on ? "Hide" : "Show"} ${view.label.toLowerCase()}`;
-                const classes = [
-                    popped ? "bar-popped" : "",
-                    view.bottom === true ? "bar-bottom" : "",
-                ];
-                return (
+                const classes = [popped ? "bar-popped" : ""];
+                const button = (
                     <IconButton
                         key={view.id}
                         icon={view.icon}
@@ -204,6 +222,8 @@ export function ActivityBar({ shown, popped, onPick }: ActivityBarProps) {
                         onClick={() => onPick(view.id)}
                     />
                 );
+                // The first bottom view takes the operator icon above it.
+                return view.bottom === true ? [operator, button] : button;
             })}
         </nav>
     );
@@ -231,6 +251,23 @@ export interface ContextBarProps {
     view: SessionView | undefined;
     /** The last usage sample: the session's line and the machine line. */
     usage: UsageSample | null;
+    /** The operator agent's notice when it is not running, with the way to start it again. */
+    operator?: { notice: string; onResume: () => void } | undefined;
+}
+
+/** `operator agent not running · resume`: the only control the context bar has. */
+function OperatorNotice({ operator }: Pick<ContextBarProps, "operator">) {
+    if (operator === undefined) {
+        return null;
+    }
+    return (
+        <span className="needs-human operator-notice">
+            {operator.notice}{" "}
+            <button type="button" className="link" onClick={operator.onResume}>
+                resume
+            </button>
+        </span>
+    );
 }
 
 /** The machine line: `machine 9.8 / 32 GB · 3 stacks up`, red when free memory is low. */
@@ -249,11 +286,12 @@ function MachineLine({ usage }: { usage: UsageSample | null }) {
     );
 }
 
-export function ContextBar({ view, usage }: ContextBarProps) {
+export function ContextBar({ view, usage, operator }: ContextBarProps) {
     if (view === undefined) {
         return (
             <div className="context-bar muted">
                 No session selected. <MachineLine usage={usage} />
+                <OperatorNotice operator={operator} />
             </div>
         );
     }
@@ -271,6 +309,7 @@ export function ContextBar({ view, usage }: ContextBarProps) {
             <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
             {needs !== null && <span className="needs-human">{needs}</span>}
+            <OperatorNotice operator={operator} />
         </div>
     );
 }

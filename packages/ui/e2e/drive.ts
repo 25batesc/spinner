@@ -365,13 +365,13 @@ if (flow === "panes") {
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
-        bar: 2, barOn: "true", popOuts: 1, top: 0, inSessions: 0,
+        bar: 3, barOn: "true", popOuts: 1, top: 0, inSessions: 0,
         context: ["Refund flow", "peer-review", "stack up", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
         links: 0, icons: 7,
     };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
-        throw new Error("expected the bar (sessions, gear) lit, no toggle, one pop-out, 7 icons");
+        throw new Error("expected the bar (sessions, operator, gear), 1 pop-out, 7 icons");
     }
     const popOutOwner = await evaluate(
         `document.querySelector("button[aria-label^='Pop out']").closest(".pane").className`,
@@ -1546,6 +1546,106 @@ if (flow === "terminal") {
     await until("scrollback replayed", `${rows}.includes(${JSON.stringify(expected)})`);
     await shot("60-terminal-pane-route");
     console.log("terminal ok");
+    await finish();
+}
+
+if (flow === "operator") {
+    // The operator tab, against the fixture (or a scratch daemon with E2E_BANNER set to a
+    // string pi prints): the headset icon sits above the gear; a click swaps the middle pane
+    // for the operator's terminal while the side panel and the previews stay; the line under
+    // the tab names the last notice; the banner shows on attach and keystrokes echo; `stop`
+    // closes the pty, offers `resume` in the tab and puts the notice with its `resume` link in
+    // the context bar; `resume` from either place hosts the agent again; the icon again
+    // brings the session back.
+    const banner = process.env["E2E_BANNER"] ?? "Spinner fixture pty for operator";
+    const shown = `document.querySelector(".operator-pane .agent-terminal:not([hidden])")`;
+    const rows = `(${shown}?.querySelector(".xterm-rows")?.innerText ?? "")`;
+    const notice = `document.querySelector(".context-bar .operator-notice")`;
+    const key = (key: string, code: string, keyCode: number, text: string) =>
+        [
+            send("Input.dispatchKeyEvent", {
+                type: "keyDown", key, code, windowsVirtualKeyCode: keyCode, text,
+            }),
+            send("Input.dispatchKeyEvent", { type: "keyUp", key, code }),
+        ];
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    const bar = await evaluate(`[...document.querySelectorAll(".activity-bar .icon-button")]
+        .map((b) => b.getAttribute("aria-label"))`);
+    console.log("activity bar:", JSON.stringify(bar));
+    const wantedBar = ["Hide sessions", "Show operator", "Show settings"];
+    if (JSON.stringify(bar) !== JSON.stringify(wantedBar)) {
+        throw new Error("the operator icon must sit between the views and the gear");
+    }
+    await until("no notice while running", `${notice} === null`);
+    await click("button[aria-label='Show operator']");
+    await until("operator pane", `document.querySelector(".operator-pane") !== null`);
+    const sessionPane = `document.querySelector(".agents-pane:not(.operator-pane)")`;
+    await until("agents pane swapped out", `${sessionPane} === null`);
+    const around = await evaluate(`({
+        panes: [...document.querySelectorAll(".pane")].map((p) => p.getAttribute("aria-label")),
+        tab: document.querySelector(".operator-pane .view-tab")?.textContent,
+        waiting: document.querySelector(".operator-waiting")?.textContent,
+        iconOn: document.querySelector("button[aria-label='Hide operator']")?.ariaPressed,
+        context: document.querySelector(".context-title")?.textContent,
+    })`);
+    console.log("operator tab:", JSON.stringify(around));
+    const wantedAround = {
+        panes: ["Sessions", "Operator", "Previews"], tab: "operator",
+        waiting: process.env["E2E_WAITING"] ??
+            "waiting on: s17-refund-flow: needs_human set: Approve the refund copy in PR #412",
+        iconOn: "true", context: "Refund flow",
+    };
+    if (JSON.stringify(around) !== JSON.stringify(wantedAround)) {
+        throw new Error("the operator tab did not take the middle with the panes around it");
+    }
+    await until("xterm mounted", `${shown}?.querySelector(".xterm") !== null`);
+    await until("banner", `${rows}.includes(${JSON.stringify(banner)})`);
+    await until("status line gone", `${shown}.querySelector(".tty-status") === null`);
+    await shot("80-operator-tab");
+    const typed = process.env["E2E_TYPED"] ?? "hello";
+    for (const char of typed) {
+        const upper = char.toUpperCase();
+        await Promise.all(key(char, `Key${upper}`, upper.charCodeAt(0), char));
+    }
+    if (process.env["E2E_ENTER"] !== "0") {
+        await Promise.all(key("Enter", "Enter", 13, "\r"));
+    }
+    await until("echo", `${rows}.includes(${JSON.stringify(process.env["E2E_EXPECT"] ?? typed)})`);
+    await shot("81-operator-typed");
+    await click(".operator-toolbar button", "stop");
+    // One resume in the tab, on the toolbar; the status line only says it is not running.
+    await until("toolbar offers resume", `${text(".operator-toolbar button")} === "resume"`);
+    await until("status line", `${text(".operator-pane .tty-status")}.includes("not running")`);
+    await until("no second resume", `${shown}?.querySelector(".tty-status button") === null`);
+    const noticeText = `${notice}?.textContent`;
+    const notRunning = `${noticeText}.includes("operator agent not running")`;
+    await until("notice in the context bar", notRunning);
+    const noticeLink = `${notice}?.querySelector("button.link")?.textContent`;
+    await until("notice has the link", `${noticeLink} === "resume"`);
+    await shot("82-operator-stopped");
+    await click(".operator-toolbar button", "resume");
+    await until("notice gone", `${notice} === null`);
+    await until("toolbar offers stop", `${text(".operator-toolbar button")} === "stop"`);
+    await until("attached again", `${shown}.querySelector(".tty-status") === null`);
+    if (process.env["E2E_BANNER"] === undefined) {
+        // The fixture makes a fresh pty on a start: one banner, no echo of the old line.
+        await until("fresh pty", `${rows}.includes(${JSON.stringify(banner)})`);
+    }
+    await shot("83-operator-resumed");
+    // The link in the context bar is the other way back.
+    await click(".operator-toolbar button", "stop");
+    await until("stopped again", `${notice} !== null`);
+    await click(".context-bar .operator-notice button.link");
+    await until("resumed from the bar", `${notice} === null`);
+    await until("stop offered again", `${text(".operator-toolbar button")} === "stop"`);
+    // The icon again: the session's agents pane comes back, the icon dims.
+    await click("button[aria-label='Hide operator']");
+    await until("agents pane back", `document.querySelector(".agents-pane .chips") !== null`);
+    await until("operator pane gone", `document.querySelector(".operator-pane") === null`);
+    const iconOff = `document.querySelector("button[aria-label='Show operator']")?.ariaPressed`;
+    await until("icon off", `${iconOff} === "false"`);
+    await shot("84-operator-hidden");
+    console.log("operator ok");
     await finish();
 }
 

@@ -9,6 +9,7 @@ import {
     fetchSettings,
     fetchUsage,
 } from "./events-client.ts";
+import { fetchOperator } from "./operator.ts";
 import { initialState, reduce, type UiState } from "./state.ts";
 
 export function useSpinner(): UiState {
@@ -47,6 +48,13 @@ export function useSpinner(): UiState {
                 }
             })
             .catch(report("settings"));
+        fetchOperator(abort.signal)
+            .then((operator) => {
+                if (operator !== null) {
+                    dispatch({ kind: "operator", operator });
+                }
+            })
+            .catch(report("operator"));
         return () => {
             abort.abort();
             stop();
