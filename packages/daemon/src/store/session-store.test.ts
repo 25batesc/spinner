@@ -22,6 +22,7 @@ import {
     list_sessions,
     next_session_id,
     read_session,
+    session_numbers_in_other_homes,
     slugify,
 } from "./session-store.js";
 
@@ -82,6 +83,23 @@ describe("create_session", () => {
         expect(next_session_id(home)).toBe("s042");
         const third = create_session(home, { title: "third", slug: "custom" });
         expect(third.dir).toBe("s042-custom");
+    });
+
+    it("sees the sessions of other homes the proxy's route files name", () => {
+        const proxy = join(home.root, "proxy");
+        const other = join(home.root, "other-home");
+        mkdirSync(join(other, "sessions", "s007-theirs"), { recursive: true });
+        mkdirSync(join(other, "archive", "s009-closed"), { recursive: true });
+        mkdirSync(proxy, { recursive: true });
+        writeFileSync(join(proxy, "spinner-s003.yaml"), `# home: ${other}\nhttp: {}\n`);
+        writeFileSync(join(proxy, "spinner-s002.yaml"), `# home: ${home.root}\nhttp: {}\n`);
+        const machine: SpinnerHome = { ...home, proxy, ids_scope: "machine" };
+        expect(session_numbers_in_other_homes(machine)).toEqual([9]);
+        // Machine scope also asks Docker, which may know higher ids on this machine.
+        expect(Number.parseInt(next_session_id(machine).slice(1), 10)).toBeGreaterThanOrEqual(10);
+        expect(session_numbers_in_other_homes({ ...machine, proxy: join(home.root, "x") })).toEqual(
+            [],
+        );
     });
 
     it("refuses an empty title and a home inside a git repo", () => {

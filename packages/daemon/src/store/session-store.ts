@@ -10,7 +10,7 @@ import { SESSION_VERSION } from "@spinner/protocol";
 import { is_inside_git_repo, type SpinnerHome } from "../home.js";
 import { SESSION_PORT_MAX } from "../stack/compose.js";
 import { session_numbers_of, spinner_projects_sync } from "../stack/docker.js";
-import { session_numbers_in_route_files } from "../stack/host-service.js";
+import { homes_in_route_files, session_numbers_in_route_files } from "../stack/host-service.js";
 import { render_agents_file, render_mission } from "./mission-template.js";
 
 /** Directories every session has from the start, in the order of the protocol document. */
@@ -208,8 +208,38 @@ export function next_session_id(home: SpinnerHome): string {
         for (const number of session_numbers_of(spinner_projects_sync())) {
             highest = Math.max(highest, number);
         }
+        // A route file exists only for a session that ran a stack; the home it names may
+        // hold sessions that never did (s006: a scratch home minted the operator's `s001`).
+        for (const number of session_numbers_in_other_homes(home)) {
+            highest = Math.max(highest, number);
+        }
     }
-    for (const dir of [home.sessions, home.archive]) {
+    highest = Math.max(highest, highest_session_number_in(home.sessions, home.archive));
+    const next = highest + 1;
+    assert.ok(next <= SESSION_NUMBER_MAX, `session ids are exhausted at s${SESSION_NUMBER_MAX}`);
+    return `s${String(next).padStart(3, "0")}`;
+}
+
+/**
+ * The highest session number in the `sessions/` and `archive/` of every other home the proxy
+ * directory's route files name. A home that never ran a stack has no route file and stays
+ * unseen; `SPINNER_SESSION_IDS=home` opts out for scratch homes.
+ */
+export function session_numbers_in_other_homes(home: SpinnerHome): number[] {
+    const numbers: number[] = [];
+    for (const root of homes_in_route_files(home.proxy)) {
+        if (root === home.root) {
+            continue;
+        }
+        numbers.push(highest_session_number_in(join(root, "sessions"), join(root, "archive")));
+    }
+    return numbers;
+}
+
+/** The highest `s<n>-*` entry across the directories, 0 when there is none. */
+function highest_session_number_in(...dirs: string[]): number {
+    let highest = 0;
+    for (const dir of dirs) {
         if (!existsSync(dir)) {
             continue;
         }
@@ -220,9 +250,7 @@ export function next_session_id(home: SpinnerHome): string {
             }
         }
     }
-    const next = highest + 1;
-    assert.ok(next <= SESSION_NUMBER_MAX, `session ids are exhausted at s${SESSION_NUMBER_MAX}`);
-    return `s${String(next).padStart(3, "0")}`;
+    return highest;
 }
 
 /** Lower-case, ASCII letters and digits only, runs of other characters become one dash. */
