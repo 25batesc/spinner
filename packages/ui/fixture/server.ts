@@ -41,6 +41,7 @@ export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
 export function initialOperator(): OperatorView {
     return {
         enabled: true,
+        ready: true,
         process: "idle",
         pid: 4242,
         model: "fixture/default",

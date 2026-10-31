@@ -6,6 +6,7 @@ import { operatorNotice, operatorRunning, waitingLine } from "./operator.ts";
 
 const view: OperatorView = {
     enabled: true,
+    ready: true,
     process: "idle",
     pid: 4242,
     model: "fixture/default",
