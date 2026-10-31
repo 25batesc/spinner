@@ -308,9 +308,11 @@ export function create_app(deps: AppDeps): Hono {
             const body: AgentResponse = { name: request.name, pi_session_id: handle.pi_session_id };
             return c.json(body, 201);
         } catch (error) {
-            // An agent that runs already is the caller's conflict; a spawn that fails is ours.
+            // An agent that runs already, or a repo without a worktree, is the caller's
+            // conflict; a pi that fails to start is the daemon's fault.
             const message = describe_error(error);
-            const status = message.includes("already running") ? 409 : 500;
+            const conflict = message.includes("already running") || message.includes("no worktree");
+            const status = conflict ? 409 : 500;
             return c.json(error_body(message), status);
         }
     });
