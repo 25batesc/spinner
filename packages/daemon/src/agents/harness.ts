@@ -121,23 +121,60 @@ export class PiRpcHarness implements AgentHarness {
 }
 
 /**
- * The spawn both harnesses share: cwd, transcript dir and id, model, `--skill` when the
- * session has skills, `--extension` when the extension exists (else the brief through
- * `--append-system-prompt`), and the extension's environment. Creates the transcript dir.
+ * The spawn both harnesses share for a session agent: the brief at `agents/<name>/BRIEF.md`,
+ * the transcript under `agents/<name>/pi`, the session's `skills/`, and the session directory
+ * in the extension's environment. `pi_spawn_plan` does the rest.
  */
 export function pi_spawn_options(
     session: SessionSummary,
     agent: AgentSpawnSpec,
     options: PiHarnessOptions,
 ): PiSpawnOptions {
-    assert.ok(/^[a-z0-9][a-z0-9-]*$/.test(agent.name), `agent name ${agent.name}`);
-    const brief = agent_brief_path(session.path, agent.name);
-    assert.ok(existsSync(brief), `${brief} does not exist`);
-    const session_dir = join(session.path, agent_pi_dir(agent.name));
-    mkdirSync(session_dir, { recursive: true });
+    const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
+    return pi_spawn_plan(
+        {
+            name: agent.name,
+            cwd: agent.cwd,
+            model: agent.model,
+            role,
+            brief: agent_brief_path(session.path, agent.name),
+            pi_dir: join(session.path, agent_pi_dir(agent.name)),
+            skills_dir: join(session.path, "skills"),
+            session_dir: session.path,
+        },
+        options,
+    );
+}
+
+/** What one pi spawn needs, independent of where the files live. The operator host builds one. */
+export interface PiSpawnInput {
+    name: string;
+    cwd: string;
+    /** `provider/model`, or undefined for `options.default_model`, else pi's default. */
+    model: string | undefined;
+    role: ExtensionRole;
+    /** The brief file; it must exist. */
+    brief: string;
+    /** `--session-dir`: where the transcript lives. Created when absent. */
+    pi_dir: string;
+    /** `--skill` when it exists and has entries. */
+    skills_dir?: string;
+    /** `SPINNER_SESSION_DIR` for the extension. */
+    session_dir: string;
+}
+
+/**
+ * The spawn: cwd, transcript dir and id, model, `--skill` when the directory has entries,
+ * `--extension` when the extension exists (else the brief through `--append-system-prompt`),
+ * and the extension's environment. Creates the transcript dir.
+ */
+export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): PiSpawnOptions {
+    assert.ok(/^[a-z0-9][a-z0-9-]*$/.test(input.name), `agent name ${input.name}`);
+    assert.ok(existsSync(input.brief), `${input.brief} does not exist`);
+    mkdirSync(input.pi_dir, { recursive: true });
     const extra_args: string[] = [];
-    const skills = join(session.path, "skills");
-    if (existsSync(skills) && has_entries(skills)) {
+    const skills = input.skills_dir;
+    if (skills !== undefined && existsSync(skills) && has_entries(skills)) {
         extra_args.push("--skill", skills);
     }
     const extension = resolved_extension(options);
@@ -145,21 +182,20 @@ export function pi_spawn_options(
         // The extension puts the brief in its prompt section; without it, pi appends it.
         extra_args.push("--extension", extension);
     } else {
-        extra_args.push("--append-system-prompt", brief);
+        extra_args.push("--append-system-prompt", input.brief);
     }
-    const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
-    const model = agent.model ?? options.default_model;
+    const model = input.model ?? options.default_model;
     const env: Record<string, string> = {
-        [EXTENSION_ENV.session_dir]: session.path,
-        [EXTENSION_ENV.agent]: agent.name,
+        [EXTENSION_ENV.session_dir]: input.session_dir,
+        [EXTENSION_ENV.agent]: input.name,
         [EXTENSION_ENV.daemon_url]: options.daemon_url?.() ?? "",
-        [EXTENSION_ENV.role]: role,
+        [EXTENSION_ENV.role]: input.role,
     };
     return {
         pi: options.pi(),
-        cwd: agent.cwd,
-        session_dir,
-        session_id: agent.name,
+        cwd: input.cwd,
+        session_dir: input.pi_dir,
+        session_id: input.name,
         ...(model === undefined ? {} : { model }),
         extra_args,
         env,

@@ -4,7 +4,33 @@
 // session directory are exempt (the mission, notes, artifacts). A brief without globs
 // disables the guard, because there is nothing to check against.
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { OPERATOR_REFUSED_ACTIONS } from "@spinner/protocol";
 import { section_body } from "./prompt.js";
+
+/**
+ * The shell commands the operator role refuses (MISSION.md s013, Contracts): `spinner` with
+ * one of `OPERATOR_REFUSED_ACTIONS`, `git push`, and the `gh pr` verbs that open, merge or
+ * review. The message says the operator must do it. Null when the command is allowed.
+ */
+export function refuse_operator_bash(command: string): string | null {
+    const actions = OPERATOR_REFUSED_ACTIONS.join("|");
+    const checks: Array<[RegExp, string]> = [
+        [new RegExp(`(^|[\\s;&|])spinner\\s+(${actions})\\b`), "spinner $2"],
+        [/(^|[\s;&|])git\s+(?:[^\s;&|]+\s+)*push\b/, "git push"],
+        [/(^|[\s;&|])gh\s+pr\s+(create|merge|review|close)\b/, "gh pr $2"],
+    ];
+    for (const [pattern, what] of checks) {
+        const match = pattern.exec(command);
+        if (match !== null) {
+            const named = what.replace("$2", match[2] ?? "");
+            return (
+                `\`${named}\` is not yours to run: the operator must do it, in the UI or ` +
+                "with the spinner command. Tell the operator what is ready and why."
+            );
+        }
+    }
+    return null;
+}
 
 /** Upper bound on globs read from a brief. */
 const GLOBS_MAX = 100;

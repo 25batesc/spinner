@@ -130,7 +130,7 @@ export const ROUTES = {
     "POST /operator/steer": "AgentCommandResponse",
     /** WebSocket upgrade to the operator agent's pty; the frames of `GET .../agents/:name/tty`. */
     "GET /operator/tty": "websocket",
-    /** The operator agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
+    /** The operator agent's extension reports pid and slash commands. Body: AgentHelloRequest. */
     "POST /operator/hello": "AgentCommandResponse",
     /** Long-poll (30 s) for the next command to the operator agent's extension. */
     "GET /operator/commands": "AgentCommandPollResponse",

@@ -24,7 +24,12 @@ if (args_file !== undefined && args_file !== "") {
 const session_dir = process.env["SPINNER_SESSION_DIR"] ?? "";
 const dir = session_dir.replace(/\/+$/, "").split("/").pop() ?? "";
 const agent = process.env["SPINNER_AGENT"] ?? "";
-const base = `${process.env["SPINNER_DAEMON_URL"] ?? ""}/sessions/${dir}/agents/${agent}`;
+const daemon_url = process.env["SPINNER_DAEMON_URL"] ?? "";
+// The operator agent's routes are `/operator/*`; a session agent's are under its session.
+const base =
+    process.env["SPINNER_ROLE"] === "operator"
+        ? `${daemon_url}/operator`
+        : `${daemon_url}/sessions/${dir}/agents/${agent}`;
 
 interface Command {
     id: string;

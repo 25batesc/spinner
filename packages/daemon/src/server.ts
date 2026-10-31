@@ -31,6 +31,7 @@ import type {
     SessionResponse,
     SessionsResponse,
     SessionSummary,
+    Settings,
     SettingsResponse,
     StackLogsResponse,
     StackSpec,
@@ -41,6 +42,7 @@ import {
     DAEMON_HOST,
     DAEMON_PORT,
     EVENTS_PATH,
+    SETTINGS_DEFAULT,
     STACK_LOGS_LINES_DEFAULT,
     STACK_LOGS_LINES_MAX,
     USAGE_INTERVAL_MS,
@@ -52,6 +54,8 @@ import { fixer_driver } from "./agents/fixer.js";
 import { PiRpcHarness, type AgentHandle } from "./agents/harness.js";
 import { PiTtyHarness } from "./agents/tty-harness.js";
 import { mount_tty_routes, tty_upgrader } from "./agents/routes-tty.js";
+import { mount_operator_routes } from "./agents/routes-operator.js";
+import { OperatorHost } from "./agents/operator.js";
 import { agent_history } from "./agents/history.js";
 import { AgentManager } from "./agents/manager.js";
 import { mount_agent_routes } from "./agents/routes.js";
@@ -127,6 +131,10 @@ export interface DaemonOptions {
     agents_harness?: "tty" | "rpc";
     /** What `GET /health` reports as the build; `main.ts` reads it from the checkout. */
     build?: BuildInfo;
+    /** Start the operator agent at boot when `settings.operator.enabled` allows. Default true. */
+    operator?: boolean;
+    /** For tests: the operator host's notice batch window. */
+    operator_batch_ms?: number;
 }
 
 export interface Daemon {
@@ -138,6 +146,8 @@ export interface Daemon {
     agents: AgentManager;
     /** The tty harness, so a test can look at an agent's pty. */
     tty: PiTtyHarness;
+    /** The operator agent's host, so a test can look at its pty and its view. */
+    operator: OperatorHost;
     watcher: SessionWatcher;
     close(): Promise<void>;
 }
@@ -159,6 +169,8 @@ export interface AppDeps {
     agents: AgentManager;
     /** The tty harness, for the pty WebSocket and the extension's routes; null without one. */
     tty?: PiTtyHarness | null;
+    /** The operator agent's host; its routes mount when given. */
+    operator?: OperatorHost;
     /** `GET /usage`; a route test passes a stub. */
     usage?: () => UsageResponse;
     models: () => Promise<ModelView[]>;
@@ -496,7 +508,15 @@ export function create_app(deps: AppDeps): Hono {
         mount_agent_routes(app, { ...deps, writer: deps.writer, deliverer: deps.deliverer });
     }
     if (deps.tty !== undefined && deps.tty !== null) {
-        mount_tty_routes(app, { home: deps.home, agents: deps.agents, tty: deps.tty });
+        mount_tty_routes(app, {
+            home: deps.home,
+            agents: deps.agents,
+            tty: deps.tty,
+            ...(deps.operator === undefined ? {} : { operator: deps.operator }),
+        });
+    }
+    if (deps.operator !== undefined) {
+        mount_operator_routes(app, { home: deps.home, operator: deps.operator });
     }
     mount_ui(app, deps.ui_dir);
     return app;
@@ -600,6 +620,15 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     );
     const writer = new MissionWriter(home, bus);
     const deliverer = new Deliverer(home, agents, writer, bus, { log });
+    const operator = new OperatorHost({
+        home,
+        tty,
+        harness_options,
+        bus,
+        settings: () => read_settings_or_default(home, log),
+        log,
+        ...(options.operator_batch_ms === undefined ? {} : { batch_ms: options.operator_batch_ms }),
+    });
     ctx.fixer = fixer_driver({ home, agents, cwd });
 
     let observer: StackObserver | null = null;
@@ -663,6 +692,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         ui_commit: ui === null ? null : ui.commit,
         agents,
         tty,
+        operator,
         usage: () => sampler.response(),
         models: models_source(pi, home.root),
         bus,
@@ -688,12 +718,17 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const address = server.address();
     assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
     bound_port = address.port;
-    const ttys = tty_upgrader({ home, agents, tty, log });
+    const ttys = tty_upgrader({ home, agents, tty, operator, log });
     const sockets = attach_events_socket(server, bus, log, ttys.handle);
     const poller = start_github_poller(options, ctx, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
     for (const resumed of await agents.adopt_all()) {
         log(`adopt: resumed tty agent ${resumed} on its transcript`);
+    }
+    // The operator agent comes last: a session agent's adoption must not wait on it, and its
+    // first notices (an agent that settled during adoption) are queued, not lost.
+    if (options.operator !== false) {
+        await operator.start_if_enabled();
     }
 
     return {
@@ -703,9 +738,11 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         jobs,
         agents,
         tty,
+        operator,
         watcher,
         close: async () => {
             unwatch_stack_jobs();
+            await operator.close();
             await agents.stop_all();
             poller?.stop();
             observer?.stop();
@@ -809,6 +846,16 @@ function attach_events_socket(
         client.on("error", (error) => log(`ws client error: ${error.message}`));
     });
     return sockets;
+}
+
+/** The settings, or the defaults when the file does not parse; the problem is logged. */
+function read_settings_or_default(home: SpinnerHome, log: (line: string) => void): Settings {
+    try {
+        return read_settings(home).settings;
+    } catch (error) {
+        log(`settings: ${describe_error(error)}`);
+        return SETTINGS_DEFAULT;
+    }
 }
 
 /** `?lines=` of the stack logs route: 1 to `STACK_LOGS_LINES_MAX`, default 100. */

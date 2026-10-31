@@ -215,13 +215,16 @@ describe("registration", () => {
     it("registers worker tools, fixer tools for the fixer, and /spinner-reload", async () => {
         const worker = fake_pi();
         register(worker, { env: env_for("worker", "") });
-        const worker_names = EXTENSION_MANIFEST.tools
-            .filter((tool) => tool.role === "all")
-            .map((tool) => tool.name);
-        expect([...worker.tools.keys()]).toEqual(worker_names);
+        const names_for = (role: "worker" | "fixer"): string[] =>
+            EXTENSION_MANIFEST.tools
+                .filter((tool) => tool.roles.includes(role))
+                .map((tool) => tool.name);
+        expect([...worker.tools.keys()]).toEqual(names_for("worker"));
+        expect(worker.tools.has("session_new")).toBe(false);
         const fixer = fake_pi();
         register(fixer, { env: env_for("fixer", "") });
-        expect([...fixer.tools.keys()]).toEqual(EXTENSION_MANIFEST.tools.map((tool) => tool.name));
+        expect([...fixer.tools.keys()]).toEqual(names_for("fixer"));
+        expect(fixer.tools.has("thread_list")).toBe(true);
         let reloaded = 0;
         const ctx = {
             reload: async () => void (reloaded += 1),
@@ -237,7 +240,7 @@ describe("registration", () => {
             properties: Record<string, unknown>;
         };
         expect(schema.required).toEqual(["command"]);
-        expect(Object.keys(schema.properties)).toEqual(["command", "service", "lines"]);
+        expect(Object.keys(schema.properties)).toEqual(["command", "service", "lines", "session"]);
         expect(JSON.stringify(schema.properties["command"])).toContain('"show"');
     });
 });

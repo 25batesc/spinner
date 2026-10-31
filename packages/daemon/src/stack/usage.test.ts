@@ -308,6 +308,7 @@ describe("GET /usage through the daemon", () => {
         const daemon = await start_daemon({
             home,
             port: 0,
+            operator: false,
             log: () => undefined,
             poll_seconds: 0,
             notify: async () => undefined,

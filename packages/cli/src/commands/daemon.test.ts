@@ -10,7 +10,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { run_cli, type CliIo } from "../cli.js";
 
-const main_js = join(import.meta.dirname, "..", "..", "..", "daemon", "dist", "main.js");
+const daemon_dir = join(import.meta.dirname, "..", "..", "..", "daemon");
+const main_js = join(daemon_dir, "dist", "main.js");
+/** The daemon reports its package version; the test reads the same file. */
+const daemon_version = (
+    JSON.parse(readFileSync(join(daemon_dir, "package.json"), "utf8")) as { version: string }
+).version;
 
 let root: string;
 let out: string[];
@@ -43,6 +48,7 @@ async function setup(): Promise<void> {
             SPINNER_PORT: String(port),
             SPINNER_POLL_SECONDS: "0",
             SPINNER_NOTIFY: "off",
+            SPINNER_OPERATOR: "off",
             SPINNER_SESSION_IDS: "home",
             PATH: process.env["PATH"] ?? "",
         },
@@ -64,7 +70,7 @@ describe.skipIf(!existsSync(main_js))("spinner daemon", () => {
 
         expect(await run_cli(["daemon", "start"], io)).toBe(0);
         expect(out.at(-2)).toMatch(/started \(pid \d+\) at http:\/\/127\.0\.0\.1:\d+/);
-        expect(out.at(-1)).toMatch(/build 0\.0\.0 \(/);
+        expect(out.at(-1)).toMatch(new RegExp(`build ${daemon_version.replace(/\./g, "\\.")} \\(`));
         const pid = Number.parseInt(readFileSync(join(root, "daemon.pid"), "utf8"), 10);
         expect(pid).toBeGreaterThan(0);
 

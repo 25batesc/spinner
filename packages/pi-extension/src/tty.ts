@@ -6,7 +6,7 @@
 // events the daemon folds into `busy` and `agent.settled` are posted to `events` as pi hands
 // them to the extension. `session_shutdown` stops the loop; a reload starts a fresh one.
 import type { AgentExtensionCommand } from "@spinner/protocol";
-import type { SpinnerEnv } from "./env.js";
+import { agent_route_base, type SpinnerEnv } from "./env.js";
 import type {
     ExtensionAPI,
     ExtensionContext,
@@ -56,9 +56,7 @@ export interface TtyChannel {
 /** Registers the hooks; returns the channel so a test can wait on it. */
 export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyChannel {
     const env = options.env;
-    const dir = encodeURIComponent(env.dir);
-    const agent = encodeURIComponent(env.agent);
-    const base = `${env.daemon_url}/sessions/${dir}/agents/${agent}`;
+    const base = agent_route_base(env);
     const fetch_ = options.fetch;
     const retry_delay_ms = options.retry_delay_ms ?? RETRY_DELAY_MS;
     const pid = options.pid ?? process.pid;

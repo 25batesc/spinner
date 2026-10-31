@@ -17,6 +17,7 @@ import type {
     ThreadsResponse,
 } from "@spinner/protocol";
 import type { SpinnerEnv } from "./env.js";
+import { run_operator_tool } from "./tools-operator.js";
 
 /** Time the daemon gets to answer one tool call. */
 export const REQUEST_TIMEOUT_MS = 15_000;
@@ -28,6 +29,8 @@ export type Fetch = typeof fetch;
 
 export interface DaemonClient {
     get<T>(path: string): Promise<T>;
+    /** A text route (`GET /sessions/:dir/mission`). */
+    get_text(path: string): Promise<string>;
     send<T>(method: "POST" | "PUT", path: string, body: unknown): Promise<T>;
 }
 
@@ -36,6 +39,19 @@ export function daemon_client(env: SpinnerEnv, fetch_: Fetch = fetch): DaemonCli
     if (env.daemon_url.length === 0) {
         throw new Error("SPINNER_DAEMON_URL is not set; the Spinner tools need the daemon");
     }
+    const raw = async (method: string, path: string, body?: unknown): Promise<string> => {
+        const response = await fetch_(`${env.daemon_url}${path}`, {
+            method,
+            headers: { "content-type": "application/json" },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        const text = await response.text();
+        if (!response.ok) {
+            throw new Error(`${method} ${path} → ${response.status}: ${error_of(text)}`);
+        }
+        return text;
+    };
     const request = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
         const response = await fetch_(`${env.daemon_url}${path}`, {
             method,
@@ -61,8 +77,22 @@ export function daemon_client(env: SpinnerEnv, fetch_: Fetch = fetch): DaemonCli
     };
     return {
         get: (path) => request("GET", path),
+        get_text: (path) => raw("GET", path),
         send: (method, path, body) => request(method, path, body),
     };
+}
+
+/** The `error` of a JSON error body, else the text itself. */
+function error_of(text: string): string {
+    try {
+        const parsed: unknown = JSON.parse(text);
+        if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
+            return String((parsed as { error: unknown }).error);
+        }
+    } catch {
+        // Not JSON; the text is the message.
+    }
+    return text;
 }
 
 /** The TypeBox schema for a manifest tool's parameters. */
@@ -86,15 +116,29 @@ export function schema_of(spec: ExtensionToolSpec): TSchema {
     return Type.Object(properties);
 }
 
-/** Runs one tool: the manifest's route with the model's arguments. Returns the model's text. */
+/**
+ * Runs one tool: the manifest's route with the model's arguments. Returns the model's text.
+ * A session agent's tools act on its own session; the operator agent names one in `session`.
+ */
 export async function run_tool(
     spec: ExtensionToolSpec,
     args: Record<string, unknown>,
     env: SpinnerEnv,
     client: DaemonClient,
+    poll_ms?: number,
 ): Promise<string> {
     const text = (key: string): string => String(args[key] ?? "");
-    const session = `/sessions/${encodeURIComponent(env.dir)}`;
+    if (spec.roles.every((role) => role === "operator")) {
+        return run_operator_tool(spec.name, args, {
+            client,
+            ...(poll_ms === undefined ? {} : { poll_ms }),
+        });
+    }
+    const dir = env.role === "operator" ? text("session").trim() : env.dir;
+    if (dir.length === 0) {
+        throw new Error("`session` must name a session directory; run session_list");
+    }
+    const session = `/sessions/${encodeURIComponent(dir)}`;
     // The routes take a repo key; models write `backend#100` as often as `backend`.
     if (typeof args["pr"] === "string") {
         args = { ...args, pr: repo_key(args["pr"]) };

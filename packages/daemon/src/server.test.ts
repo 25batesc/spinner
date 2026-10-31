@@ -38,6 +38,7 @@ function test_options(ui_dir: string | null = null): DaemonOptions {
     return {
         home,
         port: 0,
+        operator: false,
         log: () => undefined,
         poll_seconds: 0,
         gh: () => Promise.reject(new Error("no gh in tests")),

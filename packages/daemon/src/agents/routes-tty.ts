@@ -21,11 +21,12 @@ import type {
     PiEvent,
     TtyResize,
 } from "@spinner/protocol";
-import { TTY_ATTACHMENTS_MAX, TTY_DIMENSION_MAX } from "@spinner/protocol";
+import { OPERATOR_TTY_PATH, TTY_ATTACHMENTS_MAX, TTY_DIMENSION_MAX } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { find_session } from "../store/session-store.js";
 import type { Ack } from "./extension-channel.js";
 import type { AgentManager } from "./manager.js";
+import type { OperatorHost } from "./operator.js";
 import type { PiTtyHarness, TtyAgent, TtyClient } from "./tty-harness.js";
 
 /** Upper bound on one `events` body. A `turn_end` with a long tool result stays well below. */
@@ -41,12 +42,36 @@ export interface TtyRouteDeps {
     home: SpinnerHome;
     agents: AgentManager;
     tty: PiTtyHarness;
+    /** The operator agent: its extension's routes mount under `/operator` when given. */
+    operator?: OperatorHost;
     log?: (line: string) => void;
 }
 
+/**
+ * The three extension routes under `prefix`: `:dir/:name` for a session agent, nothing for
+ * the operator agent. `agent_of` resolves the pty, or the reason there is none (a 404).
+ */
 export function mount_tty_routes(app: Hono, deps: TtyRouteDeps): void {
-    app.post("/sessions/:dir/agents/:name/hello", async (c) => {
-        const agent = tty_agent_of(deps, c.req.param("dir"), c.req.param("name"));
+    mount_extension_routes(app, "/sessions/:dir/agents/:name", (c) =>
+        tty_agent_of(deps, c.req.param("dir") ?? "", c.req.param("name") ?? ""),
+    );
+    const operator = deps.operator;
+    if (operator !== undefined) {
+        mount_extension_routes(
+            app,
+            "/operator",
+            () => operator.tty() ?? "the operator agent is not running",
+        );
+    }
+}
+
+function mount_extension_routes(
+    app: Hono,
+    prefix: string,
+    agent_of: (c: Context) => TtyAgent | string,
+): void {
+    app.post(`${prefix}/hello`, async (c) => {
+        const agent = agent_of(c);
         if (typeof agent === "string") {
             return c.json(error_body(agent), 404);
         }
@@ -59,8 +84,8 @@ export function mount_tty_routes(app: Hono, deps: TtyRouteDeps): void {
         return c.json(body);
     });
 
-    app.get("/sessions/:dir/agents/:name/commands", async (c) => {
-        const agent = tty_agent_of(deps, c.req.param("dir"), c.req.param("name"));
+    app.get(`${prefix}/commands`, async (c) => {
+        const agent = agent_of(c);
         if (typeof agent === "string") {
             return c.json(error_body(agent), 404);
         }
@@ -76,8 +101,8 @@ export function mount_tty_routes(app: Hono, deps: TtyRouteDeps): void {
         return c.json(body);
     });
 
-    app.post("/sessions/:dir/agents/:name/events", async (c) => {
-        const agent = tty_agent_of(deps, c.req.param("dir"), c.req.param("name"));
+    app.post(`${prefix}/events`, async (c) => {
+        const agent = agent_of(c);
         if (typeof agent === "string") {
             return c.json(error_body(agent), 404);
         }
@@ -101,8 +126,9 @@ export interface TtyUpgrader {
 const TTY_PATH = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
 
 /**
- * The WebSocket side of `GET /sessions/:dir/agents/:name/tty`. The daemon's `upgrade` listener
- * offers every non-`/events` path here; a path that is not a tty path returns false.
+ * The WebSocket side of `GET /sessions/:dir/agents/:name/tty` and of `GET /operator/tty`. The
+ * daemon's `upgrade` listener offers every non-`/events` path here; a path that is not a tty
+ * path returns false.
  */
 export function tty_upgrader(deps: TtyRouteDeps): TtyUpgrader {
     const sockets = new WebSocketServer({ noServer: true });
@@ -110,19 +136,17 @@ export function tty_upgrader(deps: TtyRouteDeps): TtyUpgrader {
     return {
         handle(request, socket, head) {
             const path = new URL(request.url ?? "/", "http://localhost").pathname;
-            const match = TTY_PATH.exec(path);
-            if (match === null) {
+            const agent = pty_of_path(deps, path);
+            if (agent === null) {
                 return false;
             }
-            const dir = decodeURIComponent(match[1] ?? "");
-            const name = decodeURIComponent(match[2] ?? "");
-            const agent = tty_agent_of(deps, dir, name);
             if (typeof agent === "string") {
                 const status = agent.endsWith("uses the rpc harness") ? 409 : 404;
                 refuse(socket, status, agent);
                 return true;
             }
             if (agent.attachment_count >= TTY_ATTACHMENTS_MAX) {
+                const name = agent.name;
                 refuse(socket, 409, `${TTY_ATTACHMENTS_MAX} clients are attached to ${name}`);
                 return true;
             }
@@ -138,6 +162,23 @@ export function tty_upgrader(deps: TtyRouteDeps): TtyUpgrader {
             sockets.close();
         },
     };
+}
+
+/** The pty a WebSocket path names, the reason there is none, or null for another path. */
+function pty_of_path(deps: TtyRouteDeps, path: string): TtyAgent | string | null {
+    if (path === OPERATOR_TTY_PATH) {
+        if (deps.operator === undefined) {
+            return "this daemon hosts no operator agent";
+        }
+        return deps.operator.tty() ?? "the operator agent is not running";
+    }
+    const match = TTY_PATH.exec(path);
+    if (match === null) {
+        return null;
+    }
+    const dir = decodeURIComponent(match[1] ?? "");
+    const name = decodeURIComponent(match[2] ?? "");
+    return tty_agent_of(deps, dir, name);
 }
 
 /** Wires one `ws` socket to the pty: scrollback and chunks down, keystrokes and resizes up. */

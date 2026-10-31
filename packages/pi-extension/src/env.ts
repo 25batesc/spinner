@@ -14,6 +14,19 @@ export interface SpinnerEnv {
     tty: boolean;
 }
 
+/**
+ * The daemon path of this agent's own routes (`hello`, `commands`, `events`, `tty`): under the
+ * session for a session agent, `/operator` for the operator agent (MISSION.md s013).
+ */
+export function agent_route_base(env: SpinnerEnv): string {
+    if (env.role === "operator") {
+        return `${env.daemon_url}/operator`;
+    }
+    const dir = encodeURIComponent(env.dir);
+    const agent = encodeURIComponent(env.agent);
+    return `${env.daemon_url}/sessions/${dir}/agents/${agent}`;
+}
+
 export function read_env(env: NodeJS.ProcessEnv): SpinnerEnv | null {
     const session_dir = env[EXTENSION_ENV.session_dir];
     const agent = env[EXTENSION_ENV.agent];

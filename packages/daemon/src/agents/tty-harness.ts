@@ -27,7 +27,7 @@ import {
     type PiCommand,
     type PiHarnessOptions,
 } from "./harness.js";
-import { pi_args } from "./pi-rpc.js";
+import { pi_args, type PiSpawnOptions } from "./pi-rpc.js";
 
 /** Time pi gets after SIGTERM before SIGKILL. pi flushes its transcript on SIGTERM. */
 const STOP_GRACE_MS = 5_000;
@@ -69,17 +69,36 @@ export class PiTtyHarness implements AgentHarness {
 
     /** The running tty agent of `dir/name`, for the routes; null when none runs here. */
     lookup(dir: string, name: string): TtyAgent | null {
-        return this.agents.get(key_of(dir, name)) ?? null;
+        return this.lookup_key(key_of(dir, name));
+    }
+
+    /**
+     * The tty agent under `key` (`spawn_pty`'s), from the moment the pty exists: the
+     * extension's `hello` must find it while `spawn_pty` still waits for that hello.
+     */
+    lookup_key(key: string): TtyAgent | null {
+        return this.agents.get(key) ?? null;
     }
 
     private async start(session: SessionSummary, agent: AgentSpawnSpec): Promise<AgentHandle> {
         const key = key_of(session.dir, agent.name);
         assert.ok(!this.agents.has(key), `tty agent ${agent.name} already runs in ${session.dir}`);
+        const spawn = pi_spawn_options(session, agent, this.options);
+        const tty = await this.spawn_pty(key, agent.name, spawn);
+        return tty.handle;
+    }
+
+    /**
+     * One pty under `key`, for a session agent (`<dir>/<name>`) or the operator agent
+     * (`operator`, from `operator.ts`): spawns pi, waits for `hello` or the grace, and
+     * forgets the entry when the pty exits. A failed start stops the pty and rethrows.
+     */
+    async spawn_pty(key: string, name: string, spawn: PiSpawnOptions): Promise<TtyAgent> {
+        assert.ok(!this.agents.has(key), `a tty agent already runs under ${key}`);
         assert.ok(
             resolved_extension(this.options) !== null,
             "the tty harness needs the Spinner pi extension; it is the daemon's only channel",
         );
-        const spawn = pi_spawn_options(session, agent, this.options);
         assert.ok(existsSync(spawn.cwd), `agent cwd ${spawn.cwd} does not exist`);
         const env: Record<string, string> = {
             ...process_env_strings(),
@@ -96,7 +115,7 @@ export class PiTtyHarness implements AgentHarness {
             env,
         });
         const channel = new ExtensionChannel(this.options.ack_timeout_ms);
-        const tty = new TtyAgent(child, channel, agent.name);
+        const tty = new TtyAgent(child, channel, name);
         this.agents.set(key, tty);
         void tty.exited.then(() => {
             this.agents.delete(key);
@@ -106,11 +125,11 @@ export class PiTtyHarness implements AgentHarness {
             await tty.wait_ready(this.options.ready_grace_ms ?? READY_GRACE_MS);
         } catch (error) {
             const tail = tty.scrollback_text().split("\n").slice(-20).join("\n");
-            on_stderr?.(agent.name, tail);
+            on_stderr?.(name, tail);
             await tty.stop();
             throw error;
         }
-        return tty.handle;
+        return tty;
     }
 }
 

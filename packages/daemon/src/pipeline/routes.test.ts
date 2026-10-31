@@ -40,6 +40,7 @@ beforeEach(async () => {
     daemon = await start_daemon({
         home,
         port: 0,
+        operator: false,
         log: () => undefined,
         poll_seconds: 0,
         gh: async (args) => (args[1] === "user" ? "owner-1\n" : "{}"),

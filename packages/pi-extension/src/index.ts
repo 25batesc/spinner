@@ -10,9 +10,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXTENSION_MANIFEST, type SessionView } from "@spinner/protocol";
 import { read_env, type SpinnerEnv } from "./env.js";
-import { guard_edit } from "./guard.js";
+import { guard_edit, refuse_operator_bash } from "./guard.js";
 import type { ExtensionAPI, ToolDefinition } from "./pi-api.js";
-import { load_session_files, render_prompt_section } from "./prompt.js";
+import { load_session_files, render_operator_section, render_prompt_section } from "./prompt.js";
 import { daemon_client, run_tool, schema_of, type DaemonClient, type Fetch } from "./tools.js";
 import { register_tty, type TtyChannel } from "./tty.js";
 
@@ -21,6 +21,8 @@ export interface SpinnerExtensionOptions {
     fetch?: Fetch;
     /** For tests: the tty channel's retry delay and reported pid. */
     tty?: { retry_delay_ms?: number; pid?: number };
+    /** For tests: the operator tools' wait between job polls. */
+    job_poll_ms?: number;
 }
 
 export interface Registered extends SpinnerEnv {
@@ -50,6 +52,14 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
     };
 
     pi.on("before_agent_start", async (event) => {
+        if (env.role === "operator") {
+            const brief = read_or_empty(join(env.session_dir, "BRIEF.md"));
+            event.systemPromptOptions.sections["spinner_session"] = render_operator_section(
+                env,
+                brief,
+            );
+            return;
+        }
         const view = await session_view(env, fetch_);
         const files = load_session_files(env, view);
         event.systemPromptOptions.sections["spinner_session"] = render_prompt_section(env, files);
@@ -66,7 +76,7 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
             promptSnippet: spec.description,
             parameters: schema_of(spec),
             async execute(_id, params) {
-                const text = await run_tool(spec, params, env, client_of());
+                const text = await run_tool(spec, params, env, client_of(), options.job_poll_ms);
                 return { content: [{ type: "text", text }], details: undefined };
             },
         };
@@ -74,6 +84,19 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
     }
 
     pi.on("tool_call", (event, ctx) => {
+        if (env.role === "operator" && event.toolName === "bash") {
+            // The operator agent never pushes, posts, approves, lands, resets or closes
+            // (MISSION.md s013, Contracts); the person does, in the UI or with `spinner`.
+            const command = event.input["command"];
+            const reason = refuse_operator_bash(typeof command === "string" ? command : "");
+            if (reason === null) {
+                return undefined;
+            }
+            if (ctx.hasUI) {
+                ctx.ui.notify(reason, "warning");
+            }
+            return { block: true, reason };
+        }
         if (event.toolName !== "edit" && event.toolName !== "write") {
             return undefined;
         }

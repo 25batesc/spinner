@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Binary entry point: `spinnerd`. Reads `<home>/config.yaml` once (`config.ts`), then the
 // environment on top: SPINNER_HOME, SPINNER_PI, SPINNER_PORT, SPINNER_DEFAULT_MODEL,
-// SPINNER_SLACK_CHANNEL, SPINNER_UI_DIR, SPINNER_POLL_SECONDS, SPINNER_NOTIFY and
+// SPINNER_SLACK_CHANNEL, SPINNER_UI_DIR, SPINNER_POLL_SECONDS, SPINNER_NOTIFY,
+// SPINNER_OPERATOR (`off` keeps the operator agent from starting at boot) and
 // SPINNER_GITHUB_FIXTURE. Writes `<home>/daemon.pid` once it listens, so `spinner daemon
 // status|stop` find it, and refuses to start while another daemon holds that file. Stops on
 // SIGINT or SIGTERM.
@@ -68,6 +69,9 @@ if (ui_dir !== undefined && ui_dir !== "") {
 }
 if (process.env["SPINNER_NOTIFY"] === "off") {
     options.notify = silent_notifier;
+}
+if (process.env["SPINNER_OPERATOR"] === "off") {
+    options.operator = false;
 }
 const github_fixture_dir = process.env["SPINNER_GITHUB_FIXTURE"]; // engine: fake gh for UI/ext runs
 if (github_fixture_dir !== undefined && github_fixture_dir !== "") {

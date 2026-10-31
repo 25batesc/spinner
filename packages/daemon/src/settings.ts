@@ -32,8 +32,9 @@ const THEMES_MAX = 200;
 /** Upper bound on one theme file; a palette is a few hundred bytes. */
 const THEME_FILE_BYTES_MAX = 256 * 1024;
 
-const SETTINGS_KEYS = ["theme", "default_model", "agents"];
+const SETTINGS_KEYS = ["theme", "default_model", "agents", "operator"];
 const AGENTS_KEYS = ["harness"];
+const OPERATOR_KEYS = ["enabled", "model"];
 
 export function settings_path(home: SpinnerHome): string {
     return join(home.root, "settings.yaml");
@@ -120,6 +121,33 @@ export function validate_settings(input: unknown, home: SpinnerHome): Settings |
                 return "`agents.harness` must be one of tty, rpc";
             }
             settings.agents.harness = harness;
+        }
+    }
+    const operator = record["operator"];
+    if (operator !== undefined) {
+        if (typeof operator !== "object" || operator === null || Array.isArray(operator)) {
+            return "`operator` must be a mapping";
+        }
+        const block = operator as Record<string, unknown>;
+        for (const key of Object.keys(block)) {
+            if (!OPERATOR_KEYS.includes(key)) {
+                return `unknown key "operator.${key}" (known: ${OPERATOR_KEYS.join(", ")})`;
+            }
+        }
+        settings.operator = {};
+        const enabled = block["enabled"];
+        if (enabled !== undefined) {
+            if (typeof enabled !== "boolean") {
+                return "`operator.enabled` must be a boolean";
+            }
+            settings.operator.enabled = enabled;
+        }
+        const model = block["model"];
+        if (model !== undefined) {
+            if (typeof model !== "string" || model.length === 0) {
+                return "`operator.model` must be a non-empty string when given";
+            }
+            settings.operator.model = model;
         }
     }
     return settings;
