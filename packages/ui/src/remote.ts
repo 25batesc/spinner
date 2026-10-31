@@ -1,6 +1,6 @@
 // Reads and writes the routes that return data rather than a job: mission, threads, the post
-// and approve previews, and the context files. The UI keeps what these return in component
-// state only until the next event for the session moves a revision counter.
+// and approve previews, the context files, and the untick of `verify`. The UI keeps what these
+// return in component state only until the next event for the session moves a revision counter.
 import { useEffect, useState } from "react";
 
 import type {
@@ -12,6 +12,7 @@ import type {
     MissionSectionRequest,
     PostResponse,
     PostView,
+    SessionResponse,
     ThreadsView,
 } from "@spinner/protocol";
 
@@ -82,6 +83,19 @@ export async function fetchPost(dir: string, signal: AbortSignal): Promise<PostV
 
 export async function fetchApprove(dir: string, signal: AbortSignal): Promise<ApproveView> {
     return (await getJson<ApproveResponse>(`/sessions/${dir}/approve`, signal)).approve;
+}
+
+/**
+ * Clears the verify tick. Synchronous on the daemon: the cleared view answers, and a
+ * `session.updated` follows, which is what moves the checkbox.
+ */
+export async function deleteVerify(dir: string): Promise<SessionResponse> {
+    const path = `/sessions/${dir}/verify`;
+    const response = await fetch(path, { method: "DELETE" });
+    if (!response.ok) {
+        throw await failure("DELETE", path, response);
+    }
+    return (await response.json()) as SessionResponse;
 }
 
 export async function fetchContext(path: string, signal: AbortSignal): Promise<ContextResponse> {

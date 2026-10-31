@@ -11,6 +11,8 @@ export interface PreviewPaneProps {
     view: SessionView | undefined;
     busy: boolean;
     run: RunAction;
+    /** Clears the verify tick (`DELETE /sessions/:dir/verify`); errors go where `run`'s go. */
+    unverify: (dir: string) => Promise<void>;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?:
         | {
@@ -29,18 +31,34 @@ function isLive(service: ServiceView): boolean {
     return service.status === "healthy" || service.status === "unknown";
 }
 
-function Verified({ view, busy, run }: PreviewPaneProps & { view: SessionView }) {
+/**
+ * The tick follows the daemon's view: a change arrives as `session.updated`, never from local
+ * state. Ticking is a job (`POST .../verify`), unticking is `DELETE .../verify`; a mistaken tick
+ * clears whatever the stack's state. `pending` only holds the box until the daemon answers.
+ */
+function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: SessionView }) {
+    const [pending, setPending] = useState(false);
     const pipeline = view.summary.session.pipeline;
     const ticked = pipeline?.verified_locally === true;
     // The daemon says when the operator can test: while the stack is up.
     const canVerify = view.can_verify;
+    const dir = view.summary.dir;
+    const toggle = async () => {
+        setPending(true);
+        try {
+            await (ticked ? unverify(dir) : run(`/sessions/${dir}/verify`));
+        } finally {
+            setPending(false);
+        }
+    };
+    const title = ticked || canVerify ? "" : "Bring the stack up to verify.";
     return (
-        <label className="verified" title={canVerify ? "" : "Bring the stack up to verify."}>
+        <label className="verified" title={title}>
             <input
                 type="checkbox"
                 checked={ticked}
-                disabled={busy || ticked || !canVerify}
-                onChange={() => void run(`/sessions/${view.summary.dir}/verify`)}
+                disabled={busy || pending || (!ticked && !canVerify)}
+                onChange={() => void toggle()}
             />
             verified
             {ticked && pipeline?.verified_by !== undefined && (
@@ -50,7 +68,7 @@ function Verified({ view, busy, run }: PreviewPaneProps & { view: SessionView })
     );
 }
 
-export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
+export function PreviewPane({ view, busy, run, unverify, controls }: PreviewPaneProps) {
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const services = (view?.stack.services ?? []).filter((service) => service.url !== null);
     const names = services.map((service) => service.name);
@@ -82,7 +100,9 @@ export function PreviewPane({ view, busy, run, controls }: PreviewPaneProps) {
     return (
         <section className="pane preview-pane" aria-label="Previews">
             <PaneHead name="previews" controls={head} />
-            {view !== undefined && <Verified view={view} busy={busy} run={run} />}
+            {view !== undefined && (
+                <Verified view={view} busy={busy} run={run} unverify={unverify} />
+            )}
             <Tabs
                 labels={names}
                 selected={selected}

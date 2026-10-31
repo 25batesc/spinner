@@ -18,7 +18,7 @@ import {
 } from "./Preview.tsx";
 import { PreviewPane } from "./PreviewPane.tsx";
 import type { ComposeKind } from "./SessionForms.tsx";
-import { useLoaded } from "./remote.ts";
+import { deleteVerify, useLoaded } from "./remote.ts";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
@@ -87,13 +87,22 @@ function useAppState(state: UiState, initial: string | undefined) {
             (failure: unknown) => setActionError(String(failure)),
         );
     };
+    // Not a job: the daemon answers with the view and sends `session.updated`, which moves
+    // the checkbox; a failure lands where a job's does.
+    const unverify = (dir: string): Promise<void> => {
+        setActionError(null);
+        return deleteVerify(dir).then(
+            () => undefined,
+            (failure: unknown) => setActionError(String(failure)),
+        );
+    };
     const dismiss = () => {
         setWatched(undefined);
         setActionError(null);
     };
     return {
-        sessions, selected, view, feed, busy, run, job, actionError, dismiss, setPicked,
-        setActionError, compose, setCompose,
+        sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
+        setPicked, setActionError, compose, setCompose,
     };
 }
 
@@ -247,6 +256,7 @@ export function App() {
             view={view}
             busy={busy}
             run={run}
+            unverify={app.unverify}
             controls={
                 inRoute
                     ? undefined

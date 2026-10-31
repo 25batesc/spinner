@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import {
     EVENTS_PATH,
     type JobResponse,
+    type SessionResponse,
     type SessionsResponse,
     type SpinnerEvent,
 } from "@spinner/protocol";
@@ -68,6 +69,45 @@ it("runs `up` as a job: 202, job.log lines, job.finished, then a healthy stack",
     const updated = events.filter((e) => e.type === "session.updated");
     const last = updated.at(-1);
     expect(last?.type === "session.updated" && last.data.stack.state).toBe("up");
+});
+
+it("DELETE /sessions/:dir/verify clears the tick, answers the view, 404 without one", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/s17-refund-flow`;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${EVENTS_PATH}`);
+    await new Promise((resolve) => socket.on("open", resolve));
+    const events: SpinnerEvent[] = [];
+    socket.on("message", (data) => events.push(JSON.parse(data.toString()) as SpinnerEvent));
+    const ticked = (await (await fetch(`${base}/verify`, { method: "POST" })).json()) as
+        JobResponse;
+    expect(ticked.job.action).toBe("verify");
+    await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+            if (events.some((e) => e.type === "job.finished")) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, 50);
+    });
+    const before = (await (await fetch(base)).json()) as SessionResponse;
+    expect(before.session.summary.session.pipeline?.verified_locally).toBe(true);
+
+    const response = await fetch(`${base}/verify`, { method: "DELETE" });
+    expect(response.status).toBe(200);
+    const cleared = (await response.json()) as SessionResponse;
+    expect(cleared.session.summary.session.pipeline?.verified_locally).toBe(false);
+    expect(cleared.session.summary.session.pipeline?.verified_by).toBeUndefined();
+    const after = (await (await fetch(base)).json()) as SessionResponse;
+    expect(after.session.summary.session.pipeline?.verified_locally).toBe(false);
+    const updated = events.filter((e) => e.type === "session.updated").at(-1);
+    expect(updated?.type === "session.updated" && updated.data.summary.session.pipeline)
+        .toMatchObject({ verified_locally: false });
+    socket.close();
+
+    const missing = await fetch(`http://127.0.0.1:${port}/sessions/nope/verify`, {
+        method: "DELETE",
+    });
+    expect(missing.status).toBe(404);
 });
 
 it("refuses post and approve without confirm and runs them with it", async () => {

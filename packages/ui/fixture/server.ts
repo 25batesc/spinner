@@ -424,6 +424,33 @@ class FixtureDaemon {
         });
     }
 
+    /**
+     * `DELETE /sessions/:dir/verify`, as the daemon: synchronous, the cleared view answers
+     * with 200 and a `session.updated` follows; 404 without the session.
+     */
+    unverify(response: ServerResponse, path: string): boolean {
+        const match = /^\/sessions\/([^/]+)\/verify$/.exec(path);
+        if (match === null) {
+            return false;
+        }
+        const current = this.sessions.get(match[1] ?? "");
+        if (current === undefined) {
+            sendJson(response, { error: `no session ${match[1]}` }, 404);
+            return true;
+        }
+        const base = current.summary.session;
+        const pipeline = {
+            slack_post: base.pipeline?.slack_post ?? null,
+            verified_locally: false,
+            verified_heads: {},
+        };
+        const summary = { ...current.summary, session: { ...base, pipeline } };
+        const next = { ...current, summary };
+        this.update(next);
+        sendJson(response, { session: next });
+        return true;
+    }
+
     /** Mission, threads, previews, pipeline jobs and context files (see `pipeline.ts`). */
     async m2(
         request: IncomingMessage, response: ServerResponse, method: string, path: string,
@@ -471,6 +498,8 @@ class FixtureDaemon {
         } else if (method === "GET" && path === "/health") {
             sendJson(response, { ok: true, home: "fixture", started: new Date().toISOString() });
         } else if (method === "POST" && (await this.run(request, response, path))) {
+            return;
+        } else if (method === "DELETE" && this.unverify(response, path)) {
             return;
         } else if (method === "POST") {
             sendJson(response, { error: `no route ${path}` }, 404);

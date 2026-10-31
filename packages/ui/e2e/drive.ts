@@ -1,14 +1,14 @@
 // Drives the UI in headless Chrome over the DevTools protocol and saves a screenshot per step.
 // Usage: node e2e/drive.ts <ui url> <screenshot dir> [flow]. Chrome must already listen on
 // port 9333 (`--remote-debugging-port=9333`) or on `E2E_CDP_PORT`. The flow `lifecycle` runs:
-// new session, up, previews, verify, close. The flow `agents` prompts the first running agent
-// of the first session with a pi agent. The flow `panes` collapses, hides, restores, expands
-// and opens the `?pane=` route; `bridge-popout` docks the desktop's popped-out windows back
-// through a stub of the bridge. The flow `terminal` attaches a tty agent's terminal to the
-// fixture's echo pty, types, resizes and opens the pane route; `drawer` drags, collapses and
-// restores the job drawer under it; `narrow` shrinks the window to 900, 600 and 440 px and
-// checks the fold order with the terminal open. It works against the fixture server or the
-// real daemon.
+// new session, up, previews, verify, untick, verify, close. The flow `agents` prompts the first
+// running agent of the first session with a pi agent. The flow `panes` collapses, hides,
+// restores, expands and opens the `?pane=` route; `bridge-popout` docks the desktop's
+// popped-out windows back through a stub of the bridge. The flow `terminal` attaches a tty
+// agent's terminal to the fixture's echo pty, types, resizes and opens the pane route; `drawer`
+// drags, collapses and restores the job drawer under it; `narrow` shrinks the window to 900, 600
+// and 440 px and checks the fold order with the terminal open. It works against the fixture
+// server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
@@ -64,10 +64,20 @@ async function until(label: string, expression: string): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 200));
     }
     await shot("failure");
-    // A tab left open keeps its sockets (a terminal's pty gets its size again on the next
-    // fixture); close it before the throw.
-    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
+    await closeTarget();
     throw new Error(`Timed out waiting for: ${label}`);
+}
+
+// A tab left open keeps its sockets (a terminal's pty gets its size again on the next fixture),
+// so every flow closes its target: on success through `finish`, on a timeout before the throw.
+async function closeTarget(): Promise<void> {
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
+}
+
+async function finish(): Promise<never> {
+    socket.close();
+    await closeTarget();
+    process.exit(0);
 }
 
 async function shot(name: string): Promise<void> {
@@ -180,8 +190,7 @@ if (flow === "previews") {
     await click(".preview-pane .tab", "web");
     await new Promise((resolve) => setTimeout(resolve, 2000));
     await shot("04b-web-preview");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "top-level-note") {
@@ -201,8 +210,7 @@ if (flow === "top-level-note") {
     await until("iframe shown", `document.querySelector("iframe.preview-frame") !== null`);
     await shot("36-frame-no-note");
     console.log("top-level note ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "bridge-stub") {
@@ -267,8 +275,7 @@ if (flow === "bridge-stub") {
         throw new Error("reload() fired for the api view that was never reloaded");
     }
     console.log("bridge stub ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "panes") {
@@ -472,9 +479,9 @@ if (flow === "panes") {
         ((await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()) as {
             id: string; url: string;
         }[]).filter((t) => t.url.includes("pane=") && t.id !== target.id);
-    const closeTarget = (id: string) => fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${id}`);
+    const closeWindow = (id: string) => fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${id}`);
     for (const stale of await targets()) {
-        await closeTarget(stale.id);
+        await closeWindow(stale.id);
     }
     // The previews pop out into a window on the `?pane=previews` route; the strip docks it
     // back; a window the operator closes docks itself.
@@ -506,7 +513,7 @@ if (flow === "panes") {
     await click("button[aria-label='Pop out previews']", "", true);
     await until("popped again", `${strip("previews")}?.textContent.includes("popped")`);
     windows = await popups();
-    await closeTarget(windows[0]?.id ?? "");
+    await closeWindow(windows[0]?.id ?? "");
     await until("docked on close", `document.querySelector(".preview-pane") !== null`);
     // 10. The route alone: one pane, no bar, strips, dividers or controls, same session.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
@@ -527,10 +534,7 @@ if (flow === "panes") {
     }
     await shot("46-pane-route");
     console.log("panes ok");
-    socket.close();
-    // This tab now sits on a `pane=` URL; the next run must not count it as a popped window.
-    await closeTarget(target.id);
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "browser-bar") {
@@ -564,8 +568,7 @@ if (flow === "browser-bar") {
     await until("field shows it", `document.querySelector(".url-field").value.endsWith("about")`);
     await shot("48-browser-bar-navigated");
     console.log("browser bar ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "bridge-bar") {
@@ -622,8 +625,7 @@ if (flow === "bridge-bar") {
     await until("clearStorage called", `${lastCall("clearStorage")}?.args[0] === ${quotedKey}`);
     console.log("calls:", JSON.stringify(await evaluate(`${calls}.map((c) => c.method)`)));
     console.log("bridge bar ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "bridge-popout") {
@@ -679,8 +681,7 @@ if (flow === "bridge-popout") {
     await until("sessions back on close", `document.querySelector(".sessions-pane") !== null`);
     console.log("calls:", JSON.stringify(await evaluate(`${calls}.map((c) => c.method)`)));
     console.log("bridge popout ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "sessions-panel") {
@@ -730,8 +731,7 @@ if (flow === "sessions-panel") {
     await until("form gone", `${newForm} === null`);
     await shot("55-created-and-selected");
     console.log("sessions panel ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "history") {
@@ -743,8 +743,7 @@ if (flow === "history") {
     await shot("12-after-reload");
     const after = await evaluate(`document.querySelector(".transcript").innerText`);
     console.log("transcript after reload:", JSON.stringify(after));
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "real-agent") {
@@ -804,8 +803,7 @@ if (flow === "real-agent") {
     await shot("12-after-reload");
     const after = await evaluate(`document.querySelector(".transcript").innerText`);
     console.log("transcript after reload:", JSON.stringify(after));
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "pipeline") {
@@ -873,8 +871,7 @@ if (flow === "pipeline") {
     await until("all expanded", `${openCount} === ${sections}`);
     await shot("20b-context-expanded");
     console.log("pipeline ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "real-panels") {
@@ -890,8 +887,7 @@ if (flow === "real-panels") {
     await until("post preview", `document.querySelector("[aria-label=Message]") !== null`);
     await shot("23-real-post-blocked");
     console.log("real panels ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "m2-real") {
@@ -1011,8 +1007,7 @@ if (flow === "m2-real") {
     console.log("agents file on disk ok");
     await shot("34-m2-context-edited");
     console.log("m2-real ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "m2-context") {
@@ -1037,8 +1032,7 @@ if (flow === "m2-context") {
     console.log("agents file on disk ok");
     await shot("34-m2-context-edited");
     console.log("m2-context ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "settings") {
@@ -1122,9 +1116,7 @@ if (flow === "settings") {
     await click("button[aria-label='Show sessions']");
     await until("sessions view back", `document.querySelector(".session-list") !== null`);
     console.log("settings ok");
-    socket.close();
-    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "usage") {
@@ -1182,9 +1174,7 @@ if (flow === "usage") {
     console.log("line before and after a sample:", before, await evaluate(barLine));
     await shot("75-usage-updated");
     console.log("usage ok");
-    socket.close();
-    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "drawer") {
@@ -1284,9 +1274,7 @@ if (flow === "drawer") {
     await until("height after the reload", `${heightOf} === 300`);
     await shot("70-drawer-after-reload");
     console.log("drawer ok");
-    socket.close();
-    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "narrow") {
@@ -1367,9 +1355,7 @@ if (flow === "narrow") {
     await shot("64-narrow-strip-click");
     console.log("600 px after the strip click:", JSON.stringify(await widths()));
     console.log("narrow ok");
-    socket.close();
-    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "terminal") {
@@ -1560,8 +1546,7 @@ if (flow === "terminal") {
     await until("scrollback replayed", `${rows}.includes(${JSON.stringify(expected)})`);
     await shot("60-terminal-pane-route");
     console.log("terminal ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 if (flow === "agents") {
@@ -1575,8 +1560,7 @@ if (flow === "agents") {
     await until("agent idle", `${text(".agents-pane")}.includes("idle ·")`);
     await shot("08-agent-done");
     console.log("agents ok");
-    socket.close();
-    process.exit(0);
+    await finish();
 }
 
 const title = `E2E ${Date.now() % 100000}`;
@@ -1632,9 +1616,18 @@ await until("verify enabled", `document.querySelector(".verified input")?.disabl
 await click(".verified input");
 await until("verified ticked", `document.querySelector(".verified input")?.checked === true`);
 await shot("05-verified");
+// The tick clears both ways: a second click sends DELETE and the daemon's view unticks it.
+await until("untick enabled", `document.querySelector(".verified input")?.disabled === false`);
+await click(".verified input");
+await until("verified cleared", `document.querySelector(".verified input")?.checked === false`);
+await until("no error", `document.querySelector(".drawer .needs-human") === null`);
+await shot("05b-unverified");
+await until("tick enabled again", `document.querySelector(".verified input")?.disabled === false`);
+await click(".verified input");
+await until("ticked again", `document.querySelector(".verified input")?.checked === true`);
 
 await click(".actions button", "close");
 await until("session gone", `!${text(".sessions-pane")}.includes(${quoted})`);
 await shot("06-closed");
 console.log("lifecycle ok");
-socket.close();
+await finish();
