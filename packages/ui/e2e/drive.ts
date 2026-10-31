@@ -7,8 +7,9 @@
 // popped-out windows back through a stub of the bridge. The flow `terminal` attaches a tty
 // agent's terminal to the fixture's echo pty, types, resizes and opens the pane route; `drawer`
 // drags, collapses and restores the job drawer under it; `narrow` shrinks the window to 900, 600
-// and 440 px and checks the fold order with the terminal open. It works against the fixture
-// server or the real daemon.
+// and 440 px and checks the fold order with the terminal open; `operator` opens the operator
+// tab from the activity bar, types into its terminal, stops and resumes it. It works against
+// the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
