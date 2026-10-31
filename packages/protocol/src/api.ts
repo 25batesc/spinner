@@ -48,6 +48,8 @@ export const ROUTES = {
     "POST /sessions/:dir/close": "JobResponse",
     /** Record the operator's local test of the session's PRs. Body: VerifyRequest (optional). */
     "POST /sessions/:dir/verify": "JobResponse",
+    /** Clear the tick; the stage asks for the test again. Synchronous: the new view answers. */
+    "DELETE /sessions/:dir/verify": "SessionResponse",
     /** Push every changed repo and open one PR per repo as the operator. Body: PrRequest. */
     "POST /sessions/:dir/pr": "JobResponse",
     /** Render `threads/` from GitHub, then start or steer the fixer agent. Body: FixRequest. */

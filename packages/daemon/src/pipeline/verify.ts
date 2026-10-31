@@ -47,6 +47,37 @@ export function record_verify(
     };
 }
 
+/**
+ * Pure: the session with the tick removed. `verified_heads`, `verified_at` and `verified_by`
+ * go with it, so a later tick starts clean and the board asks for the test again.
+ */
+export function record_unverify(session: Session): Session {
+    const pipeline = { ...(session.pipeline ?? { verified_locally: false, slack_post: null }) };
+    delete pipeline.verified_heads;
+    delete pipeline.verified_at;
+    delete pipeline.verified_by;
+    return { ...session, pipeline: { ...pipeline, verified_locally: false } };
+}
+
+/** `DELETE /sessions/:dir/verify`: clears the tick and re-derives the stage at once. */
+export function unverify_session(
+    home: SpinnerHome,
+    input: { dir: string; config: PipelineConfig; now?: () => Date },
+): SessionSummary {
+    const now = input.now ?? (() => new Date());
+    const read = read_session(home, input.dir);
+    if (!read.ok) {
+        throw new Error(read.error);
+    }
+    const cleared = record_unverify(read.summary.session);
+    const refreshed = refresh_session(read.summary.session, cleared, input.config, now());
+    write_session({ ...read.summary, session: refreshed.session });
+    const check = read_session(home, input.dir);
+    assert.ok(check.ok, "an unverified session must read back");
+    assert.equal(check.summary.session.pipeline?.verified_locally, false);
+    return check.summary;
+}
+
 export function verify_session(home: SpinnerHome, input: VerifyInput): SessionSummary {
     const now = input.now ?? (() => new Date());
     const read = read_session(home, input.dir);

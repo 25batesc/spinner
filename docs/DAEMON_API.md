@@ -27,6 +27,7 @@ WebSockets below.
 | `POST /sessions/:dir/down` | | `JobResponse` | Volumes and the database stay. |
 | `POST /sessions/:dir/close` | | `JobResponse` | Containers, database, worktrees; the session is archived. |
 | `POST /sessions/:dir/verify` | `VerifyRequest`, optional | `JobResponse` | The operator's local test. |
+| `DELETE /sessions/:dir/verify` | | `SessionResponse` | Clears the tick. Synchronous; the new view answers. 404 without the session. |
 | `POST /sessions/:dir/pr` | `PrRequest` | `JobResponse` | One PR per changed repo, as the operator. |
 | `POST /sessions/:dir/fix` | `FixRequest` | `JobResponse` | Renders `threads/`, then starts or steers the fixer. |
 | `GET /sessions/:dir/threads` | | `ThreadsResponse` | From the last render. |

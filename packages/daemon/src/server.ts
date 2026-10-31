@@ -294,6 +294,24 @@ export function create_app(deps: AppDeps): Hono {
         });
     });
 
+    // Untick is synchronous, not a job: it only rewrites `session.yaml`, and the checkbox
+    // wants the new view in the answer. The watcher publishes `session.updated` too.
+    app.delete("/sessions/:dir/verify", async (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        let cleared;
+        try {
+            cleared = actions.unverify(deps.ctx, summary);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 500);
+        }
+        await deps.refresh(summary.dir);
+        const body: SessionResponse = { session: deps.view(cleared) };
+        return c.json(body);
+    });
+
     app.post("/sessions/:dir/agents", async (c) => {
         const request = parse_add_agent(await json_body(c));
         if (typeof request === "string") {

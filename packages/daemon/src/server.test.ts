@@ -24,7 +24,7 @@ import type {
 import { resolve_project } from "./actions.js";
 import { resolve_home, type SpinnerHome } from "./home.js";
 import { start_daemon, type Daemon, type DaemonOptions } from "./server.js";
-import { create_session } from "./store/session-store.js";
+import { create_session, read_session } from "./store/session-store.js";
 
 let home: SpinnerHome;
 let daemon: Daemon;
@@ -222,6 +222,32 @@ describe("REST", () => {
         });
         expect((await fetch(`${base}/sessions/nope/verify`, { method: "POST" })).status).toBe(404);
         client.close();
+    });
+
+    it("DELETE /sessions/:dir/verify clears the tick and answers the new view", async () => {
+        create_session(home, { title: "Alpha" });
+        const ticked = await fetch(`${base}/sessions/s001/verify`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ by: "cullen" }),
+        });
+        expect(ticked.status).toBe(202);
+        await until(() => {
+            const read = read_session(home, "s001-alpha");
+            return read.ok && read.summary.session.pipeline?.verified_locally === true;
+        });
+        const response = await fetch(`${base}/sessions/s001/verify`, { method: "DELETE" });
+        expect(response.status).toBe(200);
+        const { session } = (await response.json()) as SessionResponse;
+        expect(session.summary.session.pipeline).toEqual({
+            verified_locally: false,
+            slack_post: null,
+        });
+        const read = read_session(home, "s001-alpha");
+        expect(read.ok && read.summary.session.pipeline?.verified_by).toBeUndefined();
+        expect((await fetch(`${base}/sessions/nope/verify`, { method: "DELETE" })).status).toBe(
+            404,
+        );
     });
 
     it("GET / says how to build the UI when there is none, and serves a build", async () => {

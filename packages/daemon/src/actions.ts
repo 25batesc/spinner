@@ -46,7 +46,7 @@ import {
     type ThreadsDeps,
     type ThreadsDiff,
 } from "./pipeline/threads.js";
-import { verify_session } from "./pipeline/verify.js";
+import { unverify_session, verify_session } from "./pipeline/verify.js";
 import {
     attach_project,
     stack_close,
@@ -397,4 +397,10 @@ export function verify(
     const needs = verified.session.needs_human ?? "-";
     log(`stage: ${verified.session.stage}; needs_human: ${needs}`);
     return verified;
+}
+
+/** `DELETE /sessions/:dir/verify`: the tick was a mistake; the stage asks for the test again. */
+export function unverify(ctx: ActionContext, summary: SessionSummary): SessionSummary {
+    const config = config_for_session(summary, ctx.home, ctx.cwd, () => undefined);
+    return unverify_session(ctx.home, { dir: summary.dir, config });
 }
