@@ -133,6 +133,9 @@ export class PiTtyHarness implements AgentHarness {
     }
 }
 
+/** The line pi prints under a startup warning; it waits for a key before the session starts. */
+export const PI_STARTUP_NOTICE = "Press any key to continue";
+
 /** One pty and what hangs off it: the extension channel, the scrollback, the attachments. */
 export class TtyAgent {
     readonly exited: Promise<number | null>;
@@ -142,6 +145,8 @@ export class TtyAgent {
     private size: TtyResize = { ...TTY_SIZE_DEFAULT };
     private sized_by_client = false;
     private exit_code: number | null | undefined;
+    /** pi's startup notice waits for a key; the daemon presses it once, nobody else can. */
+    private startup_notice_answered = false;
 
     constructor(
         private readonly pty: IPty,
@@ -264,6 +269,11 @@ export class TtyAgent {
                 : joined;
         for (const client of this.attachments) {
             client.send_bytes(chunk);
+        }
+        if (!this.startup_notice_answered && chunk.includes(PI_STARTUP_NOTICE)) {
+            // Before `hello`, no human watches this terminal; the notice would block pi for good.
+            this.startup_notice_answered = true;
+            this.pty.write("\r");
         }
     }
 }

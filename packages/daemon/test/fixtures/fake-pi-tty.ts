@@ -130,6 +130,14 @@ process.on("SIGTERM", () => {
     setTimeout(() => process.exit(143), 20);
 });
 
+// With FAKE_PI_STARTUP_NOTICE set, behave like a pi with a config warning: print the notice
+// and wait for one key before anything else. The harness must press it.
+if (process.env["FAKE_PI_STARTUP_NOTICE"] === "1") {
+    print("Warning: something in the config");
+    process.stdout.write("Press any key to continue...");
+    await new Promise<void>((resolve) => process.stdin.once("data", () => resolve()));
+    print("");
+}
 print("fake pi tty ready");
 await post("/hello", {
     pid: process.pid,

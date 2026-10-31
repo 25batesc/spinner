@@ -226,6 +226,24 @@ describe("the tty harness through the daemon", () => {
         again.socket.close();
     }, 30_000);
 
+    it("presses the key pi's startup notice waits for, once, before hello", async () => {
+        const summary = create_session(home, { title: "Notice" });
+        mkdirSync(join(summary.path, "agents", "warned"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "warned", "BRIEF.md"), "# warned\n");
+        process.env["FAKE_PI_STARTUP_NOTICE"] = "1";
+        try {
+            const added = await call("POST", `/sessions/${summary.dir}/agents`, { name: "warned" });
+            expect(added.status).toBe(201);
+            const client = await attach(summary.dir, "warned");
+            await until(() => client.text().includes("fake pi tty ready"));
+            expect(client.text()).toContain("Press any key to continue");
+            client.socket.close();
+        } finally {
+            delete process.env["FAKE_PI_STARTUP_NOTICE"];
+            await call("POST", `/sessions/${summary.dir}/agents/warned/stop`, {});
+        }
+    });
+
     it("a daemon restart resumes the tty agent the previous daemon hosted", async () => {
         const summary = create_session(home, { title: "Restart" });
         mkdirSync(join(summary.path, "agents", "ui"), { recursive: true });
