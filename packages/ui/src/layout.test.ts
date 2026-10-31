@@ -2,12 +2,15 @@
 // its kind says (the left panel hides, the previews become a strip, agents never fold),
 // restore brings the remembered width back, the free column moves to the open pane, expand
 // shows the previews alone, and the layout survives a round trip through storage while bad
-// or partial records fall back to the defaults.
+// or partial records fall back to the defaults. A narrow window is a derived layout: the
+// previews shrink, then the side panel, then the previews collapse, then the side panel folds,
+// and the agents pane never goes under 280 px.
 import { describe, expect, it } from "vitest";
 
 import {
     columns,
     DEFAULT_LAYOUT,
+    fitLayout,
     loadLayout,
     reduceLayout,
     saveLayout,
@@ -94,6 +97,59 @@ describe("columns and visiblePanes", () => {
         expect(columns(expanded)).toBe("1fr");
         const back = reduceLayout(expanded, { kind: "expand", expanded: false });
         expect(columns(back)).toBe("1fr 6px 520px");
+    });
+});
+
+describe("fitLayout", () => {
+    // The defaults ask for 260 + 6 + 280 + 6 + 520 = 1072 px with the agents at their minimum.
+    it("leaves a layout that fits, and one not measured yet, alone", () => {
+        expect(fitLayout(DEFAULT_LAYOUT, 1072)).toBe(DEFAULT_LAYOUT);
+        expect(fitLayout(DEFAULT_LAYOUT, 1460)).toBe(DEFAULT_LAYOUT);
+        expect(fitLayout(DEFAULT_LAYOUT, 0)).toBe(DEFAULT_LAYOUT);
+    });
+
+    it("shrinks the previews first, down to their minimum, so the agents keep 280 px", () => {
+        // A 900 px window: 860 px for the grid. The previews give up the 212 px deficit.
+        const fitted = fitLayout(DEFAULT_LAYOUT, 860);
+        expect(columns(fitted)).toBe("260px 6px 1fr 6px 308px");
+        expect(fitted.panes.previews.collapsed).toBe(false);
+        // 752 px: the previews stop at 200 and the side panel gives the other 120 px.
+        const tighter = fitLayout(DEFAULT_LAYOUT, 752);
+        expect(columns(tighter)).toBe("260px 6px 1fr 6px 200px");
+        expect(columns(fitLayout(DEFAULT_LAYOUT, 660))).toBe("168px 6px 1fr 6px 200px");
+    });
+
+    it("collapses the previews to a strip before it folds the side panel", () => {
+        // Under 632 px (140 + 6 + 280 + 6 + 200) the minimums do not fit: the previews strip.
+        const strip = fitLayout(DEFAULT_LAYOUT, 560);
+        expect(columns(strip)).toBe("140px 6px 1fr 6px 24px");
+        expect(strip.panes.previews).toMatchObject({ collapsed: true, hidden: false });
+        expect(strip.panes.sessions.hidden).toBe(false);
+        // Under 456 px (140 + 6 + 280 + 6 + 24) the side panel folds too.
+        const folded = fitLayout(DEFAULT_LAYOUT, 400);
+        expect(visiblePanes(folded)).toEqual(["agents", "previews"]);
+        expect(columns(folded)).toBe("1fr 6px 24px");
+    });
+
+    it("never changes the stored layout, the expanded view or a folded agents pane", () => {
+        fitLayout(DEFAULT_LAYOUT, 400);
+        expect(DEFAULT_LAYOUT.panes.previews).toMatchObject({ width: 520, collapsed: false });
+        const expanded = reduceLayout(DEFAULT_LAYOUT, { kind: "expand", expanded: true });
+        expect(fitLayout(expanded, 400)).toBe(expanded);
+        const popped = reduceLayout(DEFAULT_LAYOUT, {
+            kind: "popped", pane: "agents", popped: true,
+        });
+        expect(fitLayout(popped, 400)).toBe(popped);
+    });
+
+    it("counts a hidden side panel and a strip at their real widths", () => {
+        const hidden = fold(DEFAULT_LAYOUT, "sessions");
+        // 280 + 6 + 520 = 806 fits in 806; at 700 the previews shrink to 414.
+        expect(fitLayout(hidden, 806)).toBe(hidden);
+        expect(columns(fitLayout(hidden, 700))).toBe("1fr 6px 414px");
+        const strip = fold(DEFAULT_LAYOUT, "previews");
+        // 260 + 6 + 280 + 6 + 24 = 576; at 500 the side panel shrinks to 184.
+        expect(columns(fitLayout(strip, 500))).toBe("184px 6px 1fr 6px 24px");
     });
 });
 

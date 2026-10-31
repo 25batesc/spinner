@@ -6,7 +6,9 @@
 // and opens the `?pane=` route; `bridge-popout` docks the desktop's popped-out windows back
 // through a stub of the bridge. The flow `terminal` attaches a tty agent's terminal to the
 // fixture's echo pty, types, resizes and opens the pane route; `drawer` drags, collapses and
-// restores the job drawer under it. It works against the fixture server or the real daemon.
+// restores the job drawer under it; `narrow` shrinks the window to 900, 600 and 440 px and
+// checks the fold order with the terminal open. It works against the fixture server or the
+// real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
@@ -1282,6 +1284,89 @@ if (flow === "drawer") {
     await until("height after the reload", `${heightOf} === 300`);
     await shot("70-drawer-after-reload");
     console.log("drawer ok");
+    socket.close();
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
+    process.exit(0);
+}
+
+if (flow === "narrow") {
+    // A narrow window keeps the terminal usable. At 900 px (860 px for the grid) the previews
+    // give up width so the agents pane keeps its 280 px minimum and the terminal opens; at
+    // 600 px the previews are a strip and the side panel is at its 140 px minimum; at 440 px
+    // the side panel is gone too. None of it is stored: back at 1500 px the defaults show.
+    // A click on the width-made previews strip folds the side panel instead, the one way to
+    // see the previews at that width.
+    const widthOf = (selector: string) =>
+        `Math.round(document.querySelector(${JSON.stringify(selector)})` +
+        `?.getBoundingClientRect().width ?? -1)`;
+    const strip = (pane: string) => `document.querySelector(".strip[data-pane=${pane}]")`;
+    const shown = `document.querySelector(".agent-terminal:not([hidden])")`;
+    const rows = `(${shown}?.querySelector(".xterm-rows")?.innerText ?? "")`;
+    const resize = (width: number) =>
+        send("Emulation.setDeviceMetricsOverride", {
+            width, height: 900, deviceScaleFactor: 1, mobile: false,
+        });
+    const widths = async () =>
+        (await evaluate(`({
+            sessions: ${widthOf(".sessions-pane")}, agents: ${widthOf(".agents-pane")},
+            previews: ${widthOf(".preview-pane")}, strips: document.querySelectorAll(".strip")
+                .length, window: window.innerWidth,
+        })`)) as Record<string, number>;
+    await resize(900);
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("agents at the minimum", `${widthOf(".agents-pane")} === 280`);
+    // 860 px less the bar's border, 260, two handles and 280: about 307 px.
+    await until("previews shrunk", `${widthOf(".preview-pane")} < 320`);
+    await until("previews over their minimum", `${widthOf(".preview-pane")} > 200`);
+    await until("xterm mounted", `${shown}?.querySelector(".xterm") !== null`);
+    await until("banner", `${rows}.includes("Spinner fixture pty for")`);
+    await until("terminal has columns", `${rows}.includes("[resize ")`);
+    const at900 = await widths();
+    console.log("900 px:", JSON.stringify(at900));
+    if (at900["sessions"] !== 260 || at900["strips"] !== 0) {
+        throw new Error("at 900 px the side panel must keep 260 px and nothing may fold");
+    }
+    await shot("60-narrow-900");
+    await resize(600);
+    await until("previews strip", `${strip("previews")} !== null`);
+    await until("side panel at the minimum", `${widthOf(".sessions-pane")} === 140`);
+    const at600 = await widths();
+    console.log("600 px:", JSON.stringify(at600));
+    if (at600["agents"] < 280 || at600["strips"] !== 1) {
+        throw new Error("at 600 px the previews strip and the agents keep 280 px");
+    }
+    await until("terminal still shown", `${shown}?.querySelector(".xterm") !== null`);
+    await shot("61-narrow-600");
+    await resize(440);
+    await until("side panel folded", `document.querySelector(".sessions-pane") === null`);
+    const at440 = await widths();
+    console.log("440 px:", JSON.stringify(at440));
+    if (at440["agents"] < 280 || at440["strips"] !== 1) {
+        throw new Error("at 440 px only the agents pane and the previews strip remain");
+    }
+    await shot("62-narrow-440");
+    await resize(1500);
+    await until("side panel back", `${widthOf(".sessions-pane")} === 260`);
+    await until("previews back", `${widthOf(".preview-pane")} === 520`);
+    const stored = await evaluate(`localStorage.getItem("spinner.layout.v2")`);
+    console.log("stored layout:", stored);
+    const saved = JSON.parse(String(stored)) as {
+        panes: Record<string, { width: number; collapsed: boolean; hidden: boolean }>;
+    };
+    if (saved.panes["previews"]?.collapsed !== false || saved.panes["sessions"]?.hidden !== false) {
+        throw new Error("the narrow window must not change the stored layout");
+    }
+    await shot("63-narrow-back-to-1500");
+    // The strip the width made: a click folds the side panel, and the previews come back.
+    await resize(600);
+    await until("previews strip again", `${strip("previews")} !== null`);
+    await click(".strip[data-pane=previews]");
+    await until("side panel hidden", `document.querySelector(".sessions-pane") === null`);
+    await until("previews open at 600", `${widthOf(".preview-pane")} >= 200`);
+    await until("agents keep 280", `${widthOf(".agents-pane")} >= 280`);
+    await shot("64-narrow-strip-click");
+    console.log("600 px after the strip click:", JSON.stringify(await widths()));
+    console.log("narrow ok");
     socket.close();
     await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
     process.exit(0);

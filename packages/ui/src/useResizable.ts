@@ -8,10 +8,12 @@ import {
     useState,
     type KeyboardEvent,
     type PointerEvent,
+    type RefCallback,
 } from "react";
 
 import {
     columns,
+    fitLayout,
     LIMITS,
     SNAP_PX,
     loadLayout,
@@ -38,10 +40,18 @@ export interface HandleProps {
 }
 
 export interface PaneLayout {
+    /** The stored layout: what the operator set, whatever the window's width. */
     layout: Layout;
+    /**
+     * The layout as the grid's width allows (`fitLayout`): a narrow window shrinks, then
+     * folds, the previews and the side panel here without a change to `layout`.
+     */
+    fitted: Layout;
+    /** Goes on the grid element; its width feeds `fitted`. */
+    container: RefCallback<HTMLDivElement>;
     /** The panes with a column, left to right; a divider sits between two of them. */
     visible: PaneName[];
-    /** The `grid-template-columns` value for the current layout. */
+    /** The `grid-template-columns` value for the fitted layout. */
     columns: string;
     /** True during a divider drag; the layout then ignores pointer events on the previews. */
     dragging: boolean;
@@ -130,6 +140,24 @@ export function useLayout(): PaneLayout {
     const drag = useRef<Drag | null>(null);
     const [dragging, setDragging] = useState(false);
     const [armed, setArmed] = useState<PaneName | null>(null);
+    // The grid's width, from a ResizeObserver on the element; 0 until the first measure.
+    const [width, setWidth] = useState(0);
+    const observer = useRef<ResizeObserver | null>(null);
+    const container = useCallback<RefCallback<HTMLDivElement>>((element) => {
+        observer.current?.disconnect();
+        observer.current = null;
+        if (element === null || typeof ResizeObserver === "undefined") {
+            return;
+        }
+        setWidth(Math.round(element.getBoundingClientRect().width));
+        observer.current = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (entry !== undefined) {
+                setWidth(Math.round(entry.contentRect.width));
+            }
+        });
+        observer.current.observe(element);
+    }, []);
 
     useEffect(() => {
         saveLayout(storageOrUndefined(), layout);
@@ -220,10 +248,13 @@ export function useLayout(): PaneLayout {
         [act, move, release],
     );
 
+    const fitted = fitLayout(layout, width);
     return {
         layout,
-        visible: visiblePanes(layout),
-        columns: columns(layout),
+        fitted,
+        container,
+        visible: visiblePanes(fitted),
+        columns: columns(fitted),
         dragging,
         armed,
         handle,

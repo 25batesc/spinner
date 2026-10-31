@@ -10,6 +10,10 @@
 // click on the strip restores it. A popped-out pane (the desktop's tray can still open one) is
 // a strip too, so one click docks it back.
 // `expanded` gives the previews the whole window; the panes keep their state for the return.
+//
+// A narrow window does not change the stored layout: `fitLayout` derives what fits the width
+// each render (the previews shrink, then the side panel, then the previews collapse, then the
+// side panel folds), and the agents pane never goes under its minimum.
 
 export type PaneName = "sessions" | "agents" | "previews";
 
@@ -167,6 +171,58 @@ export function reduceLayout(layout: Layout, action: LayoutAction): Layout {
         case "popped":
             return withPane(layout, action.pane, { ...pane, popped: action.popped });
     }
+}
+
+/**
+ * The layout as a window of `width` CSS pixels (the grid's width, without the activity bar) can
+ * show it, with the agents pane at or over its minimum. The stored layout is not changed: the
+ * window may widen again. In order, until the panes fit: the previews shrink to their minimum,
+ * the side panel shrinks to its minimum, the previews collapse to a strip, the side panel
+ * folds. A width of 0 (not measured yet), an expanded layout or a folded agents pane is
+ * returned as is.
+ */
+export function fitLayout(layout: Layout, width: number): Layout {
+    if (width <= 0 || layout.expanded || !isOpen(layout.panes.agents)) {
+        return layout;
+    }
+    let fitted = shrinkToFit(layout, "previews", width);
+    fitted = shrinkToFit(fitted, "sessions", width);
+    if (requiredWidth(fitted) > width && isOpen(fitted.panes.previews)) {
+        fitted = withPane(fitted, "previews", { ...fitted.panes.previews, collapsed: true });
+    }
+    if (requiredWidth(fitted) > width && isOpen(fitted.panes.sessions)) {
+        fitted = withPane(fitted, "sessions", { ...fitted.panes.sessions, hidden: true });
+    }
+    return fitted;
+}
+
+/** An open pane gives up width down to its minimum, as much as the deficit asks for. */
+function shrinkToFit(layout: Layout, pane: PaneName, width: number): Layout {
+    const state = layout.panes[pane];
+    const deficit = requiredWidth(layout) - width;
+    if (deficit <= 0 || !isOpen(state)) {
+        return layout;
+    }
+    const taken = Math.min(deficit, state.width - LIMITS[pane].min);
+    if (taken <= 0) {
+        return layout;
+    }
+    return withPane(layout, pane, { ...state, width: state.width - taken });
+}
+
+/** The width the fixed columns and the handles take, plus the agents minimum. */
+function requiredWidth(layout: Layout): number {
+    const visible = visiblePanes(layout);
+    let total = HANDLE_PX * (visible.length - 1);
+    for (const pane of visible) {
+        const state = layout.panes[pane];
+        if (pane === "agents") {
+            total += LIMITS.agents.min;
+        } else {
+            total += isStrip(state) ? STRIP_PX : state.width;
+        }
+    }
+    return total;
 }
 
 /** The panes with a column, left to right. Expanded: the previews alone. */

@@ -3,7 +3,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { AgentsPane } from "./AgentsPane.tsx";
 import { fetchThemes, postAction, putSettings } from "./events-client.ts";
 import { ActivityDrawer } from "./ActivityDrawer.tsx";
-import { isStrip, PANES, type PaneName } from "./layout.ts";
+import { isOpen, isStrip, PANES, type PaneName } from "./layout.ts";
 import {
     ActivityBar,
     ContextBar,
@@ -174,10 +174,14 @@ export function App() {
         return () => window.removeEventListener("keydown", onKey);
     }, [expanded, layout.setExpanded]);
 
+    // A strip the window's width made (the stored pane is open) has nothing to restore: the
+    // click folds the side panel instead, which is the room the previews need.
     const restore = (pane: PaneName) => {
         const handle = popped.current[pane];
         if (handle !== undefined) {
             handle.dock();
+        } else if (isStrip(layout.fitted.panes[pane]) && isOpen(layout.layout.panes[pane])) {
+            layout.fold("sessions");
         } else {
             layout.restore(pane);
         }
@@ -190,6 +194,9 @@ export function App() {
             restore("sessions");
         } else if (sessionsState.hidden) {
             layout.restore("sessions");
+        } else if (layout.fitted.panes.sessions.hidden) {
+            // The width folded the panel: collapse the previews so it has room.
+            layout.fold("previews");
         } else {
             layout.fold("sessions");
         }
@@ -276,11 +283,12 @@ export function App() {
         );
     }
 
+    // The fitted layout draws: a narrow window shows strips the stored layout does not have.
     const slot = (pane: PaneName) =>
-        isStrip(layout.layout.panes[pane]) ? (
+        isStrip(layout.fitted.panes[pane]) ? (
             <PaneStrip
                 name={pane}
-                popped={layout.layout.panes[pane].popped}
+                popped={layout.fitted.panes[pane].popped}
                 onRestore={() => restore(pane)}
             />
         ) : (
@@ -296,7 +304,7 @@ export function App() {
         const props = layout.handle(before, pane);
         return [<div key={`${before}|${pane}`} className="handle" {...props} />, cell];
     });
-    const agentsOff = expanded || isStrip(layout.layout.panes.agents);
+    const agentsOff = expanded || isStrip(layout.fitted.panes.agents);
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
             <ContextBar view={view} usage={state.usage} />
@@ -307,6 +315,7 @@ export function App() {
                     onPick={pickPanel}
                 />
                 <div
+                    ref={layout.container}
                     className={layout.dragging ? "layout layout-dragging" : "layout"}
                     style={{ gridTemplateColumns: layout.columns }}
                     data-armed={layout.armed ?? undefined}
