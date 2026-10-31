@@ -44,7 +44,7 @@ WebSockets below.
 | `PUT /sessions/:dir/mission/section` | `MissionSectionRequest` | `MissionSectionResponse` | The daemon serializes writes. |
 | `POST /sessions/:dir/inbox` | `InboxMessageRequest` | `InboxMessageResponse` | Writes the message and delivers it. |
 | `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
-| `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201; the harness comes from `config.yaml`. |
+| `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. |
 | `POST /sessions/:dir/agents/:name/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 with the state for a stopped agent. |
 | `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. |
 | `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |
@@ -259,8 +259,10 @@ to stop a pi the previous daemon left, then resumes each `tty` agent on its tran
 ## Configuration
 
 `config.yaml` `agents.harness: tty | rpc` (default `tty`), overridden by
-`SPINNER_AGENTS_HARNESS`. `tty` needs the Spinner extension; the daemon refuses a tty spawn
-without it.
+`SPINNER_AGENTS_HARNESS`. `settings.yaml` `agents.harness` wins over both when set, and
+`settings.default_model` wins over `config.yaml` `default_model`; the manager reads the
+settings file on every `add`. `tty` needs the Spinner extension; the daemon refuses a tty
+spawn without it.
 
 ## The UI snapshot
 

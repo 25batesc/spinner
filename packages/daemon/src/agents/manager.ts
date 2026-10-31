@@ -16,12 +16,15 @@ import type {
     AgentHarnessName,
     AgentSpec,
     SessionSummary,
+    Settings,
 } from "@spinner/protocol";
+import { SETTINGS_DEFAULT } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { is_spinner_leader, process_start_time } from "../stack/host-service.js";
 import { render_brief } from "../store/brief-template.js";
 import { render_agents_file } from "../store/mission-template.js";
+import { read_settings } from "../settings.js";
 import { list_sessions, read_session, write_session } from "../store/session-store.js";
 import { agent_brief_path, type AgentHandle, type AgentHarness } from "./harness.js";
 
@@ -140,9 +143,14 @@ export class AgentManager {
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;
         // `default` is the placeholder `record` writes for pi's own choice, not a model id.
         const listed_model = listed?.model === "default" ? undefined : listed?.model;
-        const model = request.model ?? listed_model;
+        // The operator's `settings.yaml` sits between the request and `config.yaml`: the
+        // request's model, else the one this agent ran with, else `settings.default_model`,
+        // else the harness's `config.yaml` default. The harness the same way, without the
+        // per-agent step. A settings file that does not parse is logged, not fatal here.
+        const settings = this.read_settings();
+        const model = request.model ?? listed_model ?? settings.default_model;
         this.write_agents_file(summary);
-        const harness_name = this.harnesses.default;
+        const harness_name = settings.agents?.harness ?? this.harnesses.default;
         const harness = this.harnesses[harness_name];
         assert.ok(harness !== undefined, `no ${harness_name} harness`);
         const spawned = await harness.spawn(summary, { name: request.name, model, cwd });
@@ -331,6 +339,15 @@ export class AgentManager {
             code,
         });
         this.log(`agent ${entry.name} in ${entry.dir} exited with ${code ?? "a signal"}`);
+    }
+
+    private read_settings(): Settings {
+        try {
+            return read_settings(this.home).settings;
+        } catch (error) {
+            this.log(`settings: ${error instanceof Error ? error.message : String(error)}`);
+            return SETTINGS_DEFAULT;
+        }
     }
 
     /** Merges `patch` into `session.yaml`'s entry for the agent. A closed session is skipped. */

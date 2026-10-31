@@ -252,6 +252,39 @@ describe("AgentManager with PiRpcHarness", () => {
         await manager.stop_all();
         delete process.env["FAKE_PI_ARGS_FILE"];
     });
+
+    it("applies settings.yaml: default_model and harness come before config.yaml", async () => {
+        const summary = create_session(home, { title: "Settings" });
+        mkdirSync(join(summary.path, "agents", "backend"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "backend", "BRIEF.md"), "# backend\n");
+        writeFileSync(
+            join(home.root, "settings.yaml"),
+            "theme: system\ndefault_model: openai/gpt-s\nagents:\n  harness: rpc\n",
+        );
+        const args_file = join(home.root, "args.json");
+        process.env["FAKE_PI_ARGS_FILE"] = args_file;
+        // Both names map to the fake harness; `session.yaml` records which name was chosen.
+        const harness = new PiRpcHarness({ pi: () => FAKE_PI, default_model: "x/config" });
+        const manager = new AgentManager(
+            home,
+            { default: "tty", tty: harness, rpc: harness },
+            new EventBus(),
+        );
+        await manager.add(summary, { name: "backend" });
+        const spawned = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
+        expect(spawned.argv).toContain("gpt-s");
+        expect(spawned.argv).not.toContain("config");
+        const yaml = parse(readFileSync(join(summary.path, "session.yaml"), "utf8")) as Session;
+        expect(yaml.agents["backend"]).toMatchObject({ harness: "rpc", model: "openai/gpt-s" });
+        await manager.stop_all();
+
+        // The request's model still wins over the setting.
+        await manager.add(summary, { name: "backend", model: "anthropic/claude-r" });
+        const again = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
+        expect(again.argv).toContain("claude-r");
+        await manager.stop_all();
+        delete process.env["FAKE_PI_ARGS_FILE"];
+    });
 });
 
 describe("events_of_transcript", () => {
