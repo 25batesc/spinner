@@ -1,6 +1,9 @@
 packages:
   - packages/*
 
-# Electron downloads its binary in a postinstall script; pnpm 10 runs no script without this.
+# Electron downloads its binary in a postinstall script, and node-pty compiles its native
+# module on Linux (its prebuilds cover macOS and Windows only); pnpm 10 runs no script
+# without this list.
 onlyBuiltDependencies:
   - electron
+  - node-pty

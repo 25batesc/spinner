@@ -308,7 +308,10 @@ export function create_app(deps: AppDeps): Hono {
             const body: AgentResponse = { name: request.name, pi_session_id: handle.pi_session_id };
             return c.json(body, 201);
         } catch (error) {
-            return c.json(error_body(describe_error(error)), 409);
+            // An agent that runs already is the caller's conflict; a spawn that fails is ours.
+            const message = describe_error(error);
+            const status = message.includes("already running") ? 409 : 500;
+            return c.json(error_body(message), status);
         }
     });
 
