@@ -73,6 +73,7 @@ describe.skipIf(!existsSync(main_js))("spinner daemon", () => {
 
         expect(await run_cli(["daemon", "status"], io)).toBe(0);
         expect(out.at(-3)).toBe(`spinner daemon: running (pid ${pid}) at ${url()}`);
+        expect(out.at(-2)).toMatch(/, ui (none|\w+)$/);
         expect(out.at(-1)).toMatch(new RegExp(`home ${root}$`));
 
         expect(await run_cli(["daemon", "logs", "--no-follow"], io)).toBe(0);

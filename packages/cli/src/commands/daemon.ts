@@ -200,7 +200,8 @@ async function status(target: Target, io: CliIo): Promise<number> {
         return 1;
     }
     io.out(`spinner daemon: running (pid ${found.pid}) at ${target.url}`);
-    io.out(`spinner daemon: build ${describe_build(health.build)}`);
+    const ui = health.ui_commit ?? "none";
+    io.out(`spinner daemon: build ${describe_build(health.build)}, ui ${ui}`);
     io.out(`spinner daemon: started ${health.started}, home ${health.home}`);
     return 0;
 }

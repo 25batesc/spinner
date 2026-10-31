@@ -3,7 +3,7 @@
 // appears, and serves the UI build at `/`, all without state of its own. Method: start a
 // daemon on an ephemeral port against a temporary SPINNER_HOME with the poller off, call it
 // with fetch and a ws client, and create sessions on disk the way the CLI does.
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -259,7 +259,12 @@ describe("REST", () => {
         mkdirSync(join(ui_dir, "assets"));
         writeFileSync(join(ui_dir, "index.html"), "<html><body>spinner ui</body></html>");
         writeFileSync(join(ui_dir, "assets", "app.js"), "console.log(1);");
-        const served = await start_daemon(test_options(ui_dir));
+        // A stale snapshot of another commit is removed at start.
+        mkdirSync(join(home.root, "ui", "0ld0ld0"), { recursive: true });
+        const served = await start_daemon({
+            ...test_options(ui_dir),
+            build: { version: "0.0.0", commit: "abc1234", built: null },
+        });
         const index = await fetch(`http://127.0.0.1:${served.port}/`);
         expect(index.status).toBe(200);
         expect(await index.text()).toContain("spinner ui");
@@ -268,6 +273,20 @@ describe("REST", () => {
         expect(asset.headers.get("content-type")).toMatch(/javascript/);
         const api = await fetch(`http://127.0.0.1:${served.port}/sessions`);
         expect(api.status).toBe(200);
+
+        // The daemon serves a snapshot under `<home>/ui/<commit>`, so a rebuild of the
+        // source dist does not change what a running daemon serves.
+        const snapshot = join(home.root, "ui", "abc1234");
+        expect(existsSync(join(snapshot, "assets", "app.js"))).toBe(true);
+        expect(existsSync(join(home.root, "ui", "0ld0ld0"))).toBe(false);
+        writeFileSync(join(ui_dir, "index.html"), "<html><body>rebuilt</body></html>");
+        expect(await (await fetch(`http://127.0.0.1:${served.port}/`)).text()).toContain(
+            "spinner ui",
+        );
+        const health = (await (await fetch(`http://127.0.0.1:${served.port}/health`)).json()) as {
+            ui_commit: string | null;
+        };
+        expect(health.ui_commit).toBe("abc1234");
         await served.close();
         rmSync(ui_dir, { recursive: true, force: true });
     });

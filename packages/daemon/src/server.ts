@@ -69,6 +69,7 @@ import { watch_stack_jobs } from "./stack/job-record.js";
 import { service_log_lines, StackLogsError } from "./stack/logs.js";
 import { start_usage_sampler, type UsageSampler } from "./stack/usage.js";
 import { list_themes, read_settings, write_settings } from "./settings.js";
+import { snapshot_ui } from "./ui-snapshot.js";
 import { list_projects } from "./projects.js";
 import {
     parse_add_agent,
@@ -153,6 +154,8 @@ export interface AppDeps {
     /** Called after a job on `dir` finished, so the view carries fresh stack facts. */
     refresh: (dir: string) => Promise<void>;
     ui_dir: string | null;
+    /** The snapshot's name under `<home>/ui`, for `GET /health`; null without a UI. */
+    ui_commit: string | null;
     agents: AgentManager;
     /** The tty harness, for the pty WebSocket and the extension's routes; null without one. */
     tty?: PiTtyHarness | null;
@@ -185,6 +188,7 @@ export function create_app(deps: AppDeps): Hono {
             home: deps.home.root,
             started: deps.started,
             build: deps.build,
+            ui_commit: deps.ui_commit,
         };
         return c.json(body);
     });
@@ -643,16 +647,20 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         publish_view(dir);
     };
 
+    const build = options.build ?? { version: "0.0.0", commit: null, built: null };
+    const ui_source = options.ui_dir === undefined ? default_ui_dir() : options.ui_dir;
+    const ui = ui_source === null ? null : snapshot_ui(home, ui_source, build.commit, log);
     const app = create_app({
         home,
         started,
-        build: options.build ?? { version: "0.0.0", commit: null, built: null },
+        build,
         log,
         ctx,
         jobs,
         view,
         refresh,
-        ui_dir: options.ui_dir === undefined ? default_ui_dir() : options.ui_dir,
+        ui_dir: ui === null ? ui_source : ui.dir,
+        ui_commit: ui === null ? null : ui.commit,
         agents,
         tty,
         usage: () => sampler.response(),

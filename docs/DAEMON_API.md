@@ -15,7 +15,7 @@ WebSockets below.
 
 | Route | Body | Response | Notes |
 |---|---|---|---|
-| `GET /health` | | `HealthResponse` | The home, the start time and the build. |
+| `GET /health` | | `HealthResponse` | The home, the start time, the build and `ui_commit`, the UI snapshot served. |
 | `GET /projects` | | `ProjectsResponse` | Every `spinner.yaml` the daemon can find. |
 | `GET /sessions` | | `SessionsResponse` | Every session as the daemon sees it. |
 | `GET /sessions/:dir` | | `SessionResponse` | 404 without the session. |
@@ -261,3 +261,11 @@ to stop a pi the previous daemon left, then resumes each `tty` agent on its tran
 `config.yaml` `agents.harness: tty | rpc` (default `tty`), overridden by
 `SPINNER_AGENTS_HARNESS`. `tty` needs the Spinner extension; the daemon refuses a tty spawn
 without it.
+
+## The UI snapshot
+
+At start the daemon copies `packages/ui/dist` (or `SPINNER_UI_DIR`) to `<home>/ui/<commit>/`
+when that snapshot is absent, removes the snapshots of other commits, and serves `GET /` from
+the copy. `<commit>` is the checkout's short commit, or `unversioned` outside git. A rebuild
+of `dist` does not change a running daemon's UI; a restart takes the new build. `GET /health`
+names the snapshot in `ui_commit`, null when no UI is served.

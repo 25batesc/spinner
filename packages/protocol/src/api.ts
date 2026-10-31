@@ -171,6 +171,11 @@ export interface HealthResponse {
     started: string;
     /** What runs: for `spinner daemon status` and for telling a stale build from a fresh one. */
     build: BuildInfo;
+    /**
+     * The UI snapshot the daemon serves, named by the checkout's commit at start, or
+     * `unversioned` outside a git checkout. Null when the daemon serves no UI.
+     */
+    ui_commit: string | null;
 }
 
 export interface BuildInfo {
