@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
     integer_rect,
     next_zoom_level,
+    preview_partition,
     PreviewRegistry,
     ZOOM_LEVEL_MAX,
     ZOOM_LEVEL_MIN,
@@ -314,6 +315,15 @@ describe("PreviewRegistry", () => {
         expect(() => registry.set("s1/web", "http://x", { ...rect, x: Number.NaN })).toThrow(
             /finite/,
         );
+    });
+});
+
+describe("preview_partition", () => {
+    it("is one persistent partition per session dir, shared by its services", () => {
+        expect(preview_partition("s001-alpha/web")).toBe("persist:s001-alpha");
+        expect(preview_partition("s001-alpha/admin")).toBe(preview_partition("s001-alpha/web"));
+        expect(preview_partition("s002-beta/web")).not.toBe(preview_partition("s001-alpha/web"));
+        expect(() => preview_partition("nokey")).toThrow(/session dir/);
     });
 });
 

@@ -1,11 +1,13 @@
 // The Electron `PreviewHost`: one `WebContentsView` per key, a child of the main window's
 // content view. A failed load renders the error inside the view with a retry link, so the
 // app stays usable; the renderer only gets the `failed` event. Links a page opens in a new
-// window go to the default browser. Previews share the default session on purpose
-// (MISSION Contracts): cookies behave like tabs of one browser. A pop-out is a `BaseWindow`
-// that adopts the same view: the page never reloads, so its login stays.
+// window go to the default browser. Each view takes the Electron session of its Spinner
+// session (`preview_partition`): the services of one session share one cookie jar, like
+// tabs of one browser, and two sessions of one app hold two logins. A pop-out is a
+// `BaseWindow` that adopts the same view: the page never reloads and the partition goes with
+// the view, so its login stays.
 import assert from "node:assert/strict";
-import { BaseWindow, shell, WebContentsView, type BrowserWindow } from "electron";
+import { BaseWindow, session, shell, WebContentsView, type BrowserWindow } from "electron";
 import type {
     FindResult,
     PreviewEvent,
@@ -14,7 +16,7 @@ import type {
     PreviewRect,
 } from "@spinner/protocol";
 import { error_page } from "./pages.js";
-import type { PreviewHost, PreviewView } from "./previews.js";
+import { preview_partition, type PreviewHost, type PreviewView } from "./previews.js";
 
 /** Chromium's `net::ERR_ABORTED`: a navigation the page itself replaced, not a failure. */
 const ERR_ABORTED = -3;
@@ -68,7 +70,12 @@ class ElectronPreviewView implements PreviewView {
         private readonly debug: DebugSink,
     ) {
         this.view = new WebContentsView({
-            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+            webPreferences: {
+                sandbox: true,
+                contextIsolation: true,
+                nodeIntegration: false,
+                session: session.fromPartition(preview_partition(key)),
+            },
         });
         this.view.setVisible(false);
         window.contentView.addChildView(this.view);

@@ -60,6 +60,18 @@ interface Entry {
     finding: string | null;
 }
 
+/**
+ * The Electron session partition of a preview: one persistent cookie jar per Spinner session,
+ * shared by that session's services, so two sessions of one app hold two logins and a login
+ * survives an app restart. `persist:` keeps it on disk.
+ */
+export function preview_partition(key: PreviewKey): string {
+    assert_key(key);
+    const session_dir = preview_key_session(key);
+    assert.ok(session_dir.length > 0, "a partition needs a session dir");
+    return `persist:${session_dir}`;
+}
+
 /** One Chromium zoom level is 20 %; these bounds are 50 % to 300 %, like a browser's. */
 export const ZOOM_LEVEL_MIN = -3.8;
 export const ZOOM_LEVEL_MAX = 6;

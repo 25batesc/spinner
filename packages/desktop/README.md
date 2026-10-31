@@ -1,7 +1,9 @@
 # @spinner/desktop
 
 The web UI in an Electron window, with each preview as a `WebContentsView`: a top-level
-page, so an app whose login lives in `SameSite=Lax` cookies stays logged in. The app
+page, so an app whose login lives in `SameSite=Lax` cookies stays logged in. Each Spinner
+session's previews share one cookie partition (`persist:<session dir>`), so two sessions of
+one app hold two logins, and a pop-out keeps the view and with it the login. The app
 connects to the daemon on `localhost:7777` and starts one with `spinner daemon start` when
 none answers. The web UI in a browser keeps working unchanged.
 
