@@ -1,7 +1,8 @@
 // Stands in for the daemon in UI tests. It serves the API v1 routes from `@spinner/protocol`
 // that the UI calls, keeps the sessions in memory, runs each action as a job with scripted log
-// lines, and broadcasts the same events the daemon does. It listens on the daemon's port, so
-// run either this or the daemon, not both. Start it with `pnpm --filter ui fixture`.
+// lines, and broadcasts the same events the daemon does. It listens on its own port (`port.ts`,
+// `17777`), not the daemon's, so a driver with `SPINNER_PORT` unset never reaches the operator's
+// daemon; `SPINNER_PORT` moves it. Start it with `pnpm --filter ui fixture`.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import {

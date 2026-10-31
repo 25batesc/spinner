@@ -14,7 +14,9 @@ import type {
     StackView,
 } from "@spinner/protocol";
 
-export const FIXTURE_PORT = Number(process.env["SPINNER_PORT"] ?? 7777);
+import { fixturePort } from "./port.ts";
+
+export const FIXTURE_PORT = fixturePort(process.env);
 
 export const PROJECTS: ProjectView[] = [
     {

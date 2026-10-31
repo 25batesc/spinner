@@ -3,11 +3,14 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-import { DAEMON_HOST, DAEMON_PORT, EVENTS_PATH } from "@spinner/protocol";
+import { DAEMON_HOST, EVENTS_PATH } from "@spinner/protocol";
 
-// `SPINNER_PORT` points the dev server at a daemon (or the fixture) that is not on the default
-// port, so a second daemon can run beside the operator's.
-const DAEMON_URL = `http://${DAEMON_HOST}:${process.env["SPINNER_PORT"] ?? DAEMON_PORT}`;
+import { fixturePort } from "./fixture/port.ts";
+
+// With `SPINNER_PORT` unset the dev server talks to the fixture's port (`17777`), never to the
+// operator's daemon on its default port. `SPINNER_PORT` points it at a daemon or a fixture
+// elsewhere, so a second daemon can run beside the operator's.
+const DAEMON_URL = `http://${DAEMON_HOST}:${fixturePort(process.env)}`;
 
 export default defineConfig({
     plugins: [react()],
