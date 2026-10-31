@@ -123,14 +123,29 @@ function append_text(request: MissionSectionRequest, time: string): string {
             return `- ${time} ${request.author}: ${text}`;
         case "open_questions":
             return `- ${request.author}: ${text}`;
+        case "plan":
+            return plan_item(text);
         default:
             return text.startsWith("- ") ? text : `- ${text}`;
     }
 }
 
+/** A Plan line is a checkbox item: `1. x` and `- 1. x` become `- [ ] 1. x`; `- [x] 1. x` stays. */
+function plan_item(text: string): string {
+    const bare = text.replace(/^-\s+/, "");
+    return /^\[[ x]\]\s/.test(bare) ? `- ${bare}` : `- [ ] ${bare}`;
+}
+
+/** The template's empty item (`- [ ] 1. `) goes when the first real item arrives. */
+const PLAN_PLACEHOLDER = /^- \[ \] \d+\.\s*$/;
+
 /** Appends `line` after the last non-blank line; the blank line before the next heading stays. */
 function append_line(block: MissionBlock, line: string): void {
-    const body = block.body.replace(/\n+$/, "");
+    const body = block.body
+        .replace(/\n+$/, "")
+        .split("\n")
+        .filter((existing) => !PLAN_PLACEHOLDER.test(existing))
+        .join("\n");
     block.body = body.length === 0 ? `${line}\n\n` : `${body}\n${line}\n\n`;
 }
 

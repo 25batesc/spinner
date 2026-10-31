@@ -102,6 +102,7 @@ export class OperatorHost {
         return {
             enabled: this.enabled,
             process: process_,
+            ready: this.agent !== null && this.agent.channel.hello !== null,
             pid: this.agent?.pid ?? null,
             model: this.model,
             dir: this.dir,
@@ -155,6 +156,10 @@ export class OperatorHost {
         this.model = spawn.model ?? null;
         this.busy = false;
         write_process_record(this.dir, { pid: agent.pid, started: process_start_time(agent.pid) });
+        void agent.channel.wait_hello().then(
+            () => this.publish(),
+            () => undefined,
+        );
         agent.channel.on_event((event) => {
             if (event.type === "agent_start") {
                 this.busy = true;

@@ -15,6 +15,7 @@ import type {
     MissionSectionResponse,
     NewSessionRequest,
     OperatorMissionSection,
+    ProjectsResponse,
     SessionView,
     SessionsResponse,
 } from "@spinner/protocol";
@@ -62,7 +63,12 @@ export async function run_operator_tool(
             if (slug !== undefined) {
                 body.slug = slug;
             }
-            const started = await client.send<JobResponse>("POST", "/sessions", body);
+            let started: JobResponse;
+            try {
+                started = await client.send<JobResponse>("POST", "/sessions", body);
+            } catch (error) {
+                throw await with_project_names(client, error);
+            }
             const job = await wait_job(client, started.job, deps.poll_ms);
             return describe_job(job, "created");
         }
@@ -183,6 +189,21 @@ export async function run_operator_tool(
         }
         default:
             throw new Error(`${name} is not an operator tool`);
+    }
+}
+
+/** A "project not found" error, with the names `GET /projects` lists, so the next try lands. */
+async function with_project_names(client: DaemonClient, error: unknown): Promise<Error> {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("not found")) {
+        return error instanceof Error ? error : new Error(message);
+    }
+    try {
+        const response = await client.get<ProjectsResponse>("/projects");
+        const names = response.projects.map((project) => project.name);
+        return new Error(`${message}. Projects: ${names.join(", ") || "(none)"}`);
+    } catch {
+        return new Error(message);
     }
 }
 

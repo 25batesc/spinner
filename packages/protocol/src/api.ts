@@ -669,6 +669,8 @@ export interface OperatorView {
     enabled: boolean;
     /** `idle`: pi runs and waits; `running`: a turn is in progress; `exited`: no process. */
     process: AgentProcessState;
+    /** True once the extension inside pi posted `hello`: a prompt or a notice reaches it. */
+    ready: boolean;
     pid: number | null;
     /** `provider/model` the agent runs with, or null for pi's own default. */
     model: string | null;

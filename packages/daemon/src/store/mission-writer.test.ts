@@ -43,6 +43,29 @@ describe("apply_mission_write", () => {
         expect(text.indexOf("## Open questions")).toBeLessThan(text.indexOf("## Log"));
     });
 
+    it("appends Plan items as checkboxes and drops the template's empty item", () => {
+        expect(base).toContain("## Plan\n- [ ] 1. \n");
+        let text = apply_mission_write(
+            base,
+            { section: "plan", mode: "append", text: "1. API contract (api)", author: "operator" },
+            "09:01",
+        ).text;
+        text = apply_mission_write(
+            text,
+            { section: "plan", mode: "append", text: "- [x] 2. Done already (ui)", author: "ui" },
+            "09:02",
+        ).text;
+        text = apply_mission_write(
+            text,
+            { section: "plan", mode: "append", text: "- 3. Verify (operator)", author: "ui" },
+            "09:03",
+        ).text;
+        expect(text).toContain(
+            "## Plan\n- [ ] 1. API contract (api)\n- [x] 2. Done already (ui)\n" +
+                "- [ ] 3. Verify (operator)\n\n## Roster",
+        );
+    });
+
     it("upserts one Roster row per author and keeps the Owns cell", () => {
         const first = apply_mission_write(
             base,

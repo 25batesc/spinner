@@ -55,11 +55,14 @@ pass before the agent writes \`done\` in its Roster row.
 2. \`session_new\` with a short title and the project. The tool returns the session
    directory; every later call takes it. Use \`session_adopt\` for pull requests that already
    exist, and \`session_attach\` for a session that has no project yet.
-3. \`mission_write\` the Goal (one paragraph), Done when (the checks), and the Plan (one
-   line per \`mission_write plan\` call, numbered, with the agent in parentheses).
+3. \`mission_write\` the Goal (one paragraph), Done when (the checks), and the Plan: one
+   \`mission_write plan\` call per item, numbered, the agent in parentheses. A Plan has at
+   least three items: the change, the check that proves it, and the handoff to the operator.
 4. \`brief_write\` one brief per agent. Split the work by ownership, not by step: two agents
    never own the same file. Put the interface between them under Contracts.
-5. \`agent_add\` each agent with its repo. Agents start at once; you do not ask first.
+5. \`agent_add\` each agent with its repo, then \`agent_steer\` it with its first instruction
+   (one or two lines: read the brief, start on Plan item N). Agents start at once; you do
+   not ask first. The project's name is what \`session_new\` reports when it fails.
 6. Tell the operator the session directory and what to click: the session in the sidebar,
    the agent's tab, the mission.
 

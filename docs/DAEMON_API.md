@@ -56,6 +56,16 @@ WebSockets below.
 | `GET /sessions/:dir/agents/:name/commands` | | `AgentCommandPollResponse` | Extension only; the long-poll below. |
 | `POST /sessions/:dir/agents/:name/events` | `AgentEventsRequest` | `AgentCommandResponse` | Extension only; 202. |
 | `GET /sessions/:dir/agents/:name/tty` | | WebSocket | Below. |
+| `PUT /sessions/:dir/agents/:name/brief` | `AgentBriefRequest` | `AgentBriefResponse` | Writes `agents/:name/BRIEF.md`, whole file, over an existing one. |
+| `GET /operator` | | `OperatorResponse` | The operator agent; below. |
+| `POST /operator/start` | | `OperatorResponse` | Starts or resumes the operator agent. 409 while it runs, 500 when pi fails to start. |
+| `POST /operator/stop` | | `OperatorResponse` | 409 when it does not run. |
+| `POST /operator/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 when it does not run. |
+| `POST /operator/steer` | `AgentMessageRequest` | `AgentCommandResponse` | 409 when it does not run. |
+| `POST /operator/hello` | `AgentHelloRequest` | `AgentCommandResponse` | Extension only. |
+| `GET /operator/commands` | | `AgentCommandPollResponse` | Extension only; the long-poll. |
+| `POST /operator/events` | `AgentEventsRequest` | `AgentCommandResponse` | Extension only; 202. |
+| `GET /operator/tty` | | WebSocket | The operator agent's pty; the frames of the tty WebSocket below. 404 while stopped. |
 | `GET /sessions/:dir/stack/logs/:service` | | `StackLogsResponse` | Query `lines`, 1 to 2000. |
 | `GET /usage` | | `UsageResponse` | The machine and every up stack. |
 | `GET /settings` | | `SettingsResponse` | Defaults when the file is absent. |
@@ -223,6 +233,8 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 | `theme` | `system`, `light`, `dark`, `rainbow`, or the name of a valid `~/.spinner/themes/<name>.json`. `system` follows the OS. |
 | `default_model` | Optional. `provider/model` for an agent tab that names none. |
 | `agents.harness` | Optional. `tty` or `rpc`. |
+| `operator.enabled` | Optional, default true. The daemon starts the operator agent at boot. |
+| `operator.model` | Optional. `provider/model` for the operator agent; else `default_model`, else the daemon's default. |
 
 `GET /settings` answers `SettingsResponse { settings, path }`; without a file, `settings` is
 `{ theme: "system" }`. `PUT /settings` takes the whole document as the body, validates it, and
@@ -230,6 +242,42 @@ writes the file. A problem is a 400 with the first reason. The reasons are an un
 type, or a theme that is not built-in and not a valid user file. On success the daemon answers
 `SettingsResponse` and publishes the bus event `settings { type, ts, session: null, settings }`.
 A hand edit of the file shows on the next `GET`; the daemon does not watch it.
+
+## The operator agent
+
+One per home, outside every session ([ARCHITECTURE.md](ARCHITECTURE.md#the-operator-agent-packagesdaemonsrcagentsoperatorts)).
+`GET /operator` answers `OperatorResponse { operator: OperatorView }`:
+
+| Field | Meaning |
+|---|---|
+| `enabled` | `settings.operator.enabled`. |
+| `process` | `idle` (pi runs and waits), `running` (a turn is in progress), `exited` (no process). |
+| `ready` | True once the extension inside pi posted `hello`; a prompt or a notice reaches it. |
+| `pid`, `model` | The process and its `provider/model`; null when stopped or on pi's default. |
+| `dir` | `<home>/operator`: the transcript (`pi/`), `BRIEF.md`, `process.json`. |
+| `waiting_on` | `operator` when idle, `model` while a turn runs, `start` when stopped. |
+| `last_notice` | The last `{ ts, text }` the daemon delivered, or null. |
+| `notices_pending` | Lines batched or held (the agent is stopped) and not yet delivered. |
+
+The bus event `operator.updated { type, ts, session: null, data: OperatorView }` follows every
+change. A change is a start, a stop, an exit, `hello`, a turn's start or end, or a delivered
+notice. The agent's own routes (`/operator/start|stop|prompt|steer|tty`) and the extension's
+(`/operator/hello|commands|events`) take the same bodies and frames as a session agent's.
+
+A notice is one `notify` command through the extension channel. The daemon batches the events
+of one second into one notice, one line per event. Each line is `<session dir>: <fact>`. The
+facts are:
+
+| Event | Line |
+|---|---|
+| `session.updated` where `needs_human` goes from null to text | `needs a human: <text>` |
+| `agent.settled` | `agent <name> settled` |
+| `agent.exited` | `agent <name> exited (code N)` |
+| `job.finished` with `ok: false` | `job <action> failed: <error>` |
+| `inbox.message` to `operator` | `message from <agent> (inbox/<file>): <subject>` |
+
+The queue holds 100 lines. Past that the oldest go, and the notice ends with `(N older notices
+dropped)`. Lines wait while the agent is stopped and go out on the next start.
 
 ## Themes
 
