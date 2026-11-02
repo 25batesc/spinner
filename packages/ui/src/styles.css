@@ -317,7 +317,7 @@ html, body, #root { height: 100%; margin: 0; }
 .badges .dot { flex: none; }
 .usage-line { font-size: 11px; }
 .machine-line { font-size: 11px; white-space: nowrap; }
-.usage-share { margin: 0; font-size: 12px; }
+.usage-share { margin: 0; font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
 /* A pill: neutral by default; a state pill takes the tint and the colour of its state. */
 .badge, .pr-badge, .pill {
     display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px;
@@ -445,11 +445,27 @@ html, body, #root { height: 100%; margin: 0; }
 .dot-unknown { background: var(--accent); border-color: var(--accent); }
 .pr-line { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.8; }
 .tab-grey { opacity: 0.4; }
-.services { border-collapse: collapse; font-size: 12px; }
-.services th, .services td { text-align: left; padding: 2px 8px; border-bottom: 1px solid var(--fill); }
+/* The tables (services, roster): muted small headers, hairlines between rows and no vertical
+   lines, 28 px rows, tabular numbers; a row lights up under the pointer. */
+.services, .roster {
+    border-collapse: collapse; width: 100%; font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+}
+.services th, .roster th {
+    height: 28px; padding: 0 var(--space-2); text-align: left; font-size: var(--text-meta);
+    font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.services td, .roster td {
+    height: 28px; padding: var(--space-1) var(--space-2); text-align: left;
+    border-bottom: 1px solid var(--line-soft); vertical-align: middle;
+}
+.services tbody tr:hover, .roster tbody tr:hover { background: var(--fill-soft); }
 .services td { white-space: nowrap; }
-.services td:nth-child(5) { white-space: normal; }
-.service-url { font-size: 11px; display: block; }
+.services td:first-child { font-weight: 500; }
+.services td:nth-child(5) { white-space: normal; font-size: var(--text-meta); }
+.services td:nth-child(2) .dot { margin-right: 4px; vertical-align: -0.5px; }
+.service-url { font-size: var(--text-meta); display: block; font-weight: 400; font-family: var(--font-mono); }
 /* The activity drawer: a fixed height from the layout record, the divider on its top edge,
    the job log then the events inside. The terminal above refits as the drawer changes. The
    head carries the title, the job's state as a pill and the minimize icon. */
@@ -545,45 +561,87 @@ html, body, #root { height: 100%; margin: 0; }
 .prompt-form .prompt { flex: 1; margin-top: 0; }
 .add-agent { font-size: 12px; }
 .add-agent .brief { width: 100%; font-family: inherit; font-size: 12px; }
-.mission h2 { text-transform: none; }
-.mission h3, .pr-threads h3, .context h3 { font-size: 13px; margin: 8px 0 4px; }
-.section-body { white-space: pre-wrap; margin: 0; font-family: inherit; }
-.link { border: 0; background: transparent; color: var(--link); cursor: pointer; margin-left: 8px; }
-.section-edit { display: flex; flex-direction: column; gap: 4px; }
-.roster { border-collapse: collapse; width: 100%; font-size: 12px; }
-.roster th, .roster td { border: 1px solid var(--line-soft); padding: 2px 6px; text-align: left; }
-.roster-row { background: var(--accent-tint); }
+/* The mission: one block per section, a small muted label with its edit button, the body. */
+.mission { display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-1); }
+.mission h2 { font-size: var(--text-title); font-weight: 600; margin: 0; }
+.mission-section { border-radius: var(--radius-control); }
+.mission h3, .context h3 {
+    display: flex; align-items: center; gap: var(--space-2); min-height: 22px;
+    margin: 0 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted);
+}
+.pr-threads h3 { font-size: var(--text-body); font-weight: 600; margin: 0 0 var(--space-1); }
+.section-body {
+    white-space: pre-wrap; margin: 0; font-family: inherit; font-size: var(--text-body);
+    line-height: 1.5;
+}
+/* A text button: the link colour, a tint under the pointer. */
+.link {
+    height: 22px; padding: 0 6px; border: 0; border-radius: var(--radius-control);
+    background: transparent; color: var(--link); font: inherit; font-size: var(--text-dense);
+    font-weight: 500; cursor: pointer; margin-left: var(--space-1);
+}
+.link:hover { background: var(--accent-tint); }
+.mission h3 .link { margin-left: 0; font-size: var(--text-meta); }
+.section-edit { display: flex; flex-direction: column; gap: var(--space-2); }
+.section-edit-actions { display: flex; gap: var(--space-2); }
+.roster-row { background: transparent; }
 .roster-blocked { background: var(--warn-tint); }
 .flash { animation: flash 1.5s ease-out 1; }
 @keyframes flash { from { background: var(--warn-fill); } to { background: transparent; } }
-.thread { list-style: none; border: 1px solid var(--border); border-radius: 4px; padding: 6px; margin-bottom: 6px; }
-.thread-list { padding: 0; margin: 6px 0; }
+/* The threads: a toolbar, then per PR a header and one card per thread with its location in
+   mono, as review comments are shown. */
+.threads { display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-1); }
+.thread-toolbar { display: flex; gap: var(--space-2); align-items: center; font-size: var(--text-dense); }
+.pr-threads > p { margin: 0 0 var(--space-2); font-size: var(--text-dense); }
+.thread {
+    list-style: none; border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    background: var(--surface); padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-2);
+}
+.thread-list { padding: 0; margin: var(--space-2) 0 0; }
 .thread-resolved { opacity: 0.6; }
-.thread-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.thread-body, .thread-reply { margin: 4px 0; white-space: pre-wrap; }
-.thread-reply { margin-left: 12px; }
-.thread-actions { display: flex; gap: 4px; }
-.thread-actions input { flex: 1; }
-.thread-toolbar { display: flex; gap: 8px; align-items: center; }
-.flagged { background: var(--warn-fill); }
-.tracked { background: var(--accent-fill); }
-.context-list { list-style: none; padding: 0; }
-.context-file { border: 1px solid var(--border); border-radius: 4px; padding: 6px; margin-bottom: 6px; }
-.context-head { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
-.context-name { font-weight: 600; }
+.thread-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: var(--text-dense); }
+.thread-location { font-size: var(--text-meta); color: var(--muted); }
+.thread-body, .thread-reply { margin: 6px 0; white-space: pre-wrap; }
+.thread-reply {
+    margin-left: var(--space-1); padding-left: var(--space-2); border-left: 2px solid var(--line-soft);
+}
+.thread-actions { display: flex; gap: 6px; align-items: center; }
+.thread-actions input { flex: 1; min-width: 0; min-height: var(--control-row); font-size: var(--text-dense); }
+.badge.flagged { background: var(--warn-tint); color: var(--warn); }
+.badge.tracked { background: var(--accent-tint); color: var(--accent); }
+/* The Context tab: one bordered list, a row per file with the chevron first; the paths in mono. */
+.context { display: flex; flex-direction: column; }
+.context-list {
+    list-style: none; padding: 0; margin: 0 0 var(--space-2); border: 1px solid var(--line-soft);
+    border-radius: var(--radius-box); overflow: hidden;
+}
+.context-file { padding: 0 var(--space-2) 0 var(--space-1); background: var(--surface); }
+.context-list .context-file + .context-file { border-top: 1px solid var(--line-soft); }
+.context > .context-file { border: 1px solid var(--line-soft); border-radius: var(--radius-box); }
+.context-file .section-body, .context-file .section-edit, .context-file > p {
+    margin: 0 0 var(--space-2) 22px;
+}
+.context-file .section-body { font-size: var(--text-dense); }
+.context-head {
+    display: flex; gap: 6px; align-items: center; white-space: nowrap; min-height: 32px;
+}
+.context-name { font-weight: 600; font-size: var(--text-dense); }
 .context-dir {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px;
-    font-family: ui-monospace, monospace;
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-meta);
+    font-family: var(--font-mono);
 }
-/* The Context tab: one collapsible section per file, the chevron first on its header row. */
-.context-toolbar { display: flex; gap: 4px; margin: 4px 0; }
-.context-toolbar .link { margin-left: 0; }
+.context-toolbar { display: flex; justify-content: flex-end; gap: 2px; margin: 0 0 var(--space-2); }
+.context-toolbar .link { margin-left: 0; color: var(--muted); }
+.context-toolbar .link:hover { color: var(--text); background: var(--fill-soft); }
 .disclosure {
-    width: 18px; padding: 0; border: 0; background: transparent; color: inherit;
-    cursor: pointer; font-size: 12px; opacity: 0.7;
+    width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--radius-control);
+    background: transparent; color: var(--muted); cursor: pointer; font-size: 11px;
 }
-.disclosure:hover { opacity: 1; }
-.context-size { font-size: 11px; }
+.disclosure:hover { color: var(--text); background: var(--fill-soft); }
+.context-size { font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
+.commands { list-style: none; margin: 0 0 var(--space-2) 22px; padding: 0; font-size: var(--text-dense); }
+.commands li { padding: 2px 0; }
 .context-title { font-weight: 600; font-size: 13px; }
 .confirm {
     position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10;
