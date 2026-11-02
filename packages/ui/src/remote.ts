@@ -12,6 +12,7 @@ import type {
     CostsResponse,
     DefaultBriefResponse,
     DiffRepoRequest,
+    EgmResponse,
     ExtractRequest,
     ExtractResponse,
     InboxMessageRequest,
@@ -253,6 +254,14 @@ export function useLoaded<T>(
     }, [key]);
     const sameSession = state.key.split("#")[0] === key.split("#")[0];
     return sameSession ? state.loaded : { value: undefined, error: null };
+}
+
+/**
+ * `GET /egm`: the fetch state and the pin, for the About EGM block in settings. The fetch
+ * itself is `postAction("/egm/fetch")`, a job `egm`.
+ */
+export async function fetchEgm(signal: AbortSignal): Promise<EgmResponse> {
+    return getJson<EgmResponse>("/egm", signal);
 }
 
 /** `GET /costs` over a span of local-zone days, grouped. The Usage section's report. */

@@ -361,6 +361,7 @@ export function App() {
             settings={state.settings}
             themes={themes}
             costs={state.costs}
+            jobs={Object.values(state.jobs)}
             onChange={async (next) => {
                 await putSettings(next);
             }}

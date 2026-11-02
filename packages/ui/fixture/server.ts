@@ -36,8 +36,8 @@ import { costsReport, OPERATOR_COST } from "./costs.ts";
 import { extract } from "./extract.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
-    FIXTURE_PORT, diffRepoStopped, diffViewerUrl, initialReviews, initialSessions, machineUsage,
-    PROJECTS, pr, session, stackView, view,
+    FIXTURE_PORT, diffRepoStopped, diffViewerUrl, egmStatus, initialReviews, initialSessions,
+    machineUsage, PROJECTS, pr, session, stackView, view,
 } from "./data.ts";
 import { ReviewFixture } from "./reviews.ts";
 import type { DiffRepoView, DiffView } from "@spinner/protocol";
@@ -198,6 +198,8 @@ class FixtureDaemon {
     /** The operator agent, `GET /operator`; its pty is made on the first attach. */
     operator: OperatorView = initialOperator();
     operatorPty: EchoPty | null = null;
+    /** `GET /egm`: ready at the pin; `POST /egm/fetch` passes `fetching` and is ready again. */
+    egm = egmStatus();
 
     pipeline = new PipelineFixture(this);
     /** The review routes (s015, s016): `POST /reviews`, the swarm, the lead's draft routes. */
@@ -600,6 +602,27 @@ class FixtureDaemon {
         return true;
     }
 
+    /**
+     * `POST /egm/fetch` as a job `egm` with no session: the state is `fetching` while the job
+     * runs, then `ready` with the job's finish time as `fetched_at`, as a refetch at the pin.
+     */
+    fetchEgm(response: ServerResponse): true {
+        this.egm = { ...this.egm, state: "fetching", error: null };
+        const job = this.start("egm", null, async (log) => {
+            for (const line of ["cloning EGM at a119668d7dc5", "writing 9 adapter agents"]) {
+                log(line);
+                await sleep(STEP_DELAY_MS);
+            }
+            const fetched = new Date().toISOString();
+            this.egm = {
+                ...this.egm, state: "ready", fetched_sha: this.egm.pinned_sha, fetched_at: fetched,
+            };
+            log("fetched EGM a119668d7dc5 and 9 adapter agents");
+            return null;
+        });
+        return this.accepted(response, job);
+    }
+
     accepted(response: ServerResponse, job: Job): true {
         sendJson(response, { job }, 202);
         return true;
@@ -801,6 +824,10 @@ class FixtureDaemon {
             sendJson(response, report.body, report.status);
         } else if (method === "GET" && path === "/health") {
             sendJson(response, { ok: true, home: "fixture", started: new Date().toISOString() });
+        } else if (method === "GET" && path === "/egm") {
+            sendJson(response, { egm: this.egm });
+        } else if (method === "POST" && path === "/egm/fetch") {
+            this.fetchEgm(response);
         } else if (method === "GET" && path === "/operator") {
             sendJson(response, { operator: this.operator });
         } else if (method === "POST" && this.operatorRoute(response, path)) {

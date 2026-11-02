@@ -3,9 +3,11 @@
 import type { AddressInfo } from "node:net";
 
 import {
+    EGM_NOTICE,
     EVENTS_PATH,
     OPERATOR_TTY_PATH,
     type CostsResponse,
+    type EgmResponse,
     type JobResponse,
     type OperatorView,
     type SessionResponse,
@@ -362,4 +364,42 @@ it("GET /costs: 30 days by default, grouped by week on request, 400 for a bad sp
     expect(refund?.cost?.usd).toBeGreaterThan(0);
     expect(refund?.cost?.agents["backend"]?.model).toBe("anthropic/claude-fable-5-1");
     expect(sessions.sessions.find((s) => s.summary.dir === "s001-bootstrap")?.cost?.usd).toBe(0);
+});
+
+it("GET /egm is ready at the pin; POST /egm/fetch is an `egm` job that ends ready", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}`;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${EVENTS_PATH}`);
+    await new Promise((resolve) => socket.on("open", resolve));
+    const events: SpinnerEvent[] = [];
+    socket.on("message", (data) => events.push(JSON.parse(data.toString()) as SpinnerEvent));
+
+    const before = (await (await fetch(`${base}/egm`)).json()) as EgmResponse;
+    expect(before.egm.state).toBe("ready");
+    expect(before.egm.pinned_sha).toBe("a119668d7dc5d558664ba711d4671d11fb7270a8");
+    expect(before.egm.notice).toBe(EGM_NOTICE);
+    expect(before.egm.subagents).toBe(true);
+
+    const response = await fetch(`${base}/egm/fetch`, { method: "POST" });
+    expect(response.status).toBe(202);
+    const { job } = (await response.json()) as JobResponse;
+    expect(job.action).toBe("egm");
+    expect(job.session).toBeNull();
+    const during = (await (await fetch(`${base}/egm`)).json()) as EgmResponse;
+    expect(during.egm.state).toBe("fetching");
+
+    await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+            if (events.some((e) => e.type === "job.finished" && e.job === job.id)) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, 50);
+    });
+    socket.close();
+    const finished = events.find((e) => e.type === "job.finished");
+    expect(finished?.type === "job.finished" && finished.data.state).toBe("ok");
+    const after = (await (await fetch(`${base}/egm`)).json()) as EgmResponse;
+    expect(after.egm.state).toBe("ready");
+    expect(after.egm.fetched_at).not.toBe(before.egm.fetched_at);
 });

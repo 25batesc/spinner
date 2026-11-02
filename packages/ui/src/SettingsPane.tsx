@@ -1,20 +1,23 @@
 // The settings view of the side panel (the gear at the bottom of the activity bar): the
-// theme, the default model for new agents and the harness. Each change is one `PUT /settings`
-// of the whole document; the daemon answers with the `settings` event, which every window
-// follows, so nothing here keeps a draft. Custom themes come from `GET /themes`; the invalid
-// ones are listed greyed with their missing keys, and a button downloads `dark` as a start.
+// theme, the default model for new agents, the harness, the review step and, last, About EGM.
+// Each change is one `PUT /settings` of the whole document; the daemon answers with the
+// `settings` event, which every window follows, so nothing here keeps a draft. Custom themes
+// come from `GET /themes`; the invalid ones are listed greyed with their missing keys, and a
+// button downloads `dark` as a start.
 import { useEffect, useState } from "react";
 
 import {
     BUILTIN_THEMES,
     PALETTE_COLOR_KEYS,
     THEME_SYSTEM,
+    type Job,
     type ModelView,
     type Settings,
     type ThemePalette,
     type ThemesResponse,
 } from "@spinner/protocol";
 
+import { AboutEgm } from "./AboutEgm.tsx";
 import { fetchModels, fetchSettingsPath } from "./events-client.ts";
 import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
 import { useLoaded } from "./remote.ts";
@@ -30,6 +33,8 @@ export interface SettingsPaneProps {
     onChange: (settings: Settings) => Promise<void>;
     /** The last `costs` event, for the Usage section's figures; null before the first. */
     costs: CostFigures | null;
+    /** The app's jobs; About EGM reloads when an `egm` job starts or finishes. */
+    jobs: readonly Job[];
     controls?: IconButtonProps[] | undefined;
     leading?: IconButtonProps | undefined;
 }
@@ -121,7 +126,7 @@ function ReviewBlock(props: { settings: Settings; onSave: (next: Settings) => vo
 }
 
 export function SettingsPane(props: SettingsPaneProps) {
-    const { settings, themes, onChange, costs, controls, leading } = props;
+    const { settings, themes, onChange, costs, jobs, controls, leading } = props;
     const [error, setError] = useState<string | null>(null);
     const models: ModelView[] = useLoaded("models", fetchModels).value ?? [];
     const path = useLoaded("settings-path", fetchSettingsPath).value ?? null;
@@ -227,6 +232,7 @@ export function SettingsPane(props: SettingsPaneProps) {
                 </label>
                 <ReviewBlock settings={settings} onSave={change} />
                 {error !== null && <p className="needs-human">{error}</p>}
+                <AboutEgm jobs={jobs} />
             </form>
         </section>
     );

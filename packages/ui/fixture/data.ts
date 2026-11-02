@@ -1,10 +1,15 @@
 // Canned data for the fixture server. It uses the real protocol types, so a change to
 // `@spinner/protocol` that breaks the fixture also breaks `pnpm --filter ui typecheck`.
 import {
+    EGM_ADAPTER_VERSION,
+    EGM_LICENSE,
+    EGM_NOTICE,
+    EGM_SOURCE_URL,
     REVIEW_DRAFT_NEEDS_HUMAN,
     type BoardView,
     type DiffRepoView,
     type DiffView,
+    type EgmStatus,
     type MachineUsage,
     type PrFacts,
     type ProjectView,
@@ -168,6 +173,28 @@ export function diffView(base: Session): DiffView {
         Object.keys(base.repos).map((name) => [name, diffRepoStopped()]),
     );
     return { available: false, fetch: "absent", fetch_error: null, repos };
+}
+
+/** The EGM commit the daemon pins (`packages/daemon/src/egm/pins.ts`), for `GET /egm`. */
+export const EGM_PINNED_SHA = "a119668d7dc5d558664ba711d4671d11fb7270a8";
+
+/**
+ * `GET /egm` at the fixture's start: fetched at the pin, pi-subagents installed. The fetch
+ * date is a past day, so a driver sees the line change after `POST /egm/fetch`.
+ */
+export function egmStatus(): EgmStatus {
+    return {
+        state: "ready",
+        pinned_sha: EGM_PINNED_SHA,
+        fetched_sha: EGM_PINNED_SHA,
+        fetched_at: "2026-10-30T09:00:00Z",
+        adapter_version: EGM_ADAPTER_VERSION,
+        error: null,
+        source: EGM_SOURCE_URL,
+        license: EGM_LICENSE,
+        notice: EGM_NOTICE,
+        subagents: true,
+    };
 }
 
 export function view(

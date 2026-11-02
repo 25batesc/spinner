@@ -826,17 +826,31 @@ html, body, #root { height: 100%; margin: 0; }
 .setting { display: flex; flex-direction: column; gap: 6px; }
 .setting > span { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .setting select { width: 100%; }
-/* The Review block: a fieldset with its own label row, the fields, the hint, one save. */
-.review-setting {
+/* The Review block: a fieldset with its own label row, the fields, the hint, one save. The
+   About EGM block (entry 1.36) is the same box: the notice, the facts, the state pill. */
+.review-setting, .about-egm {
     margin: 0; padding: var(--space-3); border: 1px solid var(--line-soft);
     border-radius: var(--radius-box); gap: var(--space-3);
 }
-.review-setting legend {
+.review-setting legend, .about-egm legend {
     padding: 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted);
 }
 .review-setting textarea { font-family: var(--font-mono); font-size: var(--text-dense); }
 .review-setting input[type="number"] { width: 80px; }
-.review-actions { display: flex; }
+.review-actions, .about-egm-actions { display: flex; }
+.about-egm-notice { margin: 0; font-size: var(--text-dense); line-height: 1.5; }
+.about-egm-facts {
+    display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3);
+    margin: 0; font-size: var(--text-dense);
+}
+.about-egm-facts dt { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
+.about-egm-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.about-egm-facts code { font-family: var(--font-mono); font-size: var(--text-meta); }
+/* A failed fetch's error can be long: the state pill wraps instead of clipping. */
+.about-egm-facts .pill {
+    height: auto; min-height: 18px; padding: 2px 7px; line-height: 1.4; white-space: normal;
+    border-radius: 9px;
+}
 .swatches { display: flex; gap: 2px; }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line-soft); }
 .invalid-themes {
