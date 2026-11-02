@@ -126,10 +126,17 @@ def analyse(path):
     return r
 
 
+# EGM design docs under docs/designs/ follow EGM's document standards, not WRITING.md, so the
+# checker skips that directory (docs/designs/README.md says why).
+DESIGNS_DIR = os.path.join("docs", "designs")
+
+
 def collect(paths):
     for p in paths:
         if os.path.isdir(p):
             for root, _, files in os.walk(p):
+                if root.startswith(DESIGNS_DIR):
+                    continue
                 for f in sorted(files):
                     if f.endswith(".md"):
                         yield os.path.join(root, f)
