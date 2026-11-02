@@ -15,6 +15,7 @@ import type {
     StackStateName,
 } from "./session.js";
 import type { DiffView } from "./diff.js";
+import type { OperatorCost, SessionCost } from "./costs.js";
 import type { PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
 
@@ -125,6 +126,8 @@ export const ROUTES = {
     "GET /sessions/:dir/stack/logs/:service": "StackLogsResponse",
     /** The machine's memory, cpu and load, and each up stack's share. */
     "GET /usage": "UsageResponse",
+    /** Costs over a span of days by period, session, model and agent. Query: from, to, group. */
+    "GET /costs": "CostsResponse",
     /** The operator's settings from `~/.spinner/settings.yaml`, defaults when absent. */
     "GET /settings": "SettingsResponse",
     /** Replace the settings. Body: the whole `Settings` document; 400 names the first problem. */
@@ -389,6 +392,11 @@ export interface SessionView {
      * before s012 still type-checks.
      */
     diff?: DiffView;
+    /**
+     * What the session's agents have spent (s013), from their transcripts. The daemon always
+     * sets it; optional so a fixture written before s013 still type-checks.
+     */
+    cost?: SessionCost;
 }
 
 export interface SessionsResponse {
@@ -704,6 +712,8 @@ export interface OperatorView {
     last_notice: OperatorNotice | null;
     /** Notices batched or held (the agent is stopped) and not yet delivered. */
     notices_pending: number;
+    /** What the operator agent has spent (s013). Optional for fixtures written before s013. */
+    cost?: OperatorCost;
 }
 
 /** One batch of events the daemon turned into a `notify` for the operator agent. */

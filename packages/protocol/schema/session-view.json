@@ -36,6 +36,10 @@
                 "diff": {
                     "$ref": "#/definitions/DiffView",
                     "description": "The diff viewers (s012). The daemon always sets it; optional so a fixture written before s012 still type-checks."
+                },
+                "cost": {
+                    "$ref": "#/definitions/SessionCost",
+                    "description": "What the session's agents have spent (s013), from their transcripts. The daemon always sets it; optional so a fixture written before s013 still type-checks."
                 }
             },
             "required": [
@@ -1165,6 +1169,62 @@
             ],
             "additionalProperties": false,
             "description": "How many threads wait on each side, from the last `diffview comments list --json`."
+        },
+        "SessionCost": {
+            "type": "object",
+            "properties": {
+                "usd": {
+                    "type": "number"
+                },
+                "tokens_in": {
+                    "type": "number"
+                },
+                "tokens_out": {
+                    "type": "number"
+                },
+                "agents": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/AgentCost"
+                    }
+                }
+            },
+            "required": [
+                "agents",
+                "tokens_in",
+                "tokens_out",
+                "usd"
+            ],
+            "additionalProperties": false,
+            "description": "`SessionView.cost`: the session's agents summed, and each agent's share."
+        },
+        "AgentCost": {
+            "type": "object",
+            "properties": {
+                "usd": {
+                    "type": "number"
+                },
+                "tokens_in": {
+                    "type": "number"
+                },
+                "tokens_out": {
+                    "type": "number"
+                },
+                "model": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The model of the agent's latest assistant message, or null before its first."
+                }
+            },
+            "required": [
+                "model",
+                "tokens_in",
+                "tokens_out",
+                "usd"
+            ],
+            "additionalProperties": false
         }
     },
     "$id": "https://spinner.dev/schema/session-view.json",

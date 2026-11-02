@@ -5,6 +5,7 @@
 
 import type { PiEvent } from "./agent-event.js";
 import type { Job, MachineUsage, OperatorView, SessionUsage, SessionView } from "./api.js";
+import type { CostTotals, SessionCost } from "./costs.js";
 import type { Settings } from "./theme.js";
 import type { AgentProcessState, PullRequest, Stage, StackStateName } from "./session.js";
 
@@ -223,6 +224,23 @@ export interface OperatorUpdatedEvent {
     data: OperatorView;
 }
 
+/**
+ * The ledger refolded and something changed (s013): the running figures for the Usage page
+ * and the cost of each session whose total moved, so a card updates without a view. Not
+ * tied to one session, so `session` is null.
+ */
+export interface CostsEvent {
+    type: "costs";
+    ts: string;
+    session: null;
+    /** Local-zone today, the week from Monday, and the calendar month, up to now. */
+    today: CostTotals;
+    week: CostTotals;
+    month: CostTotals;
+    /** Session directories whose cost changed in this refold, with their new cost. */
+    changed: Record<string, SessionCost>;
+}
+
 export type SpinnerEvent =
     | JobStartedEvent
     | JobLogEvent
@@ -247,7 +265,8 @@ export type SpinnerEvent =
     | MessageDeliveredEvent
     | UsageEvent
     | SettingsEvent
-    | OperatorUpdatedEvent;
+    | OperatorUpdatedEvent
+    | CostsEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
 
@@ -277,4 +296,5 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "usage",
     "settings",
     "operator.updated",
+    "costs",
 ];
