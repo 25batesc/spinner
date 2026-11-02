@@ -4,54 +4,17 @@
 // owns the data and maps each callback to the section route or the inbox (the props contract
 // under *Contracts* in the session's MISSION.md). The view keeps look state only: the item in
 // edit, the draft, and which items arrived after the first render, for the one-shot animations.
-import { useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import {
+    createContext, useContext, useRef, useState, type FormEvent, type KeyboardEvent,
+    type ReactNode,
+} from "react";
 
-import type { MissionSection } from "@spinner/protocol";
+import type {
+    DoneWhenItem, LogLine, MissionLine, MissionSection, MissionView, PlanItem, QuestionItem,
+    RosterRow,
+} from "@spinner/protocol";
 
 import "./mission-workspace.css";
-
-// A local copy of the structured mission from the props contract. It goes when the ui agent
-// commits `mission-view.ts`; the view then imports `MissionView` from there.
-export type PlanState = "next" | "doing" | "done";
-export interface MissionPlanItem {
-    id: string;
-    text: string;
-    owner: string | null;
-    state: PlanState;
-    ticked_at: string | null;
-}
-export interface MissionDoneItem {
-    id: string;
-    text: string;
-    owner: string | null;
-    state: "open" | "done";
-    ticked_at: string | null;
-}
-export interface MissionRosterRow {
-    agent: string;
-    owns: string;
-    doing: string;
-    blocked: string;
-    updated: string;
-}
-export interface MissionContract { id: string; text: string }
-export interface MissionQuestion {
-    id: string;
-    text: string;
-    author: string | null;
-    answer: string | null;
-}
-export interface MissionLogLine { ts: string; author: string; text: string }
-export interface MissionView {
-    title: string;
-    goal: string;
-    done_when: MissionDoneItem[];
-    plan: MissionPlanItem[];
-    roster: MissionRosterRow[];
-    contracts: MissionContract[];
-    questions: MissionQuestion[];
-    log: MissionLogLine[];
-}
 
 export interface MissionWorkspaceViewProps {
     mission: MissionView;
@@ -59,19 +22,29 @@ export interface MissionWorkspaceViewProps {
     agents: string[];
     /** The Log's agent; null shows every line. */
     filter: string | null;
-    /** The id of the item whose write is in flight; the view disables it. */
+    /** The item whose write is in flight, as `<section>:<id>` (`plan:3`, `goal:0`). */
     pending: string | null;
     /** The last failed write. */
     error: string | null;
-    onEdit(section: MissionSection, id: string, text: string): void;
+    /** A new text for one item; `id` is 0 for the Goal. */
+    onEdit(section: MissionSection, id: number, text: string): void;
     /** A plan or done_when item: done ↔ open. */
-    onTick(id: string): void;
-    onAnswer(questionId: string, text: string): void;
-    onNote(id: string, text: string): void;
+    onTick(section: TickSection, id: number): void;
+    /** A steer to the question's asker. */
+    onAnswer(questionId: number, text: string): void;
+    /** A note to the item's owner, through the owner's inbox. */
+    onNote(section: MissionSection, id: number, text: string): void;
     onFilter(agent: string | null): void;
 }
 
-const PLAN_COLUMNS: { state: PlanState; label: string; empty: string }[] = [
+export type TickSection = "plan" | "done_when";
+
+/** The key of an item across sections, as `pending` names it: Plan and Done-when ids overlap. */
+function itemKey(section: MissionSection, id: number): string {
+    return `${section}:${id}`;
+}
+
+const PLAN_COLUMNS: { state: PlanItem["state"]; label: string; empty: string }[] = [
     { state: "next", label: "Next", empty: "The lead writes the next steps here." },
     { state: "doing", label: "Doing", empty: "Items move here when an agent starts them." },
     { state: "done", label: "Done", empty: "Ticked items land here with their time." },
@@ -82,34 +55,39 @@ export function MissionWorkspaceView(props: MissionWorkspaceViewProps) {
     const { mission } = props;
     const ticked = useArrivals(doneKeys(mission));
     const rows: RowContext = { ...props, ticked };
-    return (
-        <div className="mw" aria-label="Mission workspace">
-            {props.error !== null && <p className="mw-error" role="alert">{props.error}</p>}
-            <div className="mw-grid">
-                <div className="mw-main">
-                    <div className="mw-top">
-                        <GoalCard mission={mission} rows={rows} />
-                        <DoneWhen items={mission.done_when} rows={rows} />
-                    </div>
-                    <PlanBoard plan={mission.plan} rows={rows} />
-                    <Roster roster={mission.roster} />
-                    <div className="mw-pair">
-                        <Questions
-                            questions={mission.questions}
-                            pending={props.pending}
-                            onAnswer={props.onAnswer}
-                        />
-                        <Contracts contracts={mission.contracts} rows={rows} />
-                    </div>
-                </div>
-                <LogFeed
-                    log={mission.log}
-                    agents={props.agents}
-                    filter={props.filter}
-                    onFilter={props.onFilter}
+    // The order in the DOM is the reading order of a narrow pane; `mission-workspace.css`
+    // places Done when beside the Goal card when the pane is wide enough.
+    const main = (
+        <div className="mw-main">
+            <GoalCard mission={mission} rows={rows} />
+            <PlanBoard plan={mission.plan} rows={rows} />
+            <DoneWhen items={mission.done_when} rows={rows} />
+            <Roster roster={mission.roster} />
+            <div className="mw-pair">
+                <Questions
+                    questions={mission.questions}
+                    pending={props.pending}
+                    onAnswer={props.onAnswer}
                 />
+                <Contracts contracts={mission.contracts} rows={rows} />
             </div>
         </div>
+    );
+    return (
+        <AgentOrder.Provider value={props.agents}>
+            <div className="mw" aria-label="Mission workspace">
+                {props.error !== null && <p className="mw-error" role="alert">{props.error}</p>}
+                <div className="mw-grid">
+                    {main}
+                    <LogFeed
+                        log={mission.log}
+                        agents={props.agents}
+                        filter={props.filter}
+                        onFilter={props.onFilter}
+                    />
+                </div>
+            </div>
+        </AgentOrder.Provider>
     );
 }
 
@@ -121,7 +99,10 @@ interface RowContext extends MissionWorkspaceViewProps {
 function doneKeys(mission: MissionView): string[] {
     const plan = mission.plan.filter((item) => item.state === "done");
     const done = mission.done_when.filter((item) => item.state === "done");
-    return [...plan, ...done].map((item) => item.id);
+    return [
+        ...plan.map((item) => itemKey("plan", item.id)),
+        ...done.map((item) => itemKey("done_when", item.id)),
+    ];
 }
 
 /**
@@ -164,19 +145,67 @@ function GoalCard({ mission, rows }: { mission: MissionView; rows: RowContext })
         <section className="mw-section mw-goal" data-section="goal" aria-label="Goal">
             <h3 className="mw-label">Goal</h3>
             <h2 className="mw-title">{mission.title}</h2>
+            <Pulse mission={mission} />
             <EditableText
                 id="goal"
                 text={mission.goal}
                 multiline
                 empty="The lead writes the goal here from the first message."
-                pending={rows.pending === "goal"}
-                onSave={(text) => rows.onEdit("goal", "goal", text)}
+                pending={rows.pending === itemKey("goal", 0)}
+                onSave={(text) => rows.onEdit("goal", 0, text)}
             />
         </section>
     );
 }
 
-function DoneWhen({ items, rows }: { items: MissionDoneItem[]; rows: RowContext }) {
+/**
+ * The state of the work on one line, for the ten-second read: the Plan and Done-when counts,
+ * what is in progress, the open questions and the blocked agents. A pill scrolls to its section.
+ */
+function Pulse({ mission }: { mission: MissionView }) {
+    const plan = mission.plan.filter((item) => item.state === "done").length;
+    const doing = mission.plan.filter((item) => item.state === "doing").length;
+    const done = mission.done_when.filter((item) => item.state === "done").length;
+    const open = mission.questions.filter((question) => question.answer === null).length;
+    const blocked = mission.roster.filter((row) => isBlocked(row.blocked));
+    const facts: { section: MissionSection; text: string; kind: string }[] = [];
+    if (mission.plan.length > 0) {
+        facts.push({ section: "plan", text: `plan ${plan} / ${mission.plan.length}`, kind: "" });
+    }
+    if (doing > 0) {
+        facts.push({ section: "plan", text: `${doing} in progress`, kind: "pill-accent" });
+    }
+    if (mission.done_when.length > 0) {
+        const text = `done when ${done} / ${mission.done_when.length}`;
+        const kind = done === mission.done_when.length ? "pill-ok" : "";
+        facts.push({ section: "done_when", text, kind });
+    }
+    if (open > 0) {
+        const text = open === 1 ? "1 open question" : `${open} open questions`;
+        facts.push({ section: "open_questions", text, kind: "pill-warn" });
+    }
+    for (const row of blocked) {
+        facts.push({ section: "roster", text: `${row.agent} blocked`, kind: "pill-warn" });
+    }
+    if (facts.length === 0) {
+        return null;
+    }
+    const reveal = (section: MissionSection) =>
+        document.querySelector(`.mw [data-section="${section}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return (
+        <div className="mw-pulse" aria-label="State of the work">
+            {facts.map((fact) => (
+                <button key={fact.text} className={`pill mw-pulse-pill ${fact.kind}`}
+                    onClick={() => reveal(fact.section)}>
+                    {fact.text}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function DoneWhen({ items, rows }: { items: DoneWhenItem[]; rows: RowContext }) {
     const done = items.filter((item) => item.state === "done").length;
     return (
         <Section
@@ -207,7 +236,7 @@ function DoneWhen({ items, rows }: { items: MissionDoneItem[]; rows: RowContext 
     );
 }
 
-function PlanBoard({ plan, rows }: { plan: MissionPlanItem[]; rows: RowContext }) {
+function PlanBoard({ plan, rows }: { plan: PlanItem[]; rows: RowContext }) {
     const done = plan.filter((item) => item.state === "done").length;
     return (
         <Section
@@ -248,12 +277,12 @@ function PlanBoard({ plan, rows }: { plan: MissionPlanItem[]; rows: RowContext }
     );
 }
 
-function PlanCard({ item, rows }: { item: MissionPlanItem; rows: RowContext }) {
+function PlanCard({ item, rows }: { item: PlanItem; rows: RowContext }) {
     return (
         <Item
             section="plan"
             id={item.id}
-            number={item.id}
+            number={String(item.id)}
             text={item.text}
             owner={item.owner}
             time={item.state === "done" ? item.ticked_at : null}
@@ -269,23 +298,30 @@ function PlanCard({ item, rows }: { item: MissionPlanItem; rows: RowContext }) {
  */
 function Item(props: {
     section: MissionSection;
-    id: string;
+    id: number;
     text: string;
     owner: string | null;
     time: string | null;
+    /** The tick state; null for an item without a box (a contract). */
     done: boolean | null;
     number?: string;
     rows: RowContext;
 }) {
-    const { rows } = props;
+    const { rows, section } = props;
     const [mode, setMode] = useState<"view" | "edit" | "note">("view");
-    const pending = rows.pending === props.id;
-    const fresh = props.done === true && rows.ticked.has(props.id);
+    const key = itemKey(section, props.id);
+    const pending = rows.pending === key;
+    const fresh = props.done === true && rows.ticked.has(key);
+    const tick = () => {
+        if (section === "plan" || section === "done_when") {
+            rows.onTick(section, props.id);
+        }
+    };
     const className = ["mw-item", props.done === true ? "mw-item-done" : "",
         fresh ? "mw-item-ticked" : "", pending ? "mw-item-pending" : ""].join(" ");
     const close = () => setMode("view");
     return (
-        <li className={className} data-id={props.id} aria-busy={pending}>
+        <li className={className} data-id={key} aria-busy={pending}>
             {props.done !== null && (
                 <input
                     type="checkbox"
@@ -293,7 +329,7 @@ function Item(props: {
                     checked={props.done}
                     disabled={pending}
                     aria-label={`${props.done ? "untick" : "tick"} ${props.text}`}
-                    onChange={() => rows.onTick(props.id)}
+                    onChange={tick}
                 />
             )}
             {mode === "view" ? (
@@ -309,7 +345,7 @@ function Item(props: {
                         if (mode === "edit") {
                             rows.onEdit(props.section, props.id, text);
                         } else {
-                            rows.onNote(props.id, text);
+                            rows.onNote(section, props.id, text);
                         }
                         close();
                     }}
@@ -441,7 +477,7 @@ function EditableText(props: {
     );
 }
 
-function Roster({ roster }: { roster: MissionRosterRow[] }) {
+function Roster({ roster }: { roster: RosterRow[] }) {
     return (
         <Section section="roster" label="Roster" className="mw-roster">
             {roster.length === 0 ? (
@@ -455,14 +491,15 @@ function Roster({ roster }: { roster: MissionRosterRow[] }) {
     );
 }
 
-function RosterChip({ row }: { row: MissionRosterRow }) {
+function RosterChip({ row }: { row: RosterRow }) {
+    const hueOf = useHue();
     const blocked = isBlocked(row.blocked);
     const idle = row.doing === "" || row.doing === "—" || row.doing === "-";
     return (
         <li
             className={blocked ? "mw-agent mw-agent-blocked" : "mw-agent"}
             data-agent={row.agent}
-            data-hue={hue(row.agent)}
+            data-hue={hueOf(row.agent)}
             title={row.owns}
         >
             <span className="mw-agent-head">
@@ -487,9 +524,9 @@ function isBlocked(value: string): boolean {
 }
 
 function Questions(props: {
-    questions: MissionQuestion[];
+    questions: QuestionItem[];
     pending: string | null;
-    onAnswer: (id: string, text: string) => void;
+    onAnswer: (id: number, text: string) => void;
 }) {
     const open = props.questions.filter((question) => question.answer === null).length;
     return (
@@ -507,7 +544,7 @@ function Questions(props: {
                         <QuestionCard
                             key={question.id}
                             question={question}
-                            pending={props.pending === question.id}
+                            pending={props.pending === itemKey("open_questions", question.id)}
                             onAnswer={props.onAnswer}
                         />
                     ))}
@@ -518,9 +555,9 @@ function Questions(props: {
 }
 
 function QuestionCard(props: {
-    question: MissionQuestion;
+    question: QuestionItem;
     pending: boolean;
-    onAnswer: (id: string, text: string) => void;
+    onAnswer: (id: number, text: string) => void;
 }) {
     const { question } = props;
     const [draft, setDraft] = useState("");
@@ -536,7 +573,7 @@ function QuestionCard(props: {
     const answered = question.answer !== null;
     return (
         <li className={answered ? "mw-question mw-question-answered" : "mw-question"}
-            data-id={question.id} aria-busy={props.pending}>
+            data-id={itemKey("open_questions", question.id)} aria-busy={props.pending}>
             <span className="mw-question-head">
                 {question.author !== null && <Owner name={question.author} />}
                 {answered && <span className="pill pill-ok">answered</span>}
@@ -563,7 +600,7 @@ function QuestionCard(props: {
     );
 }
 
-function Contracts({ contracts, rows }: { contracts: MissionContract[]; rows: RowContext }) {
+function Contracts({ contracts, rows }: { contracts: MissionLine[]; rows: RowContext }) {
     return (
         <Section section="contracts" label="Contracts" className="mw-contracts">
             {contracts.length === 0 ? (
@@ -576,8 +613,8 @@ function Contracts({ contracts, rows }: { contracts: MissionContract[]; rows: Ro
                             section="contracts"
                             id={contract.id}
                             text={contract.text}
-                            owner={null}
-                            time={null}
+                            owner={contract.author}
+                            time={contract.ts}
                             done={null}
                             rows={rows}
                         />
@@ -593,7 +630,7 @@ function Contracts({ contracts, rows }: { contracts: MissionContract[]; rows: Ro
  * the first render fades in at the top; the feed's own scroll keeps the reader's place.
  */
 function LogFeed(props: {
-    log: MissionLogLine[];
+    log: LogLine[];
     agents: string[];
     filter: string | null;
     onFilter: (agent: string | null) => void;
@@ -608,20 +645,7 @@ function LogFeed(props: {
             <h3 className="mw-label">
                 Log<span className="mw-count">{props.log.length}</span>
             </h3>
-            <div className="mw-filter" role="group" aria-label="Filter the Log by agent">
-                {[null, ...props.agents].map((agent) => (
-                    <button
-                        key={agent ?? "all"}
-                        className={`mw-filter-chip${props.filter === agent ? " mw-on" : ""}`}
-                        aria-pressed={props.filter === agent}
-                        data-hue={agent === null ? undefined : hue(agent)}
-                        onClick={() => props.onFilter(agent)}
-                    >
-                        {agent !== null && <span className="mw-owner-dot" />}
-                        {agent ?? "all"}
-                    </button>
-                ))}
-            </div>
+            {props.agents.length > 0 && <LogFilter {...props} />}
             {shown.length === 0 ? (
                 <Empty text={props.filter === null
                     ? "Each change shows here as a line, newest first."
@@ -642,8 +666,33 @@ function LogFeed(props: {
     );
 }
 
+/** The agent filter over the feed: `all`, then one chip per roster agent in its colour. */
+function LogFilter(props: {
+    agents: string[];
+    filter: string | null;
+    onFilter: (agent: string | null) => void;
+}) {
+    const hueOf = useHue();
+    return (
+        <div className="mw-filter" role="group" aria-label="Filter the Log by agent">
+            {[null, ...props.agents].map((agent) => (
+                <button
+                    key={agent ?? "all"}
+                    className={`mw-filter-chip${props.filter === agent ? " mw-on" : ""}`}
+                    aria-pressed={props.filter === agent}
+                    data-hue={agent === null ? undefined : hueOf(agent)}
+                    onClick={() => props.onFilter(agent)}
+                >
+                    {agent !== null && <span className="mw-owner-dot" />}
+                    {agent ?? "all"}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 /** A stable key per line: its content, and its count among equal lines before it. */
-function logKeys(log: MissionLogLine[]): (MissionLogLine & { key: string })[] {
+function logKeys(log: LogLine[]): (LogLine & { key: string })[] {
     const seen = new Map<string, number>();
     return log.map((line) => {
         const base = `${line.ts}|${line.author}|${line.text}`;
@@ -654,8 +703,9 @@ function logKeys(log: MissionLogLine[]): (MissionLogLine & { key: string })[] {
 }
 
 function Owner({ name }: { name: string }) {
+    const hueOf = useHue();
     return (
-        <span className="mw-owner" data-hue={hue(name)}>
+        <span className="mw-owner" data-hue={hueOf(name)}>
             <span className="mw-owner-dot" />
             {name}
         </span>
@@ -680,13 +730,27 @@ export function clock(value: string): string {
     return `${hours}:${minutes}`;
 }
 
-/** One of six agent colours, the same for a name everywhere, so a hand-off reads at a glance. */
-export function hue(name: string): number {
+/** The roster's names, in order: the first six agents get six different colours. */
+const AgentOrder = createContext<readonly string[]>([]);
+
+/**
+ * One of six agent colours, the same for a name everywhere in the view, so a hand-off reads at
+ * a glance: the roster position when the name is on the roster, else a hash of the name.
+ */
+function useHue(): (name: string) => number {
+    const agents = useContext(AgentOrder);
+    return (name) => {
+        const index = agents.indexOf(name);
+        return index >= 0 ? index % 6 : hash(name) % 6;
+    };
+}
+
+function hash(name: string): number {
     let sum = 0;
     for (let index = 0; index < name.length; index += 1) {
         sum = (sum * 31 + name.charCodeAt(index)) % 9973;
     }
-    return sum % 6;
+    return sum;
 }
 
 function Empty({ text }: { text: string }) {
