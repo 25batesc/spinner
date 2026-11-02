@@ -61,9 +61,17 @@ export function describeEvent(event: SpinnerEvent): string | null {
         case "job.finished":
             return event.ok ? `${event.data.action} finished` : `${event.data.action} failed`;
         case "review.updated": {
+            // The swarm's count, then the lead's step when one is new (s016).
             const swarm = event.data.swarm;
-            const posted = swarm.filter((member) => member.state === "posted").length;
-            return `review: ${posted} of ${swarm.length} posted, ${event.data.threads} threads`;
+            const done = swarm.filter((member) => member.state === "done").length;
+            const lead = event.data.posted_url !== null
+                ? ", review posted"
+                : event.data.draft !== null
+                    ? ", draft ready"
+                    : event.data.briefing
+                        ? ", briefing written"
+                        : "";
+            return `review: ${done} of ${swarm.length} done${lead}, ${event.data.threads} threads`;
         }
         case "agent.event":
         case "stack.log":

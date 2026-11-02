@@ -967,9 +967,45 @@ a.rv-head-title { text-decoration: none; }
 a.rv-head-title:hover { text-decoration: underline; }
 .rv-swarm { min-height: var(--control-row); font-size: var(--text-dense); }
 .rv-chip-cost { font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
-.rv-chip-posted .chip-dot { background: var(--ok); border-color: var(--ok); }
-.rv-chip-reading .chip-dot { animation: rv-pulse 1.2s ease-in-out infinite; }
+.rv-chip-done .chip-dot { background: var(--ok); border-color: var(--ok); }
+.rv-chip-reading .chip-dot, .rv-chip-running .chip-dot {
+    animation: rv-pulse 1.2s ease-in-out infinite;
+}
 .rv-chip-failed .chip-name { color: var(--fail); }
+.rv-chip-stopped .chip-name { color: var(--muted); }
 @keyframes rv-pulse { 50% { opacity: 0.35; } }
+/* The lead's blocks (s016), above the threads: the briefing as markdown, the draft with its
+   event pill, the summary and one row per line comment, each a textarea that saves on blur;
+   `post` is the one primary action, `drop` the danger one. The posted URL takes the draft's
+   place. */
+.rv-briefing, .rv-draft, .rv-posted {
+    display: flex; flex-direction: column; gap: var(--space-2); flex: none;
+    padding: var(--space-2) var(--space-3); background: var(--surface);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+}
+.rv-block-title {
+    margin: 0; font-size: var(--text-meta); font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+}
+.rv-draft-head { display: flex; align-items: center; gap: var(--space-2); }
+.rv-event { cursor: pointer; border: 0; font: inherit; font-size: var(--text-meta); }
+.rv-saving { font-size: var(--text-meta); }
+.rv-draft-body, .rv-comment-body {
+    width: 100%; resize: vertical; font-size: var(--text-dense); line-height: 1.45;
+}
+.rv-comments {
+    list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: var(--space-2);
+}
+.rv-comment { display: flex; flex-direction: column; gap: var(--space-1); }
+.rv-comment-at { font-family: var(--font-mono); font-size: var(--text-meta); color: var(--muted); }
+.rv-draft-error { margin: 0; }
+.rv-draft-actions { display: flex; align-items: center; gap: var(--space-2); }
+.rv-draft-actions .danger { margin-left: auto; }
+.rv-confirm { display: inline-flex; align-items: center; gap: var(--space-2); }
+.rv-posted-url {
+    font-family: var(--font-mono); font-size: var(--text-dense);
+    color: var(--link, var(--accent)); word-break: break-all;
+}
 .rv-context .rv-branches { max-width: 220px; }
 .rv-toolbar button { height: var(--control-row); }

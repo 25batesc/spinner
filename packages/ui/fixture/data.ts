@@ -1,20 +1,22 @@
 // Canned data for the fixture server. It uses the real protocol types, so a change to
 // `@spinner/protocol` that breaks the fixture also breaks `pnpm --filter ui typecheck`.
-import type {
-    BoardView,
-    DiffRepoView,
-    DiffView,
-    MachineUsage,
-    PrFacts,
-    ReviewFields,
-    ProjectView,
-    ServiceStatus,
-    ServiceUsage,
-    ServiceView,
-    Session,
-    SessionView,
-    StackUsage,
-    StackView,
+import {
+    REVIEW_DRAFT_NEEDS_HUMAN,
+    type BoardView,
+    type DiffRepoView,
+    type DiffView,
+    type MachineUsage,
+    type PrFacts,
+    type ProjectView,
+    type ReviewDraft,
+    type ReviewFields,
+    type ServiceStatus,
+    type ServiceUsage,
+    type ServiceView,
+    type Session,
+    type SessionView,
+    type StackUsage,
+    type StackView,
 } from "@spinner/protocol";
 
 import { sessionCost } from "./costs.ts";
@@ -216,6 +218,43 @@ export function reviewView(
 
 const REVIEW_MODELS = ["anthropic/claude-opus-5-5", "openai/gpt-6-luna", "x-ai/grok-4.6"];
 
+/** The lead's briefing (s016), `artifacts/briefing.md`: plain words for the operator. */
+export const BRIEFING_MD = [
+    "# Retry the upload on 5xx",
+    "",
+    "Casey makes the upload client try again when the server answers 5xx. Three tries, with",
+    "a pause that doubles each time.",
+    "",
+    "## What to look at",
+    "",
+    "- `src/upload.ts`: the retry loop. The pause is `attempt * 500` ms, not doubled.",
+    "- `src/upload.test.ts`: the tests fake the clock, so the pauses are checked.",
+    "",
+    "## Risk",
+    "",
+    "A 5xx from a full disk retries three times and takes 3 seconds longer to fail. Low.",
+].join("\n");
+
+/** The lead's draft (s016), `artifacts/review-draft.json`: one review in one voice. */
+export const DRAFT: ReviewDraft = {
+    event: "COMMENT",
+    body: [
+        "Thanks, the retry is the right fix for the flaky uploads. Two things before merge:",
+        "the pause does not double as the PR description says, and the test for the third",
+        "failure asserts the wrong error.",
+    ].join(" "),
+    comments: [
+        {
+            path: "src/upload.ts", line: 42,
+            body: "BUG: `attempt * 500` grows linearly; the description says the pause doubles. `500 * 2 ** attempt`?",
+        },
+        {
+            path: "src/upload.test.ts", line: 88,
+            body: "NIT: This asserts `UploadError`; the third failure throws `RetryExhausted`.",
+        },
+    ],
+};
+
 /** `review-<model-slug>`, as the daemon names a reviewer. */
 export function reviewerName(model: string): string {
     return `review-${model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
@@ -236,14 +275,13 @@ export function initialReviews(): SessionView[] {
         threads: { bots_open: 3, humans_open: 1, resolved: 0 },
         last_activity: "2026-11-02T10:05:00Z", title: "Retry the upload on 5xx",
     });
-    const swarm = [
-        { name: reviewerName(REVIEW_MODELS[0] ?? ""), model: REVIEW_MODELS[0] ?? "",
-          state: "posted" as const, usd: 0.42, pr: "peanut" },
-        { name: reviewerName(REVIEW_MODELS[1] ?? ""), model: REVIEW_MODELS[1] ?? "",
-          state: "reading" as const, usd: 0.11, pr: "peanut" },
-        { name: reviewerName(REVIEW_MODELS[2] ?? ""), model: REVIEW_MODELS[2] ?? "",
-          state: "queued" as const, usd: 0, pr: "peanut" },
-    ];
+    // Three verdicts in, the briefing written, the draft waiting for the operator (s016).
+    const swarm = REVIEW_MODELS.map((model, index) => ({
+        name: reviewerName(model), model, state: "done" as const, usd: 0.3 + index * 0.1,
+        pr: "peanut",
+    }));
+    upload.agents["lead"] = { harness: "tty", model: "anthropic/claude-opus-5-5", process: "idle" };
+    upload.needs_human = REVIEW_DRAFT_NEEDS_HUMAN;
     const dark = session({
         id: "r77", slug: "web-77", title: "Dark mode for the settings page", kind: "review",
         created: "2026-11-01T16:00:00Z", stage: "peer-review",
@@ -258,9 +296,11 @@ export function initialReviews(): SessionView[] {
         reviewView("r51-peanut-51", upload, uploadPr, {
             checks: "red", failing: ["lint", "e2e (chromium)"],
             review_decision: "changes_requested", threads: 4, swarm,
-        }, swarm.filter((member) => member.state !== "queued").map((member) => member.name)),
+            briefing: true, draft: DRAFT, posted_url: null,
+        }, ["lead", ...swarm.map((member) => member.name)]),
         reviewView("r77-web-77", dark, darkPr, {
             checks: "green", failing: [], review_decision: "none", threads: 0, swarm: [],
+            briefing: false, draft: null, posted_url: null,
         }),
     ];
 }

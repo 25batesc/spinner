@@ -21,6 +21,9 @@ import type {
     MissionViewResponse,
     PostResponse,
     PostView,
+    ReviewDraft,
+    ReviewDraftResponse,
+    ReviewPostResponse,
     SessionResponse,
     ThreadsView,
 } from "@spinner/protocol";
@@ -140,6 +143,40 @@ export async function deleteVerify(dir: string): Promise<SessionResponse> {
         throw await failure("DELETE", path, response);
     }
     return (await response.json()) as SessionResponse;
+}
+
+// The review lead's routes (s016, the contract of 14:07). The UI names the paths here only.
+
+/** `GET /sessions/:dir/review/briefing`: `artifacts/briefing.md` as markdown; 404 before. */
+export async function fetchReviewBriefing(dir: string, signal: AbortSignal): Promise<string> {
+    const path = `/sessions/${dir}/review/briefing`;
+    const response = await fetch(path, { signal });
+    if (!response.ok) {
+        throw await failure("GET", path, response);
+    }
+    return response.text();
+}
+
+/** `PUT /sessions/:dir/review/draft`: the operator's edit; 400 lists every fault. */
+export async function putReviewDraft(
+    dir: string,
+    draft: ReviewDraft,
+): Promise<ReviewDraftResponse> {
+    return send("PUT", `/sessions/${dir}/review/draft`, draft);
+}
+
+/** `DELETE /sessions/:dir/review/draft`: the draft is dropped; the lead may write another. */
+export async function deleteReviewDraft(dir: string): Promise<void> {
+    const path = `/sessions/${dir}/review/draft`;
+    const response = await fetch(path, { method: "DELETE" });
+    if (!response.ok) {
+        throw await failure("DELETE", path, response);
+    }
+}
+
+/** `POST /sessions/:dir/review/post`: the draft goes to GitHub as one review; the URL answers. */
+export async function postReview(dir: string): Promise<ReviewPostResponse> {
+    return send("POST", `/sessions/${dir}/review/post`, {});
 }
 
 /**

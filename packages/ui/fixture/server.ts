@@ -200,7 +200,7 @@ class FixtureDaemon {
     operatorPty: EchoPty | null = null;
 
     pipeline = new PipelineFixture(this);
-    /** The review routes (s015): `POST /reviews` and the swarm on a review session. */
+    /** The review routes (s015, s016): `POST /reviews`, the swarm, the lead's draft routes. */
     reviews = new ReviewFixture(this);
     /** The keys each fake viewer page received, per repo (`DIFF_VIEWER_ROUTE`). */
     diffKeys = new Map<string, string[]>();
@@ -210,6 +210,9 @@ class FixtureDaemon {
     constructor() {
         for (const item of [...initialSessions(), ...initialReviews()]) {
             this.sessions.set(item.summary.dir, item);
+            if (item.review !== undefined && "briefing" in item.review) {
+                this.reviews.seedBriefing(item.summary.dir);
+            }
         }
     }
 
@@ -728,23 +731,26 @@ class FixtureDaemon {
         return this.pipeline.handle(method, path, body, response);
     }
 
-    /** `POST /sessions/:dir/review` on a review session: the swarm, not the pipeline step. */
-    swarmRoute(response: ServerResponse, method: string, path: string): boolean {
+    /**
+     * `POST /sessions/:dir/review` on a session with an open PR: the swarm, not the pipeline
+     * step; and the lead's routes of s016 (the session file, the draft, the post).
+     */
+    async reviewRoute(
+        request: IncomingMessage, response: ServerResponse, method: string, path: string,
+    ): Promise<boolean> {
         const match = /^\/sessions\/([^/]+)\/review$/.exec(path);
-        if (method !== "POST" || match === null) {
-            return false;
+        if (method === "POST" && match !== null) {
+            const job = this.reviews.swarm(match[1] ?? "");
+            return job === null ? false : this.accepted(response, job);
         }
-        const job = this.reviews.swarm(match[1] ?? "");
-        if (job === null) {
-            return false;
-        }
-        return this.accepted(response, job);
+        const body = method === "PUT" || method === "POST" ? await readBody(request) : {};
+        return this.reviews.handle(method, path, body, response);
     }
 
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const [path = "/", search = ""] = (request.url ?? "/").split("?");
         const method = request.method ?? "GET";
-        if (this.swarmRoute(response, method, path)) {
+        if (await this.reviewRoute(request, response, method, path)) {
             return;
         }
         if (await this.m2(request, response, method, path)) {

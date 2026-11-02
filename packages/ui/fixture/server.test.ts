@@ -46,7 +46,7 @@ it("serves GET /sessions as SessionViews", async () => {
     );
 });
 
-it("POST /reviews makes a review per PR; review on it runs the swarm with review.updated",
+it("POST /reviews makes a review per PR and runs the lead's process: briefing, verdicts, draft, post",
     async () => {
     const port = await start();
     const socket = new WebSocket(`ws://127.0.0.1:${port}${EVENTS_PATH}`);
@@ -73,20 +73,57 @@ it("POST /reviews makes a review per PR; review on it runs the swarm with review
     expect(dir).toMatch(/^r9-peanut-9/);
     events.splice(0);
 
-    const review = await fetch(`http://127.0.0.1:${port}/sessions/${dir}/review`, {
-        method: "POST",
+    // The lead and the swarm start on their own after the job (s016): wait for the draft.
+    const updates = () => events
+        .filter((e) => e.type === "review.updated")
+        .map((e) => e.data as ReviewFields);
+    await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+            if (updates().some((fields) => fields.draft !== null)) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, 50);
     });
-    expect(review.status).toBe(202);
-    await finished();
-    socket.close();
-    const updates = events.filter((e) => e.type === "review.updated");
-    expect(updates.length).toBeGreaterThan(2);
-    const last = updates.at(-1)?.data as ReviewFields;
-    expect(last.swarm.map((m) => m.state)).toEqual(["posted", "posted"]);
-    expect(last.threads).toBe(4);
+    expect(updates().length).toBeGreaterThan(3);
+    const states = updates().map((fields) => fields.swarm.map((m) => m.state).join(","));
+    expect(states).toContain("reading,queued");
+    expect(states.at(-1)).toBe("done,done");
+    const drafted = updates().at(-1) as ReviewFields;
+    expect(drafted.briefing).toBe(true);
+    expect(drafted.draft?.comments).toHaveLength(2);
+    expect(drafted.posted_url).toBeNull();
     const views = events.filter((e) => e.type === "session.updated");
     const view = views.at(-1)?.data as SessionView;
-    expect(Object.keys(view.summary.session.agents)).toEqual(last.swarm.map((m) => m.name));
+    expect(Object.keys(view.summary.session.agents).sort())
+        .toEqual(["lead", ...drafted.swarm.map((m) => m.name)].sort());
+    expect(view.summary.session.needs_human).toBe("post or drop the review draft");
+    expect(view.agents_running).toContain("lead");
+    const base = `http://127.0.0.1:${port}/sessions/${dir}/review`;
+    const briefing = await fetch(`${base}/briefing`);
+    expect(briefing.status).toBe(200);
+    expect(await briefing.text()).toContain("# Retry the upload on 5xx");
+    const edited = { ...drafted.draft, body: "Edited summary." };
+    const put = await fetch(`${base}/draft`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify(edited),
+    });
+    expect(put.status).toBe(200);
+    expect((updates().at(-1) as ReviewFields).draft?.body).toBe("Edited summary.");
+    const posted = await fetch(`${base}/post`, { method: "POST" });
+    expect(posted.status).toBe(200);
+    const answer = (await posted.json()) as { url: string; event: string; fell_back: boolean };
+    expect(answer.url).toBe("https://github.com/acme/peanut/pull/9#pullrequestreview-9001");
+    expect(answer.event).toBe("COMMENT");
+    socket.close();
+    const last = updates().at(-1) as ReviewFields;
+    expect(last.posted_url).toBe(answer.url);
+    expect(last.draft).toBeNull();
+    expect(last.threads).toBe(2);
+    expect((await fetch(`${base}/post`, { method: "POST" })).status).toBe(409);
+    // A second round on the session is the swarm alone, as a job.
+    const again = await fetch(base, { method: "POST" });
+    expect(again.status).toBe(202);
     const empty = await fetch(`http://127.0.0.1:${port}/reviews`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ text: "nothing here" }),

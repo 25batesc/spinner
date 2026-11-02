@@ -1,6 +1,8 @@
 // The middle pane for a review session (s015): the PR header with the card's facts, the
 // swarm as chips (a state dot, the model, `$`; a click opens the reviewer's terminal), and
 // the threads view live. There is no pipeline toolbar; `review` lives in the context bar.
+// s016 adds the lead's chip and, above the threads, the briefing and the draft
+// (`ReviewDraft.tsx`): the swarm's chips read `done`, the reviewers no longer post.
 import { useState, type ReactNode } from "react";
 
 import { tty_path, type SessionView, type SwarmMember } from "@spinner/protocol";
@@ -9,7 +11,10 @@ import { AgentTerminal } from "./AgentTerminal.tsx";
 import { formatUsd } from "./costs.ts";
 import { postAgent } from "./events-client.ts";
 import { StatePill, type IconButtonProps } from "./PaneHead.tsx";
-import { ciPill, decisionPill, swarmDot, swarmLine, type ReviewFacts } from "./review.ts";
+import {
+    ciPill, decisionPill, leadDot, swarmDot, swarmLine, type LeadChip, type ReviewFacts,
+} from "./review.ts";
+import { ReviewBriefing, ReviewDraftBlock, ReviewPosted } from "./ReviewDraft.tsx";
 import type { RunAction } from "./SessionForms.tsx";
 import type { Revisions } from "./state.ts";
 import { Tabs } from "./Tabs.tsx";
@@ -64,40 +69,90 @@ function ReviewHeader({ facts }: { facts: ReviewFacts }) {
     );
 }
 
-/** The swarm row: one chip per reviewer; the picked one is filled. */
+/** One chip: a dot, a name, the cost; the picked one is filled. */
+function Chip(props: {
+    name: string;
+    label: string;
+    title: string;
+    state: string;
+    dot: string;
+    usd: number;
+    current: boolean;
+    onPick: (name: string) => void;
+}) {
+    const { name, label, title, state, dot, usd, current, onPick } = props;
+    const classes = ["chip", "rv-chip", `rv-chip-${state}`, current ? "chip-selected" : ""];
+    return (
+        <span className={classes.join(" ").trim()}>
+            <button
+                type="button"
+                role="tab"
+                aria-selected={current}
+                className={current ? "tab chip-name tab-selected" : "tab chip-name"}
+                title={title}
+                data-name={name}
+                data-state={state}
+                onClick={() => onPick(name)}
+            >
+                <span className={`dot chip-dot ${dot}`} />
+                {label}
+                <span className="muted rv-chip-cost">{formatUsd(usd)}</span>
+            </button>
+        </span>
+    );
+}
+
+/** The chip row: the lead first, then one chip per reviewer. */
 function SwarmChips(props: {
+    lead: LeadChip | null;
     swarm: SwarmMember[];
     picked: string | undefined;
     onPick: (name: string) => void;
 }) {
-    const { swarm, picked, onPick } = props;
+    const { lead, swarm, picked, onPick } = props;
     return (
         <div className="chips rv-swarm" role="tablist" aria-label="Reviewers">
-            {swarm.map((member) => {
-                const current = member.name === picked;
-                const classes = ["chip", "rv-chip", `rv-chip-${member.state}`,
-                    current ? "chip-selected" : ""];
-                return (
-                    <span key={member.name} className={classes.join(" ").trim()}>
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={current}
-                            className={current ? "tab chip-name tab-selected" : "tab chip-name"}
-                            title={`${member.model} · ${member.state} · ${formatUsd(member.usd)}`}
-                            data-name={member.name}
-                            data-state={member.state}
-                            onClick={() => onPick(member.name)}
-                        >
-                            <span className={`dot chip-dot ${swarmDot(member.state)}`} />
-                            {modelShort(member.model)}
-                            <span className="muted rv-chip-cost">{formatUsd(member.usd)}</span>
-                        </button>
-                    </span>
-                );
-            })}
+            {lead !== null && (
+                <Chip
+                    name={lead.name}
+                    label="lead"
+                    title={`${lead.model} · ${lead.state} · ${formatUsd(lead.usd)}`}
+                    state={lead.state}
+                    dot={leadDot(lead.state)}
+                    usd={lead.usd}
+                    current={lead.name === picked}
+                    onPick={onPick}
+                />
+            )}
+            {swarm.map((member) => (
+                <Chip
+                    key={member.name}
+                    name={member.name}
+                    label={modelShort(member.model)}
+                    title={`${member.model} · ${member.state} · ${formatUsd(member.usd)}`}
+                    state={member.state}
+                    dot={swarmDot(member.state)}
+                    usd={member.usd}
+                    current={member.name === picked}
+                    onPick={onPick}
+                />
+            ))}
             {swarm.length === 0 && <span className="muted">{swarmLine(swarm)}</span>}
         </div>
+    );
+}
+
+/** The lead's blocks: the briefing once it exists; the posted URL, else the draft. */
+function LeadBlocks({ dir, facts }: { dir: string; facts: ReviewFacts }) {
+    const draftKey = facts.draft === null ? "" : JSON.stringify(facts.draft);
+    return (
+        <>
+            {facts.briefing && <ReviewBriefing dir={dir} />}
+            {facts.posted_url !== null && <ReviewPosted url={facts.posted_url} />}
+            {facts.posted_url === null && facts.draft !== null && (
+                <ReviewDraftBlock key={draftKey} dir={dir} draft={facts.draft} />
+            )}
+        </>
     );
 }
 
@@ -108,6 +163,9 @@ export function ReviewPane(props: ReviewPaneProps) {
     const [shown, setShown] = useState<"threads" | "terminal">("threads");
     const dir = view.summary.dir;
     const names = facts.swarm.map((member) => member.name);
+    if (facts.lead !== null) {
+        names.unshift(facts.lead.name);
+    }
     const reviewer = picked !== undefined && names.includes(picked) ? picked : undefined;
     const terminalShown = shown === "terminal" && reviewer !== undefined;
     // Every reviewer's terminal stays mounted; only the picked one shows, as in AgentsPane.
@@ -134,6 +192,7 @@ export function ReviewPane(props: ReviewPaneProps) {
             <div className="chat">
                 <ReviewHeader facts={facts} />
                 <SwarmChips
+                    lead={facts.lead}
                     swarm={facts.swarm}
                     picked={terminalShown ? reviewer : undefined}
                     onPick={(name) => {
@@ -147,6 +206,7 @@ export function ReviewPane(props: ReviewPaneProps) {
                     selected={terminalShown ? "terminal" : "threads"}
                     onSelect={(tab) => setShown(tab === "terminal" ? "terminal" : "threads")}
                 />
+                {!terminalShown && <LeadBlocks dir={dir} facts={facts} />}
                 {!terminalShown && (
                     <ThreadsPanel
                         dir={dir}

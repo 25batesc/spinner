@@ -1,6 +1,7 @@
 // The Reviews panel's rules: a review session never shows among the ordinary sessions and
 // the reverse; the cards order by last activity; the CI pill names the failing checks; the
-// swarm line counts. Checked through the functions the components call.
+// swarm line counts; the lead's fields and chip (s016) read from the view. Checked through
+// the functions the components call.
 import { expect, it } from "vitest";
 
 import type { PrFacts, ReviewFields, SessionView } from "@spinner/protocol";
@@ -8,6 +9,8 @@ import type { PrFacts, ReviewFields, SessionView } from "@spinner/protocol";
 import {
     ciPill,
     decisionPill,
+    leadChip,
+    leadDot,
     ordinarySessions,
     reviewFacts,
     reviewsByActivity,
@@ -55,10 +58,16 @@ function view(
 const fields: ReviewFields = {
     checks: "red", failing: ["lint", "e2e"], review_decision: "changes_requested", threads: 7,
     swarm: [
-        { name: "review-opus", model: "anthropic/opus", state: "posted", usd: 0.4, pr: "peanut" },
+        { name: "review-opus", model: "anthropic/opus", state: "done", usd: 0.4, pr: "peanut" },
         { name: "review-gpt", model: "openai/gpt", state: "failed", usd: 0.1, pr: "peanut" },
         { name: "review-grok", model: "x-ai/grok", state: "queued", usd: 0, pr: "peanut" },
     ],
+    briefing: true,
+    draft: {
+        event: "COMMENT", body: "Two things.",
+        comments: [{ path: "src/a.ts", line: 3, body: "BUG: off by one" }],
+    },
+    posted_url: null,
 };
 
 it("keeps reviews out of the sessions list and ordinary sessions out of the reviews", () => {
@@ -87,8 +96,39 @@ it("reads the review fields over the PR facts, and falls back to the PR facts", 
         url: "https://github.com/example/peanut/pull/51",
     });
     expect(full?.swarm).toHaveLength(3);
+    expect(full).toMatchObject({
+        briefing: true, posted_url: null, lead: null,
+        draft: { event: "COMMENT", comments: [{ path: "src/a.ts", line: 3 }] },
+    });
     const bare = reviewFacts(view("r2", "review", [pr({ review: "approved" })]));
-    expect(bare).toMatchObject({ checks: "green", decision: "approved", threads: 6, swarm: [] });
+    expect(bare).toMatchObject({
+        checks: "green", decision: "approved", threads: 6, swarm: [],
+        briefing: false, draft: null, posted_url: null,
+    });
+});
+
+it("reads the lead's chip from the `lead` agent: running, idle between turns, or stopped", () => {
+    const base = view("r1", "review", [pr()], fields);
+    expect(leadChip(base)).toBeNull();
+    const lead = { harness: "tty" as const, model: "anthropic/opus", process: "running" as const };
+    const withLead = (process: "running" | "idle", running: string[]): SessionView => ({
+        ...base,
+        summary: {
+            ...base.summary,
+            session: { ...base.summary.session, agents: { lead: { ...lead, process } } },
+        },
+        agents_running: running,
+        cost: { usd: 1.5, tokens_in: 10, tokens_out: 5, agents: {
+            lead: { usd: 0.7, tokens_in: 5, tokens_out: 2, model: "anthropic/opus" },
+        } },
+    });
+    expect(leadChip(withLead("running", ["lead"]))).toEqual({
+        name: "lead", model: "anthropic/opus", state: "running", usd: 0.7,
+    });
+    expect(leadChip(withLead("idle", ["lead"]))?.state).toBe("idle");
+    expect(leadChip(withLead("idle", []))?.state).toBe("stopped");
+    expect(leadDot("running")).toBe("dot-working");
+    expect(leadDot("stopped")).toBe("dot-off");
 });
 
 it("names the failing checks in the red pill's tooltip", () => {
@@ -103,8 +143,8 @@ it("names the failing checks in the red pill's tooltip", () => {
 
 it("gives each swarm state its dot and counts the swarm in one line", () => {
     expect(swarmDot("reading")).toBe("dot-working");
-    expect(swarmDot("posted")).toBe("dot-up");
+    expect(swarmDot("done")).toBe("dot-up");
     expect(swarmDot("failed")).toBe("dot-failed");
-    expect(swarmLine(fields.swarm)).toBe("1 of 3 posted, 1 failed");
+    expect(swarmLine(fields.swarm)).toBe("1 of 3 done, 1 failed");
     expect(swarmLine([])).toBe("no reviewers yet");
 });
