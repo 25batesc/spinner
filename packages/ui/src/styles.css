@@ -302,11 +302,18 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .compose-card .compose-new:hover { background: var(--accent-fill); border-color: var(--accent); }
 .compose-plus { font-size: 24px; line-height: 1; font-weight: 400; color: var(--accent); }
-.compose-form { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
-.compose-form h3 { margin: 0; }
-.compose-form input, .compose-form select, .compose-form textarea { font: inherit; }
-.compose-actions { display: flex; gap: 6px; }
-.compose-actions .primary { font-weight: 600; border-color: var(--accent); }
+/* A form card: a heading, a visible label over each field, the filled primary button first. */
+.compose-form {
+    display: flex; flex-direction: column; gap: var(--space-3); max-width: 520px;
+    box-sizing: border-box; padding: var(--space-4); background: var(--surface);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+}
+.compose-form h3 { margin: 0; font-size: var(--text-heading); font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
+.field-label { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
+.field-row { display: flex; gap: var(--space-3); }
+.compose-actions { display: flex; gap: var(--space-2); padding-top: var(--space-1); }
+.compose-actions button { height: var(--control-form); padding: 0 14px; }
 .session.session-selected {
     border-color: color-mix(in srgb, var(--accent) 50%, transparent);
     background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent);
@@ -373,7 +380,7 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .toolbar-group > button:first-child:last-of-type { border-radius: var(--radius-control); }
 .toolbar-group > button:hover, .toolbar-group > button:focus-visible { z-index: 1; }
-.prompt { margin-top: auto; padding: 6px; }
+.prompt { margin-top: auto; }
 .transcript { margin: 0; padding-left: 18px; font-size: 12px; overflow-wrap: anywhere; }
 .tabs { display: flex; gap: 2px; }
 .tab { padding: 2px 10px; border: 1px solid var(--border); background: transparent; color: inherit; }
@@ -550,17 +557,29 @@ html, body, #root { height: 100%; margin: 0; }
 .find-field { display: flex; gap: 4px; align-items: center; }
 .find-field input { font: inherit; font-size: 12px; width: 140px; }
 .find-count { font-size: 11px; min-width: 28px; }
-.entry { list-style: none; margin: 2px 0; padding: 4px 6px; border-radius: 4px; overflow-wrap: anywhere; }
-.entry-user { background: var(--accent-fill); }
+.entry {
+    list-style: none; margin: var(--space-1) 0; padding: 6px var(--space-2);
+    border-radius: var(--radius-box); overflow-wrap: anywhere;
+}
+.entry-user { background: var(--accent-tint); }
 .entry-assistant { background: var(--fill-soft); white-space: pre-wrap; }
 .entry-tool { font-size: 12px; border: 1px solid var(--line-soft); }
 .entry-tool pre { margin: 2px 0 0; max-height: 80px; overflow: auto; }
 .tool-error { border-color: var(--fail); }
 .transcript { padding-left: 0; }
-.prompt-form { display: flex; gap: 4px; margin-top: auto; }
+.prompt-form { display: flex; gap: var(--space-2); margin-top: auto; }
+.prompt-form button { height: var(--control-form); }
 .prompt-form .prompt { flex: 1; margin-top: 0; }
-.add-agent { font-size: 12px; }
-.add-agent .brief { width: 100%; font-family: inherit; font-size: 12px; }
+.add-agent .brief { width: 100%; font-family: var(--font-mono); font-size: var(--text-dense); }
+/* The worktree notice above the add-agent form: a warn-tint banner with its select and button. */
+.attach-banner {
+    display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); max-width: 520px;
+    box-sizing: border-box; padding: var(--space-2) var(--space-3); font-size: var(--text-dense);
+    background: var(--warn-tint); border-left: 2px solid var(--warn);
+    border-radius: var(--radius-control);
+}
+.attach-banner .muted { color: var(--text); flex: 1 1 100%; }
+.attach-banner select { min-height: var(--control-row); padding: 0 var(--space-1); font-size: var(--text-dense); }
 /* The mission: one block per section, a small muted label with its edit button, the body. */
 .mission { display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-1); }
 .mission h2 { font-size: var(--text-title); font-weight: 600; margin: 0; }

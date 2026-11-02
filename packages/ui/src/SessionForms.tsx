@@ -81,24 +81,33 @@ export function ComposeForm({ kind, run, onCancel }: ComposeFormProps) {
         >
             <h3>{kind === "new" ? "New session" : "Adopt pull requests"}</h3>
             {kind === "new" ? (
-                <input
-                    autoFocus
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    placeholder="Title"
-                    aria-label="New session title"
-                />
+                <label className="field">
+                    <span className="field-label">Title</span>
+                    <input
+                        autoFocus
+                        value={title}
+                        onChange={(event) => setTitle(event.target.value)}
+                        placeholder="What the session is for"
+                        aria-label="New session title"
+                    />
+                </label>
             ) : (
-                <textarea
-                    autoFocus
-                    value={urls}
-                    onChange={(event) => setUrls(event.target.value)}
-                    placeholder="PR URLs, one per line"
-                    aria-label="PR URLs"
-                    rows={4}
-                />
+                <label className="field">
+                    <span className="field-label">Pull requests</span>
+                    <textarea
+                        autoFocus
+                        value={urls}
+                        onChange={(event) => setUrls(event.target.value)}
+                        placeholder="PR URLs, one per line"
+                        aria-label="PR URLs"
+                        rows={4}
+                    />
+                </label>
             )}
-            <ProjectSelect projects={projects} value={project} onChange={setProject} />
+            <label className="field">
+                <span className="field-label">Project</span>
+                <ProjectSelect projects={projects} value={project} onChange={setProject} />
+            </label>
             <div className="compose-actions">
                 <button type="submit" className="primary">
                     {kind === "new" ? "Create session" : "Adopt"}
