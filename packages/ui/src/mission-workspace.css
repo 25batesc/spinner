@@ -1,0 +1,250 @@
+/* The mission workspace (`MissionWorkspaceView.tsx`). It builds on the scales and the button
+   kinds of `styles.css` (DESIGN-PASS.md) and adds only `.mw-*` classes. The layout follows the
+   width of the pane, not of the window, through a container query: in the app the agents pane
+   is about 660 px wide in a 1500 px window and 280 px in a 1000 px window. */
+.mw {
+    container-type: inline-size; container-name: mw;
+    display: flex; flex-direction: column; gap: var(--space-3);
+    padding: var(--space-1) 0 var(--space-4);
+}
+.mw-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.mw-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.mw-top, .mw-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.mw-error {
+    margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-dense);
+    background: var(--fail-tint); border-left: 2px solid var(--fail);
+    border-radius: var(--radius-control);
+}
+
+/* Agent colours: six hues from the terminal palette, one per name (`hue()` in the view). */
+.mw [data-hue="0"] { --mw-agent: var(--terminal-blue); }
+.mw [data-hue="1"] { --mw-agent: var(--terminal-magenta); }
+.mw [data-hue="2"] { --mw-agent: var(--terminal-cyan); }
+.mw [data-hue="3"] { --mw-agent: var(--terminal-green); }
+.mw [data-hue="4"] { --mw-agent: var(--terminal-yellow); }
+.mw [data-hue="5"] { --mw-agent: var(--terminal-red); }
+
+/* A section: an 11 px muted label with a count, then the body. */
+.mw-section { min-width: 0; }
+.mw-label {
+    display: flex; align-items: center; gap: var(--space-2); min-height: 22px;
+    margin: 0 0 var(--space-1); font-size: var(--text-meta); font-weight: 600;
+    color: var(--muted);
+}
+.mw-count {
+    font-weight: 500; font-variant-numeric: tabular-nums;
+    color: color-mix(in srgb, var(--muted) 75%, transparent);
+}
+.mw-empty { margin: 0; font-size: var(--text-dense); color: var(--muted); font-style: normal; }
+.mw-section > .mw-empty, .mw-column > .mw-empty {
+    padding: var(--space-2) var(--space-3); border: 1px dashed var(--line-soft);
+    border-radius: var(--radius-box);
+}
+
+/* The Goal card: the title, then the goal as body text; a click edits it in place. */
+.mw-goal, .mw-done-when {
+    padding: var(--space-3) var(--space-4); background: var(--surface);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+}
+.mw-goal { box-shadow: inset 0 2px 0 var(--accent); }
+.mw-title {
+    margin: 0 0 var(--space-2); font-size: var(--text-heading); font-weight: 600;
+    line-height: 1.3;
+}
+.mw-text {
+    display: block; width: 100%; padding: 2px var(--space-1); margin: 0 calc(-1 * var(--space-1));
+    box-sizing: content-box; text-align: left; font: inherit; font-size: var(--text-body);
+    line-height: 1.5; color: var(--text); background: transparent; border: 0;
+    border-radius: var(--radius-control); cursor: text; white-space: pre-wrap;
+}
+.mw-text:hover:not(:disabled) { background: var(--fill-soft); }
+
+/* A list of items: one row each, a hairline between rows. */
+.mw-list { list-style: none; margin: 0; padding: 0; }
+.mw-item {
+    position: relative; display: flex; align-items: flex-start; gap: var(--space-2);
+    min-height: 28px; padding: var(--space-1) 0; box-sizing: border-box;
+    font-size: var(--text-dense);
+}
+.mw-list:not(.mw-cards) > .mw-item + .mw-item { border-top: 1px solid var(--line-soft); }
+.mw-check { flex: none; margin-top: 3px; cursor: pointer; }
+.mw-item-text {
+    flex: 1; min-width: 0; padding: 1px 2px; text-align: left; font: inherit; line-height: 18px;
+    color: var(--text); background: transparent; border: 0; border-radius: var(--radius-control);
+    cursor: text; overflow-wrap: anywhere;
+}
+.mw-item-text:hover:not(:disabled) { background: var(--fill-soft); }
+.mw-item-done .mw-item-text { color: var(--muted); }
+.mw-number {
+    margin-right: 6px; font-family: var(--font-mono); font-size: var(--text-meta);
+    color: var(--muted);
+}
+.mw-item-meta {
+    flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 20px;
+}
+/* The actions cover the meta under the pointer, so nothing shifts when they show. */
+.mw-item-actions {
+    position: absolute; right: 0; top: var(--space-1); display: none; gap: 2px;
+    padding-left: var(--space-2);
+    background: linear-gradient(90deg, transparent, var(--mw-row-bg, var(--surface)) 8px);
+}
+.mw-item:hover .mw-item-actions, .mw-item:focus-within .mw-item-actions { display: flex; }
+.mw-item:has(.mw-inline) .mw-item-actions { display: none; }
+.mw-ghost {
+    height: 20px; padding: 0 6px; border: 0; border-radius: var(--radius-control);
+    background: transparent; color: var(--link); font: inherit; font-size: var(--text-meta);
+    font-weight: 500; cursor: pointer;
+}
+.mw-ghost:hover { background: var(--accent-tint); }
+.mw-item-pending { opacity: 0.55; }
+
+/* A tick: the row lights green once, then settles. */
+.mw-item-ticked { animation: mw-tick 1.2s ease-out 1; }
+.mw-item-ticked .mw-check { animation: mw-pop 0.35s ease-out 1; }
+@keyframes mw-tick { from { background: var(--ok-fill); } to { background: transparent; } }
+@keyframes mw-pop { 50% { transform: scale(1.35); } }
+
+/* The editing state: a field in place of the text, the filled action first. */
+.mw-inline { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mw-inline-field { width: 100%; font-size: var(--text-dense); resize: vertical; }
+.mw-inline-actions { display: flex; gap: 6px; }
+
+/* An owner chip: the agent's colour as a dot, the name, a pill shape. */
+.mw-owner {
+    display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px 0 6px;
+    box-sizing: border-box; font-size: var(--text-meta); font-weight: 500; white-space: nowrap;
+    color: var(--text); border-radius: 999px;
+    background: color-mix(in srgb, var(--mw-agent, var(--muted)) 14%, transparent);
+}
+.mw-owner-dot {
+    flex: none; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--mw-agent, var(--muted));
+}
+.mw-time {
+    font-size: var(--text-meta); color: var(--muted); font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* The Plan board: three columns, next · doing · done; each item a small card. */
+.mw-board { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.mw-column {
+    display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: var(--space-2);
+    background: var(--fill-soft); border-radius: var(--radius-box);
+}
+.mw-column-head {
+    display: flex; align-items: center; gap: 6px; margin: 0; padding: 0 var(--space-1);
+    min-height: 20px; font-size: var(--text-dense); font-weight: 600;
+}
+.mw-column-dot {
+    width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%;
+    border: 1.5px solid var(--muted);
+}
+.mw-column[data-state="doing"] .mw-column-dot { background: var(--accent); border-color: var(--accent); }
+.mw-column[data-state="done"] .mw-column-dot { background: var(--ok); border-color: var(--ok); }
+.mw-cards { display: flex; flex-direction: column; gap: 6px; }
+.mw-cards > .mw-item {
+    --mw-row-bg: var(--surface);
+    flex-wrap: wrap; padding: 6px var(--space-2); background: var(--surface);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    transition: border-color 0.1s;
+}
+.mw-cards > .mw-item:hover { border-color: var(--border); }
+.mw-cards > .mw-item .mw-item-meta { flex-basis: 100%; padding-left: 20px; }
+.mw-cards > .mw-item .mw-item-actions { top: 6px; right: var(--space-2); }
+.mw-column[data-state="doing"] .mw-cards > .mw-item { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* The Roster: one chip per agent, the agent's colour, what it is doing under its name. */
+.mw-agents { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.mw-agent {
+    display: flex; flex-direction: column; gap: 2px; min-width: 140px; max-width: 100%;
+    flex: 1 1 160px; padding: 6px var(--space-3); box-sizing: border-box;
+    font-size: var(--text-dense); background: var(--surface);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    box-shadow: inset 2px 0 0 var(--mw-agent, var(--muted));
+}
+.mw-agent-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mw-agent-head .mw-time { margin-left: auto; }
+.mw-agent-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--mw-agent, var(--muted));
+}
+.mw-agent-name { font-weight: 600; }
+.mw-agent-doing { color: var(--text); overflow-wrap: anywhere; }
+.mw-agent-doing.mw-empty { color: var(--muted); }
+.mw-agent-blocked { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.mw-agent-blocker { color: var(--warn); font-size: var(--text-meta); }
+
+/* Open questions: a card each, the asker, the question, an answer box with its button. */
+.mw-question-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.mw-question {
+    display: flex; flex-direction: column; gap: 6px; padding: var(--space-2) var(--space-3);
+    background: var(--surface); border: 1px solid var(--line-soft);
+    border-radius: var(--radius-box); box-shadow: inset 2px 0 0 var(--warn);
+}
+.mw-question-answered { box-shadow: inset 2px 0 0 var(--ok); opacity: 0.8; }
+.mw-question-head { display: flex; align-items: center; gap: 6px; }
+.mw-question-head:empty { display: none; }
+.mw-question-text { margin: 0; font-size: var(--text-body); line-height: 1.45; }
+.mw-answer {
+    margin: 0; padding-left: var(--space-2); font-size: var(--text-dense);
+    border-left: 2px solid var(--line-soft); color: var(--muted);
+}
+.mw-answer-form { display: flex; gap: 6px; }
+.mw-answer-form input { flex: 1; min-width: 0; min-height: var(--control-row); font-size: var(--text-dense); }
+
+/* Contracts: a plain list of rows. */
+.mw-rows { --mw-row-bg: var(--bg); }
+
+/* The Log: agent filter chips, then the feed, newest first, in its own scroll box. */
+.mw-log { display: flex; flex-direction: column; min-width: 0; }
+.mw-filter { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--space-2); }
+.mw-filter-chip {
+    display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px;
+    box-sizing: border-box; font: inherit; font-size: var(--text-meta); font-weight: 500;
+    color: var(--muted); background: transparent; border: 1px solid var(--line-soft);
+    border-radius: 999px; cursor: pointer; transition: border-color 0.1s, color 0.1s;
+}
+.mw-filter-chip:hover { color: var(--text); border-color: var(--border); }
+.mw-filter-chip.mw-on {
+    color: var(--text); border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: var(--accent-tint);
+}
+.mw-feed {
+    list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto;
+    overflow-anchor: auto; border-top: 1px solid var(--line-soft);
+}
+.mw-line {
+    display: grid; grid-template-columns: 38px auto minmax(0, 1fr); align-items: baseline;
+    gap: var(--space-2); padding: 5px var(--space-1); font-size: var(--text-dense);
+    border-bottom: 1px solid var(--line-soft);
+}
+.mw-line .mw-owner { align-self: center; }
+.mw-line-text { overflow-wrap: anywhere; line-height: 1.45; }
+/* A new line fades in with a tint; it changes no height, so the feed does not jump. */
+.mw-line-new { animation: mw-arrive 1.6s ease-out 1; }
+@keyframes mw-arrive {
+    from { background: var(--accent-fill); opacity: 0.2; }
+    15% { opacity: 1; }
+    to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mw-item-ticked, .mw-item-ticked .mw-check, .mw-line-new { animation: none; }
+}
+
+/* A narrow pane (the agents pane in a 1000 px window): everything stacks, in reading order. In
+   a pane of 520 px and more, Goal and Done when sit side by side, the Plan takes three
+   columns, and questions and contracts pair up. */
+@container mw (min-width: 520px) {
+    .mw-top { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+    .mw-board { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+    .mw-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
+}
+/* A wide pane (the previews folded): the Log moves to the right as a column of its own. */
+@container mw (min-width: 1000px) {
+    .mw-grid { grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-5); }
+    .mw-log {
+        position: sticky; top: 0; align-self: start; max-height: calc(100vh - 120px);
+        padding-left: var(--space-4); border-left: 1px solid var(--line-soft);
+    }
+    .mw-feed { max-height: none; }
+}
