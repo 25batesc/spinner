@@ -21,8 +21,8 @@ export interface PreviewPaneProps {
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?:
         | {
-              /** Collapses the pane to the edge strip. */
-              onToggle: () => void;
+              /** Collapses the pane to the edge strip; absent while expanded. */
+              onToggle?: (() => void) | undefined;
               expanded: boolean;
               onExpand: (expanded: boolean) => void;
               /** Pops the pane out; names the preview on show so the desktop moves that view. */
@@ -125,7 +125,11 @@ export function PreviewPane(props: PreviewPaneProps) {
                       label: "Pop out previews",
                       onClick: () => controls.onPopOut(shown),
                   },
-                  { icon: "panel-right", label: "Collapse previews", onClick: controls.onToggle },
+                  ...(controls.onToggle === undefined ? [] : [{
+                      icon: "panel-right" as const,
+                      label: "Collapse previews",
+                      onClick: controls.onToggle,
+                  }]),
               ];
 
     if (hasDiff && tab === "diff" && view !== undefined) {

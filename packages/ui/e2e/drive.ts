@@ -295,6 +295,63 @@ if (flow === "bridge-stub") {
     await finish();
 }
 
+if (flow === "expanded") {
+    // Expanded is one state with one exit. Expand: the previews are the only pane and fill
+    // the window, no drawer, no strips, no handles. The activity bar's sessions icon does
+    // nothing. Escape brings the three panes and the drawer back at their earlier widths.
+    const widthOf = (selector: string) =>
+        `Math.round(document.querySelector(${JSON.stringify(selector)})` +
+        `?.getBoundingClientRect().width ?? -1)`;
+    const widths = async () =>
+        (await evaluate(`({
+            sessions: ${widthOf(".sessions-pane")},
+            agents: ${widthOf(".agents-pane")},
+            previews: ${widthOf(".preview-pane")},
+            panes: document.querySelectorAll(".pane").length,
+            strips: document.querySelectorAll(".strip").length,
+            handles: document.querySelectorAll(".handle").length,
+            drawer: document.querySelectorAll(".drawer").length,
+            window: window.innerWidth,
+        })`)) as Record<string, number>;
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("three panes", `document.querySelectorAll(".pane").length === 3`);
+    await until("drawer shown", `document.querySelectorAll(".drawer").length === 1`);
+    const before = await widths();
+    console.log("before:", JSON.stringify(before));
+    await click("button[aria-label='Expand previews']");
+    await until("previews alone", `document.querySelectorAll(".pane").length === 1`);
+    const fills = `${widthOf(".preview-pane")} >= window.innerWidth - 40`;
+    await until("previews fill the window", fills);
+    const during = await widths();
+    console.log("expanded:", JSON.stringify(during));
+    if (during["drawer"] !== 0 || during["strips"] !== 0 || during["handles"] !== 0) {
+        throw new Error("expanded must show the previews alone: no drawer, strips or handles");
+    }
+    const collapse = `document.querySelector("button[aria-label='Collapse previews']")`;
+    if (await evaluate(`${collapse} !== null`)) {
+        throw new Error("the previews' collapse control must hide while expanded");
+    }
+    await shot("45-expanded-alone");
+    await click(".activity-bar .icon-button", "");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const after = await widths();
+    if (JSON.stringify(after) !== JSON.stringify(during)) {
+        throw new Error("the activity bar changed the expanded layout");
+    }
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+    await until("three panes back", `document.querySelectorAll(".pane").length === 3`);
+    await until("drawer back", `document.querySelectorAll(".drawer").length === 1`);
+    const restored = await widths();
+    console.log("restored:", JSON.stringify(restored));
+    if (JSON.stringify(restored) !== JSON.stringify(before)) {
+        throw new Error("the exit did not bring the earlier layout back");
+    }
+    await shot("46-expanded-restored");
+    console.log("expanded ok");
+    await finish();
+}
+
 if (flow === "panes") {
     // The workbench layout in a browser: the context bar above names the active session
     // (title, stage, stack, PR badge, needs-you line); the activity bar at the far left has
@@ -473,6 +530,7 @@ if (flow === "panes") {
     await click("button[aria-label='Expand previews']");
     await until("previews fill the window", `${widthOf(".preview-pane")} > 1400`);
     await until("other panes gone", `document.querySelectorAll(".pane").length === 1`);
+    await until("no drawer while expanded", `document.querySelectorAll(".drawer").length === 0`);
     const shrink = `document.querySelector("button[aria-label='Restore layout']")`;
     await until("shrink icon shown", `${shrink} !== null`);
     await shot("44-expanded");

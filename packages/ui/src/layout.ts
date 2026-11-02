@@ -9,7 +9,9 @@
 // to a 24 px strip at the right edge, by a drag well past its minimum or by its toggle icon; a
 // click on the strip restores it. A popped-out pane (the desktop's tray can still open one) is
 // a strip too, so one click docks it back.
-// `expanded` gives the previews the whole window; the panes keep their state for the return.
+// `expanded` gives the previews the whole window; the panes keep their state for the return,
+// and no fold, drag or restore gets through until then, so the exit restores exactly the layout
+// from before.
 //
 // A narrow window does not change the stored layout: `fitLayout` derives what fits the width
 // each render (the previews shrink, then the side panel, then the previews collapse, then the
@@ -134,9 +136,15 @@ export function clampDrawerHeight(height: number, max: number): number {
     return Math.max(DRAWER_MIN_PX, Math.min(Math.max(DRAWER_MIN_PX, max), Math.round(height)));
 }
 
+/** The actions a pane takes; none of them while the previews are expanded. */
+const PANE_ACTIONS: ReadonlySet<LayoutAction["kind"]> = new Set(["drag", "collapse", "restore"]);
+
 export function reduceLayout(layout: Layout, action: LayoutAction): Layout {
     if (action.kind === "expand") {
         return { ...layout, expanded: action.expanded };
+    }
+    if (layout.expanded && PANE_ACTIONS.has(action.kind)) {
+        return layout;
     }
     if (action.kind === "drawer") {
         const height = clampDrawerHeight(action.height, action.max);

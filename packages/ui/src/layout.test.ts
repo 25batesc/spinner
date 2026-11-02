@@ -98,6 +98,33 @@ describe("columns and visiblePanes", () => {
         const back = reduceLayout(expanded, { kind: "expand", expanded: false });
         expect(columns(back)).toBe("1fr 6px 520px");
     });
+
+    // Expanded is one state with one exit: a fold, a drag or a restore that slipped through
+    // would change what the exit brings back.
+    it("refuses collapse while expanded", () => {
+        const expanded = reduceLayout(DEFAULT_LAYOUT, { kind: "expand", expanded: true });
+        const after = reduceLayout(expanded, {
+            kind: "collapse", pane: "sessions", remember: undefined,
+        });
+        expect(after).toBe(expanded);
+        expect(reduceLayout(expanded, {
+            kind: "collapse", pane: "previews", remember: undefined,
+        })).toBe(expanded);
+    });
+
+    it("refuses drag while expanded", () => {
+        const expanded = reduceLayout(DEFAULT_LAYOUT, { kind: "expand", expanded: true });
+        expect(reduceLayout(expanded, { kind: "drag", pane: "sessions", width: 400 }))
+            .toBe(expanded);
+    });
+
+    it("refuses restore while expanded, and the exit brings the earlier layout back", () => {
+        const folded = fold(DEFAULT_LAYOUT, "sessions");
+        const expanded = reduceLayout(folded, { kind: "expand", expanded: true });
+        expect(reduceLayout(expanded, { kind: "restore", pane: "sessions" })).toBe(expanded);
+        const back = reduceLayout(expanded, { kind: "expand", expanded: false });
+        expect(back).toEqual(folded);
+    });
 });
 
 describe("fitLayout", () => {

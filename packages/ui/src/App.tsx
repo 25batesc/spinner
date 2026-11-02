@@ -230,6 +230,9 @@ export function App() {
     // The bar: the active view's icon hides the panel; another view's icon shows it on that
     // view, opening the panel when it is hidden.
     const pickPanel = (view: PanelView["id"]) => {
+        if (expanded) {
+            return;
+        }
         if (panelShown && view === panelView) {
             togglePanel();
             return;
@@ -275,7 +278,8 @@ export function App() {
                 inRoute
                     ? undefined
                     : {
-                          onToggle: () => layout.fold("previews"),
+                          // Hidden while expanded: the expand icon is the one exit.
+                          onToggle: expanded ? undefined : () => layout.fold("previews"),
                           expanded,
                           onExpand: layout.setExpanded,
                           onPopOut: (preview) => popOut("previews", preview),
@@ -337,10 +341,10 @@ export function App() {
         const props = layout.handle(before, pane);
         return [<div key={`${before}|${pane}`} className="handle" {...props} />, cell];
     });
-    // The drawer sits under the agents pane; with the pane gone or swapped for the operator
-    // tab, it takes a row of its own.
+    // The drawer sits under the agents pane; with the pane folded or swapped for the operator
+    // tab, it takes a row of its own. Expanded, only the previews show: no drawer at all.
     const agentsOff =
-        expanded || isStrip(layout.fitted.panes.agents) || middle === "operator";
+        !expanded && (isStrip(layout.fitted.panes.agents) || middle === "operator");
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
             <ContextBar
