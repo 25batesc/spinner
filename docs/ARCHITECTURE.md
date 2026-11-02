@@ -149,14 +149,40 @@ Why pi first: scriptable (SDK + RPC + JSON event stream), model-agnostic through
 
 ### Spinner pi extension (packages/pi-extension)
 
-Loaded into every agent. Injects session context into the system prompt each turn, provides the `mission_*`, `message`, `stack` and `pr` tools, and guards edits outside the agent's owned paths. Specified in [SESSION_PROTOCOL.md](SESSION_PROTOCOL.md#what-the-pi-extension-provides-m2). The role comes from `SPINNER_ROLE`: `worker`, `fixer` (adds the `thread_*` tools) or `operator` (below).
+Loaded into every agent. Injects session context into the system prompt each turn, provides the `mission_*`, `message`, `stack` and `pr` tools, and guards edits outside the agent's owned paths. Specified in [SESSION_PROTOCOL.md](SESSION_PROTOCOL.md#what-the-pi-extension-provides-m2). The role comes from `SPINNER_ROLE`: `worker`, `fixer` (adds the `thread_*` tools), `lead` (the mission tools, below) or `operator` (below).
+
+### Chat first: the lead agent (packages/daemon/src/agents/lead.ts)
+
+Since s014 a session is a conversation. The operator pastes what the session is about and
+clicks `Start`. `POST /sessions/extract` finds the PR references in the paste
+(`pipeline/extract.ts`, a pure extractor and one GitHub lookup per reference), and the UI
+shows them as checkboxes. `POST /sessions { text, project, adopt }` creates the session at
+once with a provisional title, then one job attaches the project, adopts the ticked PRs
+(worktrees on their head branches, `adopt_into_session`), starts the agent `lead`, and sends
+it the paste as its first message. The lead runs in role `lead` with the lead brief
+(`store/brief-template.ts`, kind `lead`). It owns the mission: `session_title`,
+`mission_goal`, `mission_done_when` and `mission_plan` write the title, Goal, Done when and
+the Plan through the section route; `agent_add` and `agent_steer` run the other agents;
+`adopt` brings a PR in later. The bash guard that keeps the operator agent from pushing,
+posting, approving, landing, resetting and closing applies to the lead.
+
+The mission format carries ids and times since s014: `- [ ] 3. text (owner)` and
+`- [x] 3. text (owner, 14:02)`. `pipeline/mission-sections.ts` reads and writes both forms
+and the older ones. `GET /sessions/:dir/mission/view` derives the structured mission on each
+read, and `mission.changed` carries it, so the UI's workspace renders the file without
+parsing markdown. The file stays the source of truth; the workspace writes through the
+section route's `item` mode. The operator agent below stays, off by default.
+
+The e2e `packages/daemon/e2e/chat-first.ts` runs the real pi on a scratch daemon with the
+sandbox repository cloned into the scratch. One sentence and one PR URL go in; the lead
+writes a Goal and three Plan items within two minutes and ticks one after a steer.
 
 ### The operator agent (packages/daemon/src/agents/operator.ts)
 
 One agent per home, outside every session. It runs Spinner for the operator the way a parent chat did before s013. It turns a request into a session, a mission and briefs. It starts the agents, relays what they ask, and reports. It is a tty pi like a session agent. `OperatorHost` hosts it over the same `PiTtyHarness.spawn_pty` and extension channel. The differences:
 
 - Its files live under `<home>/operator/`: the transcript in `pi/` (`--session-dir <home>/operator/pi --session-id operator`), `BRIEF.md`, and `process.json`. The last holds the pid and start time, so a restart can stop a pi that outlived a crashed daemon. Its cwd is the home. It has no worktree and no stack. It reads and writes sessions only through the daemon.
-- The daemon starts it after `adopt_all` when `settings.operator.enabled` is true (the default). On restart it resumes on the same transcript. `POST /operator/stop` and `POST /operator/start` stop and resume it. `SPINNER_OPERATOR=off` keeps it off for a headless run. Its model is `settings.operator.model`, else `settings.default_model`, else the daemon's default.
+- The daemon starts it after `adopt_all` when `settings.operator.enabled` is true (off by default since s014). On restart it resumes on the same transcript. `POST /operator/stop` and `POST /operator/start` stop and resume it. `SPINNER_OPERATOR=off` keeps it off for a headless run. Its model is `settings.operator.model`, else `settings.default_model`, else the daemon's default.
 - `store/operator-brief.ts` writes `BRIEF.md` once, when absent, so the operator can edit it. The brief says what Spinner is and how a session is shaped. It says how a request becomes a mission and briefs. It says that the agent starts agents without asking. It says that the agent never pushes, posts, approves, lands, resets or closes without the operator's word.
 - The extension in role `operator` registers `session_new`, `session_adopt`, `session_attach`, `session_list`, `session_show`, `mission_write`, `brief_write`, `agent_add`, `agent_steer` and `inbox_send`. It keeps `stack` and `pr`, which take a `session` argument in this role. Each tool is one daemon call with the body the UI sends, so the daemon's validation and Log apply. A tool that starts a job waits for it. A `bash` call that runs `spinner pr|post|approve|land|reset|close`, `git push` or `gh pr create|merge|review` is blocked. The message says the operator must do it.
 - The host subscribes on the bus and turns five events into notices through the channel's `notify`. The events are `needs_human` set (a `session.updated` where it goes from null to text), `agent.settled`, `agent.exited`, `job.finished` with `ok: false`, and an `inbox.message` to `operator`. Notices are batched for one second, one line per event. Each line starts with the session directory. The queue holds 100 lines. Past that the oldest go, and the notice says how many. Lines wait while the agent is stopped.

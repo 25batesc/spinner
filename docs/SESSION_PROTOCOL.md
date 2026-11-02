@@ -214,7 +214,7 @@ These rules are what make a shared file safe with several writers. They are enfo
 | Section | Who writes | How |
 |---|---|---|
 | Goal, Done when | Operator | Freely. Agents propose changes under *Open questions*. |
-| Plan | Anyone | Add items; every item names one owner; only the owner ticks it. Never renumber. |
+| Plan | Anyone | Add items; every item names one owner; only the owner ticks it. Never renumber. Since s014 an item is `- [ ] 3. text (owner)` and, once ticked, `- [x] 3. text (owner, 14:02)`: the daemon's `mission_plan` tool writes the number and the time. A Done when item ticks the same way: `- [x] text (owner, 14:02)`. |
 | Roster | Each agent, own row only | Overwrite the row. *Doing* is one line, or `done`, or `—` when idle. *Blocked?* is `no` or `yes: <what you wait for>`. |
 | Contracts & decisions | Anyone | **Append-only.** To change a contract, add a new entry that says what it supersedes. |
 | Open questions | Agents add, operator answers | The operator answers inline or moves the answer to *Contracts*. |
@@ -226,6 +226,8 @@ Conventions:
 - When the Log passes ~150 lines the daemon moves the oldest entries to `log/MISSION-<date>.md` and leaves a two-line summary in their place. Agents never prune.
 - An agent that edits files **outside its owned paths** logs it first (`11:53 backend-api: touching admin/src/api/client.ts to add the refund method`). Ownership is listed in the Roster and in the agent's `BRIEF.md`.
 - Times are local, `HH:MM`. The session's date is in `session.yaml`.
+- Ids. A Plan item's number is its id. The daemon gives a line without one the next number on its first write to the section. An id never changes; `reorder` moves lines, not numbers. A Done when item has no number in the file; the daemon addresses it by position.
+- The lead (s014). A session started from a paste has an agent `lead` that owns Goal, Done when, the Plan and the title. The operator steers it in its terminal and reads the file, or the workspace built from `GET /sessions/:dir/mission/view`.
 
 ## Agent files
 
@@ -366,7 +368,7 @@ Commands and what they change:
 So that agents follow the protocol without being told every turn, `spinnerd` loads a pi extension into each agent session:
 
 - **System prompt section**: session id, hostnames, the agent's `BRIEF.md`, the full `MISSION.md`, and a one-line digest per other agent (`admin-ui: blocked on /refunds`).
-- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
+- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, `agent_add`, `agent_steer` and `adopt(refs)`. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
 - **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first.
 
 Until then, the brief carries these instructions, and the operator serializes by running only two or three agents at once.

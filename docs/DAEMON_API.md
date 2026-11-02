@@ -20,8 +20,12 @@ WebSockets below.
 | `GET /sessions` | | `SessionsResponse` | Every session as the daemon sees it. |
 | `GET /sessions/:dir` | | `SessionResponse` | 404 without the session. |
 | `GET /sessions/:dir/mission` | | `text/markdown` | The raw `MISSION.md`. |
-| `POST /sessions` | `NewSessionRequest` | `JobResponse` | The job creates the session and attaches the project. |
+| `POST /sessions` | `NewSessionRequest` | `JobResponse` | With `title`: the job attaches the project. With `text` (chat first, below): the job attaches, adopts, starts the lead and sends it the text. |
+| `POST /sessions/extract` | `ExtractRequest` | `ExtractResponse` | The PR references in a paste, resolved against the project and looked up. Synchronous; below. |
 | `POST /sessions/adopt` | `AdoptRequest` | `JobResponse` | PRs opened outside Spinner. |
+| `POST /sessions/:dir/adopt` | `SessionAdoptRequest` | `JobResponse` | PR references into an existing session; the lead's `adopt` tool. 409 without a project. |
+| `PUT /sessions/:dir/title` | `SessionTitleRequest` | `SessionResponse` | `session.yaml` and the mission heading. Query `author`, default `operator`. |
+| `GET /sessions/:dir/mission/view` | | `MissionViewResponse` | The structured mission; below. |
 | `POST /sessions/:dir/attach` | `AttachRequest` | `JobResponse` | Worktrees on the PR branches. |
 | `POST /sessions/:dir/up` | `UpRequest`, optional | `JobResponse` | `build: true` rebuilds the dev images. |
 | `POST /sessions/:dir/down` | | `JobResponse` | Volumes and the database stay. |
@@ -41,7 +45,7 @@ WebSockets below.
 | `POST /sessions/:dir/approve` | `ApproveRequest` | `JobResponse` | `confirm: true` or 400. |
 | `POST /sessions/:dir/land` | `LandRequest`, optional | `JobResponse` | Enqueue, watch, rebase and re-enqueue on a pop-out. |
 | `POST /sessions/:dir/reset` | `ResetRequest`, optional | `JobResponse` | The next round. |
-| `PUT /sessions/:dir/mission/section` | `MissionSectionRequest` | `MissionSectionResponse` | The daemon serializes writes. |
+| `PUT /sessions/:dir/mission/section` | `MissionSectionRequest` | `MissionSectionResponse` | The daemon serializes writes. The `item` mode is below. |
 | `POST /sessions/:dir/inbox` | `InboxMessageRequest` | `InboxMessageResponse` | Writes the message and delivers it. |
 | `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
 | `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. |
@@ -303,7 +307,7 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 | `theme` | `system`, `light`, `dark`, `rainbow`, or the name of a valid `~/.spinner/themes/<name>.json`. `system` follows the OS. |
 | `default_model` | Optional. `provider/model` for an agent tab that names none. |
 | `agents.harness` | Optional. `tty` or `rpc`. |
-| `operator.enabled` | Optional, default true. The daemon starts the operator agent at boot. |
+| `operator.enabled` | Optional, default false since s014. The daemon starts the operator agent at boot when true. |
 | `operator.model` | Optional. `provider/model` for the operator agent; else `default_model`, else the daemon's default. |
 
 `GET /settings` answers `SettingsResponse { settings, path }`; without a file, `settings` is
@@ -312,6 +316,68 @@ writes the file. A problem is a 400 with the first reason. The reasons are an un
 type, or a theme that is not built-in and not a valid user file. On success the daemon answers
 `SettingsResponse` and publishes the bus event `settings { type, ts, session: null, settings }`.
 A hand edit of the file shows on the next `GET`; the daemon does not watch it.
+
+## Chat first: a session from a paste
+
+Since s014 a session starts from one paste and one click. The compose box sends the paste to
+`POST /sessions/extract { text, project? }`. The daemon finds every PR reference in the text.
+The forms are a full GitHub PR URL in any form, `owner/repo#N`, `repo#N` and a bare `#N`.
+In `repo#N`, `repo` is a project repo key or a GitHub repo name. A bare `#N` resolves
+against the project's one repo. Each reference becomes
+one `ExtractedPr`:
+
+| Field | Meaning |
+|---|---|
+| `ref` | The reference as written. |
+| `url`, `repo`, `number` | The canonical URL and the GitHub `owner/name`; null when the reference did not resolve. |
+| `key` | The project's repo key, when the repo is one of the project's. |
+| `title`, `branch`, `base` | From GitHub; null when the lookup failed. |
+| `adoptable` | True when `POST /sessions` can make a worktree for it: the repo is in the project. |
+| `reason` | Why it did not resolve, or is not adoptable: an ambiguous `#N`, a repo the project does not list, a failed lookup. |
+
+Duplicates fold on `owner/name#number`. The lookups run in parallel under a 10 s bound; a
+late one carries a reason. `rest` is the text with every reference removed. The project's
+repo names and owners come from each clone's `origin`, else `pipeline.github.org`.
+
+`POST /sessions { text, project?, adopt?: [url] }` creates the session at once, with a
+provisional title (the first line of `rest`, else the first adopted PR's title). The job
+`new` then attaches the project and adopts each `adopt` URL: a worktree on the PR's head
+branch. It starts the agent `lead` in the lead role with the lead brief, in the one repo's
+worktree when the project has one repo. It prompts the lead with the text, one `Adopted:`
+line per worktree and one `Mentioned:` line per other reference. The lead owns the mission
+from there: it sets the title, writes Goal, Done when and the Plan, ticks, logs, asks, and
+adds agents. It never pushes, posts, approves, lands, resets or closes. The old body with
+`title` alone still works for the CLI and the templates.
+
+## The mission view
+
+`GET /sessions/:dir/mission/view` answers `MissionViewResponse { view: MissionView }`, derived
+from `MISSION.md` on every read; nothing is stored. The markdown file stays the source of
+truth. `mission.changed` carries the same `view` after a tool write and after a hand edit.
+
+| Field | Shape |
+|---|---|
+| `title` | From the `# id · title` line. |
+| `goal` | The Goal body; the template's placeholder reads as empty. |
+| `done_when[]` | `{ id, text, owner, state: open \| done, ticked_at }`; `id` is the position. |
+| `plan[]` | `{ id, text, owner, state: next \| doing \| done, ticked_at }`; `id` is the number in the file. |
+| `roster[]` | `{ agent, owns, doing, blocked, updated }`, the cells as written. |
+| `contracts[]` | `{ id, ts, author, text }`; nested lines join the text. |
+| `questions[]` | `{ id, author, text, answer }`; the indented lines under a question are the answer. |
+| `log[]` | `{ ts, author, text }`, file order, oldest first. |
+
+A Plan item is `doing` when it is unticked and its owner's Roster `Doing` names `#id` or
+`item id`. An owner whose `Doing` is active (not `—`, empty or `done`) and names no item is
+`doing` on its lowest unticked item.
+
+The `item` mode of `PUT /sessions/:dir/mission/section` edits one item of `plan` or
+`done_when`: `item: { command, id?, text?, owner?, order? }`. `add` appends `- [ ] N. text
+(owner)` to the Plan (N is `max + 1`; the owner defaults to the author) or `- [ ] text` to
+Done when. `tick` writes `[x]` and `(owner, HH:MM)` with the daemon's clock. `untick` drops
+the time. `edit` replaces the text. `assign` sets the owner. `reorder` takes the ids in their
+new order; unlisted items follow in their old order. Ids never change. A Plan line
+written before s014 without a number gets one on the first write to the section. A 400
+names the first problem. An unknown id is one.
 
 ## The operator agent
 
