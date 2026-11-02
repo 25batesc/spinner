@@ -108,11 +108,11 @@ export const ROUTES = {
     /** WebSocket upgrade to a tty agent's pty; see `TTY_PATH` and `TtyClientMessage`. */
     "GET /sessions/:dir/agents/:name/tty": "websocket",
     /**
-     * Start the diff viewer of one repo, or of every repo. Body: DiffRepoRequest. Answers
-     * once the viewer serves `GET /` (or `DIFF_START_TIMEOUT_MS` passed and the repo is
-     * `failed`). 409 when `diffview` is not installed; 404 for an unknown repo.
+     * Start the diff viewer of one repo, or of every repo. Body: DiffRepoRequest. The job
+     * fetches the viewer's sources first when `diff.fetch` is not `ready`, then starts each
+     * viewer and waits for it to serve `GET /`. 404 for an unknown repo.
      */
-    "POST /sessions/:dir/diff/start": "SessionResponse",
+    "POST /sessions/:dir/diff/start": "JobResponse",
     /** Stop the diff viewer of one repo, or of every repo. Body: DiffRepoRequest. */
     "POST /sessions/:dir/diff/stop": "SessionResponse",
     /**
@@ -413,7 +413,8 @@ export type JobAction =
     | "post"
     | "approve"
     | "land"
-    | "reset";
+    | "reset"
+    | "diff";
 
 export const JOB_ACTIONS: readonly JobAction[] = [
     "new",
@@ -429,6 +430,7 @@ export const JOB_ACTIONS: readonly JobAction[] = [
     "approve",
     "land",
     "reset",
+    "diff",
 ];
 
 export type JobState = "running" | "ok" | "failed";

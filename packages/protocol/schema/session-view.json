@@ -1005,7 +1005,17 @@
             "properties": {
                 "available": {
                     "type": "boolean",
-                    "description": "False when the daemon found no `diffview` binary; then `repos` is empty."
+                    "description": "True once `fetch` is `ready`: viewers can start and the tools work."
+                },
+                "fetch": {
+                    "$ref": "#/definitions/DiffFetchState"
+                },
+                "fetch_error": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Why the last fetch failed, else null."
                 },
                 "repos": {
                     "type": "object",
@@ -1017,10 +1027,22 @@
             },
             "required": [
                 "available",
+                "fetch",
+                "fetch_error",
                 "repos"
             ],
             "additionalProperties": false,
             "description": "`SessionView.diff`."
+        },
+        "DiffFetchState": {
+            "type": "string",
+            "enum": [
+                "absent",
+                "fetching",
+                "ready",
+                "failed"
+            ],
+            "description": "Whether the viewer's sources are on this machine. `absent` before the first start, `fetching` while the job runs, `ready` once `diffview --help` answers from the checkout, `failed` with `fetch_error` set. A failed fetch runs again on the next start."
         },
         "DiffRepoView": {
             "type": "object",

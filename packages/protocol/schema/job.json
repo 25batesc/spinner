@@ -74,7 +74,8 @@
                 "post",
                 "approve",
                 "land",
-                "reset"
+                "reset",
+                "diff"
             ],
             "description": "The actions the daemon runs as jobs."
         },

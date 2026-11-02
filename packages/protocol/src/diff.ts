@@ -1,15 +1,27 @@
 // The diff tab (MISSION.md s012/s014, Contracts): one `diffview` process per repo of a
-// session, run in that repo's worktree as a Spinner-managed host process. The viewer is an
-// optional dependency of the daemon; when its binary is absent, `SessionView.diff.available`
-// is false and the tab does not appear. The operator's comments reach the session's tty
+// session, run in that repo's worktree as a Spinner-managed host process. The viewer is not
+// a package dependency: the first `POST /sessions/:dir/diff/start` clones it and its comment
+// library at pinned commits under `<home>/diffview/src/` and runs `npm install` there (the
+// pins live in the daemon, `src/diff/pins.ts`). Until that fetch succeeds
+// `SessionView.diff.available` is false. The operator's comments reach the session's tty
 // agents as `notify` commands, and the agents answer with the `diff_comments` and
 // `diff_reply` tools, which the daemon runs as `diffview comments ...` in the agent's worktree.
 
-/** The pinned dependency the daemon declares under `optionalDependencies`. */
-export const DIFF_VIEWER_DEPENDENCY = "github:adamsanghera/diff-viewer#0707cd677fd6";
-
-/** The Spinner home subdirectory that is `DIFFVIEW_HOME`: the comment store and the registry. */
+/**
+ * The Spinner home subdirectory that is `DIFFVIEW_HOME` (the comment store and the viewer
+ * registry) and holds the fetched sources under `src/`.
+ */
 export const DIFF_HOME_DIR = "diffview";
+
+/** The fetch job (two clones and one `npm install`) is killed after this long. */
+export const DIFF_FETCH_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Whether the viewer's sources are on this machine. `absent` before the first start,
+ * `fetching` while the job runs, `ready` once `diffview --help` answers from the checkout,
+ * `failed` with `fetch_error` set. A failed fetch runs again on the next start.
+ */
+export type DiffFetchState = "absent" | "fetching" | "ready" | "failed";
 
 /** The viewer's log, relative to the session directory. `<repo>` is the repo key. */
 export function diff_log_path(repo: string): string {
@@ -61,13 +73,16 @@ export interface DiffRepoView {
 
 /** `SessionView.diff`. */
 export interface DiffView {
-    /** False when the daemon found no `diffview` binary; then `repos` is empty. */
+    /** True once `fetch` is `ready`: viewers can start and the tools work. */
     available: boolean;
+    fetch: DiffFetchState;
+    /** Why the last fetch failed, else null. */
+    fetch_error: string | null;
     /** One entry per repo of `session.yaml`, in `repos` order, running or not. */
     repos: Record<string, DiffRepoView>;
 }
 
-/** Body of `POST /sessions/:dir/diff/start` and `.../diff/stop`. */
+/** Body of `POST /sessions/:dir/diff/start` (a job) and `.../diff/stop` (synchronous). */
 export interface DiffRepoRequest {
     /** The repo key; every repo of the session when absent. */
     repo?: string;
