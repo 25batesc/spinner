@@ -84,9 +84,11 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
     }
 
     pi.on("tool_call", (event, ctx) => {
-        if (env.role === "operator" && event.toolName === "bash") {
-            // The operator agent never pushes, posts, approves, lands, resets or closes
-            // (MISSION.md s013, Contracts); the person does, in the UI or with `spinner`.
+        const guarded = env.role === "operator" || env.role === "lead";
+        if (guarded && event.toolName === "bash") {
+            // The operator agent and the lead never push, post, approve, land, reset or
+            // close (MISSION.md s013 and s014, Contracts); the person does, in the UI or
+            // with `spinner`.
             const command = event.input["command"];
             const reason = refuse_operator_bash(typeof command === "string" ? command : "");
             if (reason === null) {

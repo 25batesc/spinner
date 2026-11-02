@@ -59,6 +59,8 @@ beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "spinner-operator-"));
     home = resolve_home({ SPINNER_HOME: join(root, "home") });
     mkdirSync(home.root, { recursive: true });
+    // Off by default since s014; these tests are about the agent, so they switch it on.
+    writeFileSync(join(home.root, "settings.yaml"), "theme: system\noperator:\n  enabled: true\n");
     process.env["FAKE_PI_ARGS_FILE"] = join(root, "args.json");
     daemon = await start_daemon(options());
     events = [];
@@ -334,10 +336,9 @@ describe("the operator agent through the daemon", () => {
         term.socket.close();
     }, 20_000);
 
-    it("settings.operator.enabled false keeps the agent off at boot; start works", async () => {
+    it("the agent is off at boot unless settings.operator.enabled is true", async () => {
         await daemon.close();
-        const off = "theme: system\noperator:\n  enabled: false\n";
-        writeFileSync(join(home.root, "settings.yaml"), off);
+        rmSync(join(home.root, "settings.yaml"));
         daemon = await start_daemon(options());
         events = [];
         const view = await operator_view();

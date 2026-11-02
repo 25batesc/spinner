@@ -1,6 +1,7 @@
 // The operator agent (MISSION.md s013): one tty pi per home under `<home>/operator/`, with
 // no session of its own. The daemon starts it after `adopt_all` when `settings.operator.
-// enabled` is true, resumes it on restart on the same transcript (`--session-id operator`),
+// enabled` is true (false by default since s014: the lead agent runs a session), resumes it
+// on restart on the same transcript (`--session-id operator`),
 // and stops or starts it on `POST /operator/stop|start`. It reuses `PiTtyHarness.spawn_pty`
 // and the extension channel; the extension runs in role `operator` with the home's
 // `operator/` directory as its session directory and talks to `/operator/*`. The host also
@@ -83,9 +84,9 @@ export class OperatorHost {
         this.unsubscribe = options.bus.subscribe((event) => this.on_event(event));
     }
 
-    /** True when the daemon would start the agent at boot. */
+    /** True when the daemon would start the agent at boot: off unless the settings say so. */
     get enabled(): boolean {
-        return this.options.settings().operator?.enabled ?? true;
+        return this.options.settings().operator?.enabled ?? false;
     }
 
     get running(): boolean {

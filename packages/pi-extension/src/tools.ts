@@ -4,14 +4,18 @@
 // `thread_resolve` pre-check reads the threads first so a missing reply is refused with a
 // clear sentence before anything reaches GitHub.
 import { Type, type TSchema, type TProperties } from "typebox";
-import { DIFF_TOOL_TIMEOUT_MS } from "@spinner/protocol";
+import { DIFF_TOOL_TIMEOUT_MS, DONE_WHEN_COMMANDS, MISSION_ITEM_COMMANDS } from "@spinner/protocol";
 import type {
     DiffCommentsRequest,
     DiffCommentsResponse,
     ExtensionToolSpec,
     InboxMessageResponse,
+    JobResponse,
+    MissionItemCommand,
+    MissionItemRequest,
     MissionSectionRequest,
     MissionSectionResponse,
+    SessionResponse,
     PrThreadsView,
     SessionView,
     StackLogsResponse,
@@ -20,7 +24,7 @@ import type {
     ThreadsResponse,
 } from "@spinner/protocol";
 import type { SpinnerEnv } from "./env.js";
-import { run_operator_tool } from "./tools-operator.js";
+import { run_operator_tool, wait_job } from "./tools-operator.js";
 
 /** Time the daemon gets to answer one tool call. */
 export const REQUEST_TIMEOUT_MS = 15_000;
@@ -136,15 +140,17 @@ export async function run_tool(
     poll_ms?: number,
 ): Promise<string> {
     const text = (key: string): string => String(args[key] ?? "");
+    const operator_deps = { client, ...(poll_ms === undefined ? {} : { poll_ms }) };
     if (spec.roles.every((role) => role === "operator")) {
-        return run_operator_tool(spec.name, args, {
-            client,
-            ...(poll_ms === undefined ? {} : { poll_ms }),
-        });
+        return run_operator_tool(spec.name, args, operator_deps);
     }
     const dir = env.role === "operator" ? text("session").trim() : env.dir;
     if (dir.length === 0) {
         throw new Error("`session` must name a session directory; run session_list");
+    }
+    if (spec.name === "agent_add" || spec.name === "agent_steer") {
+        // Shared with the operator role (s014): the lead acts on its own session.
+        return run_operator_tool(spec.name, { ...args, session: dir }, operator_deps);
     }
     const session = `/sessions/${encodeURIComponent(dir)}`;
     // The routes take a repo key; models write `backend#100` as often as `backend`.
@@ -239,9 +245,123 @@ export async function run_tool(
         case "diff_comments":
         case "diff_reply":
             return diff_comments(client, session, env.agent, diff_request(spec.name, args));
+        case "session_title": {
+            const title = text("title").trim();
+            if (title.length === 0) {
+                throw new Error("`title` must not be empty");
+            }
+            const author = encodeURIComponent(env.agent);
+            await client.send<SessionResponse>("PUT", `${session}/title?author=${author}`, {
+                title,
+            });
+            return `Title set: ${title}.`;
+        }
+        case "mission_goal":
+            return mission_write(client, session, {
+                section: "goal",
+                mode: "replace",
+                text: text("text"),
+                author: env.agent,
+            });
+        case "mission_done_when":
+            return done_when_tool(client, session, env.agent, args);
+        case "mission_plan":
+            return mission_write(client, session, {
+                section: "plan",
+                mode: "item",
+                text: "",
+                author: env.agent,
+                item: item_request(args),
+            });
+        case "adopt": {
+            const refs = text("refs")
+                .split(/[\s,]+/)
+                .filter((ref) => ref.length > 0);
+            if (refs.length === 0) {
+                throw new Error("`refs` must name at least one pull request");
+            }
+            const started = await client.send<JobResponse>("POST", `${session}/adopt`, { refs });
+            const job = await wait_job(client, started.job, poll_ms);
+            const tail = job.log.slice(-6).map((line) => `  ${line}`);
+            return ["Adopted. The job's last lines:", ...tail].join("\n");
+        }
         default:
             throw new Error(`${spec.name} is not implemented in this role`);
     }
+}
+
+/** `mission_done_when`: `set` replaces the list; the rest are item commands by position. */
+async function done_when_tool(
+    client: DaemonClient,
+    session: string,
+    author: string,
+    args: Record<string, unknown>,
+): Promise<string> {
+    const command = String(args["command"] ?? "");
+    if (command === "set") {
+        const items = String(args["items"] ?? "")
+            .split("\n")
+            .map((line) => line.trim().replace(/^-\s*(?:\[[ x]\]\s*)?/, ""))
+            .filter((line) => line.length > 0);
+        if (items.length === 0) {
+            throw new Error("`items` must hold at least one line for set");
+        }
+        return mission_write(client, session, {
+            section: "done_when",
+            mode: "replace",
+            text: items.map((item) => `- [ ] ${item}`).join("\n"),
+            author,
+        });
+    }
+    if (!(DONE_WHEN_COMMANDS as readonly string[]).includes(command)) {
+        throw new Error(`\`command\` must be one of ${DONE_WHEN_COMMANDS.join(", ")}`);
+    }
+    return mission_write(client, session, {
+        section: "done_when",
+        mode: "item",
+        text: "",
+        author,
+        item: item_request(args),
+    });
+}
+
+/** The model's `mission_plan` or `mission_done_when` arguments as the route's `item`. */
+function item_request(args: Record<string, unknown>): MissionItemRequest {
+    const command = String(args["command"] ?? "");
+    if (!(MISSION_ITEM_COMMANDS as readonly string[]).includes(command)) {
+        throw new Error(`\`command\` must be one of ${MISSION_ITEM_COMMANDS.join(", ")}`);
+    }
+    const request: MissionItemRequest = { command: command as MissionItemCommand };
+    const id = args["id"];
+    if (id !== undefined && id !== "") {
+        const number = Number(id);
+        if (!Number.isInteger(number) || number < 1) {
+            throw new Error("`id` must be the item's number, as the mission shows it");
+        }
+        request.id = number;
+    }
+    const text = args["text"];
+    if (typeof text === "string" && text.trim().length > 0) {
+        request.text = text.trim();
+    }
+    const owner = args["owner"];
+    if (typeof owner === "string" && owner.trim().length > 0) {
+        request.owner = owner.trim();
+    }
+    const order = args["order"];
+    if (typeof order === "string" && order.trim().length > 0) {
+        request.order = order
+            .split(/[\s,]+/)
+            .filter((part) => part.length > 0)
+            .map((part) => {
+                const number = Number(part);
+                if (!Number.isInteger(number) || number < 1) {
+                    throw new Error(`\`${part}\` is not an item id`);
+                }
+                return number;
+            });
+    }
+    return request;
 }
 
 /** `diff_comments` and `diff_reply` arguments as the daemon's `DiffCommentsRequest`. */

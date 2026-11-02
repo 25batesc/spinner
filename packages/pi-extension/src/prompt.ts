@@ -61,6 +61,15 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
         "`mission_contract` and `mission_question`; send a message with `message`.",
         "The daemon stamps the time and your name. Do not edit MISSION.md with `edit`.",
     ];
+    if (env.role === "lead") {
+        lines.push(
+            "You are the lead (MISSION.md s014): you own the mission. `session_title` sets the",
+            "title; `mission_goal`, `mission_done_when` and `mission_plan` write Goal, Done when",
+            "and the Plan (ids never change; tick an item the moment it is done); `agent_add`",
+            "and `agent_steer` run the other agents; `adopt` brings a pull request in. The",
+            "operator pushes, posts, approves, lands, resets and closes; you do not.",
+        );
+    }
     const hosts = Object.entries(files.hosts);
     if (hosts.length > 0) {
         lines.push("", "Hosts:", ...hosts.map(([name, url]) => `- ${name}: ${url}`));
