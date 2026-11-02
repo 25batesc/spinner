@@ -23,6 +23,7 @@ WebSockets below.
 | `POST /sessions` | `NewSessionRequest` | `JobResponse` | With `title`: the job attaches the project. With `text` (chat first, below): the job attaches, adopts, starts the lead and sends it the text. |
 | `POST /sessions/extract` | `ExtractRequest` | `ExtractResponse` | The PR references in a paste, resolved against the project and looked up. Synchronous; below. |
 | `POST /sessions/adopt` | `AdoptRequest` | `JobResponse` | PRs opened outside Spinner. |
+| `POST /reviews` | `ReviewsRequest` | `JobResponse` | One session of `kind: review` per PR reference in `text`; below. 409 without a reference. |
 | `POST /sessions/:dir/adopt` | `SessionAdoptRequest` | `JobResponse` | PR references into an existing session; the lead's `adopt` tool. 409 without a project. |
 | `PUT /sessions/:dir/title` | `SessionTitleRequest` | `SessionResponse` | `session.yaml` and the mission heading. Query `author`, default `operator`. |
 | `GET /sessions/:dir/mission/view` | | `MissionViewResponse` | The structured mission; below. |
@@ -34,7 +35,7 @@ WebSockets below.
 | `DELETE /sessions/:dir/verify` | | `SessionResponse` | Clears the tick. Synchronous; the new view answers. 404 without the session. |
 | `POST /sessions/:dir/pr` | `PrRequest` | `JobResponse` | One PR per changed repo, as the operator. |
 | `POST /sessions/:dir/fix` | `FixRequest` | `JobResponse` | Renders `threads/`, then starts or steers the fixer. |
-| `POST /sessions/:dir/review` | `ReviewRequest`, optional | `JobResponse` | One `review` job per open PR runs `review-blast`; below. 409 without an open PR, or while one runs. |
+| `POST /sessions/:dir/review` | `ReviewRequest`, optional | `JobResponse` | Starts the review swarm on each open PR; below. 409 without an open PR, without a worktree for it, or while a reviewer of it reads. |
 | `GET /sessions/:dir/threads` | | `ThreadsResponse` | From the last render. |
 | `POST /sessions/:dir/threads/refresh` | | `ThreadsResponse` | Re-renders from GitHub now. |
 | `POST /sessions/:dir/threads/:id/reply` | `ThreadReplyRequest` | `ThreadResponse` | As the operator. |
@@ -310,9 +311,9 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 | `agents.harness` | Optional. `tty` or `rpc`. |
 | `operator.enabled` | Optional, default false since s014. The daemon starts the operator agent at boot when true. |
 | `operator.model` | Optional. `provider/model` for the operator agent; else `default_model`, else the daemon's default. |
-| `review.command` | Optional. The `review-blast` script; else `SPINNER_REVIEW_BLAST`, else `review-blast` on PATH. |
-| `review.models` | Optional. The `--models` list; default `x-ai/grok-4.6`, `anthropic/claude-opus-5-5`, `openai/gpt-6-luna`. |
-| `review.n` | Optional, 1 to 20. The `--n` count; default 3. |
+| `review.models` | Optional. The swarm's models, `provider/model`; default `x-ai/grok-4.6`, `anthropic/claude-opus-5-5`, `openai/gpt-6-luna`. |
+| `review.n` | Optional, 1 to 20. How many of `models` run, from the first; default 3. |
+| `review.skill` | Optional. The review skill's directory, given to every reviewer with `--skill`; default `~/.pi/agent/skills/review-pr` when it exists. |
 
 `GET /settings` answers `SettingsResponse { settings, path }`; without a file, `settings` is
 `{ theme: "system" }`. `PUT /settings` takes the whole document as the body, validates it, and
@@ -383,23 +384,54 @@ new order; unlisted items follow in their old order. Ids never change. A Plan li
 written before s014 without a number gets one on the first write to the section. A 400
 names the first problem. An unknown id is one.
 
+## Reviews
+
+A review (s015) is a session of `kind: review`: a place for a peer's PR. `POST /reviews
+{ text }` runs the extractor over the paste and makes one session per PR, in one job
+(action `reviews`). Full URLs and `owner/repo#N` resolve; there is no project, so a bare
+`#N` does not. The
+job's `session` is the first one; its log names each. For each PR the daemon clones the
+repository once under `<home>/reviews/<owner>-<name>/` and fetches `refs/pull/<n>/head`.
+It checks the PR head out detached under the session's `worktrees/<name>`, so nothing can
+be pushed from it. The session has no project and no stack. `branch` and `base` are the PR's.
+`repos.<name>.pr` holds the facts as an adopted PR's, so the poller, the board and the
+threads track it. A reference GitHub does not know is skipped with the reason in the log; a
+paste with no reference is a 409.
+
+`SessionView.kind` is `review` for such a session and `session` otherwise.
+`SessionView.review` (`ReviewFields`) carries the PR's `checks` with the `failing` check
+names, the `review_decision` and the `threads` count (open and resolved). Its `swarm` is
+one `SwarmMember { name, model, state, usd, pr }` per reviewer. `review.updated { data }` goes on
+the bus whenever those fields change, right after the `session.updated` that carries them.
+An ordinary session gets `review` too once its swarm ran, so its chips show. Every PR the
+poller tracks carries `checks_failing`, the names of the red checks.
+
 ## The review step
 
-`POST /sessions/:dir/review { pr? }` starts one job (action `review`) per open or draft PR of
-the session, or for the one repo key `pr` names. The answer names the first job; the rest are
-on the bus and in `GET /jobs`. Each job runs the operator's script:
+`POST /sessions/:dir/review { pr? }` starts the review swarm in one job (action `review`).
+It runs on each open or draft PR of the session, or on the one repo key `pr` names. The
+swarm is one tty agent per model in `settings.review.models`, the first `n` of them. A
+reviewer is named `review-<model-slug>`: the model id in lower case, one dash per run of
+other characters. With several target PRs the name is `review-<repo>-<model-slug>`. Each reviewer starts in the PR repo's worktree with
+`agents/<name>/BRIEF.md`, written once from the review brief. The brief is the prompt
+`review-blast` gave its agents, with the PR and the model filled in. The reviewer reads the diff and the
+code it hooks into, and posts inline comments only, each identified as
+`**review-blast** · <model>`. It never approves, never requests changes and never pushes.
+It prints `POSTED model=<model> blockers=N should-fix=M` last. The review skill goes in with
+`--skill`: `settings.review.skill`, else `~/.pi/agent/skills/review-pr` when it exists.
+`agents.<name>.skills` in `session.yaml` keeps the path, so a resumed reviewer loads it.
 
-    review-blast <pr url> --models <a,b,c> --n <n>
+The states live in `session.yaml` under `review.swarm.<name>`. `queued` is a reviewer the
+running-agents cap (24) holds back. `reading` is one that started. `posted` is one whose
+settled turn ended with an assistant text that carries `POSTED model=`. `failed` is one
+whose pi exited without that line. On `posted` the daemon stops the reviewer's pi, so the slot frees and the next
+queued reviewer starts. The transcript stays, and the tab resumes it on request. One GitHub
+poll follows a post, so the thread count moves at once. On daemon start, queued reviewers go
+back in the queue and reading ones without a process are failed.
 
-The script is `SPINNER_REVIEW_BLAST` in the daemon's environment, else `settings.review.command`,
-else `review-blast` on PATH. `--models` and `--n` come from `settings.review`, else the
-defaults above. The script runs in the session directory. Its stdout goes to the job log line
-by line; stderr lines carry a `stderr:` prefix. A run is bounded at 20 minutes; past that the
-daemon kills it and the job fails. A non-zero exit fails the job with the code. After a run the
-daemon polls GitHub once, so the new review threads show without waiting for the next round.
-
-A review holds no session lock: it runs beside another job on the session. A second review of
-a PR whose review still runs is a 409, as is a session without an open PR.
+A review holds no session lock: it runs beside another job on the session. The route is a
+409 for a session without an open PR, for a PR whose repo has no worktree, and while a
+reviewer of that PR still reads. A second `review` after the swarm settled runs it again.
 
 ## The operator agent
 
@@ -459,8 +491,10 @@ protocol package is the same check, for a UI preview.
 
 `agents.<name>` holds `harness`, `model` and `process`. `harness` is `tty` or `rpc`; `pi`
 in files before s009 reads as `rpc`. While the process runs the record also holds `pid`,
-`started` (the start time as `ps -o lstart=` prints it) and `repo`. On daemon start the manager uses `pid` and `started`
-to stop a pi the previous daemon left, then resumes each `tty` agent on its transcript.
+`started` (the start time as `ps -o lstart=` prints it) and `repo`. `skills` lists the
+directories pi loads with `--skill` beyond the session's `skills/` (a reviewer's skill). On
+daemon start the manager uses `pid` and `started` to stop a pi the previous daemon left, then
+resumes each `tty` agent on its transcript.
 
 ## Configuration
 

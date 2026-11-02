@@ -190,6 +190,29 @@ One agent per home, outside every session. It runs Spinner for the operator the 
 
 The e2e `packages/daemon/e2e/operator.ts` runs the real pi on a scratch daemon. The request is "start a session for the sample stack named Refund flow with one agent `backend` that adds a health endpoint". The result is a session on a scratch copy of the sample project, a mission with a Goal and Plan items, a brief, and a running `backend`. The agent's `agent.settled` reaches the operator agent as a notice.
 
+### Reviews (packages/daemon/src/pipeline/reviews.ts, agents/swarm.ts)
+
+A review (s015) is a session of `kind: review`: a place for a peer's PR, with no project and
+no stack. `POST /reviews { text }` runs the extractor over a paste and makes one session per
+PR. The repository is cloned once under `<home>/reviews/<owner>-<name>/` and fetched per
+review (`refs/pull/<n>/head`, so a fork's PR works too). The PR head is checked out detached
+under the session's `worktrees/<name>`, so nothing can be pushed from it. The PR facts go
+into `session.yaml` as an adopted PR's, and the poller, the threads and the board track it
+with no new machinery. The view adds `kind` and `review` (`ReviewFields`: the checks with
+the failing names, the decision, the thread count, the swarm), and `review.updated` follows
+each change.
+
+`review` on any session with an open PR starts the swarm: one tty agent per model of
+`settings.review.models`, named `review-<model-slug>`, in the PR repo's worktree. Each gets
+the review brief (`store/review-brief.ts`: the prompt the operator's `review-blast` gave its
+agents, word for word) and the review skill through `--skill`. Each reviewer is an ordinary
+agent of the session, so its terminal, its transcript and its cost come from what exists.
+The swarm module keeps each reviewer's state in `session.yaml` under `review.swarm`.
+`queued` is a reviewer behind the running-agents cap. `reading` is one that started.
+`posted` is one whose settled turn ended with `POSTED model=`; the daemon then stops that
+pi, so the slot frees and the next queued reviewer starts. `failed` is an exit without it. The s016 `review` step on
+an ordinary session runs the same swarm; `review-blast` is no longer called.
+
 ### Skills and context files
 
 Two things the operator asked for by name, and the daemon treats them as first-class:
@@ -351,6 +374,7 @@ mission.changed  (section diff, author) | inbox.message
 usage            (machine, every up stack and its services; once per sample)
 settings         (the whole settings document, after a PUT)
 operator.updated (the operator agent's view: process, ready, waiting_on, last notice)
+review.updated   (the review facts: checks, failing, decision, threads, the swarm)
 ```
 
 `agent.event` is pi's own JSON event stream forwarded untouched, so the UI renders exactly what a pi TUI would and nothing is lost in translation.

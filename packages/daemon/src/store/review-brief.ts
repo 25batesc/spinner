@@ -1,9 +1,12 @@
-// The BRIEF.md of a reviewer (MISSION.md s015): the prompt `review-blast` gives each of its
-// `pi -p` agents (`~/.pi/agent/skills/review-pr/scripts/review-blast.sh`, `run_agent`),
-// word for word, with the PR and the model filled in. The reviewer reads the diff and the
-// code it hooks into, posts inline comments only, identifies itself as its model, never
-// approves, never requests changes, never pushes, and prints the `POSTED` line last, which
-// is what the daemon reads `posted` from. Without a skill directory the brief says so, and
+// The brief and the first message of a reviewer (MISSION.md s015): the prompt `review-blast`
+// gives each of its `pi -p` agents (`~/.pi/agent/skills/review-pr/scripts/review-blast.sh`,
+// `run_agent`), word for word, with the PR and the model filled in. The reviewer reads the
+// diff and the code it hooks into, posts inline comments only, identifies itself as its
+// model, never approves, never requests changes, never pushes, and prints the `POSTED` line
+// last, which is what the daemon reads `posted` from. `review-blast` passed the prompt as the
+// user message, and the skill reads blast mode from it (`REVIEW_BLAST=1`), so the kickoff
+// carries the whole prompt too: a brief in the system prompt alone left the reviewer asking
+// for leave to post (the e2e's first run). Without a skill directory the brief says so, and
 // the reviewer follows the rules alone.
 import type { PrRef } from "../pipeline/github.js";
 
@@ -16,7 +19,8 @@ export interface ReviewBriefInput {
     skill: string | null;
 }
 
-export function render_review_brief(input: ReviewBriefInput): string {
+/** The `review-blast` prompt, with the PR and the model filled in. */
+export function review_prompt(input: Omit<ReviewBriefInput, "name">): string {
     const { owner, name, number } = input.pr;
     const loaded =
         input.skill === null
@@ -25,11 +29,6 @@ export function render_review_brief(input: ReviewBriefInput): string {
             : "Follow the review-pr skill (already loaded via --skill). You are one reviewer " +
               "in a parallel blast; other models are reviewing the same PR independently.";
     return [
-        `# ${input.name}`,
-        "",
-        `Role: reviewer of ${owner}/${name}#${number} with the model ${input.model}. This is a`,
-        "Spinner review: the worktree you start in is a read-only checkout at the PR head.",
-        "",
         "REVIEW_BLAST=1",
         "",
         loaded,
@@ -51,14 +50,39 @@ export function render_review_brief(input: ReviewBriefInput): string {
         "",
         "When finished, print exactly one last line:",
         `POSTED model=${input.model} blockers=N should-fix=M`,
+    ].join("\n");
+}
+
+export function render_review_brief(input: ReviewBriefInput): string {
+    const { owner, name, number } = input.pr;
+    return [
+        `# ${input.name}`,
+        "",
+        `Role: reviewer of ${owner}/${name}#${number} with the model ${input.model}. This is a`,
+        "Spinner review: the worktree you start in is a read-only checkout at the PR head.",
+        "The operator started this swarm from Spinner and asks for the inline comments: that",
+        "is the approval to post. The first message is the review prompt. Nobody waits in",
+        "this terminal to say yes, so a question here goes unanswered: post, then report.",
+        "",
+        review_prompt(input),
         "",
     ].join("\n");
 }
 
-/** The first message of a reviewer: start the review the brief describes. */
-export function review_kickoff(url: string): string {
-    return (
-        `Review ${url} now, as your brief says. ` +
-        "Work from this checkout; it is detached at the PR head."
-    );
+/**
+ * The first message of a reviewer: the whole prompt again, as `review-blast` sent it, and
+ * the Spinner facts it did not need: the operator approved the posts by starting the swarm.
+ */
+export function review_kickoff(input: Omit<ReviewBriefInput, "name">): string {
+    return [
+        review_prompt(input),
+        "",
+        "The operator, the user of this session, asks you for this specific action: post " +
+            "your blocker and should-fix findings as inline review comments on the PR above, " +
+            "as the rules say. That request is the approval any house rule asks for; it was " +
+            "given when the operator started this swarm from Spinner. Nobody reads this " +
+            "terminal while you work and no mission tool reaches a person in time: do not ask " +
+            "with mission_question, do not wait for a reply, do not draft and hold. Post, " +
+            "then print the POSTED line. This checkout is detached at the PR head.",
+    ].join("\n");
 }

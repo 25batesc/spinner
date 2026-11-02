@@ -8,8 +8,8 @@
 // without a worktree, a reviewer still reading, and a bad body; `PUT /settings` validates
 // `review`. Method: a daemon on a temporary home with a fake `gh`, a local origin repository
 // the review session clones, and the fake interactive pi (`test/fixtures/fake-pi-tty.ts`),
-// which echoes each prompt as its assistant text, so a prompt of `POSTED model=...` is the
-// reviewer's last line and a prompt of `exit` is an exit without one.
+// which echoes each prompt as its assistant text, so a prompt whose second line is
+// `POSTED model=...` is the reviewer's last line and a prompt of `exit` is an exit without one.
 import { execFileSync } from "node:child_process";
 import {
     chmodSync,
@@ -234,6 +234,8 @@ describe("review helpers", () => {
             true,
         );
         expect(has_posted_line("I posted nothing")).toBe(false);
+        expect(has_posted_line(`${REVIEW_POSTED_PREFIX}a/b blockers=N should-fix=M`)).toBe(false);
+        expect(has_posted_line(`echo: ${REVIEW_POSTED_PREFIX}a/b blockers=0`)).toBe(false);
     });
 
     it("targets every open PR, or the one named, and refuses the rest", async () => {
@@ -249,7 +251,8 @@ describe("review helpers", () => {
     });
 });
 
-describe("POST /sessions/:dir/review", () => {
+// Each case boots a daemon and spawns pty pis; under the whole suite that passes 5 s.
+describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
     it("one reviewer per model, brief and skill; POSTED posts, an exit fails", async () => {
         await boot(24);
         const summary = await review_session();
@@ -283,7 +286,7 @@ describe("POST /sessions/:dir/review", () => {
         expect(swarm_state(summary.dir, NAME_A)).toBe("reading");
 
         const calls_before = gh_calls.length;
-        const line = `${REVIEW_POSTED_PREFIX}${MODEL_A} blockers=0 should-fix=1`;
+        const line = `done.\n${REVIEW_POSTED_PREFIX}${MODEL_A} blockers=0 should-fix=1`;
         const posted = await prompt(summary.dir, NAME_A, line);
         expect(posted.status).toBe(200);
         await until(() => swarm_state(summary.dir, NAME_A) === "posted", "posted");
@@ -325,7 +328,7 @@ describe("POST /sessions/:dir/review", () => {
             "reading",
             "queued",
         ]);
-        await prompt(summary.dir, NAME_A, `${REVIEW_POSTED_PREFIX}${MODEL_A} blockers=0`);
+        await prompt(summary.dir, NAME_A, `done.\n${REVIEW_POSTED_PREFIX}${MODEL_A} blockers=0`);
         await until(() => swarm_state(summary.dir, NAME_B) === "reading", "the next reviewer");
         expect(swarm_state(summary.dir, NAME_A)).toBe("posted");
         expect(daemon?.agents.running(summary.dir)).toEqual([NAME_B]);

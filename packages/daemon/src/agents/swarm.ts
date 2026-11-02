@@ -228,7 +228,11 @@ export class ReviewSwarm {
             this.last_text.delete(key_of(entry.dir, entry.name));
             this.record(entry.dir, entry.name, "reading");
             await this.refresh(entry.dir);
-            await handle.prompt(review_kickoff(entry.target.url));
+            const pr = parse_pr_url(entry.target.url);
+            assert.ok(pr !== null, `${entry.target.url} is not a GitHub PR URL`);
+            await handle.prompt(
+                review_kickoff({ model: entry.model, pr, url: entry.target.url, skill }),
+            );
             return true;
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
@@ -359,9 +363,15 @@ export function reviewer_name(model: string, repo: string, several: boolean): st
     return `${REVIEW_AGENT_PREFIX}${slug}`;
 }
 
-/** True when a line of the text carries `POSTED model=`. */
+/**
+ * True when a line of the text starts with `POSTED model=` and is not the brief's template
+ * (`blockers=N should-fix=M`), which an echo of the kickoff would carry.
+ */
 export function has_posted_line(text: string): boolean {
-    return text.split("\n").some((line) => line.includes(REVIEW_POSTED_PREFIX));
+    return text.split("\n").some((line) => {
+        const trimmed = line.trim();
+        return trimmed.startsWith(REVIEW_POSTED_PREFIX) && !/=[NM]\b/.test(trimmed);
+    });
 }
 
 /** The last assistant message's text in the agent's transcript, or empty. */

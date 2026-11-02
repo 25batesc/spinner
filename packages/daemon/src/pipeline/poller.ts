@@ -111,7 +111,8 @@ export function config_for(
     log: (line: string) => void,
 ): PipelineConfig {
     const loaded = load_pipeline_config(session.project, home, cwd);
-    if (loaded.path === null) {
+    // A review session (s015) has no project by design; the defaults are not news.
+    if (loaded.path === null && session.kind !== "review") {
         log(`${session.id}: no spinner.yaml for project "${session.project ?? ""}"; defaults`);
     }
     return loaded.config;
