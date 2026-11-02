@@ -26,8 +26,8 @@ Role: backend engineer for session s015 of the Spinner repo. The operator is the
 
 ## Engineering
 1. The review session reuses `create_session` with `kind: review` and no project. The repository clone lives under `<home>/reviews/`, once per repository, fetched per review. The worktree is detached at the PR head, so nothing can be pushed from it.
-2. The reviewer brief is a `BRIEF.md` per agent, written from the skill's prompt with the PR URL, the model name and the rules. Pass the skill directory with `--skill` when `settings.review.skill` names one. The default is the operator's `~/.pi/agent/skills/review-pr` when it exists.
-3. `POSTED` detection reads the agent's transcript on `agent.settled`: the last assistant text with `POSTED model=` sets `posted`; an exit without it sets `failed`.
+2. Each reviewer gets a `BRIEF.md`. Write it from the skill's prompt, with the PR URL, the model name and the rules. Pass the skill directory with `--skill` when `settings.review.skill` names one. The default is the operator's `~/.pi/agent/skills/review-pr` when it exists.
+3. Detect `POSTED` from the agent's transcript on `agent.settled`. The last assistant text with `POSTED model=` sets `posted`. An exit without it sets `failed`.
 4. The cap. Never start a reviewer when `hosted.size` is at the cap. Keep a queue per session. Start the next on `agent.exited`.
 5. Test through the daemon with the fake interactive pi. Add one e2e with the real pi under `packages/daemon/e2e/reviews.ts`, with one model.
 6. Start each commit message with `engine:`.

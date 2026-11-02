@@ -10,7 +10,7 @@ Role: frontend engineer for session s015 of the Spinner repo. The operator is th
 
 ## Read first
 1. Read `.spinner/MISSION.md` in full. Do this at the start of every turn.
-2. Read these once: `SessionsPane.tsx`; `SessionForms.tsx` (the compose box and the extraction); `AgentsPane.tsx` (the chips); `ThreadsPanel.tsx`; `PaneHead.tsx` (the activity bar); `fixture/server.ts`.
+2. Read these once. `SessionsPane.tsx`. `SessionForms.tsx`, the compose box and the extraction. `AgentsPane.tsx`, the chips. `ThreadsPanel.tsx`. `PaneHead.tsx`, the activity bar. `fixture/server.ts`.
 3. Wait for the engine agent's contract under Contracts before you code against it. Build against the fixture first.
 
 ## Protocol
@@ -26,8 +26,8 @@ Role: frontend engineer for session s015 of the Spinner repo. The operator is th
 
 ## Engineering
 1. The Reviews panel is a second `PanelView` (`reviews`) with its own activity-bar icon. Review sessions (`kind: review`) never show in the Sessions panel, and ordinary sessions never show in Reviews.
-2. The paste box at the top of the panel reuses the extraction hook with no project. `Start review` posts `POST /reviews`.
-3. The card shows the title, the author, `branch → base`, the CI pill (failing checks in the tooltip), the decision pill, the thread count and `$`. It has `review` and `open on GitHub`. The middle pane for a review session shows the PR header, the swarm chips and the threads view. A chip has a state dot, the model and `$`; a click opens the reviewer's terminal. There is no pipeline toolbar, only `review`.
+2. The paste box at the top of the panel reuses the extraction hook, with no project. The button `Start review` posts `POST /reviews`.
+3. The card shows the title, the author and `branch → base`. It shows the CI pill (failing checks in the tooltip), the decision pill, the thread count and `$`. It has `review` and `open on GitHub`. The middle pane for a review session shows the PR header, the swarm chips and the threads view. A chip has a state dot, the model and `$`; a click opens the reviewer's terminal. There is no pipeline toolbar, only `review`.
 4. The design system: DESIGN-PASS scales, pills and chips; new classes under `.rv-*`.
 5. Fixture: two review sessions with swarms in different states; routes; `review.updated`. Driver flow `reviews`.
 6. Start each commit message with `ui:`.
