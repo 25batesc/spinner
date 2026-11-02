@@ -157,9 +157,9 @@ Since s014 a session is a conversation. The operator pastes what the session is 
 clicks `Start`. `POST /sessions/extract` finds the PR references in the paste
 (`pipeline/extract.ts`, a pure extractor and one GitHub lookup per reference), and the UI
 shows them as checkboxes. `POST /sessions { text, project, adopt }` creates the session at
-once with a provisional title, then one job attaches the project, adopts the ticked PRs
-(worktrees on their head branches, `adopt_into_session`), starts the agent `lead`, and sends
-it the paste as its first message. The lead runs in role `lead` with the lead brief
+once with a provisional title. One job then attaches the project and adopts the ticked PRs
+(worktrees on their head branches, `adopt_into_session`). The job starts the agent `lead`
+and sends it the paste as its first message. The lead runs in role `lead` with the lead brief
 (`store/brief-template.ts`, kind `lead`). It owns the mission: `session_title`,
 `mission_goal`, `mission_done_when` and `mission_plan` write the title, Goal, Done when and
 the Plan through the section route; `agent_add` and `agent_steer` run the other agents;
@@ -174,8 +174,8 @@ parsing markdown. The file stays the source of truth; the workspace writes throu
 section route's `item` mode. The operator agent below stays, off by default.
 
 The e2e `packages/daemon/e2e/chat-first.ts` runs the real pi on a scratch daemon with the
-sandbox repository cloned into the scratch. One sentence and one PR URL go in; the lead
-writes a Goal and three Plan items within two minutes and ticks one after a steer.
+sandbox repository cloned into the scratch. One sentence and one PR URL go in. The lead
+writes a Goal and three Plan items within two minutes, and ticks one after a steer.
 
 ### The operator agent (packages/daemon/src/agents/operator.ts)
 

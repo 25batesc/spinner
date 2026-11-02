@@ -214,7 +214,7 @@ These rules are what make a shared file safe with several writers. They are enfo
 | Section | Who writes | How |
 |---|---|---|
 | Goal, Done when | Operator | Freely. Agents propose changes under *Open questions*. |
-| Plan | Anyone | Add items; every item names one owner; only the owner ticks it. Never renumber. Since s014 an item is `- [ ] 3. text (owner)` and, once ticked, `- [x] 3. text (owner, 14:02)`: the daemon's `mission_plan` tool writes the number and the time. A Done when item ticks the same way: `- [x] text (owner, 14:02)`. |
+| Plan | Anyone | Add items; every item names one owner; only the owner ticks it. Never renumber. Since s014 an item is `- [ ] 3. text (owner)`. Ticked, it is `- [x] 3. text (owner, 14:02)`. The `mission_plan` tool writes the number and the time. A Done when item ticks the same way: `- [x] text (owner, 14:02)`. |
 | Roster | Each agent, own row only | Overwrite the row. *Doing* is one line, or `done`, or `—` when idle. *Blocked?* is `no` or `yes: <what you wait for>`. |
 | Contracts & decisions | Anyone | **Append-only.** To change a contract, add a new entry that says what it supersedes. |
 | Open questions | Agents add, operator answers | The operator answers inline or moves the answer to *Contracts*. |
