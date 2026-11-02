@@ -571,6 +571,13 @@
                 "repo": {
                     "type": "string",
                     "description": "Repo key of `repos` whose worktree is the agent's cwd; the session dir when absent."
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Skill directories pi loads with `--skill`, beyond the session's `skills/` (s015)."
                 }
             },
             "required": [

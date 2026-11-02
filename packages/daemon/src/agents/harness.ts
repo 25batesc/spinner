@@ -26,6 +26,8 @@ export interface AgentSpawnSpec {
     cwd: string;
     /** `fixer` registers the `thread_*` tools. The agent named `fixer` gets it by default. */
     role?: ExtensionRole;
+    /** Skill directories beyond the session's `skills/`, each one `--skill` (s015). */
+    skills?: string[];
 }
 
 /** A command pi lists through `get_commands`: a skill, a prompt template or an extension. */
@@ -141,6 +143,7 @@ export function pi_spawn_options(
             pi_dir: join(session.path, agent_pi_dir(agent.name)),
             skills_dir: join(session.path, "skills"),
             session_dir: session.path,
+            ...(agent.skills === undefined ? {} : { skills: agent.skills }),
         },
         options,
     );
@@ -159,6 +162,8 @@ export interface PiSpawnInput {
     pi_dir: string;
     /** `--skill` when it exists and has entries. */
     skills_dir?: string;
+    /** Further `--skill` directories; each must exist. */
+    skills?: string[];
     /** `SPINNER_SESSION_DIR` for the extension. */
     session_dir: string;
 }
@@ -176,6 +181,10 @@ export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): P
     const skills = input.skills_dir;
     if (skills !== undefined && existsSync(skills) && has_entries(skills)) {
         extra_args.push("--skill", skills);
+    }
+    for (const skill of input.skills ?? []) {
+        assert.ok(existsSync(skill), `skill directory ${skill} does not exist`);
+        extra_args.push("--skill", skill);
     }
     const extension = resolved_extension(options);
     if (extension !== null) {

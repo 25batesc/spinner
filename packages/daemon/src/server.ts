@@ -63,6 +63,7 @@ import { mount_operator_routes } from "./agents/routes-operator.js";
 import { OperatorHost } from "./agents/operator.js";
 import { agent_history } from "./agents/history.js";
 import { AgentManager } from "./agents/manager.js";
+import { ReviewSwarm } from "./agents/swarm.js";
 import { mount_agent_routes } from "./agents/routes.js";
 import { models_source } from "./agents/models.js";
 import { resolve_pi_binary } from "./agents/pi-rpc.js";
@@ -156,12 +157,12 @@ export interface DaemonOptions {
     diffview_bin?: string;
     /** The watchers' `diffview comments wait --timeout`; tests shorten it. */
     diff_wait_timeout?: string;
-    /** The bound on one `review-blast` run; tests shorten it. */
-    review_timeout_ms?: number;
-    /** The environment `review` resolves `SPINNER_REVIEW_BLAST` from; `process.env` else. */
-    env?: NodeJS.ProcessEnv;
     /** `POST /reviews`: where a repository is cloned from; GitHub when absent. Tests: a path. */
     clone_url?: CreateReviewsInput["clone_url"];
+    /** The cap on hosted agents (s015, the swarm queues behind it); tests lower it. */
+    agents_running_max?: number;
+    /** The review skill when `settings.review.skill` names none; the operator's when absent. */
+    review_skill_default?: string;
 }
 
 export interface Daemon {
@@ -211,11 +212,8 @@ export interface AppDeps {
     diff?: DiffManager;
     /** The operator's settings, for the `review` step. */
     settings?: () => Settings;
-    /** One GitHub poll round now, after a `review` job. */
-    poll?: () => Promise<void>;
-    /** For the `review` step: where `SPINNER_REVIEW_BLAST` is read; tests set it. */
-    env?: NodeJS.ProcessEnv;
-    review_timeout_ms?: number;
+    /** The review swarm (s015); `review` answers 503 without it. */
+    swarm?: ReviewSwarm;
     /** `POST /reviews`: where a repository is cloned from; GitHub when absent. Tests: a path. */
     clone_url?: CreateReviewsInput["clone_url"];
 }
@@ -751,7 +749,12 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         home,
         { default: options.agents_harness ?? "tty", tty, rpc: new PiRpcHarness(harness_options) },
         bus,
-        { log },
+        {
+            log,
+            ...(options.agents_running_max === undefined
+                ? {}
+                : { running_max: options.agents_running_max }),
+        },
     );
     const writer = new MissionWriter(home, bus);
     const deliverer = new Deliverer(home, agents, writer, bus, { log });
@@ -866,6 +869,18 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         }
         await poll_once(home, poll_options);
     };
+    const swarm = new ReviewSwarm({
+        home,
+        agents,
+        bus,
+        settings: () => read_settings_or_default(home, log),
+        log,
+        poll,
+        refresh,
+        ...(options.review_skill_default === undefined
+            ? {}
+            : { skill_default: options.review_skill_default }),
+    });
     const ui_source = options.ui_dir === undefined ? default_ui_dir() : options.ui_dir;
     const ui = ui_source === null ? null : snapshot_ui(home, ui_source, build.commit, log);
     const app = create_app({
@@ -890,11 +905,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         deliverer,
         diff,
         settings: () => read_settings_or_default(home, log),
-        poll,
-        env: options.env ?? process.env,
-        ...(options.review_timeout_ms === undefined
-            ? {}
-            : { review_timeout_ms: options.review_timeout_ms }),
+        swarm,
         ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.
@@ -925,6 +936,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     for (const resumed of await agents.adopt_all()) {
         log(`adopt: resumed tty agent ${resumed} on its transcript`);
     }
+    await swarm.prime();
     // The operator agent comes last: a session agent's adoption must not wait on it, and its
     // first notices (an agent that settled during adoption) are queued, not lost.
     if (options.operator !== false) {
@@ -942,6 +954,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         watcher,
         close: async () => {
             unwatch_stack_jobs();
+            swarm.close();
             diff.close();
             await operator.close();
             await agents.stop_all();

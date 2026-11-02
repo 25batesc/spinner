@@ -181,6 +181,8 @@ export interface AgentSpec {
     started?: string;
     /** Repo key of `repos` whose worktree is the agent's cwd; the session dir when absent. */
     repo?: string;
+    /** Skill directories pi loads with `--skill`, beyond the session's `skills/` (s015). */
+    skills?: string[];
 }
 
 /**

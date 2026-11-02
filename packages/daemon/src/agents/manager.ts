@@ -39,11 +39,19 @@ export interface AgentHarnesses {
 const ADOPT_STOP_GRACE_MS = 5_000;
 
 /** Agents one daemon hosts at once. Each is a pi process with its own model session. */
-const AGENTS_RUNNING_MAX = 24;
+export const AGENTS_RUNNING_MAX = 24;
 
 export interface AgentManagerOptions {
     now?: () => Date;
     log?: (line: string) => void;
+    /** The cap on hosted agents; `AGENTS_RUNNING_MAX` when absent. Tests lower it. */
+    running_max?: number;
+}
+
+/** What `add` takes beyond the request: daemon-side facts the API does not expose. */
+export interface AddAgentExtra {
+    /** Skill directories pi loads with `--skill` (s015, the review skill). */
+    skills?: string[];
 }
 
 interface Hosted {
@@ -64,6 +72,7 @@ export class AgentManager {
     private readonly pending = new Map<string, string[]>();
     private readonly now: () => Date;
     private readonly log: (line: string) => void;
+    private readonly running_max: number;
 
     constructor(
         private readonly home: SpinnerHome,
@@ -74,6 +83,18 @@ export class AgentManager {
         assert.ok(harnesses[harnesses.default] !== undefined, `no ${harnesses.default} harness`);
         this.now = options.now ?? (() => new Date());
         this.log = options.log ?? (() => undefined);
+        this.running_max = options.running_max ?? AGENTS_RUNNING_MAX;
+        assert.ok(this.running_max >= 1, "the agent cap must be at least 1");
+    }
+
+    /** How many agents this daemon hosts now, across sessions. */
+    get running_count(): number {
+        return this.hosted.size;
+    }
+
+    /** True when `add` would refuse: the cap is reached (s015, the swarm queues behind it). */
+    get at_cap(): boolean {
+        return this.hosted.size >= this.running_max;
     }
 
     /** The harness name every `add` uses, from `config.yaml`. */
@@ -130,12 +151,18 @@ export class AgentManager {
      * brief. Throws when the agent runs already, the repo has no worktree, or pi fails to
      * start.
      */
-    async add(summary: SessionSummary, request: AddAgentRequest): Promise<AgentHandle> {
+    async add(
+        summary: SessionSummary,
+        request: AddAgentRequest,
+        extra: AddAgentExtra = {},
+    ): Promise<AgentHandle> {
         const key = key_of(summary.dir, request.name);
         if (this.hosted.has(key)) {
             throw new Error(`agent ${request.name} is already running in ${summary.dir}`);
         }
-        assert.ok(this.hosted.size < AGENTS_RUNNING_MAX, `${AGENTS_RUNNING_MAX} agents running`);
+        if (this.at_cap) {
+            throw new Error(`${this.running_max} agents running; the cap is reached`);
+        }
         const cwd = agent_cwd(summary, request.repo);
         ensure_brief(summary, request);
         // The caller's summary may predate an earlier run; the file has the model it used.
@@ -153,7 +180,13 @@ export class AgentManager {
         const harness_name = settings.agents?.harness ?? this.harnesses.default;
         const harness = this.harnesses[harness_name];
         assert.ok(harness !== undefined, `no ${harness_name} harness`);
-        const spawned = await harness.spawn(summary, { name: request.name, model, cwd });
+        const skills = extra.skills ?? listed?.skills;
+        const spawned = await harness.spawn(summary, {
+            name: request.name,
+            model,
+            cwd,
+            ...(skills === undefined ? {} : { skills }),
+        });
         const handle = this.with_pending(key, spawned);
         const started = process_start_time(handle.pid);
         const spec: AgentSpec = {
@@ -163,6 +196,7 @@ export class AgentManager {
             pid: handle.pid,
             ...(started === null ? {} : { started }),
             ...(request.repo === undefined ? {} : { repo: request.repo }),
+            ...(skills === undefined ? {} : { skills }),
         };
         this.record(summary.dir, request.name, spec);
         const dir = summary.dir;
