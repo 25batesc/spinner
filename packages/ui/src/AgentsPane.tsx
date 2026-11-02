@@ -6,7 +6,7 @@ import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
 import { MissionPanel } from "./MissionPanel.tsx";
-import { IconButton, type IconButtonProps } from "./PaneHead.tsx";
+import type { IconButtonProps } from "./PaneHead.tsx";
 import { PipelineActions } from "./PipelineActions.tsx";
 import type { Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
@@ -14,6 +14,7 @@ import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
+import { ViewTabs } from "./ViewTabs.tsx";
 import { tty_path, type AgentSpec, type SessionView } from "@spinner/protocol";
 
 import { ComposeForm, type ComposeKind, type RunAction } from "./SessionForms.tsx";
@@ -165,39 +166,6 @@ function agentBase(dir: string, agent: string): string {
 
 const VIEWS = ["agents", "mission", "threads", "services"];
 
-/** The view tabs across the top of the pane; the pane's icons sit at the right of the row. */
-function ViewTabs(props: {
-    shown: string;
-    onSelect: (view: string) => void;
-    controls: IconButtonProps[] | undefined;
-    leading: IconButtonProps | undefined;
-}) {
-    const { shown, onSelect, controls, leading } = props;
-    return (
-        <nav className="view-tabs" role="tablist" aria-label="Views">
-            {leading !== undefined && <IconButton {...leading} />}
-            {VIEWS.map((label) => (
-                <button
-                    key={label}
-                    role="tab"
-                    aria-selected={label === shown}
-                    className={label === shown ? "tab view-tab tab-selected" : "tab view-tab"}
-                    onClick={() => onSelect(label)}
-                >
-                    {label}
-                </button>
-            ))}
-            {controls !== undefined && controls.length > 0 && (
-                <span className="pane-controls">
-                    {controls.map((control) => (
-                        <IconButton key={control.label} {...control} />
-                    ))}
-                </span>
-            )}
-        </nav>
-    );
-}
-
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, usage, revisions, children } = props;
     const { controls, leading, compose } = props;
@@ -243,7 +211,13 @@ export function AgentsPane(props: AgentsPaneProps) {
     }
     return (
         <section className="pane agents-pane" aria-label="Agents">
-            <ViewTabs shown={shown} onSelect={setShown} controls={controls} leading={leading} />
+            <ViewTabs
+                labels={VIEWS}
+                shown={shown}
+                onSelect={setShown}
+                controls={controls}
+                leading={leading}
+            />
             <Toolbar
                 dir={view?.summary.dir}
                 busy={busy}
@@ -263,7 +237,7 @@ export function AgentsPane(props: AgentsPaneProps) {
                     />
                 )}
                 {view !== undefined && shown === "services" && (
-                    <ServiceTable view={view} usage={usage} />
+                    <ServiceTable view={view} usage={usage} run={run} />
                 )}
                 {/* Hidden, not unmounted, while another view shows: the terminals keep
                     their sockets and buffers. */}

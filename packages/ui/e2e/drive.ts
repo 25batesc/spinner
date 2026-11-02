@@ -8,8 +8,10 @@
 // agent's terminal to the fixture's echo pty, types, resizes and opens the pane route; `drawer`
 // drags, collapses and restores the job drawer under it; `narrow` shrinks the window to 900, 600
 // and 440 px and checks the fold order with the terminal open; `operator` opens the operator
-// tab from the activity bar, types into its terminal, stops and resumes it. It works against
-// the fixture server or the real daemon.
+// tab from the activity bar, types into its terminal, stops and resumes it. The flow `diff`
+// opens the right pane's `diff` view, starts the viewers, checks the keys reach the frame,
+// switches repo, expands the pane, and stops and restarts a viewer from the services view. It
+// works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { WebSocket } from "ws";
@@ -110,7 +112,8 @@ const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
 await send("Page.enable");
-if (flow === "bridge-stub" || flow === "bridge-popout" || flow === "bridge-bar") {
+const BRIDGE_FLOWS = ["bridge-stub", "bridge-popout", "bridge-bar", "bridge-diff"];
+if (BRIDGE_FLOWS.includes(flow)) {
     // A stand-in for the desktop preload: records every bridge call on `window.bridgeCalls`.
     // `dockBack` answers with the `pane.docked` event the desktop sends; `window.bridgeDock`
     // sends one by hand, as the window's close button would; `panes.list` reads the windows
@@ -361,8 +364,7 @@ if (flow === "panes") {
             .map((c) => c.innerText).filter((t) => t !== "").join("\\n"),
         links: document.querySelectorAll(".pane-head a, .pane-head .link, .browser-bar a")
             .length,
-        icons: document.querySelectorAll(".pane-head .icon-button, .browser-bar .icon-button")
-            .length,
+        icons: document.querySelectorAll(".preview-pane .icon-button").length,
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
@@ -1647,6 +1649,146 @@ if (flow === "operator") {
     await until("icon off", `${iconOff} === "false"`);
     await shot("84-operator-hidden");
     console.log("operator ok");
+    await finish();
+}
+
+if (flow === "diff") {
+    // The right pane's `diff` view (s012): the `previews` and `diff` tabs across the top; the
+    // diff page with a repo switcher and `start diff` while no viewer runs; the `diff` job's
+    // progress line; then the viewer's page in a focused frame that gets the viewer's keys;
+    // a switch of repo; expand to the window; the services view's `diff` heading with stop
+    // and restart; a one-repo start from the page once the other repo runs.
+    const previewTab = ".preview-pane .view-tabs .view-tab";
+    const frame = `document.querySelector(".preview-pane iframe.preview-frame")`;
+    const frameSrc = `(${frame}?.src ?? "")`;
+    const page = text(".diff-page");
+    const progress = text(".diff-progress");
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("two top-level tabs", `document.querySelectorAll("${previewTab}").length === 2`);
+    const labels = await evaluate(
+        `[...document.querySelectorAll("${previewTab}")].map((t) => t.textContent)`,
+    );
+    if (JSON.stringify(labels) !== JSON.stringify(["previews", "diff"])) {
+        throw new Error(`expected the tabs previews and diff, got ${JSON.stringify(labels)}`);
+    }
+    await click(previewTab, "diff");
+    await until("repo switcher", `document.querySelectorAll(".diff-page .tab").length === 2`);
+    await until("start diff offered", `${text(".diff-start")} === "start diff"`);
+    await until("web stopped", `${progress}.includes("web is stopped.")`);
+    await shot("60-diff-empty");
+    await click(".diff-start");
+    await until("job progress line", `${progress}.startsWith("diff · running")`);
+    await until("fetch logged", `${progress}.includes("cloning")`);
+    await shot("61-diff-starting");
+    await until("web viewer framed", `${frameSrc}.includes("/diffview/web/")`);
+    await until("no start button", `document.querySelector(".diff-start") === null`);
+    await until("frame focused", `document.activeElement === ${frame}`);
+    await until("web dot green", `document.querySelector(".diff-page .tab-selected .dot-running")`
+        + ` !== null`);
+    // The viewer's keys: the fixture's page records what reaches it.
+    const viewerUrl = (await evaluate(frameSrc)) as string;
+    for (const key of ["j", "k", "[", "]"]) {
+        await send("Input.dispatchKeyEvent", { type: "keyDown", key, text: key });
+        await send("Input.dispatchKeyEvent", { type: "keyUp", key });
+    }
+    const keysUrl = `${viewerUrl}keys`;
+    let keys: string[] = [];
+    for (let tries = 0; tries < 50; tries += 1) {
+        keys = ((await (await fetch(keysUrl)).json()) as { keys: string[] }).keys;
+        if (keys.length >= 4) {
+            break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    console.log("keys in the frame:", JSON.stringify(keys));
+    if (JSON.stringify(keys) !== JSON.stringify(["j", "k", "[", "]"])) {
+        throw new Error("the viewer's keys did not reach the frame");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot("62-diff-web");
+    await click(".diff-page .tab", "api");
+    await until("api viewer framed", `${frameSrc}.includes("/diffview/api/")`);
+    await shot("63-diff-api");
+    // Expand: the diff page takes the window and keeps its frame; Escape brings it back.
+    if ((await evaluate(`document.querySelector("button[aria-label='Expand previews']")`
+        + ` !== null`)) === true) {
+        await click("button[aria-label='Expand previews']");
+        await until("one pane", `document.querySelectorAll(".pane").length === 1`);
+        await until("frame kept", `${frameSrc}.includes("/diffview/api/")`);
+        await shot("64-diff-expanded");
+        // Escape is the page's key; the focused frame keeps it, so the button brings it back.
+        await click("button[aria-label='Restore layout']");
+        await until("layout back", `document.querySelectorAll(".pane").length === 3`);
+    }
+    // The previews tab is still the service previews.
+    await click(previewTab, "previews");
+    await until("service tabs back", `${text(".preview-pane .tabs")}.includes("web")`);
+    await until("diff page gone", `document.querySelector(".diff-page") === null`);
+    // The services view: the `diff` heading, stop, restart.
+    await click(".agents-pane .tab", "services");
+    const row = (repo: string) => `document.querySelector(".diff-table tr[data-repo=${repo}]")`;
+    await until("diff heading", `${text(".diff-heading")}.toLowerCase() === "diff"`);
+    await until("web running in the table", `${row("web")}.innerText.includes("running")`);
+    await evaluate(`[...${row("web")}.querySelectorAll("button")]`
+        + `.find((b) => b.textContent === "stop").click(), true`);
+    await until("web stopped in the table", `${row("web")}.innerText.includes("stopped")`);
+    await evaluate(`[...${row("api")}.querySelectorAll("button")]`
+        + `.find((b) => b.textContent === "restart").click(), true`);
+    await until("api restarting", `${row("api")}.innerText.includes("starting")`);
+    await until("api running again", `${row("api")}.innerText.includes("running")`);
+    await shot("65-services-diff");
+    // Back on the diff page, web is stopped while api runs: the start is for web alone.
+    await click(previewTab, "diff");
+    await until("api still shown", `${frameSrc}.includes("/diffview/api/")`);
+    await click(".diff-page .tab", "web");
+    await until("web stopped on the page", `${progress}.includes("web is stopped.")`);
+    await until("one-repo start", `${text(".diff-start")} === "start diff · web"`);
+    await click(".diff-start");
+    await until("web framed again", `${frameSrc}.includes("/diffview/web/")`);
+    await shot("66-diff-web-restarted");
+    console.log("page text:", JSON.stringify(await evaluate(page)));
+    console.log("diff ok");
+    await finish();
+}
+
+if (flow === "bridge-diff") {
+    // The desktop path of the diff view with the stub: the running viewer is a native view
+    // under the key `<dir>/diff/<repo>` (no iframe), a repo switch hides it and sets the other
+    // key, and the pane's pop-out takes the diff view along.
+    const calls = `window.bridgeCalls`;
+    const lastCall = (method: string) =>
+        `${calls}.filter((c) => c.method === ${JSON.stringify(method)}).at(-1)`;
+    const previewTab = ".preview-pane .view-tabs .view-tab";
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await until("diff tab", `document.querySelectorAll("${previewTab}").length === 2`);
+    await click(previewTab, "diff");
+    await until("start diff offered", `${text(".diff-start")} === "start diff"`);
+    await click(".diff-start");
+    await until("web view set", `${lastCall("set")}?.args[0].endsWith("/diff/web")`);
+    await until("box, no iframe", `document.querySelector(".diff-page .preview-box") !== null`
+        + ` && document.querySelector("iframe") === null`);
+    const key = (await evaluate(`${lastCall("set")}.args[0]`)) as string;
+    const url = (await evaluate(`${lastCall("set")}.args[1]`)) as string;
+    console.log("diff view:", key, url);
+    if (!url.includes("/diffview/web/")) {
+        throw new Error("set() did not carry the viewer's URL");
+    }
+    await shot("67-bridge-diff-box");
+    const quotedKey = JSON.stringify(key);
+    const hides =
+        `${calls}.filter((c) => c.method === "hide" && c.args[0] === ${quotedKey}).length`;
+    const hidden = (await evaluate(hides)) as number;
+    await click(".diff-page .tab", "api");
+    await until("web hidden", `${hides} > ${hidden}`);
+    await until("api view set", `${lastCall("set")}?.args[0].endsWith("/diff/api")`);
+    await click("button[aria-label='Pop out previews']");
+    await until("diff view popped", `${lastCall("previews.popOut")} !== undefined`);
+    const popped = (await evaluate(`${lastCall("previews.popOut")}?.args[0]`)) as string;
+    console.log("popped key:", popped);
+    if (!popped.endsWith("/diff/api")) {
+        throw new Error("pop out did not take the shown diff view along");
+    }
+    console.log("bridge diff ok");
     await finish();
 }
 

@@ -1,16 +1,21 @@
 import { useState } from "react";
 
-import { preview_key, type ServiceView, type SessionView } from "@spinner/protocol";
+import { preview_key, type Job, type ServiceView, type SessionView } from "@spinner/protocol";
 
-import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
+import { diffPreviewService, diffRepos, diffSelected } from "./diff-view.ts";
+import { DiffPage } from "./DiffPage.tsx";
+import type { IconButtonProps } from "./PaneHead.tsx";
 import { Preview, type PopOutRequest } from "./Preview.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
 import { Tabs } from "./Tabs.tsx";
+import { ViewTabs } from "./ViewTabs.tsx";
 
 export interface PreviewPaneProps {
     view: SessionView | undefined;
     busy: boolean;
     run: RunAction;
+    /** The newest `diff` job of the session: the diff view's progress line. */
+    diffJob?: Job | undefined;
     /** Clears the verify tick (`DELETE /sessions/:dir/verify`); errors go where `run`'s go. */
     unverify: (dir: string) => Promise<void>;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
@@ -68,17 +73,43 @@ function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: Sess
     );
 }
 
-export function PreviewPane({ view, busy, run, unverify, controls }: PreviewPaneProps) {
+/** The pane's two views. `diff` is offered once the daemon sends `SessionView.diff`. */
+const VIEWS = ["previews", "diff"] as const;
+
+/** The preview the pane shows in the browser bar's place: what a pop-out takes along. */
+function shownPreview(
+    view: SessionView,
+    tab: string,
+    service: ServiceView | undefined,
+    repoPicked: string | undefined,
+): PopOutRequest["preview"] {
+    const dir = view.summary.dir;
+    if (tab === "diff") {
+        const repo = diffSelected(diffRepos(view), repoPicked);
+        if (repo === undefined || repo[1].state !== "running" || repo[1].url === null) {
+            return undefined;
+        }
+        return { key: preview_key(dir, diffPreviewService(repo[0])), url: repo[1].url };
+    }
+    if (service?.url != null && isLive(service)) {
+        return { key: preview_key(dir, service.name), url: service.url };
+    }
+    return undefined;
+}
+
+export function PreviewPane(props: PreviewPaneProps) {
+    const { view, busy, run, unverify, controls, diffJob } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
+    const [tab, setTab] = useState<string>("previews");
+    const [repoPicked, setRepoPicked] = useState<string | undefined>(undefined);
     const services = (view?.stack.services ?? []).filter((service) => service.url !== null);
     const names = services.map((service) => service.name);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
     const service = services.find((candidate) => candidate.name === selected);
     const grey = services.filter((candidate) => !isLive(candidate)).map((c) => c.name);
+    const hasDiff = view?.diff !== undefined;
     const shown =
-        view !== undefined && service?.url != null && isLive(service)
-            ? { key: preview_key(view.summary.dir, service.name), url: service.url }
-            : undefined;
+        view === undefined ? undefined : shownPreview(view, tab, service, repoPicked);
     const head: IconButtonProps[] | undefined =
         controls === undefined
             ? undefined
@@ -97,9 +128,36 @@ export function PreviewPane({ view, busy, run, unverify, controls }: PreviewPane
                   { icon: "panel-right", label: "Collapse previews", onClick: controls.onToggle },
               ];
 
+    if (hasDiff && tab === "diff" && view !== undefined) {
+        return (
+            <section className="pane preview-pane" aria-label="Previews">
+                <ViewTabs
+                    labels={VIEWS}
+                    shown={tab}
+                    onSelect={setTab}
+                    controls={head}
+                    label="Preview views"
+                />
+                <DiffPage
+                    view={view}
+                    busy={busy}
+                    run={run}
+                    job={diffJob}
+                    picked={repoPicked}
+                    onPick={setRepoPicked}
+                />
+            </section>
+        );
+    }
     return (
         <section className="pane preview-pane" aria-label="Previews">
-            <PaneHead name="previews" controls={head} />
+            <ViewTabs
+                labels={hasDiff ? VIEWS : VIEWS.slice(0, 1)}
+                shown="previews"
+                onSelect={setTab}
+                controls={head}
+                label="Preview views"
+            />
             {view !== undefined && (
                 <Verified view={view} busy={busy} run={run} unverify={unverify} />
             )}

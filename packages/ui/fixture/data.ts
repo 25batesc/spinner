@@ -2,6 +2,8 @@
 // `@spinner/protocol` that breaks the fixture also breaks `pnpm --filter ui typecheck`.
 import type {
     BoardView,
+    DiffRepoView,
+    DiffView,
     MachineUsage,
     PrFacts,
     ProjectView,
@@ -142,12 +144,34 @@ export function stackView(id: string, state: "none" | keyof typeof STACK_STATUS)
     };
 }
 
+/** A viewer at rest: no process, nothing waiting. */
+export function diffRepoStopped(): DiffRepoView {
+    return { state: "stopped", url: null, pid: null, error: null, waiting: { agent: 0, human: 0 } };
+}
+
+/** The fake viewer page the fixture serves for a repo; the UI embeds it as the daemon's URL. */
+export function diffViewerUrl(port: number, repo: string): string {
+    return `http://127.0.0.1:${port}/diffview/${repo}/`;
+}
+
+/**
+ * `SessionView.diff` as the daemon sends it before any start: the sources are not fetched
+ * and every repo of `session.yaml` is `stopped`.
+ */
+export function diffView(base: Session): DiffView {
+    const repos = Object.fromEntries(
+        Object.keys(base.repos).map((name) => [name, diffRepoStopped()]),
+    );
+    return { available: false, fetch: "absent", fetch_error: null, repos };
+}
+
 export function view(
     dir: string,
     base: Session,
     stack: StackView,
     prs: PrFacts[] = [],
     agentsRunning: string[] = [],
+    diff: DiffView = diffView(base),
 ): SessionView {
     const board: BoardView | null =
         prs.length === 0
@@ -159,6 +183,7 @@ export function view(
         stack,
         can_verify: stack.state === "up",
         agents_running: agentsRunning,
+        diff,
     };
 }
 
@@ -169,6 +194,10 @@ export function initialSessions(): SessionView[] {
         title: "Refund flow",
         stage: "peer-review",
         needs_human: "Approve the refund copy in PR #412",
+        repos: {
+            web: { path: "~/code/web", worktree: "repos/web", changed: true },
+            api: { path: "~/code/api", worktree: "repos/api", changed: false },
+        },
         agents: {
             backend: { harness: "tty", model: "anthropic/claude-fable-5-1", process: "running" },
             frontend: { harness: "rpc", model: "anthropic/claude-sonnet-5-5", process: "idle" },

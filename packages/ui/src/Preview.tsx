@@ -25,6 +25,12 @@ export interface PreviewProps {
     title: string;
     /** The service's `preview: top-level` flag: its login lives in cookies, a frame logs it out. */
     topLevel: boolean;
+    /**
+     * Give the frame the keyboard focus when it mounts, so a page with its own keys (the diff
+     * viewer's `j`, `k`, `[`, `]`) gets them without a click. Browser path only: a native view
+     * takes focus on its own.
+     */
+    focus?: boolean | undefined;
 }
 
 /** Rounds a DOM rectangle to the integer CSS pixels a native view can be placed at. */
@@ -459,10 +465,17 @@ function BridgePreview({
  * at the typed URL. The frame's own history and title are out of reach across origins, so
  * back and forward stay disabled and the menu is absent.
  */
-function FramePreview({ url, title, topLevel }: Omit<PreviewProps, "previewKey">) {
+function FramePreview({ url, title, topLevel, focus }: Omit<PreviewProps, "previewKey">) {
     const [address, setAddress] = useState(url);
     const [reloads, setReloads] = useState(0);
+    const frame = useRef<HTMLIFrameElement>(null);
     useEffect(() => setAddress(url), [url]);
+    // The frame is keyed on the address, so a navigation mounts a new one and focuses it too.
+    useEffect(() => {
+        if (focus === true) {
+            frame.current?.focus();
+        }
+    }, [focus, address, reloads]);
     return (
         <>
             <BrowserBar
@@ -476,6 +489,7 @@ function FramePreview({ url, title, topLevel }: Omit<PreviewProps, "previewKey">
             />
             {topLevel && <TopLevelNote url={url} />}
             <iframe
+                ref={frame}
                 className="preview-frame"
                 key={`${address}#${reloads}`}
                 src={address}
@@ -495,10 +509,10 @@ function TopLevelNote({ url }: Pick<PreviewProps, "url">) {
     );
 }
 
-export function Preview({ previewKey, url, title, topLevel }: PreviewProps) {
+export function Preview({ previewKey, url, title, topLevel, focus }: PreviewProps) {
     const bridge = window.spinnerDesktop;
     if (bridge !== undefined) {
         return <BridgePreview bridge={bridge} previewKey={previewKey} url={url} />;
     }
-    return <FramePreview url={url} title={title} topLevel={topLevel} />;
+    return <FramePreview url={url} title={title} topLevel={topLevel} focus={focus} />;
 }

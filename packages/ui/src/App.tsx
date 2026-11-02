@@ -18,6 +18,7 @@ import {
     type PoppedOut,
     type PopOutRequest,
 } from "./Preview.tsx";
+import { diffJob } from "./diff-view.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import type { ComposeKind } from "./SessionForms.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
@@ -273,6 +274,7 @@ export function App() {
             busy={busy}
             run={run}
             unverify={app.unverify}
+            diffJob={selected === undefined ? undefined : diffJob(state, selected)}
             controls={
                 inRoute
                     ? undefined

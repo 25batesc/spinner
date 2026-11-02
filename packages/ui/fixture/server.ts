@@ -4,6 +4,7 @@
 // `17777`), not the daemon's, so a driver with `SPINNER_PORT` unset never reaches the operator's
 // daemon; `SPINNER_PORT` moves it. Start it with `pnpm --filter ui fixture`.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 
 import {
     BUILTIN_THEMES,
@@ -31,8 +32,10 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { PipelineFixture } from "./pipeline.ts";
 import {
-    FIXTURE_PORT, initialSessions, machineUsage, PROJECTS, pr, session, stackView, view,
+    FIXTURE_PORT, diffRepoStopped, diffViewerUrl, initialSessions, machineUsage, PROJECTS, pr,
+    session, stackView, view,
 } from "./data.ts";
+import type { DiffRepoView, DiffView } from "@spinner/protocol";
 import { EchoPty } from "./tty.ts";
 
 export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
@@ -69,6 +72,35 @@ function sendPreview(request: IncomingMessage, response: ServerResponse): void {
     const host = (request.headers.host ?? "unknown host").replace(/[<>&]/g, "");
     response.writeHead(200, { "content-type": "text/html" });
     response.end(`<h1>Fixture preview</h1><p>${host}</p>`);
+}
+
+export const DIFF_VIEWER_ROUTE = /^\/diffview\/([^/]+)\/(keys)?$/;
+
+/**
+ * Stands in for a `diffview` page: it names the repo and records every key pressed in it,
+ * so a driver can check that the viewer's keys reach the frame. `POST .../keys` is what the
+ * page sends; `GET .../keys` is what the driver reads.
+ */
+function sendDiffViewer(repo: string, response: ServerResponse): void {
+    const safe = repo.replace(/[<>&]/g, "");
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(`<!doctype html><title>diffview ${safe}</title>
+<h1>Fixture diff viewer</h1><p>repo ${safe}</p><pre id="keys"></pre>
+<script>
+document.addEventListener("keydown", (event) => {
+    document.getElementById("keys").textContent += event.key + " ";
+    fetch("keys", { method: "POST", body: JSON.stringify({ key: event.key }) });
+});
+</script>`);
+}
+
+/** Every repo's viewer at rest; the fetch state stays. */
+function diffStopped(diff: DiffView | undefined): DiffView | undefined {
+    if (diff === undefined) {
+        return undefined;
+    }
+    const repos = Object.fromEntries(Object.keys(diff.repos).map((r) => [r, diffRepoStopped()]));
+    return { ...diff, repos };
 }
 
 const USAGE = {
@@ -147,6 +179,10 @@ class FixtureDaemon {
     operatorPty: EchoPty | null = null;
 
     pipeline = new PipelineFixture(this);
+    /** The keys each fake viewer page received, per repo (`DIFF_VIEWER_ROUTE`). */
+    diffKeys = new Map<string, string[]>();
+    /** The port the server listens on, set once it does: the fake viewer URLs name it. */
+    port = FIXTURE_PORT;
 
     constructor() {
         for (const item of initialSessions()) {
@@ -349,6 +385,9 @@ class FixtureDaemon {
         if (await this.agentRoute(response, path, body)) {
             return true;
         }
+        if (this.diffRoute(response, path, body)) {
+            return true;
+        }
         const match = /^\/sessions\/([^/]+)\/(up|down|close|verify)$/.exec(path);
         const current = match === null ? undefined : this.sessions.get(match[1] ?? "");
         if (match === null || current === undefined) {
@@ -424,6 +463,84 @@ class FixtureDaemon {
         return true;
     }
 
+    /**
+     * `POST /sessions/:dir/diff/start` (a `diff` job: the first one fetches the sources, then
+     * each viewer starts and turns `running` with the fixture's own viewer page as its URL)
+     * and `.../diff/stop` (synchronous: the view answers, `session.updated` follows). Body
+     * `DiffRepoRequest { repo? }`; 404 for an unknown repo.
+     */
+    diffRoute(response: ServerResponse, path: string, body: Record<string, unknown>): boolean {
+        const match = /^\/sessions\/([^/]+)\/diff\/(start|stop)$/.exec(path);
+        const current = match === null ? undefined : this.sessions.get(match[1] ?? "");
+        if (match === null || current === undefined || current.diff === undefined) {
+            return false;
+        }
+        const diff = current.diff;
+        const only = typeof body["repo"] === "string" ? body["repo"] : undefined;
+        if (only !== undefined && !(only in diff.repos)) {
+            sendJson(response, { error: `no repo ${only}` }, 404);
+            return true;
+        }
+        const names = only === undefined ? Object.keys(diff.repos) : [only];
+        const dir = current.summary.dir;
+        type Patch = (name: string) => Partial<DiffRepoView>;
+        const withRepos = (next: DiffView, patch: Patch) => ({
+            ...next,
+            repos: Object.fromEntries(
+                Object.entries(next.repos).map(([name, repo]) =>
+                    [name, names.includes(name) ? { ...repo, ...patch(name) } : repo],
+                ),
+            ),
+        });
+        if (match[2] === "stop") {
+            const latest = this.sessions.get(dir) ?? current;
+            const next = {
+                ...latest, diff: withRepos(latest.diff ?? diff, () => diffRepoStopped()),
+            };
+            this.update(next);
+            sendJson(response, { session: next });
+            return true;
+        }
+        const job = this.start("diff", dir, async (log) => {
+            const latest = () => this.sessions.get(dir) ?? current;
+            if (latest().diff?.fetch !== "ready") {
+                this.update({
+                    ...latest(), diff: { ...diff, fetch: "fetching", fetch_error: null },
+                });
+                for (const line of ["cloning diff-viewer", "cloning peanut", "npm install"]) {
+                    log(line);
+                    await sleep(STEP_DELAY_MS);
+                }
+                const fetched = latest().diff ?? diff;
+                this.update({
+                    ...latest(), diff: { ...fetched, fetch: "ready", available: true },
+                });
+            }
+            const started = latest().diff ?? diff;
+            this.update({
+                ...latest(),
+                diff: withRepos(started, () => ({ state: "starting", error: null })),
+            });
+            for (const name of names) {
+                log(`starting ${name}`);
+            }
+            await sleep(STEP_DELAY_MS);
+            const now = latest().diff ?? diff;
+            this.update({
+                ...latest(),
+                diff: withRepos(now, (name) => ({
+                    state: "running",
+                    url: diffViewerUrl(this.port, name),
+                    pid: 50000 + Object.keys(now.repos).indexOf(name),
+                })),
+            });
+            log("viewers up");
+            return null;
+        });
+        this.accepted(response, job);
+        return true;
+    }
+
     accepted(response: ServerResponse, job: Job): true {
         sendJson(response, { job }, 202);
         return true;
@@ -453,8 +570,11 @@ class FixtureDaemon {
         const dir = current.summary.dir;
         const base = current.summary.session;
         const keep = { prs: current.board?.prs ?? [], agents: current.agents_running };
-        const put = (next: typeof base, state: "up" | "down" | "starting") =>
-            this.update(view(dir, next, stackView(base.id, state), keep.prs, keep.agents));
+        // The viewers outlive `up` and stop with `down` (and `close`), as on the daemon.
+        const put = (next: typeof base, state: "up" | "down" | "starting") => {
+            const diff = state === "down" ? diffStopped(current.diff) : current.diff;
+            this.update(view(dir, next, stackView(base.id, state), keep.prs, keep.agents, diff));
+        };
         return this.start(action, dir, async (log) => {
             log(`${action} ${dir}`);
             await sleep(STEP_DELAY_MS);
@@ -529,7 +649,17 @@ class FixtureDaemon {
         }
         const dir = /^\/sessions\/([^/]+)$/.exec(path)?.[1];
         const jobId = /^\/jobs\/([^/]+)$/.exec(path)?.[1];
-        if (method === "GET" && path === "/sessions") {
+        const viewer = DIFF_VIEWER_ROUTE.exec(path);
+        if (viewer !== null && viewer[2] === undefined && method === "GET") {
+            sendDiffViewer(viewer[1] ?? "", response);
+        } else if (viewer !== null && method === "GET") {
+            sendJson(response, { keys: this.diffKeys.get(viewer[1] ?? "") ?? [] });
+        } else if (viewer !== null && method === "POST") {
+            const repo = viewer[1] ?? "";
+            const key = String((await readBody(request))["key"]);
+            this.diffKeys.set(repo, [...(this.diffKeys.get(repo) ?? []), key]);
+            sendJson(response, { ok: true });
+        } else if (method === "GET" && path === "/sessions") {
             sendJson(response, { sessions: [...this.sessions.values()] });
         } else if (method === "GET" && dir !== undefined && this.sessions.has(dir)) {
             sendJson(response, { session: this.sessions.get(dir) });
@@ -609,6 +739,9 @@ export function startFixture(port: number = FIXTURE_PORT) {
         });
     });
     server.listen(port, DAEMON_HOST);
+    server.on("listening", () => {
+        daemon.port = (server.address() as AddressInfo).port;
+    });
     // The daemon rides along for tests that reach past HTTP, for example to drop a pty's clients.
     return Object.assign(server, { daemon });
 }

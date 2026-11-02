@@ -264,6 +264,7 @@ html, body, #root { height: 100%; margin: 0; }
 .dot-up, .dot-healthy { background: var(--ok); }
 .dot-starting { background: var(--warn); }
 .dot-failed { background: var(--fail); }
+.dot-running { background: var(--ok); }
 .dot-unhealthy { background: var(--warn); }
 .tab-dot { width: 7px; height: 7px; margin-right: 5px; vertical-align: 1px; }
 .dot-unknown { background: var(--accent); }
@@ -274,6 +275,18 @@ html, body, #root { height: 100%; margin: 0; }
 .services td { white-space: nowrap; }
 .services td:nth-child(5) { white-space: normal; }
 .service-url { font-size: 11px; display: block; }
+/* The diff viewers under the services: a small heading, then the same table shape. */
+.diff-heading { font-size: 12px; text-transform: uppercase; margin: 12px 0 4px; opacity: 0.8; }
+.diff-actions { display: flex; gap: 4px; }
+.diff-actions button { font: inherit; font-size: 11px; }
+/* The diff page fills the pane like a preview; the empty state centres its one button. */
+.diff-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.diff-empty {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; text-align: center;
+}
+.diff-progress { margin: 0; font-size: 12px; max-width: 100%; overflow-wrap: anywhere; }
+.diff-start { font: inherit; font-weight: 600; border-color: var(--accent); }
 /* The activity drawer: a fixed height from the layout record, the divider on its top edge,
    the job log then the events inside. The terminal above refits as the drawer changes. */
 .drawer {

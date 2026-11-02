@@ -9,6 +9,7 @@ import type {
     ContextFileResponse,
     ContextResponse,
     DefaultBriefResponse,
+    DiffRepoRequest,
     MissionSectionRequest,
     PostResponse,
     PostView,
@@ -96,6 +97,15 @@ export async function deleteVerify(dir: string): Promise<SessionResponse> {
         throw await failure("DELETE", path, response);
     }
     return (await response.json()) as SessionResponse;
+}
+
+/**
+ * Stops one repo's diff viewer, or every repo's when `repo` is absent. Synchronous on the
+ * daemon; the `session.updated` that follows is what empties the page.
+ */
+export async function postDiffStop(dir: string, repo?: string): Promise<SessionResponse> {
+    const body: DiffRepoRequest = repo === undefined ? {} : { repo };
+    return send("POST", `/sessions/${dir}/diff/stop`, body);
 }
 
 export async function fetchContext(path: string, signal: AbortSignal): Promise<ContextResponse> {
