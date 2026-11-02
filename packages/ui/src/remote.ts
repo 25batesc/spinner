@@ -8,6 +8,8 @@ import type {
     ApproveView,
     ContextFileResponse,
     ContextResponse,
+    CostGroup,
+    CostsResponse,
     DefaultBriefResponse,
     DiffRepoRequest,
     MissionSectionRequest,
@@ -173,4 +175,15 @@ export function useLoaded<T>(
     }, [key]);
     const sameSession = state.key.split("#")[0] === key.split("#")[0];
     return sameSession ? state.loaded : { value: undefined, error: null };
+}
+
+/** `GET /costs` over a span of local-zone days, grouped. The Usage section's report. */
+export async function fetchCosts(
+    from: string,
+    to: string,
+    group: CostGroup,
+    signal: AbortSignal,
+): Promise<CostsResponse> {
+    const query = new URLSearchParams({ from, to, group });
+    return getJson(`/costs?${query.toString()}`, signal);
 }

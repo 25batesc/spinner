@@ -291,6 +291,7 @@ export function App() {
         <SettingsPane
             settings={state.settings}
             themes={themes}
+            costs={state.costs}
             onChange={async (next) => {
                 await putSettings(next);
             }}

@@ -16,6 +16,7 @@ import type {
     StackView,
 } from "@spinner/protocol";
 
+import { sessionCost } from "./costs.ts";
 import { fixturePort } from "./port.ts";
 
 export const FIXTURE_PORT = fixturePort(process.env);
@@ -184,6 +185,7 @@ export function view(
         can_verify: stack.state === "up",
         agents_running: agentsRunning,
         diff,
+        cost: sessionCost(base),
     };
 }
 

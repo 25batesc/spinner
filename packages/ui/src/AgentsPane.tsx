@@ -15,7 +15,9 @@ import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
 import { ViewTabs } from "./ViewTabs.tsx";
-import { tty_path, type AgentSpec, type SessionView } from "@spinner/protocol";
+import { tty_path, type AgentCost, type AgentSpec, type SessionView } from "@spinner/protocol";
+
+import { formatUsd } from "./costs.ts";
 
 import { ComposeForm, type ComposeKind, type RunAction } from "./SessionForms.tsx";
 
@@ -119,6 +121,8 @@ function AgentChips(props: {
                 const state = agentState(spec, hosted);
                 const current = !adding && name === selected;
                 const classes = ["chip", `chip-${state}`, current ? "chip-selected" : ""];
+                const cost = view.cost?.agents[name];
+                const spent = cost === undefined ? "" : ` · ${chipCost(cost)}`;
                 return (
                     <span key={name} className={classes.join(" ").trim()}>
                         <button
@@ -126,7 +130,7 @@ function AgentChips(props: {
                             role="tab"
                             aria-selected={current}
                             className={current ? "tab chip-name tab-selected" : "tab chip-name"}
-                            title={`${spec.harness} · ${spec.model} · ${state}`}
+                            title={`${spec.harness} · ${spec.model} · ${state}${spent}`}
                             data-name={name}
                             onClick={() => onPick(name)}
                         >
@@ -158,6 +162,11 @@ function AgentChips(props: {
             </button>
         </div>
     );
+}
+
+/** `$0.42 · anthropic/claude-x`: the chip tooltip's tail; the model pi last answered with. */
+function chipCost(cost: AgentCost): string {
+    return cost.model === null ? formatUsd(cost.usd) : `${formatUsd(cost.usd)} · ${cost.model}`;
 }
 
 function agentBase(dir: string, agent: string): string {

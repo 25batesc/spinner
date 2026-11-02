@@ -2,8 +2,9 @@
 // pane header, the strip of a collapsed or popped-out pane, the activity bar at the far left
 // and the context bar that names the active session. Chrome shows icons with tooltips, never
 // link text.
-import type { PrFacts, SessionView } from "@spinner/protocol";
+import type { CostTotals, PrFacts, SessionView } from "@spinner/protocol";
 
+import { formatTokens, formatUsd } from "./costs.ts";
 import type { PaneName } from "./layout.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import {
@@ -229,6 +230,22 @@ export function ActivityBar(props: ActivityBarProps) {
     );
 }
 
+/**
+ * `$1.23`: what a session (or the operator agent) has spent, beside the usage line of a card
+ * and the context bar; the tokens in the tooltip. Nothing from a daemon before s013.
+ */
+export function CostFigure({ cost }: { cost: CostTotals | undefined }) {
+    if (cost === undefined) {
+        return null;
+    }
+    const tokens = `${formatTokens(cost.tokens_in)} in · ${formatTokens(cost.tokens_out)} out`;
+    return (
+        <span className="muted usage-cost" title={tokens}>
+            {formatUsd(cost.usd)}
+        </span>
+    );
+}
+
 /** `⑂ 4`: the session's PR count; green once every PR's checks are green. */
 export function PrBadge({ prs }: { prs: PrFacts[] }) {
     if (prs.length === 0) {
@@ -306,6 +323,7 @@ export function ContextBar({ view, usage, operator }: ContextBarProps) {
             <span className={`dot dot-${view.stack.state}`} />
             <span className="muted">stack {view.stack.state}</span>
             {stack !== null && <span className="muted usage-line">{stackLine(stack)}</span>}
+            <CostFigure cost={view.cost} />
             <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
             {needs !== null && <span className="needs-human">{needs}</span>}

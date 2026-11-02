@@ -18,13 +18,17 @@ import {
 import { fetchModels, fetchSettingsPath } from "./events-client.ts";
 import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
 import { useLoaded } from "./remote.ts";
+import type { CostFigures } from "./state.ts";
 import { paletteFor } from "./theme.ts";
+import { UsageSection } from "./UsageSection.tsx";
 
 export interface SettingsPaneProps {
     /** From the app's state: `GET /settings` at load, then the `settings` event. */
     settings: Settings | null;
     themes: ThemesResponse | null;
     onChange: (settings: Settings) => Promise<void>;
+    /** The last `costs` event, for the Usage section's figures; null before the first. */
+    costs: CostFigures | null;
     controls?: IconButtonProps[] | undefined;
     leading?: IconButtonProps | undefined;
 }
@@ -60,7 +64,7 @@ export function downloadDark(): void {
 }
 
 export function SettingsPane(props: SettingsPaneProps) {
-    const { settings, themes, onChange, controls, leading } = props;
+    const { settings, themes, onChange, costs, controls, leading } = props;
     const [error, setError] = useState<string | null>(null);
     const models: ModelView[] = useLoaded("models", fetchModels).value ?? [];
     const path = useLoaded("settings-path", fetchSettingsPath).value ?? null;
@@ -125,6 +129,7 @@ export function SettingsPane(props: SettingsPaneProps) {
                         copy dark as a starting point
                     </button>
                 </p>
+                <UsageSection live={costs} />
                 <label className="setting">
                     <span>Default model</span>
                     <select

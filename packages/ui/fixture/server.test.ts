@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import {
     EVENTS_PATH,
     OPERATOR_TTY_PATH,
+    type CostsResponse,
     type JobResponse,
     type OperatorView,
     type SessionResponse,
@@ -238,4 +239,31 @@ it("diff/start is a `diff` job: fetch, then each viewer runs; stop is synchronou
     expect(after.session.diff?.repos["api"]?.state).toBe("running");
     expect(after.session.diff?.fetch).toBe("ready");
     socket.close();
+});
+
+it("GET /costs: 30 days by default, grouped by week on request, 400 for a bad span", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}`;
+    const byDay = (await (await fetch(`${base}/costs`)).json()) as CostsResponse;
+    expect(byDay.group).toBe("day");
+    // Two days of the month cost nothing, so the list is short of 30 by at most two.
+    expect(byDay.by_period.length).toBeGreaterThanOrEqual(28);
+    expect(byDay.by_period.length).toBeLessThanOrEqual(30);
+    expect(byDay.by_period[0]?.period).toBe(byDay.from);
+    expect(byDay.total.usd).toBeGreaterThan(0);
+    expect(byDay.by_session.map((row) => row.dir)).toContain("operator");
+    expect(byDay.by_session[0]?.usd ?? 0).toBeGreaterThanOrEqual(byDay.by_session[1]?.usd ?? 0);
+    const byWeek = (await (await fetch(`${base}/costs?group=week`)).json()) as CostsResponse;
+    expect(byWeek.by_period.length).toBeGreaterThanOrEqual(5);
+    expect(byWeek.by_period.length).toBeLessThanOrEqual(6);
+    expect(Math.abs(byWeek.total.usd - byDay.total.usd)).toBeLessThan(1e-6);
+    const bad = await fetch(`${base}/costs?from=2026-01-01&to=2025-01-01`);
+    expect(bad.status).toBe(400);
+    const long = await fetch(`${base}/costs?from=2024-01-01&to=2026-01-01`);
+    expect(long.status).toBe(400);
+    const sessions = (await (await fetch(`${base}/sessions`)).json()) as SessionsResponse;
+    const refund = sessions.sessions.find((s) => s.summary.dir === "s17-refund-flow");
+    expect(refund?.cost?.usd).toBeGreaterThan(0);
+    expect(refund?.cost?.agents["backend"]?.model).toBe("anthropic/claude-fable-5-1");
+    expect(sessions.sessions.find((s) => s.summary.dir === "s001-bootstrap")?.cost?.usd).toBe(0);
 });

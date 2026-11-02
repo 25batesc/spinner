@@ -109,4 +109,26 @@ describe("reduce", () => {
         expect(state.feed.length).toBe(FEED_LIMIT);
         expect(state.feed[0]?.text).toBe("peer-review \u2192 addressing: A human left 2 threads");
     });
+
+    it("follows the costs event: the figures move and a changed session gets its cost", () => {
+        const totals = (usd: number) => ({ usd, tokens_in: 100, tokens_out: 10 });
+        const changed = { ...totals(9.5), agents: { backend: { ...totals(9.5), model: "m" } } };
+        const state = apply(loaded, {
+            type: "costs", ts, session: null,
+            today: totals(1), week: totals(2), month: totals(3),
+            changed: { "s17-refund-flow": changed, "gone": changed },
+        });
+        expect(state.costs?.today.usd).toBe(1);
+        expect(state.costs?.month.usd).toBe(3);
+        expect(state.costs?.revision).toBe(1);
+        expect(state.sessions["s17-refund-flow"]?.cost?.usd).toBe(9.5);
+        expect(state.sessions["gone"]).toBeUndefined();
+        expect(state.feed).toEqual(loaded.feed);
+        const again = apply(state, {
+            type: "costs", ts, session: null,
+            today: totals(1.5), week: totals(2), month: totals(3), changed: {},
+        });
+        expect(again.costs?.revision).toBe(2);
+        expect(again.costs?.today.usd).toBe(1.5);
+    });
 });

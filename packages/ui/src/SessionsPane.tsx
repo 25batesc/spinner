@@ -1,6 +1,6 @@
 import type { SessionView } from "@spinner/protocol";
 
-import { Icon, PaneHead, PrBadge, type IconButtonProps } from "./PaneHead.tsx";
+import { CostFigure, Icon, PaneHead, PrBadge, type IconButtonProps } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import type { ComposeKind, RunAction } from "./SessionForms.tsx";
@@ -86,6 +86,7 @@ function SessionCard(props: {
                     {stack !== null && (
                         <span className="muted usage-line">{stackLine(stack)}</span>
                     )}
+                    <CostFigure cost={view.cost} />
                     <PrBadge prs={prs} />
                 </span>
                 <span className="needs-human session-needs">{needs ?? ""}</span>

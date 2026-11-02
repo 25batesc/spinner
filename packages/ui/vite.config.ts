@@ -18,8 +18,10 @@ export default defineConfig({
         port: 5173,
         proxy: {
             ...Object.fromEntries(
-                ["/projects", "/jobs", "/models", "/health", "/usage", "/settings", "/themes"]
-                    .map((path) => [path, DAEMON_URL]),
+                [
+                    "/projects", "/jobs", "/models", "/health", "/usage", "/costs", "/settings",
+                    "/themes",
+                ].map((path) => [path, DAEMON_URL]),
             ),
             // The agent tty route upgrades to a WebSocket under `/sessions`.
             "/sessions": { target: DAEMON_URL, ws: true },

@@ -30,6 +30,7 @@ import {
 } from "@spinner/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { costsReport, OPERATOR_COST } from "./costs.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
     FIXTURE_PORT, diffRepoStopped, diffViewerUrl, initialSessions, machineUsage, PROJECTS, pr,
@@ -55,6 +56,7 @@ export function initialOperator(): OperatorView {
             text: "s17-refund-flow: needs_human set: Approve the refund copy in PR #412",
         },
         notices_pending: 0,
+        cost: OPERATOR_COST,
     };
 }
 
@@ -642,7 +644,7 @@ class FixtureDaemon {
     }
 
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-        const path = (request.url ?? "/").split("?")[0] ?? "/";
+        const [path = "/", search = ""] = (request.url ?? "/").split("?");
         const method = request.method ?? "GET";
         if (await this.m2(request, response, method, path)) {
             return;
@@ -686,6 +688,10 @@ class FixtureDaemon {
             sendJson(response, this.themes());
         } else if (method === "GET" && path === "/usage") {
             sendJson(response, this.usage());
+        } else if (method === "GET" && path === "/costs") {
+            const query = new URLSearchParams(search);
+            const report = costsReport(query, [...this.sessions.values()]);
+            sendJson(response, report.body, report.status);
         } else if (method === "GET" && path === "/health") {
             sendJson(response, { ok: true, home: "fixture", started: new Date().toISOString() });
         } else if (method === "GET" && path === "/operator") {

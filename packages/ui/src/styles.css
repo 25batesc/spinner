@@ -444,6 +444,30 @@ html, body, #root { height: 100%; margin: 0; }
 .setting { display: flex; flex-direction: column; gap: 4px; }
 .setting > span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .setting select { font: inherit; font-size: 13px; }
+/* Costs (s013): the figure beside a usage line, and the Usage section under the theme. */
+.usage-cost { font-size: 11px; white-space: nowrap; }
+.usage-section { display: flex; flex-direction: column; gap: 8px; }
+.usage-heading { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 8px 0 0; }
+.usage-figures { display: flex; gap: 12px; margin: 0; }
+.usage-figure { display: flex; flex-direction: column; gap: 2px; }
+.usage-figure dt { font-size: 11px; opacity: 0.7; }
+.usage-figure dd { margin: 0; font-size: 18px; font-weight: 600; }
+.usage-switch { display: flex; gap: 0; border-bottom: 1px solid var(--line-soft); }
+.usage-tab {
+    padding: 2px 8px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    font: inherit; font-size: 12px; opacity: 0.7; cursor: pointer;
+}
+.usage-tab:hover, .usage-tab.tab-selected { opacity: 1; }
+.usage-tab.tab-selected { border-bottom-color: var(--accent); }
+.usage-chart { margin: 0; }
+.usage-chart svg { display: block; }
+.usage-bar { fill: var(--accent); }
+.usage-bar:hover { opacity: 0.7; }
+.usage-axis { display: flex; justify-content: space-between; font-size: 11px; }
+.usage-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+.usage-table th, .usage-table td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--fill); }
+.usage-table td { white-space: nowrap; }
+.usage-title { max-width: 84px; overflow: hidden; text-overflow: ellipsis; }
 .swatches { display: flex; gap: 3px; }
 .swatch { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--border); }
 .invalid-themes { margin: 0; padding-left: 16px; font-size: 12px; }

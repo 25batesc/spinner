@@ -77,6 +77,12 @@ async function closeTarget(): Promise<void> {
     await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`);
 }
 
+// A check that throws outside `until` must not leave the tab open either.
+process.on("unhandledRejection", (error) => {
+    console.error(error);
+    void closeTarget().finally(() => process.exit(1));
+});
+
 async function finish(): Promise<never> {
     socket.close();
     await closeTarget();
@@ -369,7 +375,8 @@ if (flow === "panes") {
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
         bar: 3, barOn: "true", popOuts: 1, top: 0, inSessions: 0,
-        context: ["Refund flow", "peer-review", "stack up", "⑂ 2",
+        // `$3.27` is the fixture session's cost (s013), between the stack and the PR badge.
+        context: ["Refund flow", "peer-review", "stack up", "$3.27", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
         links: 0, icons: 7,
     };
@@ -1789,6 +1796,79 @@ if (flow === "bridge-diff") {
         throw new Error("pop out did not take the shown diff view along");
     }
     console.log("bridge diff ok");
+    await finish();
+}
+
+
+if (flow === "costs") {
+    // Costs (s013) against the fixture: the card and the context bar carry the session's
+    // `$` figure (the tokens in the tooltip), the agent chip's tooltip its share and model;
+    // the Usage section under the theme shows today, this week and this month (the fixture's
+    // figures, computed here the same way), a chart of 30 day bars with a hover title, the
+    // switch to week and month changes the bar count, and the tables by session and model.
+    const session = process.env["E2E_SESSION"] ?? "Refund flow";
+    await click(".session", session);
+    const card = `document.querySelector(".session-selected .usage-cost")`;
+    const bar = `document.querySelector(".context-bar .usage-cost")`;
+    await until("card figure", `/^\\$\\d+\\.\\d\\d$/.test(${card}?.textContent ?? "")`);
+    await until("context bar figure", `${bar}?.textContent === ${card}.textContent`);
+    const figure = (await evaluate(`${card}.textContent`)) as string;
+    const tooltip = (await evaluate(`${card}.title`)) as string;
+    console.log("session cost:", figure, "·", tooltip);
+    if (!/^[\d.]+k? in · [\d.]+k? out$/.test(tooltip)) {
+        throw new Error("the cost tooltip did not carry the tokens");
+    }
+    const chip = (await evaluate(
+        `document.querySelector(".chip-name[data-name=backend]")?.title`,
+    )) as string;
+    console.log("chip tooltip:", chip);
+    if (!/\$\d+\.\d\d · anthropic\//.test(chip)) {
+        throw new Error("the chip tooltip did not carry the agent's cost and model");
+    }
+    await shot("70-costs-card");
+    await click("button[aria-label='Show settings']");
+    await until("usage section", `document.querySelector(".usage-section") !== null`);
+    const figureOf = (span: string) =>
+        `document.querySelector(".usage-figure[data-span=${span}] dd")?.textContent`;
+    await until("figures loaded", `${figureOf("month")} !== "…"`);
+    const figures: string[] = [];
+    for (const span of ["today", "week", "month"]) {
+        figures.push((await evaluate(figureOf(span))) as string);
+    }
+    console.log("figures:", JSON.stringify(figures));
+    // The fixture's amounts are a function of the date; the expected figures come from the
+    // same function through the fixture module, and the UI's printer.
+    const { figuresAt } = await import("../fixture/costs.ts");
+    const { formatUsd } = await import("../src/costs.ts");
+    const wanted = figuresAt(new Date());
+    const expected = [wanted.today, wanted.week, wanted.month].map(formatUsd);
+    if (JSON.stringify(figures) !== JSON.stringify(expected)) {
+        throw new Error(`expected the figures ${JSON.stringify(expected)}`);
+    }
+    const bars = `document.querySelectorAll(".usage-bar").length`;
+    await until("30 day bars", `${bars} === 30`);
+    const title = await evaluate(`document.querySelector(".usage-bar title")?.textContent`);
+    console.log("first bar:", title);
+    if (!/^\w{3} \d+ · (\$|<\$)[\d.]+ · [\d.]+k? tokens$/.test(String(title))) {
+        throw new Error("the bar's hover title is not `<day> · <cost> · <tokens> tokens`");
+    }
+    const rows = await evaluate(`({
+        sessions: document.querySelectorAll("[aria-label='Cost by session'] tbody tr").length,
+        models: document.querySelectorAll("[aria-label='Cost by model'] tbody tr").length,
+        first: document.querySelector("[aria-label='Cost by session'] tbody tr")?.innerText,
+    })`);
+    console.log("tables:", JSON.stringify(rows));
+    await shot("71-usage-day");
+    await click(".usage-tab", "week");
+    await until("12 week bars", `${bars} === 12`);
+    await shot("72-usage-week");
+    await click(".usage-tab", "month");
+    await until("12 month bars", `${bars} === 12`);
+    await until("month labels", `${text(".usage-axis")}.length > 0`);
+    await shot("73-usage-month");
+    await click(".usage-tab", "day");
+    await until("30 day bars again", `${bars} === 30`);
+    console.log("costs ok");
     await finish();
 }
 

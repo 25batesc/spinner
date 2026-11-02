@@ -63,6 +63,8 @@ export function describeEvent(event: SpinnerEvent): string | null {
         case "agent.event":
         case "stack.log":
         case "job.log":
+        case "costs":
+            // The ledger refolds every minute; the figures move, the feed stays quiet.
             return null;
         default:
             return assertNever(event);

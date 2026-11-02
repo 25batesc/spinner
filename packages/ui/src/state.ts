@@ -4,6 +4,7 @@
 // A session changes only through `session.created` and `session.updated`, which carry the whole
 // `SessionView`; partial events such as `stack.state` show up in the feed but do not edit it.
 import type {
+    CostsEvent,
     Job,
     OperatorView,
     SessionView,
@@ -48,6 +49,20 @@ export interface UiState {
      * until the load answers, and from a daemon without the route.
      */
     operator: OperatorView | null;
+    /**
+     * The running cost figures from the last `costs` event (s013), with a counter so the
+     * Usage section reloads its report when the ledger changed. Null until the first event.
+     */
+    costs: CostFigures | null;
+}
+
+/** What the `costs` event carries for the Usage section's three figures. */
+export interface CostFigures {
+    today: CostsEvent["today"];
+    week: CostsEvent["week"];
+    month: CostsEvent["month"];
+    /** Counts the events, so a loader keyed on it refetches the report. */
+    revision: number;
 }
 
 export interface Revisions {
@@ -78,6 +93,7 @@ export const initialState: UiState = {
     usage: null,
     settings: null,
     operator: null,
+    costs: null,
 };
 
 export function transcriptKey(dir: string, agent: string): string {
@@ -107,6 +123,20 @@ function applyJobEvent(state: UiState, event: SpinnerEvent): UiState {
     }
 }
 
+/** The figures move; each changed session gets its new `cost` without waiting for a view. */
+function applyCosts(state: UiState, event: CostsEvent): UiState {
+    const sessions = { ...state.sessions };
+    for (const [dir, cost] of Object.entries(event.changed)) {
+        const view = sessions[dir];
+        if (view !== undefined) {
+            sessions[dir] = { ...view, cost };
+        }
+    }
+    const revision = (state.costs?.revision ?? 0) + 1;
+    const { today, week, month } = event;
+    return { ...state, sessions, costs: { today, week, month, revision } };
+}
+
 function applyEvent(state: UiState, event: SpinnerEvent): UiState {
     switch (event.type) {
         case "session.created":
@@ -129,6 +159,8 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
         }
         case "usage":
             return { ...state, usage: { machine: event.machine, sessions: event.sessions } };
+        case "costs":
+            return applyCosts(state, event);
         case "settings":
             return { ...state, settings: event.settings };
         case "operator.updated":
