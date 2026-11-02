@@ -33,7 +33,24 @@ export const EXTENSION_ENV = {
      * long-poll, posts `hello` and the lifecycle events. Absent (or `rpc`) under `--mode rpc`.
      */
     harness: "SPINNER_HARNESS",
+    /** The EGM checkout root (`<home>/egm/src`); set only on a lead of an EGM session. */
+    egm_root: "SPINNER_EGM_ROOT",
+    /** The EGM artifact directory (`<session>/design`); set only on a lead of an EGM session. */
+    egm_artifacts: "SPINNER_EGM_ARTIFACTS",
 } as const;
+
+// The pi-subagents environment, cited from pi-subagents 0.83.0. `PI_SUBAGENTS_TEMP_ROOT` is
+// documented (`docs/agents.md`, the sandbox paragraph) and read once at import, so it must be
+// in the lead's spawn environment. The other two are not documented: `PI_SUBAGENT_CHILD` is
+// `SUBAGENT_CHILD_ENV` in `src/runs/shared/child-runtime-config.js`, and
+// `PI_SUBAGENT_EXTRA_AGENT_DIRS` is `EXTRA_AGENT_DIRS_ENV` in `src/agents/agents.js`.
+
+/** pi-subagents sets this to `1` in every child; the Spinner extension then stays off. */
+export const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
+/** Extra directories that pi-subagents scans for user agents: the EGM adapter. */
+export const SUBAGENT_EXTRA_AGENT_DIRS_ENV = "PI_SUBAGENT_EXTRA_AGENT_DIRS";
+/** The root of pi-subagents' async run directories: `<session>/egm-runs`. */
+export const SUBAGENTS_TEMP_ROOT_ENV = "PI_SUBAGENTS_TEMP_ROOT";
 
 export type ExtensionRole = "worker" | "fixer" | "lead" | "operator";
 

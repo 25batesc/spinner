@@ -210,6 +210,10 @@ export const ROUTES = {
     "GET /jobs": "JobsResponse",
     /** One job by id. 404 when the daemon never ran it (jobs live in memory only). */
     "GET /jobs/:id": "JobResponse",
+    /** The EGM fetch state and the pin (docs/designs/egm-adoption.md, T2). */
+    "GET /egm": "EgmResponse",
+    /** Fetch or refetch EGM at the pin and regenerate the adapter. A job `egm`. */
+    "POST /egm/fetch": "JobResponse",
 } as const;
 
 export type Route = keyof typeof ROUTES;
@@ -584,7 +588,8 @@ export type JobAction =
     | "approve"
     | "land"
     | "reset"
-    | "diff";
+    | "diff"
+    | "egm";
 
 export const JOB_ACTIONS: readonly JobAction[] = [
     "new",
@@ -603,6 +608,7 @@ export const JOB_ACTIONS: readonly JobAction[] = [
     "land",
     "reset",
     "diff",
+    "egm",
 ];
 
 export type JobState = "running" | "ok" | "failed";

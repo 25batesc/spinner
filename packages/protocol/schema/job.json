@@ -77,7 +77,8 @@
                 "approve",
                 "land",
                 "reset",
-                "diff"
+                "diff",
+                "egm"
             ],
             "description": "The actions the daemon runs as jobs."
         },

@@ -5,13 +5,25 @@
 import { describe, expect, it } from "vitest";
 import { ROUTES } from "./api.js";
 import {
+    EXTENSION_ENV,
     EXTENSION_MANIFEST,
     EXTENSION_TOOLS,
+    SUBAGENTS_TEMP_ROOT_ENV,
+    SUBAGENT_CHILD_ENV,
+    SUBAGENT_EXTRA_AGENT_DIRS_ENV,
     role_of_agent,
     type ExtensionToolArgs,
 } from "./extension.js";
 
 describe("extension manifest", () => {
+    it("names the EGM variables and the pi-subagents variables by value", () => {
+        expect(EXTENSION_ENV.egm_root).toBe("SPINNER_EGM_ROOT");
+        expect(EXTENSION_ENV.egm_artifacts).toBe("SPINNER_EGM_ARTIFACTS");
+        expect(SUBAGENT_CHILD_ENV).toBe("PI_SUBAGENT_CHILD");
+        expect(SUBAGENT_EXTRA_AGENT_DIRS_ENV).toBe("PI_SUBAGENT_EXTRA_AGENT_DIRS");
+        expect(SUBAGENTS_TEMP_ROOT_ENV).toBe("PI_SUBAGENTS_TEMP_ROOT");
+    });
+
     it("lists every tool once, in order", () => {
         expect(EXTENSION_MANIFEST.tools.map((tool) => tool.name)).toEqual([...EXTENSION_TOOLS]);
     });
