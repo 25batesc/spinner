@@ -216,6 +216,7 @@ export function pr_facts_from_response(response: PrResponse, context: FactsConte
         // The Slack post and the approval dialog show the title; without it here, the first
         // poll after `pr` dropped the title `pr` had set (live loop, s007).
         title: node.title,
+        checks_failing: checks.failing,
     };
 }
 
@@ -242,6 +243,8 @@ function derive_review(decision: PrNode["reviewDecision"]): ReviewDecision {
 interface SplitChecks {
     rollup: CheckState;
     approval: ApprovalCheckState;
+    /** The names of the red checks, in rollup order, for the CI pill's tooltip (s015). */
+    failing: string[];
 }
 
 /**
@@ -263,13 +266,16 @@ function split_checks(rollup: Rollup | null, approval_name: string | undefined):
         }
     }
     const states = [...latest.values()];
+    const failing = [...latest.entries()]
+        .filter(([, state]) => state === "red")
+        .map(([name]) => name);
     if (states.includes("red")) {
-        return { rollup: "red", approval };
+        return { rollup: "red", approval, failing };
     }
     if (states.includes("pending")) {
-        return { rollup: "pending", approval };
+        return { rollup: "pending", approval, failing };
     }
-    return { rollup: "green", approval };
+    return { rollup: "green", approval, failing };
 }
 
 function check_state(node: CheckNode): CheckState {

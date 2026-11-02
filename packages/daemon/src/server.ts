@@ -74,7 +74,9 @@ import { mount_diff_routes } from "./diff/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
+import { extract_refs } from "./pipeline/extract.js";
 import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
+import { create_reviews, type CreateReviewsInput } from "./pipeline/reviews.js";
 import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { watch_stack_jobs } from "./stack/job-record.js";
 import { service_log_lines, StackLogsError } from "./stack/logs.js";
@@ -90,6 +92,7 @@ import {
     parse_agent_message,
     parse_extract,
     parse_new_session,
+    parse_reviews,
     parse_session_adopt,
     parse_up,
     parse_verify,
@@ -157,6 +160,8 @@ export interface DaemonOptions {
     review_timeout_ms?: number;
     /** The environment `review` resolves `SPINNER_REVIEW_BLAST` from; `process.env` else. */
     env?: NodeJS.ProcessEnv;
+    /** `POST /reviews`: where a repository is cloned from; GitHub when absent. Tests: a path. */
+    clone_url?: CreateReviewsInput["clone_url"];
 }
 
 export interface Daemon {
@@ -211,6 +216,8 @@ export interface AppDeps {
     /** For the `review` step: where `SPINNER_REVIEW_BLAST` is read; tests set it. */
     env?: NodeJS.ProcessEnv;
     review_timeout_ms?: number;
+    /** `POST /reviews`: where a repository is cloned from; GitHub when absent. Tests: a path. */
+    clone_url?: CreateReviewsInput["clone_url"];
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -317,6 +324,32 @@ export function create_app(deps: AppDeps): Hono {
         return start_job(c, deps, "adopt", null, async (log, set_session) => {
             const summary = await actions.adopt(deps.ctx, request, log);
             set_session(summary.dir);
+        });
+    });
+
+    app.post("/reviews", async (c) => {
+        const request = parse_reviews(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        // The cheap half of the extractor runs here, so a paste without a PR is a 409 at
+        // once; the job does the GitHub lookups, the clone and the worktree.
+        if (extract_refs(request.text, []).refs.every((ref) => ref.owner === null)) {
+            return c.json(error_body("no PR reference in the text"), 409);
+        }
+        return start_job(c, deps, "reviews", null, async (log, set_session) => {
+            const result = await create_reviews(deps.home, {
+                text: request.text,
+                gh: deps.ctx.gh,
+                log,
+                ...(deps.clone_url === undefined ? {} : { clone_url: deps.clone_url }),
+            });
+            const first = result.sessions[0];
+            assert.ok(first !== undefined, "create_reviews returns at least one session");
+            set_session(first.dir);
+            for (const summary of result.sessions) {
+                await deps.refresh(summary.dir);
+            }
         });
     });
 
@@ -760,6 +793,30 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         log,
     };
     const view: ViewBuilder = (summary) => build_session_view(view_ctx, summary);
+    // `review.updated` (s015) rides on `session.updated`: every path that changes the
+    // review facts (a poll, a swarm step, a thread write) publishes the view, and the
+    // facts are compared here, so one place emits the event and the UI's chips never miss
+    // a change that came through the file watcher.
+    const review_last = new Map<string, string>();
+    bus.subscribe((event) => {
+        if (event.type === "session.closed") {
+            review_last.delete(event.session);
+            return;
+        }
+        if (event.type !== "session.updated" && event.type !== "session.created") {
+            return;
+        }
+        const fields = event.data.review;
+        if (fields === undefined) {
+            return;
+        }
+        const encoded = JSON.stringify(fields);
+        if (review_last.get(event.session) === encoded) {
+            return;
+        }
+        review_last.set(event.session, encoded);
+        bus.publish({ type: "review.updated", ts: event.ts, session: event.session, data: fields });
+    });
     const publish_view = (dir: string): void => {
         const read = read_session(home, dir);
         if (read.ok) {
@@ -838,6 +895,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         ...(options.review_timeout_ms === undefined
             ? {}
             : { review_timeout_ms: options.review_timeout_ms }),
+        ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.
     await diff.reattach_all(list_sessions(home).sessions);

@@ -59,6 +59,46 @@ export async function add_worktree(input: WorktreeInput): Promise<WorktreeOutcom
     return outcome;
 }
 
+export interface DetachedWorktreeInput {
+    repo_path: string;
+    worktree_path: string;
+    /** The commit to check out, a full SHA; the worktree has no branch, so nothing pushes. */
+    commit: string;
+    session_dir: string;
+}
+
+/**
+ * A read-only checkout for a review (s015): the worktree sits detached at `commit`. A
+ * worktree registered at that path already is moved to `commit` when it is clean, so a
+ * second review of a PR follows its new head; a dirty one is kept and reported as `exists`.
+ */
+export async function add_detached_worktree(
+    input: DetachedWorktreeInput,
+): Promise<WorktreeOutcome> {
+    assert.ok(isAbsolute(input.repo_path), "repo_path must be absolute");
+    assert.ok(isAbsolute(input.worktree_path), "worktree_path must be absolute");
+    assert.ok(/^[0-9a-f]{40}$/.test(input.commit), `commit ${input.commit} is not a full SHA`);
+    let outcome: WorktreeOutcome = "exists";
+    const registered = await list_worktrees(input.repo_path);
+    if (registered.includes(canonical(input.worktree_path))) {
+        const status = await run_ok("git", ["-C", input.worktree_path, "status", "--porcelain"]);
+        if (status.trim().length === 0) {
+            const checkout = ["checkout", "--quiet", "--detach", input.commit];
+            await run_ok("git", ["-C", input.worktree_path, ...checkout]);
+        }
+    } else {
+        mkdirSync(dirname(input.worktree_path), { recursive: true });
+        await run_ok("git", ["-C", input.repo_path, "worktree", "prune"]);
+        const args = ["worktree", "add", "--detach", input.worktree_path, input.commit];
+        await run_ok("git", ["-C", input.repo_path, ...args]);
+        outcome = "created";
+    }
+    link_session(input.worktree_path, input.session_dir);
+    await exclude_session_link(input.repo_path);
+    assert.ok(existsSync(join(input.worktree_path, ".git")), "worktree must have a .git file");
+    return outcome;
+}
+
 /** Removes the worktree and keeps the branch. A worktree that is already gone is fine. */
 export async function remove_worktree(repo_path: string, worktree_path: string): Promise<void> {
     assert.ok(isAbsolute(worktree_path), "worktree_path must be absolute");

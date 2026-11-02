@@ -6,6 +6,7 @@ import type {
     AgentMessageRequest,
     ExtractRequest,
     NewSessionRequest,
+    ReviewsRequest,
     SessionAdoptRequest,
     SessionTitleRequest,
     UpRequest,
@@ -103,6 +104,22 @@ export function parse_session_adopt(input: unknown): SessionAdoptRequest | strin
         return "`refs` must hold non-empty strings";
     }
     return { refs: refs as string[] };
+}
+
+/** `POST /reviews` (s015): a paste with PR references. */
+export function parse_reviews(input: unknown): ReviewsRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const text = non_empty_string(record, "text");
+    if (text === undefined) {
+        return "`text` is required: the PR references to review";
+    }
+    if (text.length > EXTRACT_TEXT_MAX) {
+        return `\`text\` is longer than ${EXTRACT_TEXT_MAX} characters`;
+    }
+    return { text };
 }
 
 /** `PUT /sessions/:dir/title`. */

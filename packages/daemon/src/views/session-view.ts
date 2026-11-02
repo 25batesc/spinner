@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type {
     BoardView,
     DiffView,
+    ReviewFields,
     ServiceStatus,
     ServiceView,
     SessionCost,
@@ -16,6 +17,7 @@ import type {
     SessionView,
     StackSpec,
     StackView,
+    SwarmMember,
 } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { derive_stage } from "../pipeline/derive-stage.js";
@@ -54,6 +56,8 @@ const PROXY_PORT_DEFAULT = 80;
 export function build_session_view(ctx: ViewContext, summary: SessionSummary): SessionView {
     assert.ok(summary.dir.length > 0);
     const spec = session_spec_or_null(summary);
+    const cost = ctx.cost?.(summary.dir);
+    const review = build_review(summary, cost ?? null);
     return {
         summary,
         kind: summary.session.kind ?? "session",
@@ -67,7 +71,41 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         agents_running: ctx.agents_running(summary.dir),
         can_verify: summary.session.stack?.state === "up",
         diff: ctx.diff?.(summary) ?? DIFF_ABSENT,
-        ...(ctx.cost === undefined ? {} : { cost: ctx.cost(summary.dir) }),
+        ...(cost === undefined ? {} : { cost }),
+        ...(review === null ? {} : { review }),
+    };
+}
+
+/**
+ * Pure: `SessionView.review` (s015) for a review session, and for an ordinary session once
+ * its swarm ran; null otherwise. The PR facts are the first tracked PR's: a review session
+ * has one; an ordinary session's chips still show against its first PR.
+ */
+export function build_review(
+    summary: SessionSummary,
+    cost: SessionCost | null,
+): ReviewFields | null {
+    const session = summary.session;
+    if (session.kind !== "review" && session.review === undefined) {
+        return null;
+    }
+    const pr = session_prs(session)[0] ?? null;
+    const swarm: SwarmMember[] = Object.entries(session.review?.swarm ?? {}).map(
+        ([name, record]) => ({
+            name,
+            model: record.model,
+            state: record.state,
+            usd: cost?.agents[name]?.usd ?? 0,
+            pr: record.pr,
+        }),
+    );
+    return {
+        checks: pr?.checks ?? "pending",
+        failing: pr?.checks_failing ?? [],
+        review_decision: pr?.review ?? "none",
+        threads:
+            pr === null ? 0 : pr.threads.bots_open + pr.threads.humans_open + pr.threads.resolved,
+        swarm,
     };
 }
 
