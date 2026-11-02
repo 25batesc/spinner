@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentExtensionCommand } from "@spinner/protocol";
 import { register } from "./index.js";
 import type { ExtensionAPI, ExtensionContext } from "./pi-api.js";
-import { act } from "./tty.js";
+import { act, expand_skill } from "./tty.js";
 
 interface FakePi extends ExtensionAPI {
     sent: Array<{ text: string; deliverAs: string | undefined }>;
@@ -211,6 +211,51 @@ describe("the tty channel", () => {
         expect(registered?.tty).toBe(false);
         expect(registered?.tty_channel).toBeNull();
         expect(pi.handlers.has("session_start")).toBe(false);
+    });
+
+    it("expand_skill: a loaded skill becomes the read instruction; other text stays", () => {
+        const commands = [
+            { name: "help", source: "extension" as const },
+            {
+                name: "skill:egm-brainstorm",
+                source: "skill" as const,
+                sourceInfo: { path: "/egm/skills/egm-brainstorm/SKILL.md" },
+            },
+            { name: "egm-draft", source: "skill" as const, sourceInfo: { path: "/egm/d.md" } },
+            { name: "skill:no-path", source: "skill" as const },
+        ];
+        const read = "Read the skill file at /egm/skills/egm-brainstorm/SKILL.md";
+        expect(expand_skill("/skill:egm-brainstorm", commands)).toBe(
+            `${read} and follow it in this thread.`,
+        );
+        expect(expand_skill("/skill:egm-draft Context File: /b.md.", commands)).toBe(
+            "Read the skill file at /egm/d.md and follow it in this thread. " +
+                "Arguments: Context File: /b.md.",
+        );
+        expect(expand_skill("/skill:unknown x", commands)).toBe("/skill:unknown x");
+        expect(expand_skill("/skill:no-path", commands)).toBe("/skill:no-path");
+        expect(expand_skill("please run /skill:egm-draft", commands)).toBe(
+            "please run /skill:egm-draft",
+        );
+        expect(expand_skill("/help", commands)).toBe("/help");
+    });
+
+    it("act: expands a /skill: prompt and steer, never a notify", () => {
+        const pi = fake_pi();
+        const path = "/egm/skills/egm-review/SKILL.md";
+        pi.getCommands = () => [
+            { name: "skill:egm-review", source: "skill", sourceInfo: { path } },
+        ];
+        const busy = fake_ctx(false, { count: 0 });
+        act(pi, busy, { id: "c-1", type: "prompt", text: "/skill:egm-review /d.md" });
+        act(pi, busy, { id: "c-2", type: "steer", text: "/skill:egm-review" });
+        act(pi, busy, { id: "c-3", type: "notify", text: "/skill:egm-review" });
+        const read = `Read the skill file at ${path} and follow it in this thread.`;
+        expect(pi.sent).toEqual([
+            { text: `${read} Arguments: /d.md`, deliverAs: "followUp" },
+            { text: read, deliverAs: "steer" },
+        ]);
+        expect(pi.custom[0]?.content).toBe("/skill:egm-review");
     });
 
     it("act: a busy pi queues a prompt as a follow-up and a steer as a steer", () => {

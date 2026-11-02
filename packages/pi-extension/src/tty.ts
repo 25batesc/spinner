@@ -12,6 +12,7 @@ import type {
     ExtensionContext,
     LifecycleEvent,
     LifecycleEventName,
+    SlashCommandInfo,
 } from "./pi-api.js";
 import type { Fetch } from "./tools.js";
 
@@ -187,10 +188,12 @@ export function act(
         ctx.abort();
         return "aborted";
     }
-    const text = command.text ?? "";
-    if (text.length === 0) {
+    const raw = command.text ?? "";
+    if (raw.length === 0) {
         return "ignored";
     }
+    // A notify is the daemon's own text; a prompt or a steer may start with `/skill:`.
+    const text = command.type === "notify" ? raw : expand_skill(raw, pi.getCommands());
     if (command.type === "steer") {
         pi.sendUserMessage(text, { deliverAs: "steer" });
         return idle ? "started" : "queued";
@@ -206,6 +209,32 @@ export function act(
     }
     pi.sendUserMessage(text, { deliverAs: "followUp" });
     return "queued";
+}
+
+/**
+ * `pi.sendUserMessage` does not expand a `/skill:` command (probe P3 of the EGM design,
+ * docs/egm/HARNESS_EVIDENCE.md): the model would see the literal text. So a prompt or a steer
+ * that starts with `/skill:<name>` becomes Spinner's instruction to read that skill's file,
+ * as EGM advises for hosts without a skill tool (`docs/claude.md`). The path comes from pi's
+ * own command list. Any other text, or a skill pi did not load, passes unchanged.
+ */
+export function expand_skill(text: string, commands: SlashCommandInfo[]): string {
+    const match = /^\/skill:(\S+)(?:\s+([\s\S]*))?$/.exec(text);
+    if (match === null) {
+        return text;
+    }
+    const name = match[1] ?? "";
+    const command = commands.find(
+        (entry) =>
+            entry.source === "skill" && (entry.name === `skill:${name}` || entry.name === name),
+    );
+    const path = command?.sourceInfo?.path;
+    if (path === undefined || path === "") {
+        return text;
+    }
+    const rest = (match[2] ?? "").trim();
+    const read = `Read the skill file at ${path} and follow it in this thread.`;
+    return rest.length === 0 ? read : `${read} Arguments: ${rest}`;
 }
 
 function sleep(ms: number): Promise<void> {
