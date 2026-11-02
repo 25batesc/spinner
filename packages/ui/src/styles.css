@@ -256,38 +256,64 @@ html, body, #root { height: 100%; margin: 0; }
 .status[data-connection="closed"]::before { background: var(--fail); }
 .muted { color: var(--muted); }
 .session-list { list-style: none; margin: 0; padding: 0; }
-/* Every card is the same height: two title lines, one badge line, one needs-you line. */
+/* Every card is the same height as the compose card: up to two title lines at the top, then
+   the badge line and the needs-you line at the bottom. The selected card takes the accent
+   tint and a bar on its left edge, as the active row of a PR list does. */
 .session {
-    display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
-    height: 92px; box-sizing: border-box; margin-bottom: 6px; padding: 6px;
-    border: 1px solid var(--border); border-radius: 4px;
-    background: transparent; color: inherit; cursor: pointer; overflow: hidden;
+    display: flex; flex-direction: column; gap: var(--space-1); width: 100%; text-align: left;
+    height: 92px; box-sizing: border-box; margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    background: var(--surface); color: inherit; font: inherit; cursor: pointer; overflow: hidden;
+    transition: background-color 0.1s, border-color 0.1s;
 }
+.session:hover { background: color-mix(in srgb, var(--surface) 100%, var(--text) 5%); }
 .session-title {
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; line-height: 1.3; height: 2.6em;
+    flex: none; overflow: hidden; line-height: 16px; max-height: 32px;
+    font-size: var(--text-body); font-weight: 600;
 }
-.session-needs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 1.3em; }
-/* The block above the list: Adopt on the left third, New session on the right two thirds. */
-.compose-card { display: flex; gap: 6px; height: 92px; margin-bottom: 6px; }
+/* One 18 px line that wraps into its hidden overflow: a fact that does not fit whole drops
+   out instead of showing a cut number. The usage goes last, so it gives way first. */
+.session .badges {
+    flex: none; margin-top: auto; min-width: 0; height: 18px; overflow: hidden;
+    flex-wrap: wrap; row-gap: 20px;
+}
+.session .badges .usage-line { order: 2; font-variant-numeric: tabular-nums; }
+.session .badges .pr-badge { order: 1; }
+.session-needs {
+    flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 16px;
+    line-height: 16px;
+}
+/* The block above the list: Adopt on the left third, New session on the right two thirds.
+   New session is the panel's primary action; Adopt is secondary. */
+.compose-card { display: flex; gap: var(--space-2); height: 92px; margin-bottom: var(--space-2); }
 .compose-card button {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 4px; border: 1px dashed var(--border); border-radius: 4px; background: transparent;
-    color: inherit; cursor: pointer; font: inherit; opacity: 0.75;
+    gap: 6px; border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    background: var(--fill-soft); color: inherit; cursor: pointer; font: inherit;
+    font-weight: 500; transition: background-color 0.1s, border-color 0.1s;
 }
-.compose-card button:hover { opacity: 1; background: var(--fill-soft); }
-.compose-adopt { flex: 1; font-size: 12px; }
-.compose-new { flex: 2; }
-.compose-plus { font-size: 28px; line-height: 1; }
+.compose-card button:hover { background: var(--fill); }
+.compose-adopt { flex: 1; font-size: var(--text-dense); color: var(--muted); }
+.compose-card .compose-new {
+    flex: 2; background: var(--accent-tint);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.compose-card .compose-new:hover { background: var(--accent-fill); border-color: var(--accent); }
+.compose-plus { font-size: 24px; line-height: 1; font-weight: 400; color: var(--accent); }
 .compose-form { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
 .compose-form h3 { margin: 0; }
 .compose-form input, .compose-form select, .compose-form textarea { font: inherit; }
 .compose-actions { display: flex; gap: 6px; }
 .compose-actions .primary { font-weight: 600; border-color: var(--accent); }
-.session-selected { border-color: var(--accent); }
-.badges { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+.session.session-selected {
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent);
+}
+.badges { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 /* The usage line beside the stack state, on the cards and the context bar: `1.2 GB · 14 %`. */
-.session .badges { font-size: 12px; }
+.session .badges { font-size: var(--text-dense); }
 .badges .dot { flex: none; }
 .usage-line { font-size: 11px; }
 .machine-line { font-size: 11px; white-space: nowrap; }
