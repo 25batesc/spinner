@@ -55,6 +55,9 @@ export function MissionWorkspaceView(props: MissionWorkspaceViewProps) {
     const { mission } = props;
     const ticked = useArrivals(doneKeys(mission));
     const rows: RowContext = { ...props, ticked };
+    // The roster first, then any other Log author (the operator, a former agent): each gets a
+    // colour of its own and a filter chip.
+    const authors = [...new Set([...props.agents, ...mission.log.map((line) => line.author)])];
     // The order in the DOM is the reading order of a narrow pane; `mission-workspace.css`
     // places Done when beside the Goal card when the pane is wide enough.
     const main = (
@@ -74,14 +77,14 @@ export function MissionWorkspaceView(props: MissionWorkspaceViewProps) {
         </div>
     );
     return (
-        <AgentOrder.Provider value={props.agents}>
+        <AgentOrder.Provider value={authors}>
             <div className="mw" aria-label="Mission workspace">
                 {props.error !== null && <p className="mw-error" role="alert">{props.error}</p>}
                 <div className="mw-grid">
                     {main}
                     <LogFeed
                         log={mission.log}
-                        agents={props.agents}
+                        agents={authors}
                         filter={props.filter}
                         onFilter={props.onFilter}
                     />
@@ -368,11 +371,11 @@ function ItemBody(props: {
             <button
                 className="mw-item-text"
                 disabled={props.pending}
-                title="Click to edit"
+                title={`${props.text}\n\nClick to edit.`}
                 onClick={() => props.onMode("edit")}
             >
                 {props.number !== undefined && <span className="mw-number">{props.number}</span>}
-                {props.text}
+                <Inline text={props.text} />
             </button>
             <span className="mw-item-meta">
                 {props.owner !== null && <Owner name={props.owner} />}
@@ -439,6 +442,27 @@ function InlineForm(props: {
     );
 }
 
+/** About four lines of the Goal card at its narrowest useful width. */
+const GOAL_CLAMP_CHARS = 280;
+
+/**
+ * A mission text with its `code` spans set in mono. The rest stays plain text: the file is
+ * markdown, but an item is one line, and code spans are what the lead and the agents write.
+ */
+function Inline({ text }: { text: string }) {
+    const parts = text.split("`");
+    // An odd count of backticks leaves the last span open; then the text shows as written.
+    if (parts.length % 2 === 0) {
+        return <>{text}</>;
+    }
+    return (
+        <>
+            {parts.map((part, index) =>
+                index % 2 === 1 ? <code key={index} className="mw-code">{part}</code> : part)}
+        </>
+    );
+}
+
 /** A free text that edits in place: the Goal. */
 function EditableText(props: {
     id: string;
@@ -449,6 +473,7 @@ function EditableText(props: {
     onSave: (text: string) => void;
 }) {
     const [editing, setEditing] = useState(false);
+    const [expanded, setExpanded] = useState(false);
     if (editing) {
         return (
             <InlineForm
@@ -465,15 +490,27 @@ function EditableText(props: {
             />
         );
     }
+    // A long goal shows its first lines; the rest is one click away, so the Plan stays in view.
+    const long = props.text.length > GOAL_CLAMP_CHARS;
+    const clamped = long && !expanded;
     return (
-        <button
-            className="mw-text"
-            disabled={props.pending}
-            title="Click to edit"
-            onClick={() => setEditing(true)}
-        >
-            {props.text === "" ? <span className="mw-empty">{props.empty}</span> : props.text}
-        </button>
+        <>
+            <button
+                className={clamped ? "mw-text mw-clamped" : "mw-text"}
+                disabled={props.pending}
+                title="Click to edit"
+                onClick={() => setEditing(true)}
+            >
+                {props.text === ""
+                    ? <span className="mw-empty">{props.empty}</span>
+                    : <Inline text={props.text} />}
+            </button>
+            {long && (
+                <button className="mw-ghost mw-more" onClick={() => setExpanded(!expanded)}>
+                    {expanded ? "show less" : "show all"}
+                </button>
+            )}
+        </>
     );
 }
 
@@ -509,7 +546,7 @@ function RosterChip({ row }: { row: RosterRow }) {
                 {row.updated !== "" && row.updated !== "—" && <Clock value={row.updated} />}
             </span>
             <span className={idle ? "mw-agent-doing mw-empty" : "mw-agent-doing"}>
-                {idle ? "No task yet" : row.doing}
+                {idle ? "No task yet" : <Inline text={row.doing} />}
             </span>
             {blocked && row.blocked.toLowerCase() !== "yes" && (
                 <span className="mw-agent-blocker">{row.blocked}</span>
@@ -578,9 +615,9 @@ function QuestionCard(props: {
                 {question.author !== null && <Owner name={question.author} />}
                 {answered && <span className="pill pill-ok">answered</span>}
             </span>
-            <p className="mw-question-text">{question.text}</p>
+            <p className="mw-question-text"><Inline text={question.text} /></p>
             {answered ? (
-                <p className="mw-answer">{question.answer}</p>
+                <p className="mw-answer"><Inline text={question.answer ?? ""} /></p>
             ) : (
                 <form className="mw-answer-form" onSubmit={send}>
                     <input
@@ -657,7 +694,7 @@ function LogFeed(props: {
                             className={fresh.has(line.key) ? "mw-line mw-line-new" : "mw-line"}>
                             <Clock value={line.ts} />
                             <Owner name={line.author} />
-                            <span className="mw-line-text">{line.text}</span>
+                            <span className="mw-line-text"><Inline text={line.text} /></span>
                         </li>
                     ))}
                 </ol>
@@ -718,7 +755,8 @@ function Clock({ value }: { value: string }) {
 }
 
 export function clock(value: string): string {
-    if (/^\d{1,2}:\d{2}$/.test(value)) {
+    // Only a full ISO time converts; a clock time or a date (a Contracts line) stays as written.
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(value)) {
         return value;
     }
     const date = new Date(value);
