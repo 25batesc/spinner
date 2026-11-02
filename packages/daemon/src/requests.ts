@@ -4,24 +4,50 @@ import type {
     AddAgentRequest,
     AdoptRequest,
     AgentMessageRequest,
+    ExtractRequest,
     NewSessionRequest,
+    SessionAdoptRequest,
+    SessionTitleRequest,
     UpRequest,
     VerifyRequest,
 } from "@spinner/protocol";
+import { SESSION_TITLE_MAX } from "@spinner/protocol";
 
 /** Upper bound on PR URLs in one adopt request; `adopt_prs` has the same limit. */
 const ADOPT_URLS_MAX = 20;
 
+/** Upper bound on a paste; a longer one belongs in a file the lead reads. */
+const EXTRACT_TEXT_MAX = 100_000;
+
+/** `title` or `text` (s014, a paste) is required; `adopt` lists PR URLs from an extract. */
 export function parse_new_session(input: unknown): NewSessionRequest | string {
     const record = as_record(input);
     if (typeof record === "string") {
         return record;
     }
     const title = non_empty_string(record, "title");
-    if (title === undefined) {
-        return "`title` must be a non-empty string";
+    const text = non_empty_string(record, "text");
+    if (title === undefined && text === undefined) {
+        return "`title` or `text` must be a non-empty string";
     }
-    const request: NewSessionRequest = { title };
+    const request: NewSessionRequest = {};
+    if (title !== undefined) {
+        request.title = title;
+    }
+    if (text !== undefined) {
+        request.text = text;
+    }
+    const adopt = record["adopt"];
+    if (adopt !== undefined) {
+        const urls = Array.isArray(adopt) ? adopt : null;
+        if (urls === null || !urls.every((url) => typeof url === "string" && url.length > 0)) {
+            return "`adopt` must be an array of pull request URLs when given";
+        }
+        if (urls.length > ADOPT_URLS_MAX) {
+            return `\`adopt\` holds more than ${ADOPT_URLS_MAX} entries`;
+        }
+        request.adopt = urls as string[];
+    }
     const slug = optional_string(record, "slug");
     if (typeof slug === "string") {
         request.slug = slug;
@@ -35,6 +61,64 @@ export function parse_new_session(input: unknown): NewSessionRequest | string {
         return "`project` must be a non-empty string when given";
     }
     return request;
+}
+
+/** `POST /sessions/extract`: the paste and, optionally, the project to resolve against. */
+export function parse_extract(input: unknown): ExtractRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const text = record["text"];
+    if (typeof text !== "string") {
+        return "`text` must be a string";
+    }
+    if (text.length > EXTRACT_TEXT_MAX) {
+        return `\`text\` is longer than ${EXTRACT_TEXT_MAX} characters`;
+    }
+    const request: ExtractRequest = { text };
+    const project = optional_string(record, "project");
+    if (typeof project === "string") {
+        request.project = project;
+    } else if (project !== undefined) {
+        return "`project` must be a non-empty string when given";
+    }
+    return request;
+}
+
+/** `POST /sessions/:dir/adopt`: PR references in any form the extract takes. */
+export function parse_session_adopt(input: unknown): SessionAdoptRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const refs = record["refs"];
+    if (!Array.isArray(refs) || refs.length === 0) {
+        return "`refs` must be a non-empty array of pull request references";
+    }
+    if (refs.length > ADOPT_URLS_MAX) {
+        return `\`refs\` holds more than ${ADOPT_URLS_MAX} entries`;
+    }
+    if (!refs.every((ref) => typeof ref === "string" && ref.trim().length > 0)) {
+        return "`refs` must hold non-empty strings";
+    }
+    return { refs: refs as string[] };
+}
+
+/** `PUT /sessions/:dir/title`. */
+export function parse_session_title(input: unknown): SessionTitleRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const title = non_empty_string(record, "title");
+    if (title === undefined) {
+        return "`title` must be a non-empty string";
+    }
+    if (title.includes("\n") || title.trim().length > SESSION_TITLE_MAX) {
+        return `\`title\` must be one line of at most ${SESSION_TITLE_MAX} characters`;
+    }
+    return { title: title.trim() };
 }
 
 export function parse_adopt(input: unknown): AdoptRequest | string {

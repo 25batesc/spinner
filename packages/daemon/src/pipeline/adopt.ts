@@ -5,9 +5,9 @@
 // and `land` work on the session; without one, adopting is for watching only. `attach_adopted`
 // does the worktree half later for a session adopted without a project.
 import assert from "node:assert/strict";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { Session, SessionRepo, SessionSummary, StackSpec } from "@spinner/protocol";
-import { fetch_branch } from "../git/worktree.js";
+import { checkout_branch, fetch_branch } from "../git/worktree.js";
 import type { SpinnerHome } from "../home.js";
 import { attach_project } from "../stack/runner.js";
 import { find_spec, load_spec, type LoadedSpec } from "../stack/spec.js";
@@ -85,6 +85,87 @@ export async function adopt_prs(home: SpinnerHome, input: AdoptInput): Promise<S
         await attach_worktrees({ ...created, session: refreshed.session }, loaded, heads, log);
     }
     const check = read_session(home, created.dir);
+    assert.ok(check.ok, "an adopted session must read back");
+    return check.summary;
+}
+
+export interface AdoptIntoInput {
+    urls: string[];
+    /** The project, loaded by the caller; the session need not be attached to it yet. */
+    loaded: LoadedSpec;
+    gh: GhRunner;
+    now?: () => Date;
+    log?: (line: string) => void;
+}
+
+/**
+ * Adopts PRs into a session that exists (MISSION.md s014: the `POST /sessions` job with a
+ * paste, and the lead's `adopt` tool): fetches each PR once, records it under its repo with
+ * the derived stage, then attaches the project with the PR repos on their head branches. A
+ * repo whose worktree already exists on another branch is checked out to the PR's branch.
+ * The session branch becomes the first PR's head branch when the session had no PR yet.
+ */
+export async function adopt_into_session(
+    home: SpinnerHome,
+    summary: SessionSummary,
+    input: AdoptIntoInput,
+): Promise<SessionSummary> {
+    assert.ok(input.urls.length > 0, "adopt needs at least one PR URL");
+    assert.ok(input.urls.length <= URLS_MAX, `adopt takes at most ${URLS_MAX} PRs`);
+    const now = input.now ?? (() => new Date());
+    const log = input.log ?? (() => {});
+    const refs = input.urls.map(parse_ref);
+    const spec = input.loaded.spec;
+    const config = pipeline_config_from_spec(spec);
+    const owner_login = config.github.owner_login ?? (await fetch_owner_login(input.gh));
+    const responses: PrResponse[] = [];
+    for (const ref of refs) {
+        responses.push(await fetch_pr_response(input.gh, ref));
+    }
+    const had_pr = Object.values(summary.session.repos).some(
+        (repo) => repo.pr !== null && repo.pr !== undefined,
+    );
+    let session: Session = {
+        ...summary.session,
+        pipeline: summary.session.pipeline ?? {
+            verified_locally: false,
+            verified_heads: {},
+            slack_post: null,
+        },
+    };
+    if (!had_pr) {
+        session.branch = session_branch(responses);
+        session.base = responses[0]?.data.repository.pullRequest.baseRefName ?? session.base;
+    }
+    const heads: Record<string, string> = {};
+    for (const [index, ref] of refs.entries()) {
+        const response = responses[index];
+        assert.ok(response !== undefined);
+        const repo = repo_for(ref, spec, log);
+        session.repos[repo.key] = { ...session.repos[repo.key], ...repo.entry };
+        heads[repo.key] = response.data.repository.pullRequest.headRefName;
+        const facts = pr_facts_from_response(response, { config: config.github, owner_login });
+        session = apply_pr_facts(session, repo.key, facts);
+        log(`adopted ${ref.owner}/${ref.name}#${ref.number} as ${repo.key} on ${heads[repo.key]}`);
+    }
+    const refreshed = refresh_session(summary.session, session, config, now());
+    write_session({ ...summary, session: refreshed.session });
+    const attached = await attach_worktrees(
+        { ...summary, session: refreshed.session },
+        input.loaded,
+        heads,
+        log,
+    );
+    for (const [key, head] of Object.entries(heads)) {
+        const worktree = attached.session.repos[key]?.worktree;
+        if (worktree === undefined) {
+            continue;
+        }
+        if (await checkout_branch(join(attached.path, worktree), head)) {
+            log(`worktree ${worktree} switched to ${head}`);
+        }
+    }
+    const check = read_session(home, attached.dir);
     assert.ok(check.ok, "an adopted session must read back");
     return check.summary;
 }

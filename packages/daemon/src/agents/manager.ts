@@ -18,7 +18,7 @@ import type {
     SessionSummary,
     Settings,
 } from "@spinner/protocol";
-import { SETTINGS_DEFAULT } from "@spinner/protocol";
+import { SETTINGS_DEFAULT, role_of_agent } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { is_spinner_leader, process_start_time } from "../stack/host-service.js";
@@ -409,6 +409,7 @@ export function default_brief(summary: SessionSummary, name: string, repo?: stri
         name,
         session: summary.session,
         ...(repo === undefined ? {} : { repo }),
+        ...(role_of_agent(name) === "lead" ? { kind: "lead" as const } : {}),
     });
 }
 

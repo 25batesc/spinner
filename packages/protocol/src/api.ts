@@ -46,7 +46,7 @@ export const ROUTES = {
     "POST /sessions/extract": "ExtractResponse",
     /** Adopt PR references into an existing session. Body: SessionAdoptRequest. */
     "POST /sessions/:dir/adopt": "JobResponse",
-    /** Set the session title in `session.yaml` and the mission heading. Body: SessionTitleRequest. */
+    /** Set the title in `session.yaml` and the mission heading. Body: SessionTitleRequest. */
     "PUT /sessions/:dir/title": "SessionResponse",
     /** The structured mission (s014): the sections of MISSION.md parsed, derived on each read. */
     "GET /sessions/:dir/mission/view": "MissionViewResponse",
@@ -902,7 +902,7 @@ export interface RosterRow {
     updated: string;
 }
 
-/** A Contracts line: `- HH:MM author: text` or `- YYYY-MM-DD author: text`; `id` is its position. */
+/** A Contracts line, `- HH:MM author: text` or `- YYYY-MM-DD author: text`; `id`: position. */
 export interface MissionLine {
     id: number;
     ts: string | null;

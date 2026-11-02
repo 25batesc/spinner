@@ -131,6 +131,8 @@ export interface CreateSessionInput {
     now?: Date;
     /** PR URLs the session is adopted from; the mission says so and lists them. */
     adopted?: string[];
+    /** A session started from a paste (s014): the lead agent writes the mission. */
+    lead?: boolean;
 }
 
 /**
@@ -178,6 +180,7 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
         title: input.title,
         time: hhmm(now),
         ...(input.adopted === undefined ? {} : { adopted: input.adopted }),
+        ...(input.lead === undefined ? {} : { lead: input.lead }),
     });
     writeFileSync(join(path, "MISSION.md"), mission);
     writeFileSync(join(path, "AGENTS.md"), render_agents_file({ id, dir }));

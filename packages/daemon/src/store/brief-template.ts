@@ -1,7 +1,9 @@
 // The BRIEF.md the daemon writes for an agent added without one (docs/SESSION_PROTOCOL.md,
 // "agents/<name>/BRIEF.md"). It follows the protocol's template: role, Owns, Do not edit,
 // Stack, Every turn, Finish. The operator edits it in the session directory afterwards; the
-// daemon never rewrites an existing brief.
+// daemon never rewrites an existing brief. The `lead` variant (MISSION.md s014) is the brief
+// of the agent that owns the mission: it writes Goal, Done when and Plan from the
+// conversation, sets the title, ticks, logs, asks, and adds agents when the work splits.
 import type { Session } from "@spinner/protocol";
 
 export interface BriefTemplateInput {
@@ -9,9 +11,14 @@ export interface BriefTemplateInput {
     session: Session;
     /** Repo key of `session.repos` the agent works in, when it runs in a worktree. */
     repo?: string;
+    /** `lead` for the agent that owns the mission; a worker otherwise. */
+    kind?: "worker" | "lead";
 }
 
 export function render_brief(input: BriefTemplateInput): string {
+    if (input.kind === "lead") {
+        return render_lead_brief(input);
+    }
     const { name, session } = input;
     const others = Object.keys(session.agents ?? {}).filter((other) => other !== name);
     return [
@@ -37,6 +44,61 @@ export function render_brief(input: BriefTemplateInput): string {
         "1. Make the tests green.",
         "2. Tick your Plan items.",
         "3. Set your Roster row: Doing = `done`, Blocked? = `no`.",
+        "",
+    ].join("\n");
+}
+
+/**
+ * The lead's brief: it owns the mission and the session's agents, works in the worktrees,
+ * and leaves pushing, posting, approving, landing, resetting and closing to the operator.
+ */
+function render_lead_brief(input: BriefTemplateInput): string {
+    const { name, session } = input;
+    return [
+        `# ${name}`,
+        "",
+        `Role: lead of session ${session.id} (${session.title}). You own the mission and you`,
+        "run the session. The operator talks to you in your terminal and reads `MISSION.md`.",
+        "",
+        "## Owns",
+        "- `MISSION.md`: Goal, Done when, Plan, the title, and your Roster row.",
+        ...owns_lines(session, input.repo),
+        "- The session's agents: you add them, brief them, and steer them.",
+        "",
+        "## Do not edit",
+        "- Do not edit `MISSION.md` with `edit` or `write`; use the tools, so the daemon stamps",
+        "  the time and the workspace updates.",
+        "- Do not push, post, approve, land, reset or close. The operator does those, in the UI",
+        "  or with `spinner`. Say what is ready and why, in the Log and in your terminal.",
+        "",
+        ...stack_lines(session),
+        "## First message",
+        "1. Your first message is what the session is about: a paste, with the pull requests",
+        "   adopted into worktrees and the ones only mentioned. If it does not say what the",
+        "   work is, ask the operator in your terminal before you write anything.",
+        "2. Set the title with `session_title`, a few words.",
+        "3. Write the Goal with `mission_goal` (one paragraph), the Done when list with",
+        "   `mission_done_when` (what must be true at the end), and the Plan with `mission_plan`",
+        "   (one owner per item; yourself until the work splits).",
+        "",
+        "## Every turn",
+        "1. Read `MISSION.md` in full; the operator and the workspace write to it too.",
+        "2. Keep your Roster row current with `mission_roster`: what you do, and what blocks you.",
+        "3. Append one Log line with `mission_log` for each thing that happened.",
+        "4. Tick a Plan item with `mission_plan` the moment it is done, and a Done when item",
+        "   with `mission_done_when` the moment it holds. Never renumber.",
+        "5. When the work is parallel, add an agent with `agent_add` and brief it: what it owns,",
+        "   what it must not edit, what done means. Steer it with `agent_steer`.",
+        "6. A product, UX or preference call is the operator's: put it under Open questions with",
+        "   `mission_question`, with the options and your recommendation, and continue elsewhere.",
+        "7. A pull request the operator mentions later: `adopt` it. A PR of a repo the project",
+        "   does not list is refused with the reason; say so.",
+        "8. Stage by path. Never `git add -A`. Never push.",
+        "",
+        "## Finish",
+        "1. Every Done when item ticked, or an Open question that says why not.",
+        "2. Your Roster row: Doing = `done`, Blocked? = `no`.",
+        "3. A last Log line: what exists and what the operator must do next.",
         "",
     ].join("\n");
 }

@@ -106,6 +106,42 @@ function canonical(path: string): string {
 /** Upper bound on directory levels to walk when looking for an existing ancestor. */
 const PATH_LEVELS_MAX = 64;
 
+/**
+ * Puts an existing worktree on `branch` (s014, `adopt` into an attached session): a worktree
+ * already on it is left alone; a clean one is checked out; a dirty one is an error, because
+ * switching would carry the changes to the PR's branch.
+ */
+export async function checkout_branch(worktree_path: string, branch: string): Promise<boolean> {
+    assert.ok(branch.length > 0, "branch must not be empty");
+    const current = await run_ok("git", ["-C", worktree_path, "rev-parse", "--abbrev-ref", "HEAD"]);
+    if (current.trim() === branch) {
+        return false;
+    }
+    const status = await run_ok("git", ["-C", worktree_path, "status", "--porcelain"]);
+    if (status.trim().length > 0) {
+        throw new Error(`${worktree_path} has uncommitted changes; cannot switch to ${branch}`);
+    }
+    await run_ok("git", ["-C", worktree_path, "checkout", "--quiet", branch]);
+    return true;
+}
+
+/**
+ * The GitHub `owner` of a checkout's `origin`, from `git remote get-url origin`, for
+ * `https://github.com/owner/name(.git)` and `git@github.com:owner/name(.git)`; null without
+ * an origin or for another host.
+ */
+export async function origin_owner(repo_path: string): Promise<string | null> {
+    const result = await run("git", ["-C", repo_path, "remote", "get-url", "origin"], {
+        timeout_ms: 5_000,
+    });
+    if (result.code !== 0) {
+        return null;
+    }
+    const url = String(result.stdout).trim();
+    const match = /github\.com[:/]([^/]+)\/[^/]+?(?:\.git)?\/?$/.exec(url);
+    return match?.[1] ?? null;
+}
+
 async function branch_exists(repo_path: string, branch: string): Promise<boolean> {
     return ref_exists(repo_path, `refs/heads/${branch}`);
 }

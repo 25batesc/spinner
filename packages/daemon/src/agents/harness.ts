@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PiEvent, SessionSummary } from "@spinner/protocol";
-import { EXTENSION_ENV, type ExtensionRole } from "@spinner/protocol";
+import { EXTENSION_ENV, role_of_agent, type ExtensionRole } from "@spinner/protocol";
 import { model_args, spawn_pi, type PiProcess, type PiSpawnOptions } from "./pi-rpc.js";
 
 export interface AgentSpawnSpec {
@@ -130,7 +130,7 @@ export function pi_spawn_options(
     agent: AgentSpawnSpec,
     options: PiHarnessOptions,
 ): PiSpawnOptions {
-    const role: ExtensionRole = agent.role ?? (agent.name === "fixer" ? "fixer" : "worker");
+    const role: ExtensionRole = agent.role ?? role_of_agent(agent.name);
     return pi_spawn_plan(
         {
             name: agent.name,

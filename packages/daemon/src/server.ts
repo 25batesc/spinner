@@ -24,6 +24,7 @@ import type {
     AgentResponse,
     BuildInfo,
     ErrorResponse,
+    ExtractResponse,
     HealthResponse,
     JobAction,
     JobResponse,
@@ -87,10 +88,13 @@ import {
     parse_add_agent,
     parse_adopt,
     parse_agent_message,
+    parse_extract,
     parse_new_session,
+    parse_session_adopt,
     parse_up,
     parse_verify,
 } from "./requests.js";
+import { start_lead_session } from "./agents/lead.js";
 import { MissionWriter } from "./store/mission-writer.js";
 import { find_session, list_sessions, read_session } from "./store/session-store.js";
 import {
@@ -247,9 +251,51 @@ export function create_app(deps: AppDeps): Hono {
             return c.json(error_body(describe_error(error)), 409);
         }
         const dir = summary.dir;
+        if (request.text !== undefined) {
+            // s014, chat first: attach, adopt, start the lead, send the paste as its message.
+            const lead_deps = { home: deps.home, ctx: deps.ctx, agents: deps.agents };
+            return start_job(c, deps, "new", dir, (log) =>
+                start_lead_session(lead_deps, summary, request, log).then(() => {}),
+            );
+        }
         return start_job(c, deps, "new", dir, (log) =>
             actions.attach_new_session(deps.ctx, summary, request.project, log).then(() => {}),
         );
+    });
+
+    app.post("/sessions/extract", async (c) => {
+        const request = parse_extract(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        try {
+            const body: ExtractResponse = await actions.extract(deps.ctx, request);
+            return c.json(body);
+        } catch (error) {
+            // A project that does not resolve is the caller's; GitHub trouble is a reason
+            // on each entry, so what reaches here is the daemon's own fault.
+            const message = describe_error(error);
+            const status = message.includes("not found") || message.includes("no ") ? 400 : 500;
+            return c.json(error_body(message), status);
+        }
+    });
+
+    app.post("/sessions/:dir/adopt", async (c) => {
+        const request = parse_session_adopt(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        if (summary.session.project === undefined) {
+            return c.json(error_body(`${summary.dir} has no project; attach one first`), 409);
+        }
+        return start_job(c, deps, "adopt", summary.dir, async (log) => {
+            const urls = await actions.adopt_refs(deps.ctx, summary, request, log);
+            log(`adopted ${urls.length} PR${urls.length === 1 ? "" : "s"} into ${summary.dir}`);
+        });
     });
 
     app.post("/sessions/adopt", async (c) => {

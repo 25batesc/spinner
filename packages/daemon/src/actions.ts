@@ -2,12 +2,15 @@
 // each taking a `log` for the lines the CLI prints and the job streams as `job.log`. Routes
 // and commands call these and nothing else, so the two surfaces cannot drift.
 import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type {
     AdoptRequest,
     ApproveRequest,
     ApproveView,
+    ExtractRequest,
+    ExtractResponse,
     FixRequest,
     LandRequest,
     NewSessionRequest,
@@ -15,14 +18,24 @@ import type {
     PostRequest,
     PostView,
     PrRequest,
+    SessionAdoptRequest,
     SessionSummary,
+    StackSpec,
     ThreadResponse,
     ThreadsView,
     UpRequest,
     VerifyRequest,
 } from "@spinner/protocol";
 import type { SpinnerHome } from "./home.js";
-import { adopt_prs } from "./pipeline/adopt.js";
+import { adopt_into_session, adopt_prs } from "./pipeline/adopt.js";
+import { pipeline_config_from_spec } from "./pipeline/config.js";
+import {
+    extract_prs,
+    extract_refs,
+    provisional_title,
+    type ExtractRepo,
+} from "./pipeline/extract.js";
+import { origin_owner } from "./git/worktree.js";
 import type { GhRunner } from "./pipeline/github.js";
 import {
     gh_write_runner,
@@ -49,6 +62,7 @@ import {
 import { unverify_session, verify_session } from "./pipeline/verify.js";
 import {
     attach_project,
+    read_session_spec,
     stack_close,
     stack_down,
     stack_up,
@@ -58,7 +72,7 @@ import {
 } from "./stack/runner.js";
 import { list_projects } from "./projects.js";
 import { find_spec, load_spec } from "./stack/spec.js";
-import { create_session } from "./store/session-store.js";
+import { create_session, read_session, write_session } from "./store/session-store.js";
 import { diff_home } from "./diff/fetch.js";
 import { stop_viewers } from "./diff/viewer.js";
 
@@ -117,16 +131,104 @@ export function resolve_project(ctx: ActionContext, project: string): string {
 /**
  * The synchronous half of `new`: the session directory exists when this returns, so the job
  * that follows has a session to belong to. The spec is loaded first, so a bad `--project`
- * fails before anything is written.
+ * fails before anything is written. With `text` (s014) the title is provisional: the first
+ * line of the paste without its PR references; the lead agent sets the real one.
  */
 export function new_session(ctx: ActionContext, input: NewSessionRequest): SessionSummary {
-    const title = input.title;
-    assert.ok(title !== undefined && title.trim().length > 0, "title must not be empty");
+    const title = input.title ?? provisional_title(extract_refs(input.text ?? "", []).rest, null);
+    assert.ok(title.trim().length > 0, "title must not be empty");
     if (input.project !== undefined) {
         load_spec(resolve_project(ctx, input.project));
     }
-    const slug = input.slug;
-    return create_session(ctx.home, slug === undefined ? { title } : { title, slug });
+    if (input.adopt !== undefined && input.adopt.length > 0 && input.project === undefined) {
+        throw new Error("`adopt` needs a `project`: a worktree needs a repo to come from");
+    }
+    const lead = input.text !== undefined;
+    return create_session(ctx.home, {
+        title,
+        ...(input.slug === undefined ? {} : { slug: input.slug }),
+        ...(lead ? { lead } : {}),
+        ...(input.adopt === undefined || input.adopt.length === 0 ? {} : { adopted: input.adopt }),
+    });
+}
+
+/**
+ * `POST /sessions/extract`: the PR references in a paste, resolved against the project's
+ * repos (the clone's `origin` owner, else `pipeline.github.org`), looked up on GitHub.
+ */
+export async function extract(ctx: ActionContext, input: ExtractRequest): Promise<ExtractResponse> {
+    const repos =
+        input.project === undefined
+            ? []
+            : await extract_repos(load_spec(resolve_project(ctx, input.project)).spec);
+    return extract_prs(input.text, repos, { gh: ctx.gh });
+}
+
+/** The project's repos as the extractor resolves against them. */
+export async function extract_repos(spec: StackSpec): Promise<ExtractRepo[]> {
+    const org = pipeline_config_from_spec(spec).github.org ?? null;
+    const entries = Object.entries(spec.repos);
+    const owners = await Promise.all(entries.map(([, repo]) => origin_owner(repo.path)));
+    return entries.map(([key, repo], index) => ({
+        key,
+        owner: owners[index] ?? org,
+        name: basename(repo.path),
+    }));
+}
+
+/**
+ * `POST /sessions/:dir/adopt` (the lead's `adopt` tool): extracts the references, adopts the
+ * adoptable ones into the session, and logs each refused one with its reason. A session
+ * without a project cannot adopt. Returns the adopted URLs.
+ */
+export async function adopt_refs(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: SessionAdoptRequest,
+    log: Log,
+): Promise<string[]> {
+    const loaded = read_session_spec(summary);
+    const repos = await extract_repos(loaded.spec);
+    const extracted = await extract_prs(input.refs.join(" "), repos, { gh: ctx.gh });
+    const urls: string[] = [];
+    for (const pr of extracted.prs) {
+        if (pr.adoptable && pr.url !== null) {
+            urls.push(pr.url);
+            continue;
+        }
+        log(`refused ${pr.ref}: ${pr.reason ?? "not adoptable"}`);
+    }
+    if (urls.length === 0) {
+        throw new Error("no adoptable pull request among the references; see the log");
+    }
+    await adopt_into_session(ctx.home, summary, { urls, loaded, gh: ctx.gh, log });
+    return urls;
+}
+
+/**
+ * `PUT /sessions/:dir/title` and the provisional title's upgrade: `session.yaml` and the
+ * `# id · title` line of MISSION.md. The caller serializes against the mission writer.
+ */
+export function set_title(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    title: string,
+): SessionSummary {
+    assert.ok(title.trim().length > 0, "title must not be empty");
+    const fresh = read_session(ctx.home, summary.dir);
+    assert.ok(fresh.ok, `${summary.dir} must exist to set its title`);
+    fresh.summary.session.title = title.trim();
+    write_session(fresh.summary);
+    const file = join(summary.path, "MISSION.md");
+    if (existsSync(file)) {
+        const text = readFileSync(file, "utf8");
+        const heading = `# ${fresh.summary.session.id} · ${title.trim()}`;
+        const next = /^# .*$/m.test(text)
+            ? text.replace(/^# .*$/m, heading)
+            : `${heading}\n\n${text}`;
+        writeFileSync(file, next);
+    }
+    return fresh.summary;
 }
 
 /** The job half of `new`: worktrees and the spec copy, when the session has a project. */

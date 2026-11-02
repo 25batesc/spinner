@@ -8,21 +8,19 @@ export interface MissionTemplateInput {
     time: string;
     /** PR URLs the session was adopted from, when `spinner adopt` created it. */
     adopted?: string[];
+    /** True for a session started from a paste (s014): the lead agent writes the mission. */
+    lead?: boolean;
 }
 
 export function render_mission(input: MissionTemplateInput): string {
     const adopted = input.adopted ?? [];
-    const goal =
-        adopted.length === 0
-            ? ["(One paragraph. Operator-owned.)"]
-            : [
-                  "Adopted by `spinner adopt`: drive these PRs home.",
-                  ...adopted.map((url) => `- ${url}`),
-              ];
+    const goal = goal_lines(input, adopted);
     const first_log =
-        adopted.length === 0
-            ? "session created"
-            : `session adopted from ${adopted.length} PR${adopted.length === 1 ? "" : "s"}`;
+        input.lead === true
+            ? "session started from a paste; the lead agent owns the mission"
+            : adopted.length === 0
+              ? "session created"
+              : `session adopted from ${adopted.length} PR${adopted.length === 1 ? "" : "s"}`;
     return [
         `# ${input.id} · ${input.title}`,
         "",
@@ -47,6 +45,22 @@ export function render_mission(input: MissionTemplateInput): string {
         `- ${input.time} operator: ${first_log}`,
         "",
     ].join("\n");
+}
+
+function goal_lines(input: MissionTemplateInput, adopted: string[]): string[] {
+    if (input.lead === true) {
+        return [
+            "(The lead agent writes this from the conversation.)",
+            ...adopted.map((url) => `- ${url}`),
+        ];
+    }
+    if (adopted.length === 0) {
+        return ["(One paragraph. Operator-owned.)"];
+    }
+    return [
+        "Adopted by `spinner adopt`: drive these PRs home.",
+        ...adopted.map((url) => `- ${url}`),
+    ];
 }
 
 export interface AgentsFileInput {
