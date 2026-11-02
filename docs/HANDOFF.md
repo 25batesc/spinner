@@ -2,20 +2,20 @@
 
 This page is for the operator and for an agent that opens a new chat with no memory of the last one. It says what runs, where the state lives, how to resume the work, and what the open decisions are. [STATUS.md](STATUS.md) holds the full record per milestone. This page holds only what you need in the first ten minutes.
 
-Updated: 2026-10-30, after s011 (agent terminals, resource usage, settings and themes) and the second day of the operator's real PR.
+Updated: 2026-11-02, after s017 and v0.7.0.
 
 ## State in one paragraph
 
-Spinner builds Spinner. M0 to M3 are done. M4, the desktop app, is built and in daily use by the operator. M2's last item, the operator's real feature through `pr → land`, is in progress on his PR session. The repo holds 172 commits and 386 tests at `91307dd`; CI runs two jobs (unit and lint; the sample stack on Linux with Docker). Every session since s001 ran as pi subagents from one parent chat; the parent relayed messages and made the decisions.
+Spinner builds Spinner. M0 to M3 are done; M4 is in daily use. The releases run `v0.1.0` (2026-10-31) to `v0.7.0` (2026-11-02). They added the soak fixes, the operator agent (now off), the diff tab, costs, the design pass, chat-first sessions with the mission workspace, the review step, and the Reviews panel. The repo holds 273 commits, 209 by agents, 536 tests, CI with two jobs. Agent cost to date about $490. Every session since s001 ran as pi subagents from one parent chat. Since s016 the lead agent of each session owns the mission. That is the shape the operator wants.
 
-## What changed in s011
+## What changed since v0.1.0
 
-- **Agent terminals.** An agent tab is pi's own terminal. The daemon runs `pi` in a pseudo-terminal (`PiTtyHarness`, `node-pty`) and the tab renders it with xterm.js over `GET .../tty`. `prompt`, `steer`, `abort` and a stack-failure `notify` go through the Spinner extension inside pi, over a long-poll on `GET .../commands`. The extension posts pi's lifecycle events to `POST .../events`, so the bus and the board run unchanged. The RPC harness stays for tests and `agents.harness: rpc`. [ARCHITECTURE.md](ARCHITECTURE.md#agent-adapter-packagesdaemonsrcagents), [DAEMON_API.md](DAEMON_API.md).
-- **Settings and themes.** `~/.spinner/settings.yaml` (`theme`, `default_model`, `agents.harness`) behind `GET` and `PUT /settings`, edited from the gear in the UI. A theme is a palette file; `light`, `dark` and `rainbow` are built in, `~/.spinner/themes/<name>.json` adds one. The daemon stores `default_model` and `agents.harness` but the manager does not read them yet.
-- **Resource usage.** A sampler runs `docker stats` and `ps` every 5 s while a stack is up. The session cards, the context bar and the `services` view show the numbers; `GET /usage` and the `usage` event carry them.
-- **The Activity drawer.** One drawer under the agents pane holds the feed and the job log. It resizes, collapses to a one-line bar, and remembers its height.
-- **Stack-failure notices.** A failed `up`, `down` or `reset` writes `stack.last_job` and sends one notice to each running tty agent. `GET .../stack/logs/:service` serves a service's last lines.
-- **Two fixes.** A page reload in the desktop app no longer leaves old preview views painted over the new page (`5035ffa`). Worktree seeding runs links and installs before file copies, so a `seed_files` entry under `node_modules` no longer skips the link (`64fcc79`).
+- `v0.2.0` s012: UI snapshot per daemon commit, settings applied to new agents, verify undo, the narrow window, cookies per session, the watcher race, ids across homes.
+- `v0.3.0` s013: the operator agent (one per home, the headset tab). Off by default since s016; the host stays.
+- `v0.4.0` s014 and s015: the `diff` tab and costs. The viewer is fetched on first use under `~/.spinner/diffview/`, one per repo. Comments become notices and `needs you`; the tools are `diff_comments` and `diff_reply`. Costs come from the transcripts: `$` on cards and chips, `GET /costs`, Settings → Usage.
+- `v0.5.0` the design pass: one button system, type and spacing scales, pills and rings, hairlines, labelled forms (`packages/ui/DESIGN-PASS.md`).
+- `v0.6.0` s016: a session starts from one paste and `Start`. `POST /sessions/extract` finds PR references, adoptable or reference-only. The lead agent owns the mission with `session_title`, `mission_goal`, `mission_done_when`, `mission_plan`, `agent_add` and `adopt`. Plan items carry ids and tick times. `GET /sessions/:dir/mission/view` feeds the mission workspace. Also the `review` step, the toolbar in the context bar, markdown in context (mdview's stack, MIT), and expanded previews as one state.
+- `v0.7.0` s017: the Reviews panel. A review is a session of kind `review`: a detached checkout at the PR head and one tty reviewer per model in `settings.review.models`. Reviewers follow the review skill's brief and post inline COMMENT reviews only. The cards show CI and decision pills; the pane shows swarm chips with state and cost, and the threads live.
 
 ## What runs on the operator's machine
 
@@ -75,18 +75,15 @@ pnpm install --frozen-lockfile && pnpm -r build
 
 ## Open decisions
 
-1. **Stacked PRs** (option B in the chat of 2026-10-29): a session holds an ordered list of PRs per repo, with the worktree at the top. `adopt` walks the base chain; `land` goes bottom-up. `session.yaml` moves to version 2. The operator's PR is itself a stack of two. Waiting for the operator's go.
+1. **Stacked PRs** (option B, 2026-10-29). A session holds an ordered list of PRs per repo, with the worktree at the top. `adopt` walks the base chain. `land` goes bottom-up. `session.yaml` moves to version 2. Waiting for the operator's go after a week of daily use.
 2. **Signing and distribution** of the desktop app (M5): an Apple developer account for a notarized `.app`; the local unsigned build works today.
-3. **`settings.yaml` over `config.yaml`.** The daemon stores `default_model` and `agents.harness` from the settings view. Does the manager apply them at the next `add`? Recommended: yes, one line in the manager.
-4. **`spinner agent add`.** The README's planned shape names it; the CLI has no `agent` command. Add it, or strike it.
-5. **`threads.autofix: all`** stays off until the operator trusts the fixer enough to let it run without the `fix` click.
-6. **The Slack token** has been in the chat transcript; the operator chose not to rotate it.
+3. **`threads.autofix: all`** stays off until the operator trusts the fixer enough to let it run without the `fix` click.
+4. **The Slack token** has been in the chat transcript; the operator chose not to rotate it.
+5. **The operator agent** is built and off; delete the host or keep it dormant. Recommended: keep until s016's lead has had a week of use.
 
 ## Open work, by size
 
-- The soak list, `docs/sessions/soak-questions.md`. Older: the verify toggle, the pop-out reason in `needs_human`, `up` under 15 s with host services, the flaky `plumbing.test.ts`, session ids unique across homes.
-- The soak list, newer: a UI snapshot per daemon start, the stored settings the manager ignores.
-- The soak list, newest: the ui fixture's default port of 7777, the agents pane under a 1000 px window.
-- s011 leftovers: `pnpm.onlyBuiltDependencies: ["node-pty"]` in the root `package.json`. Today the harness sets the exec bit on `spawn-helper` at first spawn. The desktop app's own chrome (tray, pane windows) does not read the palette.
-- M4 leftovers: a signed build, the tray's state detail, a stranger's run of the README.
-- M5: packaging, `spinner init` from the recipes, the public repository with a changelog, the protocol at v2 if the stacks land.
+- Queued next. The `docs` tab: mdview as a host process per session, fetched on first use like the diff viewer, with its comments loop as notices. Preview signals to the agent: console errors, failed requests, screenshot (M4's exit criterion). `spinner init` from the recipes.
+- The soak list, `docs/sessions/soak-questions.md`. `plumbing.test.ts` still misses one run in three under full load; a retry keeps CI honest. The machine-memory figure rounds differently in two places (48 vs 52 GB). The e2e drivers leave scratch daemons and Chrome processes when an agent ends by error; the parent kills them by hand today.
+- Records: STATUS and the lessons are current through s017; the soak rows closed in s012 are marked; costs in STATUS are from the subagent runs' `status.json`.
+- M5: packaging, `spinner init`, the public repository with a changelog, the protocol at v2 if the stacks land.

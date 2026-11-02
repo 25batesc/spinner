@@ -8,7 +8,7 @@ Each exit criterion has one of three states:
 - **partial**: part of the criterion holds. The evidence column names which part is missing.
 - **open**: nothing holds yet.
 
-Updated: 2026-10-30, after s011. A fresh session starts from [HANDOFF.md](HANDOFF.md).
+Updated: 2026-11-02, after s017 and v0.7.0. A fresh session starts from [HANDOFF.md](HANDOFF.md).
 
 ## Summary
 
@@ -19,6 +19,7 @@ Updated: 2026-10-30, after s011. A fresh session starts from [HANDOFF.md](HANDOF
 | M2 · Agents drive PRs home | done except the operator's real feature | s003, s005 | $75.53 | 170 min | 233 |
 | M3 · Web UI | done (record), 2026-10-29 | s003, s005, s006 | (in s003, s005, s006) | | |
 | M4 · Desktop | built, in daily use; signing open | s007, s008, s011 | $65.98 + s011 | 198 min + s011 | 386 |
+| M4b · Daily use: soak, diff, costs, chat first, reviews | done (v0.2.0 to v0.7.0) | s012 to s017, design | $240 | 11 h | 536 |
 | M5 · Release | open | | | | |
 
 The repo holds 171 commits at `91307dd`, 130 of them by agents. `pnpm -r build && pnpm lint && pnpm -r test` is green at that commit with 386 tests: protocol 16, daemon 206, desktop 68, pi-extension 12, ui 60, cli 24. One daemon test, `plumbing.test.ts`, is flaky under a loaded machine; it failed once in the 2026-10-30 run and passed alone.
@@ -194,7 +195,16 @@ Estimates before the work were "days 1 to 3" for s001 and "weeks 2 to 3" for s00
 | s006 | engine, soak | $12.63 | 56 min | 1 |
 | s007 | desktop, ui | $18.76 | 88 min | 3 |
 | s008 | desktop, ui | $46.21 | 148 min | 3 |
-| Total | | $236.61 | 642 min | 21 |
+| s011 | engine, ui | $55 | 4 h | 12 |
+| s012 | engine, ui | $16.36 | 50 min | 1 |
+| s013 | engine, ui | $30.35 | 75 min | 2 |
+| s014 | engine, ui | $28.93 | 99 min | 4 |
+| s015 | engine, ui | $20.12 | 22 min | 1 |
+| design | design (Opus) | $6.70 | 29 min | 1 |
+| docs | docs | $8.54 | 17 min | 0 |
+| s016 | engine, ui, design | $56.89 | 191 min | 12 |
+| s017 | engine, ui | $30.47 | 71 min | 2 |
+| Total | | $490 | 20 h | 56 |
 
 Agent minutes are the model's own run time from the run records; wall clock with builds, installs and waits was about three times that. The operator's own time on 2026-10-27 was about 7 hours: reading logs the agents could not interpret (cloud auth keys, grants, the team's install commands), refreshing the local database, killing hung processes, and testing in the browser. That is the cost driver, not the agents.
 
