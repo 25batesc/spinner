@@ -3,6 +3,9 @@
 // route runs `diffview comments` in the agent's worktree. Mounted by one line in `server.ts`.
 import type { Context, Hono } from "hono";
 import type {
+    DiffCommentsCommand,
+    DiffCommentsRequest,
+    DiffCommentsResponse,
     DiffRepoRequest,
     ErrorResponse,
     JobResponse,
@@ -13,7 +16,10 @@ import type { SpinnerHome } from "../home.js";
 import type { JobRunner, JobWork } from "../jobs/jobs.js";
 import { find_session } from "../store/session-store.js";
 import type { ViewBuilder } from "../watcher.js";
+import { comments_args } from "./comments.js";
 import { type DiffManager, UnknownRepoError } from "./manager.js";
+
+const COMMANDS: readonly DiffCommentsCommand[] = ["list", "show", "reply", "suggest-resolve"];
 
 export interface DiffRouteDeps {
     home: SpinnerHome;
@@ -25,6 +31,7 @@ export interface DiffRouteDeps {
 }
 
 export function mount_diff_routes(app: Hono, deps: DiffRouteDeps): void {
+    mount_comments_route(app, deps);
     app.post("/sessions/:dir/diff/start", async (c) => {
         const summary = find_session(deps.home, c.req.param("dir"));
         if (summary === null) {
@@ -76,6 +83,69 @@ export function mount_diff_routes(app: Hono, deps: DiffRouteDeps): void {
         const body: SessionResponse = { session: deps.view(fresh) };
         return c.json(body);
     });
+}
+
+/** `POST /sessions/:dir/agents/:name/diff/comments`: the CLI in the agent's worktree. */
+function mount_comments_route(app: Hono, deps: DiffRouteDeps): void {
+    app.post("/sessions/:dir/agents/:name/diff/comments", async (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const name = c.req.param("name");
+        const repo = summary.session.agents?.[name]?.repo;
+        if (repo === undefined || summary.session.repos?.[repo]?.worktree === undefined) {
+            return c.json(error_body(`agent ${name} has no repo worktree to review`), 404);
+        }
+        if (deps.diff.bin() === null) {
+            return c.json(error_body("the diff viewer is not fetched; open the diff tab"), 409);
+        }
+        const request = parse_comments_request(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const args = comments_args(request.command, request.threads ?? [], request.text);
+        const body: DiffCommentsResponse = await deps.diff.comments(summary, repo, name, args);
+        // A reply turns the thread to the operator: the watcher's next round would see it,
+        // but the tab and `needs_human` should move now.
+        await deps.refresh(summary.dir);
+        return c.json(body);
+    });
+}
+
+function parse_comments_request(input: unknown): DiffCommentsRequest | string {
+    if (input === null || input === undefined || typeof input !== "object") {
+        return "body must be a JSON object";
+    }
+    const record = input as Record<string, unknown>;
+    const command = record["command"];
+    if (typeof command !== "string" || !COMMANDS.includes(command as DiffCommentsCommand)) {
+        return `\`command\` must be one of ${COMMANDS.join(", ")}`;
+    }
+    const threads = record["threads"];
+    const ids = threads === undefined ? [] : threads;
+    if (!Array.isArray(ids) || !ids.every((id) => Number.isInteger(id) && Number(id) > 0)) {
+        return "`threads` must be a list of positive thread ids";
+    }
+    const text = record["text"];
+    if (text !== undefined && typeof text !== "string") {
+        return "`text` must be a string";
+    }
+    const needs_one = command === "reply" || command === "suggest-resolve";
+    if (needs_one && ids.length !== 1) {
+        return `${command} takes exactly one thread id`;
+    }
+    if (needs_one && (typeof text !== "string" || text.trim().length === 0)) {
+        return `${command} needs \`text\``;
+    }
+    if (command === "show" && ids.length === 0) {
+        return "show takes at least one thread id";
+    }
+    return {
+        command: command as DiffCommentsCommand,
+        threads: ids as number[],
+        ...(typeof text === "string" ? { text } : {}),
+    };
 }
 
 function unknown_repo(summary: SessionSummary, repo: string | undefined): string | null {

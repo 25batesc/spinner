@@ -69,6 +69,14 @@ async function fake_daemon(
             };
             if (path.startsWith("/nope")) {
                 answer(404, { error: `no route ${path}` });
+            } else if (path.endsWith("/diff/comments")) {
+                const command = (body as { command: string }).command;
+                const refused = command === "suggest-resolve";
+                answer(200, {
+                    code: refused ? 1 : 0,
+                    stdout: refused ? "" : `#12 open · waiting on agent · src/a.ts line 3\n`,
+                    stderr: refused ? "diffview comments suggest-resolve: no thread #99\n" : "",
+                });
             } else if (path.endsWith("/threads")) {
                 answer(200, {
                     threads: {
@@ -353,6 +361,47 @@ describe("tools against the daemon routes", () => {
             });
             expect(writes[5]?.body).toEqual({ text: "fixed" });
             expect(writes[6]?.body).toEqual({ reason: "design" });
+        } finally {
+            daemon.close();
+        }
+    });
+
+    it("runs the diff comment tools through the agent's route and surfaces a refusal", async () => {
+        const daemon = await fake_daemon(false);
+        try {
+            const pi = fake_pi();
+            register(pi, { env: env_for("worker", daemon.url) });
+            expect(await run(pi, "diff_comments", { command: "list" })).toBe(
+                "#12 open · waiting on agent · src/a.ts line 3",
+            );
+            const shown = await run(pi, "diff_comments", { command: "show", threads: "12 15" });
+            expect(shown).toContain("#12");
+            await expect(run(pi, "diff_comments", { command: "show" })).rejects.toThrow(
+                /needs `threads`/,
+            );
+            const bad_id = run(pi, "diff_comments", { command: "show", threads: "T1" });
+            await expect(bad_id).rejects.toThrow(/`T1` is not a thread id/);
+            const reply = { command: "reply", thread: 12, text: "done" };
+            expect(await run(pi, "diff_reply", reply)).toBe(
+                "#12 open · waiting on agent · src/a.ts line 3",
+            );
+            const suggest = { command: "suggest-resolve", thread: 99, text: "fixed in abc" };
+            await expect(run(pi, "diff_reply", suggest)).rejects.toThrow(
+                /suggest-resolve exited 1: diffview comments suggest-resolve: no thread #99/,
+            );
+            const blank = run(pi, "diff_reply", { command: "reply", thread: 12, text: " " });
+            await expect(blank).rejects.toThrow(/`text` must not be empty/);
+            const dir = session_dir.split("/").pop() ?? "";
+            const calls = daemon.requests.filter((r) => r.path.endsWith("/diff/comments"));
+            expect(calls.map((request) => `${request.method} ${request.path}`)).toEqual(
+                Array<string>(4).fill(`POST /sessions/${dir}/agents/alpha/diff/comments`),
+            );
+            expect(calls.map((request) => request.body)).toEqual([
+                { command: "list", threads: [] },
+                { command: "show", threads: [12, 15] },
+                { command: "reply", threads: [12], text: "done" },
+                { command: "suggest-resolve", threads: [99], text: "fixed in abc" },
+            ]);
         } finally {
             daemon.close();
         }

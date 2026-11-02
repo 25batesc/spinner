@@ -4,7 +4,10 @@
 // `thread_resolve` pre-check reads the threads first so a missing reply is refused with a
 // clear sentence before anything reaches GitHub.
 import { Type, type TSchema, type TProperties } from "typebox";
+import { DIFF_TOOL_TIMEOUT_MS } from "@spinner/protocol";
 import type {
+    DiffCommentsRequest,
+    DiffCommentsResponse,
     ExtensionToolSpec,
     InboxMessageResponse,
     MissionSectionRequest,
@@ -31,7 +34,7 @@ export interface DaemonClient {
     get<T>(path: string): Promise<T>;
     /** A text route (`GET /sessions/:dir/mission`). */
     get_text(path: string): Promise<string>;
-    send<T>(method: "POST" | "PUT", path: string, body: unknown): Promise<T>;
+    send<T>(method: "POST" | "PUT", path: string, body: unknown, timeout_ms?: number): Promise<T>;
 }
 
 /** An HTTP client on `env.daemon_url` that turns a non-2xx answer into an Error. */
@@ -52,12 +55,17 @@ export function daemon_client(env: SpinnerEnv, fetch_: Fetch = fetch): DaemonCli
         }
         return text;
     };
-    const request = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const request = async <T>(
+        method: string,
+        path: string,
+        body?: unknown,
+        timeout_ms: number = REQUEST_TIMEOUT_MS,
+    ): Promise<T> => {
         const response = await fetch_(`${env.daemon_url}${path}`, {
             method,
             headers: { "content-type": "application/json" },
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            signal: AbortSignal.timeout(timeout_ms),
         });
         const text = await response.text();
         let parsed: unknown = null;
@@ -78,7 +86,7 @@ export function daemon_client(env: SpinnerEnv, fetch_: Fetch = fetch): DaemonCli
     return {
         get: (path) => request("GET", path),
         get_text: (path) => raw("GET", path),
-        send: (method, path, body) => request(method, path, body),
+        send: (method, path, body, timeout_ms) => request(method, path, body, timeout_ms),
     };
 }
 
@@ -228,9 +236,78 @@ export async function run_tool(
             }
             return thread_action(client, session, "resolve", args, {});
         }
+        case "diff_comments":
+        case "diff_reply":
+            return diff_comments(client, session, env.agent, diff_request(spec.name, args));
         default:
             throw new Error(`${spec.name} is not implemented in this role`);
     }
+}
+
+/** `diff_comments` and `diff_reply` arguments as the daemon's `DiffCommentsRequest`. */
+function diff_request(
+    tool: "diff_comments" | "diff_reply",
+    args: Record<string, unknown>,
+): DiffCommentsRequest {
+    const command = String(args["command"] ?? "");
+    if (tool === "diff_comments") {
+        if (command !== "list" && command !== "show") {
+            throw new Error("`command` must be `list` or `show`");
+        }
+        const threads = parse_ids(String(args["threads"] ?? ""));
+        if (command === "show" && threads.length === 0) {
+            throw new Error("`show` needs `threads`: one or more ids, separated by spaces");
+        }
+        return { command, threads };
+    }
+    if (command !== "reply" && command !== "suggest-resolve") {
+        throw new Error("`command` must be `reply` or `suggest-resolve`");
+    }
+    const thread = Number(args["thread"]);
+    if (!Number.isInteger(thread) || thread <= 0) {
+        throw new Error("`thread` must be a thread id, as diff_comments shows it");
+    }
+    const text = String(args["text"] ?? "");
+    if (text.trim().length === 0) {
+        throw new Error("`text` must not be empty");
+    }
+    return { command, threads: [thread], text };
+}
+
+/** `"12 15"` to `[12, 15]`; anything that is not a positive integer is an error. */
+function parse_ids(text: string): number[] {
+    const ids: number[] = [];
+    for (const word of text.split(/[\s,]+/).filter((w) => w.length > 0)) {
+        const id = Number(word);
+        if (!Number.isInteger(id) || id <= 0) {
+            throw new Error(`\`${word}\` is not a thread id`);
+        }
+        ids.push(id);
+    }
+    return ids;
+}
+
+/**
+ * Runs the CLI through the daemon and hands the model its stdout. A non-zero exit is an
+ * error with the CLI's stderr, so the model sees why (`refused`, `no thread`).
+ */
+async function diff_comments(
+    client: DaemonClient,
+    session: string,
+    agent: string,
+    request: DiffCommentsRequest,
+): Promise<string> {
+    const response = await client.send<DiffCommentsResponse>(
+        "POST",
+        `${session}/agents/${encodeURIComponent(agent)}/diff/comments`,
+        request,
+        DIFF_TOOL_TIMEOUT_MS + 5_000,
+    );
+    if (response.code !== 0) {
+        const reason = response.stderr.trim() || response.stdout.trim() || "no output";
+        throw new Error(`diffview comments ${request.command} exited ${response.code}: ${reason}`);
+    }
+    return response.stdout.trimEnd() || "(no output)";
 }
 
 async function mission_write(
