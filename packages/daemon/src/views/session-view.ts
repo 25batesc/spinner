@@ -21,6 +21,7 @@ import type {
 } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { derive_stage } from "../pipeline/derive-stage.js";
+import { briefing_path, read_draft } from "../pipeline/review-draft.js";
 import { config_for } from "../pipeline/poller.js";
 import { facts_from_session, session_prs } from "../pipeline/tracker.js";
 import { SESSION_SPEC, read_session_spec } from "../stack/runner.js";
@@ -77,9 +78,10 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
 }
 
 /**
- * Pure: `SessionView.review` (s015) for a review session, and for an ordinary session once
+ * `SessionView.review` (s015, s016) for a review session, and for an ordinary session once
  * its swarm ran; null otherwise. The PR facts are the first tracked PR's: a review session
- * has one; an ordinary session's chips still show against its first PR.
+ * has one; an ordinary session's chips still show against its first PR. The briefing and
+ * the draft are read from the session's artifacts.
  */
 export function build_review(
     summary: SessionSummary,
@@ -106,6 +108,9 @@ export function build_review(
         threads:
             pr === null ? 0 : pr.threads.bots_open + pr.threads.humans_open + pr.threads.resolved,
         swarm,
+        briefing: existsSync(briefing_path(summary.path)),
+        draft: read_draft(summary.path),
+        posted_url: session.review?.posted_url ?? null,
     };
 }
 

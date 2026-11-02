@@ -67,7 +67,7 @@ describe("extension manifest", () => {
         }
     });
 
-    it("gives the lead the mission tools, agent_add and adopt; no thread or operator tool", () => {
+    it("gives the lead the mission, review tools, agent_add and adopt; no thread or operator tool", () => {
         const lead_tools = EXTENSION_MANIFEST.tools
             .filter((tool) => tool.roles.includes("lead"))
             .map((tool) => tool.name);
@@ -88,6 +88,8 @@ describe("extension manifest", () => {
             "mission_done_when",
             "mission_plan",
             "adopt",
+            "review_briefing",
+            "review_draft",
         ]);
         // `session` is optional for the two shared tools: the lead acts on its own session.
         for (const name of ["agent_add", "agent_steer"]) {

@@ -191,7 +191,11 @@ export interface AgentSpec {
  */
 export type SessionKind = "session" | "review";
 
-export type SwarmState = "queued" | "reading" | "posted" | "failed";
+/**
+ * A reviewer's state (s015, s016). `done`: its verdict is in `artifacts/reviews/` and its pi
+ * is stopped. `failed`: it settled without a `VERDICT:` block, or exited.
+ */
+export type SwarmState = "queued" | "reading" | "done" | "failed";
 
 /** One reviewer of the swarm (s015), as `session.yaml` records it under `review.swarm`. */
 export interface SwarmRecord {
@@ -206,6 +210,10 @@ export interface SwarmRecord {
 export interface ReviewState {
     /** By agent name, `review-<model-slug>`. */
     swarm: Record<string, SwarmRecord>;
+    /** True while `artifacts/review-draft.json` exists (s016); the tracker reads it. */
+    draft?: boolean;
+    /** The posted review's URL (s016), null until `post`. */
+    posted_url?: string | null;
 }
 
 /** The whole of `session.yaml`. */

@@ -76,6 +76,8 @@ export const EXTENSION_TOOLS = [
     "mission_done_when",
     "mission_plan",
     "adopt",
+    "review_briefing",
+    "review_draft",
 ] as const;
 
 /** What `mission_plan` does; `mission_done_when` takes the first four. */
@@ -212,6 +214,15 @@ export interface ExtensionToolArgs {
      * refused with the reason; the rest get worktrees on their head branches.
      */
     adopt: { refs: string };
+    /** The review lead (s016) writes its briefing for the operator, `artifacts/briefing.md`. */
+    review_briefing: { markdown: string };
+    /**
+     * The review lead (s016) writes the one review in one voice: `event` (`APPROVE` with no
+     * `BLOCKING:` finding, `COMMENT` otherwise), `body` (the summary only) and `comments`, a
+     * JSON array text of `{ path, line, body }`. The daemon validates it against the PR diff
+     * and returns every fault instead of writing. The operator posts; the lead never does.
+     */
+    review_draft: { event: string; body: string; comments: string };
 }
 
 /** A tool's JSON-schema parameters, in the subset pi's `Type.Object` can express. */
@@ -611,6 +622,41 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["refs"],
             roles: LEAD,
             route: "POST /sessions/:dir/adopt",
+        },
+        {
+            name: "review_briefing",
+            description:
+                "Write the reviewer briefing for the operator: what the PR does, how, the " +
+                "design pattern, the codebase fit, the approach and slop verdict. Markdown. " +
+                "It replaces an earlier briefing.",
+            parameters: { markdown: { type: "string", description: "The briefing, Markdown" } },
+            required: ["markdown"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/review/briefing",
+        },
+        {
+            name: "review_draft",
+            description:
+                "Write the draft of the one PR review for the operator to post: the event, the " +
+                "summary body and the line comments. The daemon checks each comment's label " +
+                "and that each path:line is on the right side of the PR diff; on a fault it " +
+                "returns the errors and writes nothing. It replaces an earlier draft.",
+            parameters: {
+                event: {
+                    type: "string",
+                    description: "APPROVE with no BLOCKING finding, COMMENT otherwise",
+                    enum: ["APPROVE", "COMMENT"],
+                },
+                body: { type: "string", description: "The summary only: LGTM, A few nits, but LGTM, or A few blockers" },
+                comments: {
+                    type: "string",
+                    description:
+                        'JSON array text: [{"path": "src/a.ts", "line": 12, "body": "BLOCKING: ..."}]; [] for none',
+                },
+            },
+            required: ["event", "body", "comments"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/review/draft",
         },
     ],
 };

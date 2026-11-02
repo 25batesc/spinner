@@ -76,7 +76,7 @@ import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
-import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
+import { start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
 import { create_reviews, type CreateReviewsInput } from "./pipeline/reviews.js";
 import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { watch_stack_jobs } from "./stack/job-record.js";
@@ -858,24 +858,15 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     };
 
     const build = options.build ?? { version: "0.0.0", commit: null, built: null };
-    // The poller starts after the port opens; a `review` job asks it for a round through
-    // this closure, or runs one round itself when polling is off.
+    // The poller starts after the port opens.
     let poller: Poller | null = null;
     const poll_options = poll_options_for(options, ctx, log);
-    const poll = async (): Promise<void> => {
-        if (poller !== null) {
-            await poller.round();
-            return;
-        }
-        await poll_once(home, poll_options);
-    };
     const swarm = new ReviewSwarm({
         home,
         agents,
         bus,
         settings: () => read_settings_or_default(home, log),
         log,
-        poll,
         refresh,
         ...(options.review_skill_default === undefined
             ? {}

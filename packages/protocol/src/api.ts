@@ -60,7 +60,8 @@ export const ROUTES = {
      * Reviews (s015): one session of `kind: review` per PR reference in `text`, any repository
      * the operator's `gh` can read. Body: ReviewsRequest. The job clones or fetches each
      * repository under `<home>/reviews/` and checks the PR head out detached under the
-     * session. 409 when no reference resolves.
+     * session, then (s016) starts the agent `lead` with the review lead's brief and the
+     * swarm. 409 when no reference resolves.
      */
     "POST /reviews": "JobResponse",
     /** Attach a project to an adopted session: worktrees on the PR branches. Body: AttachRequest */
@@ -86,6 +87,25 @@ export const ROUTES = {
      * the PR still reads, or when the PR's repo has no worktree.
      */
     "POST /sessions/:dir/review": "JobResponse",
+    /** The lead's briefing (s016), `text/markdown`. 404 before `artifacts/briefing.md` exists. */
+    "GET /sessions/:dir/review/briefing": "text/markdown",
+    /** The lead's `review_briefing` tool (s016): writes `artifacts/briefing.md`. Body: ReviewBriefingRequest. */
+    "PUT /sessions/:dir/review/briefing": "OkResponse",
+    /**
+     * The lead's `review_draft` tool and the operator's edits (s016): validates the draft (the
+     * event, one severity label first in each comment, each `path:line` on the right side of
+     * the PR diff) and writes `artifacts/review-draft.json`; `needs_human` asks to post or
+     * drop. Body: ReviewDraft. 400 with every fault listed; nothing is written then.
+     */
+    "PUT /sessions/:dir/review/draft": "ReviewDraftResponse",
+    /** Drop the draft (s016). 404 without one. */
+    "DELETE /sessions/:dir/review/draft": "OkResponse",
+    /**
+     * Post the draft as one PR review at the head SHA through the operator's `gh` (s016).
+     * `APPROVE` GitHub refuses for the author's own PR is reposted as `COMMENT`. 409 without
+     * a draft; 502 when GitHub refuses. The URL lands in `session.yaml` and the Log.
+     */
+    "POST /sessions/:dir/review/post": "ReviewPostResponse",
     /** The review threads of every PR, from the last render. 404 without a session. */
     "GET /sessions/:dir/threads": "ThreadsResponse",
     /** Re-render `threads/` from GitHub now and return it. */
@@ -451,7 +471,7 @@ export interface SwarmMember {
     pr: string;
 }
 
-/** The review fields of a `SessionView` (s015); the `review.updated` payload. */
+/** The review fields of a `SessionView` (s015, s016); the `review.updated` payload. */
 export interface ReviewFields {
     /** The PR's checks, rolled up, and the names of the failing ones. */
     checks: CheckState;
@@ -460,6 +480,65 @@ export interface ReviewFields {
     /** The PR's review threads, open and resolved. */
     threads: number;
     swarm: SwarmMember[];
+    /** True once `artifacts/briefing.md` exists (s016). */
+    briefing: boolean;
+    /** The lead's draft (s016); null before it is written and after `drop` or `post`. */
+    draft: ReviewDraft | null;
+    /** The posted review's URL (s016), null until `post`. */
+    posted_url: string | null;
+}
+
+/** The review events of a PR review, as GitHub names them (s016). */
+export type ReviewEvent = "APPROVE" | "COMMENT";
+
+export const REVIEW_EVENTS: readonly ReviewEvent[] = ["APPROVE", "COMMENT"];
+
+/** One line comment of the draft: the file, the line on the right side of the diff, the body. */
+export interface ReviewDraftComment {
+    path: string;
+    line: number;
+    /** Starts with one of `REVIEW_SEVERITY_LABELS`. */
+    body: string;
+}
+
+/** The lead's draft, `artifacts/review-draft.json` (s016): the operator edits it, then posts. */
+export interface ReviewDraft {
+    event: ReviewEvent;
+    /** The summary only; the line comments are not repeated here. */
+    body: string;
+    comments: ReviewDraftComment[];
+}
+
+/** The labels a line comment starts with, as the `pr-review` skill names them. */
+export const REVIEW_SEVERITY_LABELS = ["BLOCKING:", "BUG:", "NIT:", "SUPER NIT:"] as const;
+
+/** `needs_human` while a draft waits (s016); it wins over the pipeline's own text. */
+export const REVIEW_DRAFT_NEEDS_HUMAN = "post or drop the review draft";
+
+/** The agent that leads a session (s014) and reconciles its review (s016). */
+export const LEAD_NAME = "lead";
+
+/** Body of `PUT /sessions/:dir/review/briefing`. */
+export interface ReviewBriefingRequest {
+    markdown: string;
+}
+
+/** `PUT .../review/briefing` and `DELETE .../review/draft` answer this. */
+export interface OkResponse {
+    ok: true;
+}
+
+export interface ReviewDraftResponse {
+    draft: ReviewDraft;
+}
+
+export interface ReviewPostResponse {
+    /** The posted review's `html_url`. */
+    url: string;
+    /** The event GitHub took. */
+    event: ReviewEvent;
+    /** True when `APPROVE` was refused for the author's own PR and `COMMENT` was posted. */
+    fell_back: boolean;
 }
 
 export interface SessionsResponse {
@@ -672,8 +751,17 @@ export function model_slug(model: string): string {
         .replace(/^-+|-+$/g, "");
 }
 
-/** The line a reviewer prints last; the daemon reads `posted` from it. */
-export const REVIEW_POSTED_PREFIX = "POSTED model=";
+/**
+ * The first line of a reviewer's verdict block (s016, the `reviewer` role's contract); the
+ * daemon saves the settled turn's last assistant text that carries it as the verdict file.
+ */
+export const REVIEW_VERDICT_PREFIX = "VERDICT:";
+
+/** Where the verdict files go, under the session directory: `<model-slug>.md` in it. */
+export const REVIEW_VERDICTS_DIR = "artifacts/reviews";
+export const REVIEW_BRIEFING_FILE = "artifacts/briefing.md";
+export const REVIEW_DRAFT_FILE = "artifacts/review-draft.json";
+export const REVIEW_POSTED_FILE = "artifacts/review-posted.json";
 
 export interface ThreadsResponse {
     threads: ThreadsView;

@@ -765,6 +765,17 @@
                         "$ref": "#/definitions/SwarmRecord"
                     },
                     "description": "By agent name, `review-<model-slug>`."
+                },
+                "draft": {
+                    "type": "boolean",
+                    "description": "True while `artifacts/review-draft.json` exists (s016); the tracker reads it."
+                },
+                "posted_url": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The posted review's URL (s016), null until `post`."
                 }
             },
             "required": [
@@ -801,9 +812,10 @@
             "enum": [
                 "queued",
                 "reading",
-                "posted",
+                "done",
                 "failed"
-            ]
+            ],
+            "description": "A reviewer's state (s015, s016). `done`: its verdict is in `artifacts/reviews/` and its pi is stopped. `failed`: it settled without a `VERDICT:` block, or exited."
         },
         "BoardView": {
             "type": "object",
@@ -1345,6 +1357,28 @@
                     "items": {
                         "$ref": "#/definitions/SwarmMember"
                     }
+                },
+                "briefing": {
+                    "type": "boolean",
+                    "description": "True once `artifacts/briefing.md` exists (s016)."
+                },
+                "draft": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ReviewDraft"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The lead's draft (s016); null before it is written and after `drop` or `post`."
+                },
+                "posted_url": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The posted review's URL (s016), null until `post`."
                 }
             },
             "required": [
@@ -1352,10 +1386,13 @@
                 "failing",
                 "review_decision",
                 "threads",
-                "swarm"
+                "swarm",
+                "briefing",
+                "draft",
+                "posted_url"
             ],
             "additionalProperties": false,
-            "description": "The review fields of a `SessionView` (s015); the `review.updated` payload."
+            "description": "The review fields of a `SessionView` (s015, s016); the `review.updated` payload."
         },
         "SwarmMember": {
             "type": "object",
@@ -1388,6 +1425,61 @@
             ],
             "additionalProperties": false,
             "description": "One reviewer of the swarm, as the chips show it: a tty agent of the session."
+        },
+        "ReviewDraft": {
+            "type": "object",
+            "properties": {
+                "event": {
+                    "$ref": "#/definitions/ReviewEvent"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "The summary only; the line comments are not repeated here."
+                },
+                "comments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ReviewDraftComment"
+                    }
+                }
+            },
+            "required": [
+                "event",
+                "body",
+                "comments"
+            ],
+            "additionalProperties": false,
+            "description": "The lead's draft, `artifacts/review-draft.json` (s016): the operator edits it, then posts."
+        },
+        "ReviewEvent": {
+            "type": "string",
+            "enum": [
+                "APPROVE",
+                "COMMENT"
+            ],
+            "description": "The review events of a PR review, as GitHub names them (s016)."
+        },
+        "ReviewDraftComment": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "line": {
+                    "type": "number"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Starts with one of `REVIEW_SEVERITY_LABELS`."
+                }
+            },
+            "required": [
+                "path",
+                "line",
+                "body"
+            ],
+            "additionalProperties": false,
+            "description": "One line comment of the draft: the file, the line on the right side of the diff, the body."
         }
     },
     "$id": "https://spinner.dev/schema/session-view.json",

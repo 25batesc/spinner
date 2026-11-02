@@ -684,6 +684,17 @@
                         "$ref": "#/definitions/SwarmRecord"
                     },
                     "description": "By agent name, `review-<model-slug>`."
+                },
+                "draft": {
+                    "type": "boolean",
+                    "description": "True while `artifacts/review-draft.json` exists (s016); the tracker reads it."
+                },
+                "posted_url": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The posted review's URL (s016), null until `post`."
                 }
             },
             "required": [
@@ -720,9 +731,10 @@
             "enum": [
                 "queued",
                 "reading",
-                "posted",
+                "done",
                 "failed"
-            ]
+            ],
+            "description": "A reviewer's state (s015, s016). `done`: its verdict is in `artifacts/reviews/` and its pi is stopped. `failed`: it settled without a `VERDICT:` block, or exited."
         }
     },
     "$id": "https://spinner.dev/schema/session.json",

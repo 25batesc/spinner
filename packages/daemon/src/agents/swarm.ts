@@ -1,15 +1,17 @@
-// The review swarm (MISSION.md s015, Plan item 3): `POST /sessions/:dir/review` starts one
-// tty agent per model in `settings.review.models` on each target PR, each with the review
-// brief (`store/review-brief.ts`) in the PR repo's worktree and the review skill through
-// `--skill`. The swarm is bounded by the running-agents cap: a reviewer that cannot start
-// waits in a queue per session as `queued`, and the next one starts on `agent.exited`. A
-// reviewer is `reading` from its start; `posted` when the last assistant text of its settled
-// turn carries `POSTED model=` (the daemon then stops its pi, so the slot frees and the
-// transcript stays for the tab); `failed` when it exits without that line. The states live
-// in `session.yaml` under `review.swarm`, so the view and a restarted daemon read them.
+// The review swarm (MISSION.md s015 Plan item 3, s016 Plan item 2): one tty agent per model
+// in `settings.review.models` on each target PR, each with the reviewer brief
+// (`store/review-brief.ts`, the operator's `reviewer` role) in the PR repo's worktree and
+// the role's skills through `--skill`. The swarm is bounded by the running-agents cap: a
+// reviewer that cannot start waits in a queue per session as `queued`, and the next one
+// starts on `agent.exited`. A reviewer is `reading` from its start; `done` when the last
+// assistant text of its settled turn carries a `VERDICT:` line: the daemon saves that text
+// as `artifacts/reviews/<model-slug>.md` and stops the pi, so the slot frees and the
+// transcript stays for the tab; `failed` when it exits without one. Reviewers never post.
+// When the last reviewer of a session lands, the lead gets the verdicts notice through the
+// extension channel (or with its next prompt when it is not running). The states live in
+// `session.yaml` under `review.swarm`, so the view and a restarted daemon read them.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
     PiEvent,
@@ -19,12 +21,24 @@ import type {
     SwarmRecord,
     SwarmState,
 } from "@spinner/protocol";
-import { REVIEW_AGENT_PREFIX, REVIEW_POSTED_PREFIX, model_slug } from "@spinner/protocol";
+import {
+    LEAD_NAME,
+    REVIEW_AGENT_PREFIX,
+    REVIEW_VERDICTS_DIR,
+    REVIEW_VERDICT_PREFIX,
+    model_slug,
+} from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { parse_pr_url } from "../pipeline/github.js";
 import { review_settings, review_targets, type ReviewTarget } from "../pipeline/review.js";
-import { render_review_brief, review_kickoff } from "../store/review-brief.js";
+import {
+    default_review_skill,
+    render_review_brief,
+    review_kickoff,
+    reviewer_skill_dirs,
+    verdicts_notice,
+} from "../store/review-brief.js";
 import { list_sessions, read_session, write_session } from "../store/session-store.js";
 import { agent_brief_path } from "./harness.js";
 import { agent_history } from "./history.js";
@@ -33,19 +47,12 @@ import type { AgentManager } from "./manager.js";
 /** Upper bound on reviewers waiting in one session's queue. */
 const QUEUE_PER_SESSION_MAX = 100;
 
-/** The operator's review skill, the default when `settings.review.skill` names none. */
-export function default_review_skill(): string {
-    return join(homedir(), ".pi", "agent", "skills", "review-pr");
-}
-
 export interface SwarmDeps {
     home: SpinnerHome;
     agents: AgentManager;
     bus: EventBus;
     settings: () => Settings;
     log?: (line: string) => void;
-    /** After a reviewer posted: one poll round, so the thread count follows at once. */
-    poll?: () => Promise<void>;
     /** After a swarm step: the view on the bus, so the chips move. */
     refresh?: (dir: string) => Promise<void>;
     /** The default skill directory; `default_review_skill()` when absent. Tests pass one. */
@@ -72,7 +79,7 @@ export interface SwarmPlan {
 
 export class ReviewSwarm {
     private readonly queues = new Map<string, Queued[]>();
-    /** The last assistant text per `dir/name`, from `turn_end`, for the `POSTED` check. */
+    /** The last assistant text per `dir/name`, from `turn_end`, for the verdict check. */
     private readonly last_text = new Map<string, string>();
     private readonly log: (line: string) => void;
     private readonly unsubscribe: () => void;
@@ -116,6 +123,22 @@ export class ReviewSwarm {
         }
     }
 
+    /** `settings.review.skill`, else the default when it exists, else none. */
+    skill_dir(): string | null {
+        const named = this.deps.settings().review?.skill;
+        if (named !== undefined) {
+            return named;
+        }
+        const fallback = this.deps.skill_default ?? default_review_skill();
+        return existsSync(fallback) ? fallback : null;
+    }
+
+    /** The models one `review` runs, from the settings. */
+    models(): readonly string[] {
+        const { models, n } = review_settings(this.deps.settings());
+        return models.slice(0, n);
+    }
+
     /**
      * What `start` would do, without doing it: the targets and the models. Throws, for the
      * route's 409, when the session has no open PR, when a PR's repo has no worktree, or
@@ -123,8 +146,7 @@ export class ReviewSwarm {
      */
     check(summary: SessionSummary, request: ReviewRequest): Promise<SwarmPlan> {
         const targets = review_targets(summary, request);
-        const { models, n } = review_settings(this.deps.settings());
-        const chosen = models.slice(0, n);
+        const chosen = this.models();
         assert.ok(chosen.length > 0, "at least one review model");
         const plan: SwarmPlan = { reviewers: [], skill: this.skill_dir() };
         for (const target of targets) {
@@ -165,8 +187,9 @@ export class ReviewSwarm {
             this.enqueue(reviewer);
         }
         result.started = await this.start_queued(summary.dir);
+        const skills = reviewer_skill_dirs(plan.skill);
         for (const name of result.started) {
-            const how = plan.skill === null ? "without a skill" : `with ${plan.skill}`;
+            const how = skills.length === 0 ? "without a skill" : `with ${skills.join(", ")}`;
             log(`${name} started ${how}`);
         }
         for (const entry of this.queues.get(summary.dir) ?? []) {
@@ -174,16 +197,6 @@ export class ReviewSwarm {
             log(`${entry.name} (${entry.model}) queued behind the cap`);
         }
         return result;
-    }
-
-    /** `settings.review.skill`, else the default when it exists, else none. */
-    private skill_dir(): string | null {
-        const named = this.deps.settings().review?.skill;
-        if (named !== undefined) {
-            return named;
-        }
-        const fallback = this.deps.skill_default ?? default_review_skill();
-        return existsSync(fallback) ? fallback : null;
     }
 
     private enqueue(entry: Queued): void {
@@ -212,26 +225,28 @@ export class ReviewSwarm {
         return started;
     }
 
-    /** One reviewer: `add` in the PR repo's worktree with the skill, then the kickoff. */
+    /** One reviewer: `add` in the PR repo's worktree with the role's skills, then the kickoff. */
     private async start_one(entry: Queued): Promise<boolean> {
         const read = read_session(this.deps.home, entry.dir);
         if (!read.ok) {
             return false;
         }
         const skill = this.skill_dir();
+        const skills = reviewer_skill_dirs(skill);
         try {
             const handle = await this.deps.agents.add(
                 read.summary,
                 { name: entry.name, model: entry.model, repo: entry.target.key },
-                skill === null ? {} : { skills: [skill] },
+                skills.length === 0 ? {} : { skills },
             );
             this.last_text.delete(key_of(entry.dir, entry.name));
             this.record(entry.dir, entry.name, "reading");
             await this.refresh(entry.dir);
             const pr = parse_pr_url(entry.target.url);
             assert.ok(pr !== null, `${entry.target.url} is not a GitHub PR URL`);
+            const head = read.summary.session.repos[entry.target.key]?.pr?.head ?? "";
             await handle.prompt(
-                review_kickoff({ model: entry.model, pr, url: entry.target.url, skill }),
+                review_kickoff({ model: entry.model, pr, url: entry.target.url, skill }, head),
             );
             return true;
         } catch (error) {
@@ -239,6 +254,7 @@ export class ReviewSwarm {
             this.log(`reviewer ${entry.name} in ${entry.dir} did not start: ${reason}`);
             this.record(entry.dir, entry.name, "failed");
             await this.refresh(entry.dir);
+            await this.notify_lead_when_landed(entry.dir);
             return false;
         }
     }
@@ -257,7 +273,7 @@ export class ReviewSwarm {
         }
     }
 
-    /** `POSTED model=` in the last assistant text makes the reviewer `posted`; its pi stops. */
+    /** A `VERDICT:` line in the last assistant text: the verdict file, `done`, the pi stops. */
     private async on_settled(dir: string, agent: string): Promise<void> {
         const record = this.swarm_record(dir, agent);
         if (record === null || record.state !== "reading") {
@@ -267,33 +283,85 @@ export class ReviewSwarm {
         const text =
             this.last_text.get(key_of(dir, agent)) ??
             (read.ok ? last_assistant_text(read.summary.path, agent) : "");
-        if (!has_posted_line(text)) {
+        if (!has_verdict_line(text) || !read.ok) {
             return;
         }
-        this.record(dir, agent, "posted");
-        this.log(`reviewer ${agent} in ${dir} posted`);
+        const file = write_verdict(read.summary.path, record.model, text);
+        this.record(dir, agent, "done");
+        this.log(`reviewer ${agent} in ${dir} done: ${file}`);
         await this.refresh(dir);
         try {
             await this.deps.agents.stop(dir, agent);
         } catch {
             // Already gone: the exit handler runs either way.
         }
-        if (this.deps.poll !== undefined) {
-            await this.deps.poll();
-            await this.refresh(dir);
-        }
+        await this.notify_lead_when_landed(dir);
     }
 
-    /** An exit without `posted` is `failed`; either way the next queued reviewer starts. */
+    /** An exit without a verdict is `failed`; either way the next queued reviewer starts. */
     private async on_exited(dir: string, agent: string): Promise<void> {
         const record = this.swarm_record(dir, agent);
         if (record !== null && record.state === "reading") {
             this.record(dir, agent, "failed");
-            this.log(`reviewer ${agent} in ${dir} exited without POSTED: failed`);
+            this.log(`reviewer ${agent} in ${dir} exited without a verdict: failed`);
             await this.refresh(dir);
+            await this.notify_lead_when_landed(dir);
         }
         for (const queued_dir of [...this.queues.keys()]) {
             await this.start_queued(queued_dir);
+        }
+    }
+
+    /**
+     * When no reviewer of `dir` is `queued` or `reading` any more, the lead gets the verdicts
+     * notice: through the channel when it runs, else with its next prompt.
+     */
+    private async notify_lead_when_landed(dir: string): Promise<void> {
+        const read = read_session(this.deps.home, dir);
+        if (!read.ok) {
+            return;
+        }
+        const swarm = read.summary.session.review?.swarm ?? {};
+        const entries = Object.entries(swarm);
+        if (entries.length === 0) {
+            return;
+        }
+        if (entries.some(([, record]) => record.state === "queued" || record.state === "reading")) {
+            return;
+        }
+        if ((this.queues.get(dir) ?? []).length > 0) {
+            return;
+        }
+        const done = entries.filter(([, record]) => record.state === "done");
+        const failed = entries.filter(([, record]) => record.state === "failed");
+        const first = entries[0];
+        assert.ok(first !== undefined);
+        const target = target_of(read.summary, first[1].pr);
+        const pr = target === null ? null : parse_pr_url(target.url);
+        if (target === null || pr === null) {
+            return;
+        }
+        const text = verdicts_notice({
+            pr,
+            url: target.url,
+            head: read.summary.session.repos[target.key]?.pr?.head ?? "",
+            skill: this.skill_dir(),
+            files: done.map(([, record]) => verdict_file(record.model)),
+            failed: failed.map(([name]) => name),
+        });
+        const lead = this.deps.agents.get(dir, LEAD_NAME);
+        if (lead === null || lead.notify === undefined) {
+            this.deps.agents.queue_for_next_prompt(dir, LEAD_NAME, text);
+            this.log(`verdicts of ${dir} landed; the notice waits for ${LEAD_NAME}'s next prompt`);
+            return;
+        }
+        try {
+            const disposition = await lead.notify(text);
+            this.log(`verdicts of ${dir} landed; ${LEAD_NAME} notified (${disposition})`);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.deps.agents.queue_for_next_prompt(dir, LEAD_NAME, text);
+            this.log(`verdicts of ${dir} landed; notify ${LEAD_NAME} failed (${reason}); queued`);
         }
     }
 
@@ -364,14 +432,34 @@ export function reviewer_name(model: string, repo: string, several: boolean): st
 }
 
 /**
- * True when a line of the text starts with `POSTED model=` and is not the brief's template
- * (`blockers=N should-fix=M`), which an echo of the kickoff would carry.
+ * True when a line of the text is `VERDICT: BLOCKING` or `VERDICT: CLEAR`. The brief's
+ * template line (`VERDICT: BLOCKING | CLEAR`), which an echo of the kickoff would carry,
+ * names both and does not count.
  */
-export function has_posted_line(text: string): boolean {
+export function has_verdict_line(text: string): boolean {
     return text.split("\n").some((line) => {
-        const trimmed = line.trim();
-        return trimmed.startsWith(REVIEW_POSTED_PREFIX) && !/=[NM]\b/.test(trimmed);
+        const trimmed = line.trim().replace(/^[`*_\s]+|[`*_\s]+$/g, "");
+        if (!trimmed.startsWith(REVIEW_VERDICT_PREFIX)) {
+            return false;
+        }
+        const verdict = trimmed.slice(REVIEW_VERDICT_PREFIX.length).trim();
+        return verdict === "BLOCKING" || verdict === "CLEAR";
     });
+}
+
+/** `artifacts/reviews/<model-slug>.md`, relative to the session directory. */
+export function verdict_file(model: string): string {
+    return `${REVIEW_VERDICTS_DIR}/${model_slug(model)}.md`;
+}
+
+/** Writes the verdict text to its file under the session; returns the relative path. */
+export function write_verdict(session_path: string, model: string, text: string): string {
+    assert.ok(text.trim().length > 0, "a verdict must not be empty");
+    const relative = verdict_file(model);
+    const path = join(session_path, relative);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text.endsWith("\n") ? text : `${text}\n`);
+    return relative;
 }
 
 /** The last assistant message's text in the agent's transcript, or empty. */
