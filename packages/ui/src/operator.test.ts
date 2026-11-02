@@ -2,7 +2,7 @@
 import type { OperatorView } from "@spinner/protocol";
 import { expect, it } from "vitest";
 
-import { operatorNotice, operatorRunning, waitingLine } from "./operator.ts";
+import { operatorHidden, operatorNotice, operatorRunning, waitingLine } from "./operator.ts";
 
 const view: OperatorView = {
     enabled: true,
@@ -34,4 +34,16 @@ it("notices a stopped operator agent only", () => {
     expect(operatorRunning(stopped)).toBe(false);
     expect(operatorNotice(stopped)).toBe("operator agent not running");
     expect(operatorNotice(null)).toBeNull();
+});
+
+it("hides the operator when off and not running; a running one shows whatever the setting", () => {
+    expect(operatorHidden(view)).toBe(false);
+    expect(operatorHidden(null)).toBe(true);
+    const off = { ...view, enabled: false };
+    expect(operatorHidden(off)).toBe(false);
+    const offAndExited = { ...off, process: "exited" as const, pid: null };
+    expect(operatorHidden(offAndExited)).toBe(true);
+    expect(operatorNotice(offAndExited)).toBeNull();
+    const onAndExited = { ...view, process: "exited" as const, pid: null };
+    expect(operatorHidden(onAndExited)).toBe(false);
 });

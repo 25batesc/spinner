@@ -186,6 +186,8 @@ export interface ActivityBarProps {
     onPick: (view: PanelView["id"]) => void;
     /** True while the middle pane shows the operator agent's terminal in place of the session. */
     operatorShown: boolean;
+    /** False hides the headset: the operator agent is off and not running (s014). */
+    operatorAvailable: boolean;
     /** Shows the operator tab, or the session again when it is shown. */
     onOperator: () => void;
 }
@@ -196,8 +198,8 @@ export interface ActivityBarProps {
  * gear, is not a panel view: it swaps the middle pane between the session and the operator.
  */
 export function ActivityBar(props: ActivityBarProps) {
-    const { shown, popped, onPick, operatorShown, onOperator } = props;
-    const operator = (
+    const { shown, popped, onPick, operatorShown, operatorAvailable, onOperator } = props;
+    const operator = !operatorAvailable ? null : (
         <IconButton
             key="operator"
             icon="operator"

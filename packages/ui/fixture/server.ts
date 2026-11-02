@@ -192,7 +192,8 @@ class FixtureDaemon {
     /** How many samples went out; each one moves the numbers a little. */
     ticks = 0;
     /** The operator's settings, as `~/.spinner/settings.yaml` would hold them. */
-    settings: Settings = { ...SETTINGS_DEFAULT };
+    /** The operator agent is on in the fixture, so the `operator` flow has one to drive. */
+    settings: Settings = { ...SETTINGS_DEFAULT, operator: { enabled: true } };
     /** The operator agent, `GET /operator`; its pty is made on the first attach. */
     operator: OperatorView = initialOperator();
     operatorPty: EchoPty | null = null;
@@ -346,6 +347,12 @@ class FixtureDaemon {
         this.settings = body as unknown as Settings;
         const ts = new Date().toISOString();
         this.emit({ type: "settings", ts, session: null, settings: this.settings });
+        // `OperatorView.enabled` reports the setting (s014); the view follows a change.
+        const enabled = this.settings.operator?.enabled ?? false;
+        if (enabled !== this.operator.enabled) {
+            this.operator = { ...this.operator, enabled };
+            this.emit({ type: "operator.updated", ts, session: null, data: this.operator });
+        }
         sendJson(response, this.settingsResponse());
     }
 

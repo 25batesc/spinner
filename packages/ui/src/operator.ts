@@ -26,9 +26,18 @@ export function waitingLine(view: OperatorView | null): string {
     return `waiting on: ${last}${pending}`;
 }
 
-/** The context-bar notice; null while the operator agent runs or the daemon has no operator. */
+/**
+ * True when the operator agent is off (s014: `settings.operator.enabled` defaults to false)
+ * and no process runs: the headset tab and the notice hide, and nothing nags. A started
+ * agent shows while it runs, whatever the setting.
+ */
+export function operatorHidden(view: OperatorView | null): boolean {
+    return view === null || (!view.enabled && view.process === "exited");
+}
+
+/** The context-bar notice; null while the agent runs, is off, or the daemon has none. */
 export function operatorNotice(view: OperatorView | null): string | null {
-    if (view === null || operatorRunning(view)) {
+    if (operatorHidden(view) || operatorRunning(view)) {
         return null;
     }
     return "operator agent not running";

@@ -1851,6 +1851,9 @@ if (flow === "operator") {
             send("Input.dispatchKeyEvent", { type: "keyUp", key, code }),
         ];
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    // The headset waits for GET /operator: the fixture's agent is enabled and idle.
+    const headsetShown = `document.querySelector("button[aria-label='Show operator']") !== null`;
+    await until("headset shown", headsetShown);
     const bar = await evaluate(`[...document.querySelectorAll(".activity-bar .icon-button")]
         .map((b) => b.getAttribute("aria-label"))`);
     console.log("activity bar:", JSON.stringify(bar));
@@ -1927,6 +1930,22 @@ if (flow === "operator") {
     const iconOff = `document.querySelector("button[aria-label='Show operator']")?.ariaPressed`;
     await until("icon off", `${iconOff} === "false"`);
     await shot("84-operator-hidden");
+    // Off by default (s014): with `settings.operator.enabled` false and the agent stopped,
+    // the headset and the context-bar notice go; the agent's stop alone does not hide them.
+    await click("button[aria-label='Show operator']");
+    await until("operator pane", `document.querySelector(".operator-pane") !== null`);
+    await click(".operator-toolbar button", "stop");
+    await until("notice back", `${notice} !== null`);
+    await evaluate(`fetch("/settings", {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ theme: "system", operator: { enabled: false } }),
+    }).then(() => true)`);
+    const headset = `document.querySelector("button[aria-label^='Show operator'], ` +
+        `button[aria-label^='Hide operator']")`;
+    await until("headset gone", `${headset} === null`);
+    await until("notice gone", `${notice} === null`);
+    await until("session back", `document.querySelector(".agents-pane .chips") !== null`);
+    await shot("85-operator-off");
     console.log("operator ok");
     await finish();
 }

@@ -6,7 +6,7 @@ import { AgentsPane } from "./AgentsPane.tsx";
 import { fetchThemes, postAction, putSettings } from "./events-client.ts";
 import { ActivityDrawer } from "./ActivityDrawer.tsx";
 import { isOpen, isStrip, PANES, type PaneName } from "./layout.ts";
-import { operatorNotice, postOperator } from "./operator.ts";
+import { operatorHidden, operatorNotice, postOperator } from "./operator.ts";
 import { OperatorPane } from "./OperatorPane.tsx";
 import {
     ActivityBar,
@@ -311,7 +311,9 @@ export function App() {
         <OperatorPane view={state.operator} controls={inRoute ? undefined : []} />
     );
     const sidePanel = panelView === "settings" ? settingsPane : sessionsPane;
-    const middlePane = middle === "operator" ? operatorPane : agentsPane;
+    // The operator tab goes when the agent is off and stopped: back to the session.
+    const operatorOn = middle === "operator" && !operatorHidden(state.operator);
+    const middlePane = operatorOn ? operatorPane : agentsPane;
     const panes = { sessions: sidePanel, agents: middlePane, previews: previewsPane };
     const status = (
         <footer className="status" data-connection={state.connection}>
@@ -352,8 +354,7 @@ export function App() {
     });
     // The drawer sits under the agents pane; with the pane folded or swapped for the operator
     // tab, it takes a row of its own. Expanded, only the previews show: no drawer at all.
-    const agentsOff =
-        !expanded && (isStrip(layout.fitted.panes.agents) || middle === "operator");
+    const agentsOff = !expanded && (isStrip(layout.fitted.panes.agents) || operatorOn);
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
             <ContextBar
@@ -375,7 +376,8 @@ export function App() {
                     shown={panelShown ? panelView : undefined}
                     popped={sessionsState.popped}
                     onPick={pickPanel}
-                    operatorShown={middle === "operator"}
+                    operatorShown={operatorOn}
+                    operatorAvailable={!operatorHidden(state.operator)}
                     onOperator={() => setMiddle(middle === "operator" ? "agents" : "operator")}
                 />
                 <div
