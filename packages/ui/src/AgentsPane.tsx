@@ -19,7 +19,7 @@ import { tty_path, type AgentCost, type AgentSpec, type SessionView } from "@spi
 
 import { formatUsd } from "./costs.ts";
 
-import { ComposeForm, type ComposeKind, type RunAction } from "./SessionForms.tsx";
+import { ComposeForm, type RunAction } from "./SessionForms.tsx";
 
 export interface AgentsPaneProps {
     view: SessionView | undefined;
@@ -37,8 +37,8 @@ export interface AgentsPaneProps {
     controls?: IconButtonProps[] | undefined;
     /** The side-panel toggle, at the left of the title. */
     leading?: IconButtonProps | undefined;
-    /** The `new` or `adopt` form as the pane's view, in place of the agents tabs. */
-    compose?: { kind: ComposeKind; onCancel: () => void } | undefined;
+    /** The compose box as the pane's view, in place of the agents tabs. */
+    compose?: { onCancel: () => void } | undefined;
 }
 
 /** One sentence per session button, as its tooltip. */
@@ -212,7 +212,7 @@ export function AgentsPane(props: AgentsPaneProps) {
         return (
             <section className="pane agents-pane" aria-label="Agents">
                 <div className="chat">
-                    <ComposeForm kind={compose.kind} run={run} onCancel={compose.onCancel} />
+                    <ComposeForm run={run} onCancel={compose.onCancel} />
                     {children}
                 </div>
             </section>

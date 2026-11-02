@@ -20,7 +20,6 @@ import {
 } from "./Preview.tsx";
 import { diffJob } from "./diff-view.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
-import type { ComposeKind } from "./SessionForms.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
@@ -64,8 +63,8 @@ function useAppState(state: UiState, initial: string | undefined) {
     const [picked, setPicked] = useState<string | undefined>(initial);
     const [watched, setWatched] = useState<string | undefined>(undefined);
     const [actionError, setActionError] = useState<string | null>(null);
-    // The `new` or `adopt` form shown by the middle pane; it closes when the session exists.
-    const [compose, setCompose] = useState<ComposeKind | undefined>(undefined);
+    // True while the middle pane shows the compose box; it closes when the session exists.
+    const [compose, setCompose] = useState(false);
 
     const sessions = sortedSessions(state);
     const selected = picked !== undefined && picked in state.sessions ? picked : sessions[0]?.[0];
@@ -79,7 +78,7 @@ function useAppState(state: UiState, initial: string | undefined) {
         const created = job?.state === "ok" && (job.action === "new" || job.action === "adopt");
         if (created && job.session !== null) {
             setPicked(job.session);
-            setCompose(undefined);
+            setCompose(false);
         }
     }, [job?.state, job?.action, job?.session]);
 
@@ -246,7 +245,7 @@ export function App() {
             selected={selected}
             onSelect={setPicked}
             run={run}
-            onCompose={app.setCompose}
+            onCompose={() => app.setCompose(true)}
             controls={inRoute ? undefined : []}
         />
     );
@@ -259,11 +258,7 @@ export function App() {
             usage={state.usage}
             revisions={revisionsOf(state, selected)}
             controls={inRoute ? undefined : []}
-            compose={
-                app.compose === undefined
-                    ? undefined
-                    : { kind: app.compose, onCancel: () => app.setCompose(undefined) }
-            }
+            compose={app.compose ? { onCancel: () => app.setCompose(false) } : undefined}
         >
             {drawer}
         </AgentsPane>

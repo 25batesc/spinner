@@ -1,9 +1,9 @@
 import type { SessionView } from "@spinner/protocol";
 
-import { CostFigure, Icon, PaneHead, PrBadge, type IconButtonProps } from "./PaneHead.tsx";
+import { CostFigure, PaneHead, PrBadge, type IconButtonProps } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
-import type { ComposeKind, RunAction } from "./SessionForms.tsx";
+import type { RunAction } from "./SessionForms.tsx";
 import { stackLine, stackUsageOf, type UsageSample } from "./usage.ts";
 
 export type { RunAction } from "./SessionForms.tsx";
@@ -13,8 +13,8 @@ export interface SessionsPaneProps {
     selected: string | undefined;
     onSelect: (dir: string) => void;
     run: RunAction;
-    /** Opens the `new` or `adopt` form in the middle pane. */
-    onCompose: (kind: ComposeKind) => void;
+    /** Opens the compose box in the middle pane. */
+    onCompose: () => void;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?: IconButtonProps[] | undefined;
     /** The side-panel toggle, at the left of the title. */
@@ -28,26 +28,16 @@ function stackDot(view: SessionView): string {
 }
 
 /**
- * The block at the top of the list: `+ New session` on the right two thirds, `Adopt` on the
- * left third. Each opens its form as a view of the middle pane.
+ * The block at the top of the list: `+ New session`, the one way to start a session. It opens
+ * the compose box as a view of the middle pane; the PRs to adopt come out of the paste.
  */
-function ComposeCard({ onCompose }: { onCompose: (kind: ComposeKind) => void }) {
+function ComposeCard({ onCompose }: { onCompose: () => void }) {
     return (
         <li className="compose-card">
             <button
                 type="button"
-                className="compose-adopt"
-                onClick={() => onCompose("adopt")}
-                title="Adopt pull requests into a session"
-                aria-label="Adopt pull requests"
-            >
-                <Icon name="pull-request" />
-                <span>Adopt</span>
-            </button>
-            <button
-                type="button"
                 className="compose-new"
-                onClick={() => onCompose("new")}
+                onClick={onCompose}
                 aria-label="New session"
             >
                 <span className="compose-plus">+</span>

@@ -19,6 +19,8 @@ import type {
     ThreadsView,
 } from "@spinner/protocol";
 
+import type { ExtractRequest, ExtractResponse } from "./compose.ts";
+
 async function failure(method: string, path: string, response: Response): Promise<Error> {
     return new Error(`${method} ${path} failed (${response.status}): ${await response.text()}`);
 }
@@ -41,6 +43,27 @@ async function send<T>(method: "PUT" | "POST", path: string, body: unknown): Pro
         throw await failure(method, path, response);
     }
     return (await response.json()) as T;
+}
+
+/**
+ * The PRs of a paste, resolved against a project. Synchronous on the daemon. The compose box
+ * calls it after a pause in the typing and aborts it when the text moves again.
+ */
+export async function extractPrs(
+    body: ExtractRequest,
+    signal: AbortSignal,
+): Promise<ExtractResponse> {
+    const path = "/sessions/extract";
+    const response = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+    });
+    if (!response.ok) {
+        throw await failure("POST", path, response);
+    }
+    return (await response.json()) as ExtractResponse;
 }
 
 export async function fetchMission(dir: string, signal: AbortSignal): Promise<string> {

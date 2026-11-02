@@ -694,12 +694,79 @@ if (flow === "bridge-popout") {
     await finish();
 }
 
+if (flow === "compose") {
+    // Chat first (s014): the compose box is one textarea. A paste with a PR URL of a project
+    // repo, a short `api#N` reference and a URL of a repo outside the project yields three
+    // checkboxes after the typing pause: the first two ticked, the third unticked with its
+    // reason. An untick survives a re-extraction. `Start` creates the session, which is
+    // selected and opens on the lead's terminal; the compose box is gone.
+    await click(".compose-new");
+    const form = `document.querySelector(".agents-pane form[aria-label='New session']")`;
+    await until("compose box", `${form} !== null`);
+    const options = `[...document.querySelectorAll("form[aria-label='New session'] option")]`;
+    await until("projects loaded", `${options}.some((o) => o.textContent === "sample-stack")`);
+    await evaluate(`(() => {
+        const select = document.querySelector("form[aria-label='New session'] select");
+        const option = [...select.options].find((o) => o.textContent === "sample-stack");
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+        setter.call(select, option.value);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+    })()`);
+    const stamp = Date.now() % 100000;
+    const paste = [
+        `E2E compose ${stamp}`,
+        "Finish the refund copy: https://github.com/example/web/pull/412 and api#87,",
+        "see https://github.com/example/billing/pull/3 for the background.",
+    ].join("\n");
+    await fill("textarea[aria-label='What this is about']", paste);
+    const boxes = `[...document.querySelectorAll(".compose-prs input")]`;
+    await until("three PRs found", `${boxes}.length === 3`);
+    const ticks = (await evaluate(`${boxes}.map((b) => [b.checked, b.disabled])`)) as
+        [boolean, boolean][];
+    console.log("ticks:", JSON.stringify(ticks));
+    if (JSON.stringify(ticks) !== "[[true,false],[true,false],[false,true]]") {
+        throw new Error("the adoptable PRs are not ticked and the foreign one is not refused");
+    }
+    const reason = text(".compose-pr-reason");
+    await until("reason shown", `${reason}.includes("does not list billing")`);
+    await shot("56-compose-extracted");
+    await click("input[aria-label='Adopt api#87']");
+    await until("api unticked", `${boxes}[1].checked === false`);
+    await fill("textarea[aria-label='What this is about']", `${paste}\nmore words`);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await until("still three PRs", `${boxes}.length === 3`);
+    const kept = await evaluate(`${boxes}[1].checked`);
+    if (kept !== false) {
+        throw new Error("the untick did not survive the re-extraction");
+    }
+    await click(".compose-actions .primary", "Start");
+    const selected = text(".session-selected");
+    await until("session selected", `${selected}.includes("E2E compose ${stamp}")`);
+    await until("compose box gone", `${form} === null`);
+    await until("lead chip", `${text(".agents-pane .chips")}.includes("lead")`);
+    await until(
+        "lead terminal shown",
+        `document.querySelector(".agent-terminal:not([hidden])") !== null`,
+    );
+    const badge = await evaluate(
+        `document.querySelector(".session-selected .pr-badge")?.innerText`,
+    );
+    console.log("pr badge:", JSON.stringify(badge));
+    if (badge !== "⑂ 1") {
+        throw new Error("only the ticked PR should be adopted");
+    }
+    await shot("57-compose-started");
+    console.log("compose ok");
+    await finish();
+}
+
 if (flow === "sessions-panel") {
-    // The side panel: a split card at the top (Adopt | + New session), then one block per
-    // session of one height (title clamped to two lines, a badge line with the stage, the
-    // stack and the PR count, a needs-you line), the per-PR lines as the card's tooltip and
-    // no form in the panel. Either half of the top card opens its form as the middle pane's
-    // view; cancel returns to agents; a created session is selected and the view returns.
+    // The side panel: the New session card at the top, then one block per session of one
+    // height (title clamped to two lines, a badge line with the stage, the stack and the PR
+    // count, a needs-you line), the per-PR lines as the card's tooltip and no form in the
+    // panel. The top card opens the compose box as the middle pane's view; cancel returns to
+    // agents; a created session is selected and the view returns.
     const cards = `[...document.querySelectorAll(".session")]`;
     const shape = (await evaluate(`({
         heights: [...new Set(${cards}.map((c) => c.getBoundingClientRect().height))],
@@ -719,19 +786,22 @@ if (flow === "sessions-panel") {
         throw new Error("the PR lines did not move into the tooltip with a count badge");
     }
     await shot("52-session-cards");
-    await click(".compose-adopt");
-    const adoptForm = `document.querySelector(".agents-pane form[aria-label='Adopt PRs']")`;
-    await until("adopt form in the middle pane", `${adoptForm} !== null`);
+    const adoptBlocks = await evaluate(`document.querySelectorAll(".compose-adopt").length`);
+    if (adoptBlocks !== 0) {
+        throw new Error("the Adopt block should be gone");
+    }
+    await click(".compose-new");
+    const newForm = `document.querySelector(".agents-pane form[aria-label='New session']")`;
+    await until("compose box in the middle pane", `${newForm} !== null`);
     const viewTabs = `document.querySelectorAll(".agents-pane .view-tabs").length`;
     await until("no view tabs", `${viewTabs} === 0`);
-    await shot("53-compose-adopt");
+    await shot("53-compose-open");
     await click(".compose-actions button", "cancel");
     await until("back to agents", `${viewTabs} > 0`);
     await click(".compose-new");
-    const newForm = `document.querySelector(".agents-pane form[aria-label='New session']")`;
-    await until("new form in the middle pane", `${newForm} !== null`);
+    await until("compose box again", `${newForm} !== null`);
     const name = `E2E card ${Date.now() % 100000}`;
-    await fill("[aria-label='New session title']", name);
+    await fill("textarea[aria-label='What this is about']", name);
     await shot("54-compose-new");
     await click(".compose-actions .primary");
     const picked = text(".session-selected");
@@ -1897,7 +1967,7 @@ const title = `E2E ${Date.now() % 100000}`;
 await click(".compose-new");
 const newForm = `document.querySelector(".agents-pane form[aria-label='New session']")`;
 await until("new form shown", `${newForm} !== null`);
-await fill("[aria-label='New session title']", title);
+await fill("textarea[aria-label='What this is about']", title);
 const project = process.env["E2E_PROJECT"] ?? "sample-stack";
 await evaluate(`(() => {
     const select = document.querySelector("form[aria-label='New session'] select");

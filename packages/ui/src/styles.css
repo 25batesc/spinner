@@ -291,8 +291,8 @@ html, body, #root { height: 100%; margin: 0; }
     flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 16px;
     line-height: 16px;
 }
-/* The block above the list: Adopt on the left third, New session on the right two thirds.
-   New session is the panel's primary action; Adopt is secondary. */
+/* The block above the list: New session, the panel's one way to start a session (s014: the
+   PRs to adopt come out of the paste, so there is no Adopt block). */
 .compose-card { display: flex; gap: var(--space-2); height: 92px; margin-bottom: var(--space-2); }
 .compose-card button {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -301,9 +301,8 @@ html, body, #root { height: 100%; margin: 0; }
     font-weight: 500; transition: background-color 0.1s, border-color 0.1s;
 }
 .compose-card button:hover { background: var(--fill); }
-.compose-adopt { flex: 1; font-size: var(--text-dense); color: var(--muted); }
 .compose-card .compose-new {
-    flex: 2; background: var(--accent-tint);
+    flex: 1; background: var(--accent-tint);
     border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .compose-card .compose-new:hover { background: var(--accent-fill); border-color: var(--accent); }
@@ -318,6 +317,26 @@ html, body, #root { height: 100%; margin: 0; }
 .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
 .field-label { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .field-row { display: flex; gap: var(--space-3); }
+/* The PRs the daemon found in the paste: one row each, a checkbox, the title, `repo#N` in
+   mono, the branch as meta. A refused PR is muted and carries its reason under the row. */
+.compose-prs {
+    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+    gap: var(--space-1); border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+}
+.compose-pr { padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--line-soft); }
+.compose-pr:last-child { border-bottom: 0; }
+.compose-pr label {
+    display: flex; align-items: center; gap: var(--space-2); min-height: 24px;
+    font-size: var(--text-dense); cursor: pointer;
+}
+.compose-pr-title { font-weight: 500; }
+.compose-pr-ref { font-family: var(--mono); font-size: var(--text-meta); color: var(--muted); }
+.compose-pr-branch { font-size: var(--text-meta); }
+.compose-pr-off label { color: var(--muted); cursor: default; }
+.compose-pr-reason {
+    display: block; padding-left: 26px; font-size: var(--text-meta); color: var(--warn);
+}
+.compose-extracting { margin: 0; font-size: var(--text-meta); }
 .compose-actions { display: flex; gap: var(--space-2); padding-top: var(--space-1); }
 .compose-actions button { height: var(--control-form); padding: 0 14px; }
 .session.session-selected {

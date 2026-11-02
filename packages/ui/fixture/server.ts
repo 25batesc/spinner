@@ -31,6 +31,8 @@ import {
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { costsReport, OPERATOR_COST } from "./costs.ts";
+import { extract } from "./extract.ts";
+import { provisionalTitle } from "../src/compose.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
     FIXTURE_PORT, diffRepoStopped, diffViewerUrl, initialSessions, machineUsage, PROJECTS, pr,
@@ -375,6 +377,19 @@ class FixtureDaemon {
 
     async run(request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
         const body = await readBody(request);
+        if (path === "/sessions/extract") {
+            // Synchronous, as the daemon: the PRs of the paste against the project's repos.
+            const repos = this.projectRepos(body["project"]);
+            sendJson(response, extract(String(body["text"] ?? ""), repos));
+            return true;
+        }
+        if (path === "/sessions" && typeof body["text"] === "string") {
+            // Chat first (s014): the paste, the ticked PRs, and a lead agent on its terminal.
+            const text = body["text"];
+            const adopt = (body["adopt"] as string[] | undefined) ?? [];
+            const title = provisionalTitle(text) === "" ? "untitled" : provisionalTitle(text);
+            return this.accepted(response, this.create("new", title, adopt, body["project"], text));
+        }
         if (path === "/sessions") {
             const title = String(body["title"] ?? "untitled");
             return this.accepted(response, this.create("new", title, [], body["project"]));
@@ -548,21 +563,52 @@ class FixtureDaemon {
         return true;
     }
 
-    create(action: "new" | "adopt", title: string, urls: string[], project: unknown): Job {
+    /** The repos of the project a body names, by name or by spec path; none without one. */
+    projectRepos(project: unknown): string[] {
+        const found = PROJECTS.find((item) => item.name === project || item.path === project);
+        return found === undefined ? [] : found.repos;
+    }
+
+    /**
+     * `POST /sessions` and `/sessions/adopt` as one job. With `text` (chat first), the PRs
+     * are the adopted URLs on their repos and a `lead` tty agent runs from the start, so the
+     * session opens on its terminal.
+     */
+    create(
+        action: "new" | "adopt", title: string, urls: string[], project: unknown, text?: string,
+    ): Job {
         return this.start(action, null, async (log) => {
             const id = `s${100 + this.counter}`;
             const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
             const dir = `${id}-${slug}`;
             log(`creating ${dir}`);
             await sleep(STEP_DELAY_MS);
-            const prs = urls.map((_, index) => pr(500 + index, "web"));
+            const prs = urls.map((url, index) => {
+                const parts = /\/([^/]+)\/pull\/(\d+)/.exec(url);
+                return parts === null
+                    ? pr(500 + index, "web")
+                    : pr(Number(parts[2]), parts[1] ?? "web", { url });
+            });
+            for (const item of prs) {
+                log(`adopted ${item.repo}#${item.number}`);
+            }
+            const lead = text === undefined ? {} : {
+                lead: {
+                    harness: "tty" as const, model: "fixture/default", process: "running" as const,
+                },
+            };
             const base = session({
                 id, slug, title, created: new Date().toISOString(),
                 stage: urls.length > 0 ? "peer-review" : "planned",
+                agents: lead,
                 ...(typeof project === "string" ? { project } : {}),
             });
             const stack = stackView(id, typeof project === "string" ? "down" : "none");
-            this.update(view(dir, base, stack, prs));
+            this.update(view(dir, base, stack, prs, text === undefined ? [] : ["lead"]));
+            if (text !== undefined) {
+                log("started lead");
+                log("sent the first message to lead");
+            }
             log("session ready");
             return dir;
         });
