@@ -870,6 +870,19 @@ if (flow === "compose") {
     if (JSON.stringify(ticks) !== "[[true,false],[true,false],[false,true]]") {
         throw new Error("the adoptable PRs are not ticked and the foreign one is not refused");
     }
+    // A look at another session leaves the compose view and keeps the draft.
+    await click(".session", "Refund flow");
+    await until("compose gone", `${form} === null`);
+    await until("agents back", `document.querySelector(".agents-pane .view-tabs") !== null`);
+    await click(".compose-new");
+    await until("compose back", `${form} !== null`);
+    const draftKept = await evaluate(
+        `document.querySelector("textarea[aria-label='What this is about']").value`,
+    );
+    if (draftKept !== paste) {
+        throw new Error("the draft did not survive a look at another session");
+    }
+    await until("PRs found again", `${boxes}.length === 3`);
     const reason = text(".compose-pr-reason");
     await until("reason shown", `${reason}.includes("billing is not a repo")`);
     await shot("56-compose-extracted");

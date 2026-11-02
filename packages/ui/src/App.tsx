@@ -24,6 +24,7 @@ import { diffJob } from "./diff-view.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
 import { SessionsPane } from "./SessionsPane.tsx";
+import { EMPTY_DRAFT, type ComposeDraft } from "./SessionForms.tsx";
 import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
@@ -72,8 +73,10 @@ function useAppState(state: UiState, initial: string | undefined) {
     const [picked, setPicked] = useState<string | undefined>(initial);
     const [watched, setWatched] = useState<string | undefined>(undefined);
     const [actionError, setActionError] = useState<string | null>(null);
-    // True while the middle pane shows the compose box; it closes when the session exists.
+    // True while the middle pane shows the compose box; it closes when the session exists or
+    // when another session is picked. The draft stays, so coming back finds the text.
     const [compose, setCompose] = useState(false);
+    const [draft, setDraft] = useState<ComposeDraft>(EMPTY_DRAFT);
 
     const sessions = sortedSessions(state);
     const selected = picked !== undefined && picked in state.sessions ? picked : sessions[0]?.[0];
@@ -113,7 +116,7 @@ function useAppState(state: UiState, initial: string | undefined) {
     };
     return {
         sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
-        setPicked, setActionError, compose, setCompose,
+        setPicked, setActionError, compose, setCompose, draft, setDraft,
     };
 }
 
@@ -255,7 +258,10 @@ export function App() {
             sessions={sessions}
             usage={state.usage}
             selected={selected}
-            onSelect={setPicked}
+            onSelect={(dir) => {
+                app.setCompose(false);
+                setPicked(dir);
+            }}
             run={run}
             onCompose={() => app.setCompose(true)}
             controls={inRoute ? undefined : []}
@@ -271,7 +277,15 @@ export function App() {
             revisions={revisionsOf(state, selected)}
             mission={selected === undefined ? undefined : state.missions[selected]}
             controls={inRoute ? undefined : []}
-            compose={app.compose ? { onCancel: () => app.setCompose(false) } : undefined}
+            compose={
+                app.compose
+                    ? {
+                          onCancel: () => app.setCompose(false),
+                          draft: app.draft,
+                          onDraft: app.setDraft,
+                      }
+                    : undefined
+            }
         >
             {drawer}
         </AgentsPane>

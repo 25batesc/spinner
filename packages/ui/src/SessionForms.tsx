@@ -149,13 +149,24 @@ export interface ComposeFormProps {
     run: RunAction;
     /** Back to the agents view without creating anything. */
     onCancel: () => void;
+    /** The draft lives with the caller, so a look at another session keeps what was typed. */
+    draft: ComposeDraft;
+    onDraft: (draft: ComposeDraft) => void;
 }
 
+export interface ComposeDraft {
+    text: string;
+    project: string;
+}
+
+export const EMPTY_DRAFT: ComposeDraft = { text: "", project: "" };
+
 /** The compose box. `Start` posts the job; the drawer below shows it run. */
-export function ComposeForm({ run, onCancel }: ComposeFormProps) {
+export function ComposeForm({ run, onCancel, draft, onDraft }: ComposeFormProps) {
     const projects = useProjects();
-    const [text, setText] = useState("");
-    const [project, setProject] = useState("");
+    const { text, project } = draft;
+    const setText = (next: string) => onDraft({ ...draft, text: next });
+    const setProject = (next: string) => onDraft({ ...draft, project: next });
     const [extraction, toggle] = useExtraction(text, project);
 
     const submit = (event: FormEvent) => {

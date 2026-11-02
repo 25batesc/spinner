@@ -20,7 +20,7 @@ import {
 
 import { formatUsd } from "./costs.ts";
 
-import { ComposeForm, type RunAction } from "./SessionForms.tsx";
+import { ComposeForm, type ComposeDraft, type RunAction } from "./SessionForms.tsx";
 
 export interface AgentsPaneProps {
     view: SessionView | undefined;
@@ -41,7 +41,9 @@ export interface AgentsPaneProps {
     /** The side-panel toggle, at the left of the title. */
     leading?: IconButtonProps | undefined;
     /** The compose box as the pane's view, in place of the agents tabs. */
-    compose?: { onCancel: () => void } | undefined;
+    compose?:
+        | { onCancel: () => void; draft: ComposeDraft; onDraft: (draft: ComposeDraft) => void }
+        | undefined;
 }
 
 /** The chip's dot: in a turn, hosted and idle, or not hosted at all. */
@@ -164,7 +166,12 @@ export function AgentsPane(props: AgentsPaneProps) {
         return (
             <section className="pane agents-pane" aria-label="Agents">
                 <div className="chat">
-                    <ComposeForm run={run} onCancel={compose.onCancel} />
+                    <ComposeForm
+                        run={run}
+                        onCancel={compose.onCancel}
+                        draft={compose.draft}
+                        onDraft={compose.onDraft}
+                    />
                     {children}
                 </div>
             </section>
