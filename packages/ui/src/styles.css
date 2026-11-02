@@ -433,11 +433,35 @@ html, body, #root { height: 100%; margin: 0; }
     color: var(--accent); border-color: var(--accent); border-style: solid;
     background: var(--accent-tint);
 }
-.preview-pane { display: flex; flex-direction: column; gap: 6px; }
-.preview-frame { flex: 1; width: 100%; border: 1px solid var(--border); background: white; }
+.preview-pane { display: flex; flex-direction: column; gap: var(--space-2); }
+/* The preview tabs in the underline style of the view tabs, `verified` at the row's right end. */
+.preview-tabs {
+    display: flex; align-items: stretch; gap: var(--space-3); flex: none; min-height: 32px;
+    border-bottom: 1px solid var(--line-soft);
+}
+.preview-tabs .tabs { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.preview-tabs .tab {
+    display: inline-flex; align-items: center; flex: none; padding: 0 10px; border: 0;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent;
+    color: var(--muted); font: inherit; font-size: var(--text-body); font-weight: 500;
+    cursor: pointer;
+}
+.preview-tabs .tab:hover { color: var(--text); }
+.preview-tabs .tab.tab-selected {
+    color: var(--text); font-weight: 600; border-bottom-color: var(--accent);
+}
+.preview-tabs .verified { flex: none; font-size: var(--text-dense); }
+.preview-frame {
+    flex: 1; width: 100%; box-sizing: border-box; border: 1px solid var(--line-soft);
+    border-radius: var(--radius-box); background: white;
+}
 /* The native view covers the box; a transparent box keeps the view's own background visible. */
 .preview-box { background: transparent; }
-.preview-note { margin: 0; padding: 6px; font-size: 12px; border: 1px solid var(--warn); border-radius: 4px; }
+.preview-note {
+    margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-dense);
+    background: var(--warn-tint); border-left: 2px solid var(--warn);
+    border-radius: var(--radius-control);
+}
 /* A dot: filled green for up or working, amber for starting or unhealthy, red for failed, a
    hollow ring for none or idle, a dashed ring for off. */
 .dot {
@@ -534,15 +558,18 @@ html, body, #root { height: 100%; margin: 0; }
 .drawer-bar:hover { background: var(--fill-soft); }
 .drawer-failed, .drawer-bar.drawer-failed { border-color: color-mix(in srgb, var(--fail) 50%, transparent); }
 .drawer-error, .drawer-bar.drawer-error { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
-.verified { display: flex; align-items: center; gap: 4px; }
+.verified { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
 /* The browser bar above the preview content. */
-.browser-bar { display: flex; gap: 2px; align-items: center; position: relative; }
+.browser-bar { display: flex; gap: 2px; align-items: center; position: relative; min-height: 32px; }
 .browser-bar .icon-button:disabled { opacity: 0.25; cursor: default; background: transparent; }
 .url-form { flex: 1; display: flex; min-width: 0; }
 .url-field {
-    flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 2px 6px;
-    border: 1px solid var(--border); border-radius: 4px; background: var(--fill-soft); color: inherit;
+    flex: 1; min-width: 0; min-height: var(--control-row); margin: 0 var(--space-1);
+    font: inherit; font-size: var(--text-dense); padding: 0 var(--space-2);
+    border: 1px solid var(--line-soft); border-radius: 999px; background: var(--fill-soft);
+    color: inherit;
 }
+.url-field:focus { background: var(--bg); }
 .browser-menu { position: relative; }
 .menu {
     position: absolute; right: 0; top: 26px; z-index: 5; min-width: 180px; padding: 4px;
