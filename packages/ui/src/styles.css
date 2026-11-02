@@ -235,8 +235,8 @@ html, body, #root { height: 100%; margin: 0; }
 /* A collapsed or popped-out pane: a 24 px strip, the name turned sideways. */
 .strip {
     width: 24px; padding: 8px 0; border: 1px solid var(--line-soft); background: var(--fill-soft); color: inherit;
-    cursor: pointer; writing-mode: vertical-rl; font: inherit; font-size: 12px;
-    text-transform: uppercase; letter-spacing: 0.05em; text-align: left; overflow: hidden;
+    cursor: pointer; writing-mode: vertical-rl; font: inherit; font-size: var(--text-dense);
+    font-weight: 500; text-align: left; overflow: hidden;
 }
 .strip:hover { background: var(--fill); }
 .strip-popped { color: var(--accent); }
@@ -720,23 +720,37 @@ html, body, #root { height: 100%; margin: 0; }
 .activity-bar .bar-bottom { margin-top: auto; }
 .activity-bar .bar-operator + .bar-bottom { margin-top: 0; }
 /* The operator tab: the stop or resume button, then the waiting line, on one row. */
-.operator-toolbar { font-size: 12px; }
-.operator-waiting { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.operator-toolbar { font-size: var(--text-dense); flex-wrap: nowrap; }
+.operator-toolbar .operator-waiting {
+    flex: 1; min-width: 0; margin-left: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.operator-waiting::before {
+    content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px;
+    border-radius: 50%; background: var(--warn); vertical-align: 1px;
+}
+.operator-toolbar .error { color: var(--fail); }
 /* The context bar's one control: the resume link after the not-running notice. */
 .operator-notice { white-space: nowrap; }
 .operator-notice .link { margin-left: 0; padding: 0; font: inherit; font-size: 12px; }
 /* The settings view in the side panel: one labelled control per line, swatches under the
    theme select, the invalid custom themes struck through with their missing keys. */
-.settings { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
-.setting { display: flex; flex-direction: column; gap: 4px; }
-.setting > span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-.setting select { font: inherit; font-size: 13px; }
-.swatches { display: flex; gap: 3px; }
-.swatch { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--border); }
-.invalid-themes { margin: 0; padding-left: 16px; font-size: 12px; }
-.settings-hint { margin: 0; font-size: 12px; }
-.settings-hint .link { margin-left: 0; padding: 0; }
-.settings-hint code { overflow-wrap: anywhere; }
+.settings { display: flex; flex-direction: column; gap: var(--space-4); font-size: var(--text-body); }
+.setting { display: flex; flex-direction: column; gap: 6px; }
+.setting > span { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
+.setting select { width: 100%; }
+.swatches { display: flex; gap: 2px; }
+.swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line-soft); }
+.invalid-themes { margin: calc(-1 * var(--space-2)) 0 0; padding-left: var(--space-4); font-size: var(--text-dense); }
+.settings-hint {
+    margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-dense); line-height: 1.5;
+    background: var(--fill-soft); border-radius: var(--radius-box);
+}
+.settings-hint .link { margin-left: 0; padding: 0; height: auto; }
+.settings-hint code {
+    overflow-wrap: anywhere; font-size: var(--text-meta); padding: 0 3px;
+    border-radius: 3px; background: var(--fill-soft);
+}
 
 /* The rainbow theme: the accent walks the hue wheel and the titles wear a gradient. */
 @property --rainbow-accent { syntax: "<color>"; inherits: true; initial-value: #ff5bb0; }
