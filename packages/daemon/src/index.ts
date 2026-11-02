@@ -27,6 +27,9 @@ export { render_compose, compose_project, hostname, type Rendered } from "./stac
 export * from "./stack/runner.js";
 export { run, run_attached } from "./stack/shell.js";
 export { group_alive, read_pid_files } from "./stack/host-service.js";
+export { diff_fetched, diff_home, diff_viewer_bin, read_fetch_marker } from "./diff/fetch.js";
+export { DIFF_PINS } from "./diff/pins.js";
+export { DiffManager } from "./diff/manager.js";
 export { add_worktree, remove_worktree, list_worktrees } from "./git/worktree.js";
 export * from "./pipeline/index.js";
 export * as actions from "./actions.js";

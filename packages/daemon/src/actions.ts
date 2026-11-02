@@ -59,6 +59,8 @@ import {
 import { list_projects } from "./projects.js";
 import { find_spec, load_spec } from "./stack/spec.js";
 import { create_session } from "./store/session-store.js";
+import { diff_home } from "./diff/fetch.js";
+import { stop_viewers } from "./diff/viewer.js";
 
 /**
  * The fixer agent, as `src/agents/` (ext) exports it: `fix` renders the threads and hands
@@ -178,6 +180,8 @@ export async function up(
 }
 
 export async function down(ctx: ActionContext, summary: SessionSummary, log: Log): Promise<void> {
+    // The diff viewers are host processes of the session, so `down` ends them with the stack.
+    await stop_viewers(summary, diff_home(ctx.home), log);
     await stack_down(ctx.home, summary, log);
 }
 
@@ -186,6 +190,7 @@ export async function close(
     summary: SessionSummary,
     log: Log,
 ): Promise<CloseResult> {
+    await stop_viewers(summary, diff_home(ctx.home), log);
     const result = await stack_close(ctx.home, summary, log);
     log(`archived to ${result.archived_path}`);
     return result;

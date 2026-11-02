@@ -1,13 +1,18 @@
 // `spinner doctor`: one line per check, `ok` or `FAIL`, each with what was found and what to
 // do. The checks are the things the README's newcomer path trips over: the home inside a
 // git repo, Docker down, `gh` logged out, no `pi`, an old Node, a stopped proxy or Postgres,
-// a `config.yaml` that does not parse. Exit 1 when any check fails. The Slack token is
-// reported as present or absent only; both are fine, its value is never printed.
+// a `config.yaml` that does not parse, the diff viewer fetched or not. Exit 1 when any check
+// fails. The Slack token is reported as present or absent only; both are fine, its value is
+// never printed.
 import assert from "node:assert/strict";
 import { existsSync, statSync } from "node:fs";
 import {
+    DIFF_PINS,
     daemon_pid_file,
     describe_build,
+    diff_fetched,
+    diff_viewer_bin,
+    read_fetch_marker,
     is_inside_git_repo,
     load_config,
     pid_alive,
@@ -56,8 +61,9 @@ async function run_doctor(args: string[], home: SpinnerHome, io: CliIo): Promise
         check_env_file(home),
         check_token(io.env),
         await check_daemon(home, io.env),
+        check_diffview(home),
     ];
-    assert.ok(checks.length === 10, "every check reports exactly one line");
+    assert.ok(checks.length === 11, "every check reports exactly one line");
     const width = Math.max(...checks.map((check) => check.name.length));
     for (const check of checks) {
         const mark = check.ok ? "ok  " : "FAIL";
@@ -183,6 +189,21 @@ function check_env_file(home: SpinnerHome): Check {
         return fail(name, `${file} has mode ${mode.toString(8)}; run chmod 600 on it`);
     }
     return pass(name, `${file} (mode 600)`);
+}
+
+/** The diff viewer is fetched on first use; absent is fine and is reported as a note. */
+function check_diffview(home: SpinnerHome): Check {
+    const name = "diffview";
+    const marker = read_fetch_marker(home);
+    if (diff_fetched(home) && marker !== null) {
+        return pass(name, `${diff_viewer_bin(home)} (fetched ${marker.fetched.slice(0, 10)})`);
+    }
+    if (marker !== null) {
+        const pin = DIFF_PINS.viewer.sha.slice(0, 12);
+        const detail = `fetched ${marker.viewer.slice(0, 12)}, pin is ${pin}`;
+        return pass(name, `${detail}; the next diff tab click fetches again`);
+    }
+    return pass(name, `not fetched (optional; the first diff tab click fetches it)`);
 }
 
 function check_token(env: NodeJS.ProcessEnv): Check {

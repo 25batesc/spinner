@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type {
     BoardView,
+    DiffView,
     ServiceStatus,
     ServiceView,
     SessionSummary,
@@ -39,6 +40,8 @@ export interface ViewContext {
     usage?: (dir: string) => SessionUsage | null;
     /** Agents whose pi process the daemon hosts, per session directory. */
     agents_running: (dir: string) => string[];
+    /** The diff viewers of a session (s012); the feature reads as absent when not given. */
+    diff?: (summary: SessionSummary) => DiffView;
     now: () => Date;
     log: (line: string) => void;
 }
@@ -59,8 +62,12 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         ),
         agents_running: ctx.agents_running(summary.dir),
         can_verify: summary.session.stack?.state === "up",
+        diff: ctx.diff?.(summary) ?? DIFF_ABSENT,
     };
 }
+
+/** `SessionView.diff` for a daemon built without a `DiffManager` (route tests). */
+const DIFF_ABSENT: DiffView = { available: false, fetch: "absent", fetch_error: null, repos: {} };
 
 /** The session's spec copy, or null when the session has no stack (adopted, or no project). */
 export function session_spec_or_null(summary: SessionSummary): StackSpec | null {

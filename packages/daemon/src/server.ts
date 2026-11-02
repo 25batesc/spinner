@@ -64,6 +64,8 @@ import { resolve_pi_binary } from "./agents/pi-rpc.js";
 import { EventBus } from "./event-bus.js";
 import type { SpinnerHome } from "./home.js";
 import { JobRunner, type JobWork } from "./jobs/jobs.js";
+import { DiffManager } from "./diff/manager.js";
+import { mount_diff_routes } from "./diff/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
@@ -135,6 +137,8 @@ export interface DaemonOptions {
     operator?: boolean;
     /** For tests: the operator host's notice batch window. */
     operator_batch_ms?: number;
+    /** The diff viewer's executable instead of the fetched checkout's; tests pass a fake. */
+    diffview_bin?: string;
 }
 
 export interface Daemon {
@@ -178,6 +182,8 @@ export interface AppDeps {
     /** ext: the mission writer and the deliverer; the agent routes mount when both are set. */
     writer?: MissionWriter;
     deliverer?: Deliverer;
+    /** The diff viewers (s012); their routes mount when given. */
+    diff?: DiffManager;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -503,6 +509,9 @@ export function create_app(deps: AppDeps): Hono {
     });
 
     mount_pipeline_routes(app, deps); // engine: pr, fix, threads, post, approve, land, reset
+    if (deps.diff !== undefined) {
+        mount_diff_routes(app, { ...deps, diff: deps.diff });
+    }
     if (deps.writer !== undefined && deps.deliverer !== undefined) {
         // ext: mission section, inbox, context
         mount_agent_routes(app, { ...deps, writer: deps.writer, deliverer: deps.deliverer });
@@ -631,6 +640,11 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     });
     ctx.fixer = fixer_driver({ home, agents, cwd });
 
+    const diff = new DiffManager({
+        home,
+        log,
+        ...(options.diffview_bin === undefined ? {} : { bin: options.diffview_bin }),
+    });
     let observer: StackObserver | null = null;
     let usage: UsageSampler | null = null;
     const view_ctx: ViewContext = {
@@ -639,6 +653,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         observation: (dir) => observer?.get(dir) ?? null,
         usage: (dir) => usage?.get(dir) ?? null,
         agents_running: (dir) => agents.running(dir),
+        diff: (summary) => diff.view(summary),
         now: () => new Date(),
         log,
     };
@@ -698,7 +713,10 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         bus,
         writer,
         deliverer,
+        diff,
     });
+    // Viewers outlive the daemon; the record is validated by pid identity before any view.
+    await diff.reattach_all(list_sessions(home).sessions);
     // The watchers come up before the port opens: a client that sees `/health` answer must
     // find the daemon whole, so a session it creates at once is watched, and `main.ts`
     // writes `daemon.pid` right after this returns (the CLI's `daemon start` reads it).

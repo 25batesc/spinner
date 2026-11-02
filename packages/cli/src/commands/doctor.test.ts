@@ -46,7 +46,7 @@ describe("spinner doctor", () => {
         expect(code).toBe(1);
         expect(err).toEqual([]);
         const lines = out.slice(0, -1);
-        expect(lines).toHaveLength(10);
+        expect(lines).toHaveLength(11);
         for (const line of lines) {
             expect(line).toMatch(/^(ok {2}|FAIL) {2}\S+\s+\S/);
         }
@@ -65,11 +65,12 @@ describe("spinner doctor", () => {
         });
         await run_cli(["doctor"], io);
         const lines = out.filter((line) => /^(ok {2}|FAIL) {2}/.test(line));
-        expect(lines).toHaveLength(10);
+        expect(lines).toHaveLength(11);
         expect(lines[0]).toBe(`ok    home      ${home} (not created yet; the daemon creates it)`);
         expect(lines[1]).toMatch(/^ok {4}node {6}v\d+/);
         expect(lines[4]).toBe(`ok    pi        ${process.execPath} (no config.yaml, defaults)`);
         expect(lines[8]).toBe("ok    slack     SLACK_USER_TOKEN present");
+        expect(lines[10]).toMatch(/^ok {4}diffview {2}not fetched \(optional; the first diff tab/);
         expect(out.join("\n")).not.toContain("xoxp-not-a-real-token");
     });
 
