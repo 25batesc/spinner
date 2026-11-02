@@ -17,8 +17,11 @@ import type {
     InboxMessageRequest,
     InboxMessageResponse,
     JobResponse,
+    MissionItemRequest,
     MissionSectionRequest,
     MissionSectionResponse,
+    MissionViewResponse,
+    SessionResponse,
 } from "@spinner/protocol";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
@@ -31,6 +34,8 @@ import { agent_context, write_context_file, type ContextDeps } from "./context.j
 import type { Deliverer } from "./delivery.js";
 import { validate_inbox_message, write_inbox_message } from "./inbox.js";
 import { default_brief, type AgentManager } from "./manager.js";
+import { parse_session_title } from "../requests.js";
+import type { ViewBuilder } from "../watcher.js";
 
 export interface AgentRouteDeps {
     home: SpinnerHome;
@@ -41,11 +46,13 @@ export interface AgentRouteDeps {
     jobs: JobRunner;
     /** Called after a job on `dir` finished, so the view carries fresh stack facts. */
     refresh: (dir: string) => Promise<void>;
+    /** The session view, for `PUT /sessions/:dir/title`'s answer. */
+    view: ViewBuilder;
     now?: () => Date;
 }
 
 const SECTIONS = ["goal", "done_when", "plan", "roster", "contracts", "open_questions", "log"];
-const MODES = ["append", "replace", "roster_row"];
+const MODES = ["append", "replace", "roster_row", "item"];
 
 export function mount_agent_routes(app: Hono, deps: AgentRouteDeps): void {
     const now = deps.now ?? (() => new Date());
@@ -67,6 +74,37 @@ export function mount_agent_routes(app: Hono, deps: AgentRouteDeps): void {
             const status = error instanceof MissionWriteError ? 400 : 500;
             return c.json(error_body(describe_error(error)), status);
         }
+    });
+
+    app.get("/sessions/:dir/mission/view", (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        try {
+            const body: MissionViewResponse = { view: deps.writer.view(summary.dir) };
+            return c.json(body);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 404);
+        }
+    });
+
+    app.put("/sessions/:dir/title", async (c) => {
+        const request = parse_session_title(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        // The title line is not a section; the write still waits its turn behind the writer.
+        const author = c.req.query("author") ?? "operator";
+        const titled = await deps.writer.serialized(summary.dir, author, () =>
+            actions.set_title(deps.ctx, summary, request.title),
+        );
+        const body: SessionResponse = { session: deps.view(titled) };
+        return c.json(body);
     });
 
     app.post("/sessions/:dir/inbox", async (c) => {
@@ -181,12 +219,17 @@ export function parse_mission_section(input: unknown): MissionSectionRequest | s
     if (blocked !== undefined && typeof blocked !== "string") {
         return "`blocked` must be a string when given";
     }
+    const item = record["item"];
+    if (item !== undefined && (typeof item !== "object" || item === null || Array.isArray(item))) {
+        return "`item` must be an object when given";
+    }
     return {
         section: section as MissionSectionRequest["section"],
         mode: mode as MissionSectionRequest["mode"],
         text,
         author,
         ...(blocked === undefined ? {} : { blocked }),
+        ...(item === undefined ? {} : { item: item as MissionItemRequest }),
     };
 }
 

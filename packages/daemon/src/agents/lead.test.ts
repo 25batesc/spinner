@@ -20,7 +20,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExtractResponse, Job, SpinnerEvent } from "@spinner/protocol";
+import type {
+    ExtractResponse,
+    Job,
+    MissionView,
+    MissionViewResponse,
+    SpinnerEvent,
+} from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import type { GhRunner, PrResponse } from "../pipeline/github.js";
 import { start_daemon, type Daemon } from "../server.js";
@@ -239,6 +245,53 @@ describe("POST /sessions with text", () => {
         expect(await neither.text()).toContain("`title` or `text`");
         const adopt_without = await call("POST", "/sessions", { text: "x", adopt: [PR_URL] });
         expect(adopt_without.status).toBe(409);
+    });
+});
+
+describe("GET /sessions/:dir/mission/view and PUT /sessions/:dir/title", () => {
+    it("answers the structured mission, carries it on the event, and sets the title", async () => {
+        const started = await call("POST", "/sessions", { title: "Plain" });
+        const { job } = (await started.json()) as { job: Job };
+        const dir = job.session as string;
+        expect((await wait_job(job.id)).state).toBe("ok");
+        const written = await call("PUT", `/sessions/${dir}/mission/section`, {
+            section: "plan",
+            mode: "item",
+            text: "",
+            author: "lead",
+            item: { command: "add", text: "first thing" },
+        });
+        expect(written.status).toBe(200);
+        const changed = events.find((event) => event.type === "mission.changed") as
+            | { view?: MissionView }
+            | undefined;
+        expect(changed?.view?.plan).toEqual([
+            { id: 1, text: "first thing", owner: "lead", state: "next", ticked_at: null },
+        ]);
+        const response = await call("GET", `/sessions/${dir}/mission/view`);
+        expect(response.status).toBe(200);
+        const { view } = (await response.json()) as MissionViewResponse;
+        expect(view.title).toBe("Plain");
+        expect(view.plan[0]?.text).toBe("first thing");
+        expect(view.log[0]?.text).toBe("session created");
+
+        const titled = await call("PUT", `/sessions/${dir}/title?author=lead`, {
+            title: "Refunds, end to end",
+        });
+        expect(titled.status).toBe(200);
+        const body = (await titled.json()) as {
+            session: { summary: { session: { title: string } } };
+        };
+        expect(body.session.summary.session.title).toBe("Refunds, end to end");
+        const mission = readFileSync(join(home.sessions, dir, "MISSION.md"), "utf8");
+        expect(mission.split("\n")[0]).toMatch(/^# s\d+ \u00b7 Refunds, end to end$/);
+        const again = await call("GET", `/sessions/${dir}/mission/view`);
+        const after = (await again.json()) as MissionViewResponse;
+        expect(after.view.title).toBe("Refunds, end to end");
+        expect(after.view.plan).toHaveLength(1);
+        const bad = await call("PUT", `/sessions/${dir}/title`, { title: "" });
+        expect(bad.status).toBe(400);
+        expect((await call("GET", "/sessions/nope/mission/view")).status).toBe(404);
     });
 });
 

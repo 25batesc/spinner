@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { DeliveryKind, SessionSummary } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
+import { mission_view } from "../pipeline/mission-sections.js";
 import { read_session } from "../store/session-store.js";
 import type { MissionWriter } from "../store/mission-writer.js";
 import { describe_changes, diff_mission } from "../watch/mission-diff.js";
@@ -151,6 +152,7 @@ export class Deliverer {
                 session: dir,
                 author,
                 sections: changes.map((change) => change.section),
+                view: mission_view(after),
             });
         }
         for (const agent of this.agent_names(summary)) {

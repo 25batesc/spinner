@@ -11,11 +11,23 @@ import { dirname, join } from "node:path";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import type {
+    MissionItemRequest,
     MissionSection,
     MissionSectionRequest,
     MissionSectionResponse,
+    MissionView,
 } from "@spinner/protocol";
-import { join_mission, split_mission, type MissionBlock } from "../pipeline/mission-sections.js";
+import { MISSION_ITEM_COMMANDS } from "@spinner/protocol";
+import {
+    join_mission,
+    mission_view,
+    render_item,
+    section_items,
+    split_mission,
+    with_ids,
+    type MissionBlock,
+    type MissionItem,
+} from "../pipeline/mission-sections.js";
 
 /** Heading of each section, as the template writes it. */
 export const SECTION_HEADINGS: Record<MissionSection, string> = {
@@ -33,6 +45,9 @@ const REPLACEABLE: readonly MissionSection[] = ["goal", "done_when"];
 
 /** Sections that take one appended line. The Roster takes rows, Goal and Done when bodies. */
 const APPENDABLE: readonly MissionSection[] = ["plan", "contracts", "open_questions", "log"];
+
+/** Sections the `item` mode works on (s014): checklists with ids and times. */
+const ITEM_SECTIONS: readonly MissionSection[] = ["plan", "done_when"];
 
 /** Upper bound on one appended line or roster cell. Longer text belongs in NOTES.md. */
 const TEXT_LENGTH_MAX = 4_000;
@@ -76,6 +91,53 @@ export function validate_mission_write(request: MissionSectionRequest): string |
     if (request.mode !== "replace" && request.text.includes("\n")) {
         return "one line only; newlines are not allowed in this mode";
     }
+    if (request.mode === "item") {
+        return validate_item(request);
+    }
+    return null;
+}
+
+/** The `item` mode's own checks: the section, the command and the arguments it needs. */
+function validate_item(request: MissionSectionRequest): string | null {
+    if (!ITEM_SECTIONS.includes(request.section)) {
+        return `item is allowed on plan and done_when only, not ${request.section}`;
+    }
+    const item = request.item;
+    if (item === undefined) {
+        return "item mode needs `item`: the command and its arguments";
+    }
+    if (!MISSION_ITEM_COMMANDS.includes(item.command)) {
+        return `item.command must be one of ${MISSION_ITEM_COMMANDS.join(", ")}`;
+    }
+    const needs_id = item.command !== "add" && item.command !== "reorder";
+    if (needs_id && (item.id === undefined || !Number.isInteger(item.id) || item.id < 1)) {
+        return `item.id must be a positive integer for ${item.command}`;
+    }
+    const needs_text = item.command === "add" || item.command === "edit";
+    if (needs_text && (item.text === undefined || item.text.trim().length === 0)) {
+        return `item.text must not be empty for ${item.command}`;
+    }
+    if (item.text !== undefined && item.text.includes("\n")) {
+        return "item.text is one line";
+    }
+    if (item.text !== undefined && item.text.length > TEXT_LENGTH_MAX) {
+        return `item.text longer than ${TEXT_LENGTH_MAX} characters`;
+    }
+    if (item.command === "assign" && (item.owner === undefined || /[\s|()]/.test(item.owner))) {
+        return "item.owner must be one name for assign";
+    }
+    if (item.owner !== undefined && /[|()\n]/.test(item.owner)) {
+        return "item.owner must be one name";
+    }
+    if (item.command === "reorder") {
+        const order = item.order;
+        if (!Array.isArray(order) || order.length === 0) {
+            return "item.order must be a non-empty array of ids for reorder";
+        }
+        if (!order.every((id) => Number.isInteger(id) && id >= 1)) {
+            return "item.order must hold positive integers";
+        }
+    }
     return null;
 }
 
@@ -93,10 +155,122 @@ export function apply_mission_write(
         block.body = `${request.text.replace(/\n+$/, "")}\n\n`;
     } else if (request.mode === "append") {
         append_line(block, append_text(request, time));
+    } else if (request.mode === "item") {
+        assert.ok(request.item !== undefined);
+        apply_item(block, request.section, request.item, request.author, time);
     } else {
         upsert_roster_row(block, request, time);
     }
     return { text: join_mission(blocks), sections: [request.section] };
+}
+
+/**
+ * One item command on a checklist section (MISSION.md s014, Contracts "item mode"). The
+ * section's item lines are rewritten in canonical form; a Plan line without an id gets one
+ * (`max + 1` in file order) on the way. Lines that are not items (notes under an item, the
+ * blank line before the next heading) stay where they are, except that `reorder` keeps them
+ * ahead of the items. Throws `MissionWriteError` for an id the section does not have.
+ */
+function apply_item(
+    block: MissionBlock,
+    section: MissionSection,
+    request: MissionItemRequest,
+    author: string,
+    time: string,
+): void {
+    const lines = block.body.replace(/\n+$/, "").split("\n");
+    const found = section_items(block.body).filter(
+        ({ line }) => !PLAN_PLACEHOLDER.test(lines[line] ?? ""),
+    );
+    const is_plan = section === "plan";
+    // Done when items are addressed by position; Plan items by the number in the file.
+    const items: (MissionItem & { id: number })[] = is_plan
+        ? with_ids(found.map(({ item }) => item))
+        : found.map(({ item }, index) => ({ ...item, id: index + 1 }));
+    const target = items.find((item) => item.id === request.id);
+    if (request.command !== "add" && request.command !== "reorder" && target === undefined) {
+        throw new MissionWriteError(`no item ${request.id} in ${section}`);
+    }
+    switch (request.command) {
+        case "add": {
+            const text = (request.text ?? "").trim();
+            const owner = request.owner ?? (is_plan ? author : null);
+            const id = is_plan ? items.reduce((max, item) => Math.max(max, item.id), 0) + 1 : null;
+            const next = id ?? items.length + 1;
+            items.push({ checked: false, id: next, text, owner, ticked_at: null });
+            break;
+        }
+        case "tick":
+            assert.ok(target !== undefined);
+            target.checked = true;
+            target.owner = is_plan ? (target.owner ?? author) : author;
+            target.ticked_at = time;
+            break;
+        case "untick":
+            assert.ok(target !== undefined);
+            target.checked = false;
+            target.ticked_at = null;
+            break;
+        case "edit":
+            assert.ok(target !== undefined);
+            target.text = (request.text ?? "").trim();
+            break;
+        case "assign":
+            assert.ok(target !== undefined);
+            target.owner = request.owner ?? null;
+            break;
+        case "reorder": {
+            const order = request.order ?? [];
+            const missing = order.filter((id) => !items.some((item) => item.id === id));
+            if (missing.length > 0) {
+                throw new MissionWriteError(`no item ${missing.join(", ")} in ${section}`);
+            }
+            const listed = order.map((id) => items.find((item) => item.id === id));
+            const rest = items.filter((item) => !order.includes(item.id));
+            items.splice(0, items.length, ...(listed as typeof items), ...rest);
+            break;
+        }
+    }
+    write_items(block, lines, found, items, is_plan, request.command === "reorder");
+}
+
+/** Puts the items back: in place for an edit, after the other lines for a reorder or an add. */
+function write_items(
+    block: MissionBlock,
+    lines: string[],
+    found: { line: number; item: MissionItem }[],
+    items: (MissionItem & { id: number })[],
+    is_plan: boolean,
+    reordered: boolean,
+): void {
+    const rendered = items.map((item) => render_item(is_plan ? item : { ...item, id: null }));
+    const item_lines = new Set(found.map(({ line }) => line));
+    const others = lines.filter(
+        (line, index) => !item_lines.has(index) && !PLAN_PLACEHOLDER.test(line),
+    );
+    let out: string[];
+    if (reordered || found.length === 0) {
+        out = [...others.filter((line) => line.trim().length > 0), ...rendered];
+    } else {
+        out = [];
+        let next = 0;
+        for (const [index, line] of lines.entries()) {
+            if (PLAN_PLACEHOLDER.test(line)) {
+                continue;
+            }
+            if (!item_lines.has(index)) {
+                out.push(line);
+                continue;
+            }
+            if (next < found.length) {
+                out.push(rendered[next] ?? "");
+                next += 1;
+            }
+        }
+        // An added item goes after the last one; its line is not in `found`.
+        out.push(...rendered.slice(found.length));
+    }
+    block.body = `${out.join("\n").replace(/\n+$/, "")}\n\n`;
 }
 
 /** The block with the section's heading; a missing section is added at the end. */
@@ -269,8 +443,44 @@ export class MissionWriter {
             session: dir,
             author: request.author,
             sections: result.sections,
+            view: mission_view(result.text),
         });
         return { ok: true, sections: result.sections };
+    }
+
+    /**
+     * Runs `work` after every earlier write on the session and before the next one, for a
+     * change to MISSION.md that is not a section write (the title line). Publishes
+     * `mission.changed` as `author` with the view afterwards.
+     */
+    serialized<T>(dir: string, author: string, work: () => T): Promise<T> {
+        const previous = this.chains.get(dir) ?? Promise.resolve();
+        const run = previous.then(() => {
+            const result = work();
+            const now = this.now();
+            this.last.set(dir, { author, at: now.getTime(), sections: [] });
+            const file = join(this.home.sessions, dir, "MISSION.md");
+            this.bus.publish({
+                type: "mission.changed",
+                ts: now.toISOString(),
+                session: dir,
+                author,
+                sections: [],
+                view: mission_view(readFileSync(file, "utf8")),
+            });
+            return result;
+        });
+        this.chains.set(
+            dir,
+            run.catch(() => undefined),
+        );
+        return run;
+    }
+
+    /** The structured mission of `dir` as the file is now. */
+    view(dir: string): MissionView {
+        const file = join(this.home.sessions, dir, "MISSION.md");
+        return mission_view(readFileSync(file, "utf8"));
     }
 }
 

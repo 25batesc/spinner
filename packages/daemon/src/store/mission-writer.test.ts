@@ -6,7 +6,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { SpinnerEvent } from "@spinner/protocol";
+import type { MissionSectionRequest, SpinnerEvent } from "@spinner/protocol";
+import { mission_section } from "../pipeline/mission-sections.js";
 import { EventBus } from "../event-bus.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { render_mission } from "./mission-template.js";
@@ -117,6 +118,113 @@ describe("apply_mission_write", () => {
         expect(validate_mission_write(multi)).toMatch(/one line/);
         const spaced = { section: "log", mode: "append", text: "a", author: "a b" } as const;
         expect(validate_mission_write(spaced)).toMatch(/one word/);
+    });
+
+    it("item mode: adds with ids, ticks with owner and time, edits, assigns, reorders", () => {
+        const item = (
+            text: string,
+            section: "plan" | "done_when",
+            request: MissionSectionRequest["item"],
+            author = "lead",
+            time = "10:05",
+        ): string =>
+            apply_mission_write(
+                text,
+                { section, mode: "item", text: "", author, item: request },
+                time,
+            ).text;
+        let text = item(base, "plan", { command: "add", text: "contract" });
+        text = item(text, "plan", { command: "add", text: "workflow", owner: "backend" });
+        text = item(text, "plan", { command: "add", text: "page", owner: "web" });
+        expect(mission_section(text, "Plan")).toBe(
+            ["- [ ] 1. contract (lead)", "- [ ] 2. workflow (backend)", "- [ ] 3. page (web)"].join(
+                "\n",
+            ),
+        );
+        text = item(text, "plan", { command: "tick", id: 1 });
+        text = item(text, "plan", { command: "edit", id: 2, text: "workflow + tests" });
+        text = item(text, "plan", { command: "assign", id: 3, owner: "admin" });
+        expect(mission_section(text, "Plan")).toBe(
+            [
+                "- [x] 1. contract (lead, 10:05)",
+                "- [ ] 2. workflow + tests (backend)",
+                "- [ ] 3. page (admin)",
+            ].join("\n"),
+        );
+        text = item(text, "plan", { command: "reorder", order: [3, 1] });
+        expect(mission_section(text, "Plan").split("\n").map((line) => line.slice(6, 8))).toEqual(
+            ["3.", "1.", "2."],
+        );
+        text = item(text, "plan", { command: "untick", id: 1 });
+        expect(mission_section(text, "Plan")).toContain("- [ ] 1. contract (lead)");
+        // The next id is max + 1 whatever the order; ids never change.
+        text = item(text, "plan", { command: "add", text: "review" });
+        expect(mission_section(text, "Plan")).toContain("- [ ] 4. review (lead)");
+        expect(() => item(text, "plan", { command: "tick", id: 9 })).toThrow(/no item 9/);
+
+        // Done when: positions as ids, the author on a tick, no numbers in the file.
+        let done = apply_mission_write(
+            base,
+            {
+                section: "done_when",
+                mode: "replace",
+                text: "- [ ] API agreed\n- [ ] UI done (web)",
+                author: "lead",
+            },
+            "10:00",
+        ).text;
+        done = item(done, "done_when", { command: "tick", id: 2 }, "web", "10:07");
+        done = item(done, "done_when", { command: "add", text: "PRs green" });
+        expect(mission_section(done, "Done when")).toBe(
+            ["- [ ] API agreed", "- [x] UI done (web, 10:07)", "- [ ] PRs green"].join("\n"),
+        );
+        expect(
+            validate_mission_write({ section: "log", mode: "item", text: "", author: "a" }),
+        ).toContain("plan and done_when");
+        expect(
+            validate_mission_write({
+                section: "plan",
+                mode: "item",
+                text: "",
+                author: "a",
+                item: { command: "tick" },
+            }),
+        ).toContain("item.id");
+    });
+
+    it("item mode gives older Plan lines ids on the first write and keeps notes in place", () => {
+        const old = [
+            "# s9 \u00b7 Old",
+            "",
+            "## Plan",
+            "- [x] 1. API contract agreed (backend-api)",
+            "- [ ] RefundWorkflow + activities + tests (backend-api)",
+            "  a note under the item",
+            "- [ ] 4. Order page button (admin-ui, after 3)",
+            "",
+            "## Log",
+            "",
+        ].join("\n");
+        const text = apply_mission_write(
+            old,
+            {
+                section: "plan",
+                mode: "item",
+                text: "",
+                author: "admin-ui",
+                item: { command: "tick", id: 4 },
+            },
+            "11:00",
+        ).text;
+        expect(mission_section(text, "Plan")).toBe(
+            [
+                "- [x] 1. API contract agreed (backend-api)",
+                "- [ ] 5. RefundWorkflow + activities + tests (backend-api)",
+                "  a note under the item",
+                "- [x] 4. Order page button (after 3) (admin-ui, 11:00)",
+            ].join("\n"),
+        );
+        expect(mission_section(text, "Log")).toBe("");
     });
 
     it("formats the clock as HH:MM", () => {
