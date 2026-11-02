@@ -89,6 +89,8 @@ WebSockets below.
 | `GET /models` | | `ModelsResponse` | The models pi can run. |
 | `GET /jobs` | | `JobsResponse` | Running jobs and the last finished ones. |
 | `GET /jobs/:id` | | `JobResponse` | 404 when the daemon never ran it. |
+| `GET /egm` | | `EgmResponse` | The EGM fetch state and the pin; below. |
+| `POST /egm/fetch` | | `JobResponse` | The `egm` job: fetches EGM again at the pin and regenerates the adapter; below. |
 
 ## Events WebSocket
 
@@ -215,6 +217,28 @@ per second. The notice has three lines. Line 1 is
 bound and answers `{ code, stdout, stderr }`; the CLI's exit code is in the body, not the
 status. The worker role's `diff_comments` (`list`, `show`) and `diff_reply` (`reply`,
 `suggest-resolve`) tools call this route. `spinner doctor` reports the fetch.
+
+## EGM
+
+Spinner runs Google's Elephant-Goldfish Model (EGM, Apache-2.0) from a pinned copy under
+`<home>/egm/` ([ARCHITECTURE.md](ARCHITECTURE.md#egm-elephant-goldfish-model)).
+`GET /egm` answers `{ egm: EgmStatus }`:
+
+| Field | Meaning |
+|---|---|
+| `state` | `absent` before the first fetch, `fetching` while the fetch runs, `ready` when the marker matches the pin, the adapter version and every required file, `failed` after a failed fetch. |
+| `pinned_sha` | The commit the daemon pins. |
+| `fetched_sha`, `fetched_at`, `adapter_version` | From `<home>/egm/fetched.json`; null without the marker. |
+| `error` | The last fetch error, else null. |
+| `source`, `license`, `notice` | The EGM source URL, `Apache-2.0` and the credit line. |
+| `subagents` | True when the operator's pi settings list pi-subagents. Without it, leads start without EGM. |
+
+`POST /egm/fetch` takes no body and answers 202 with a job of action `egm` and `session: null`.
+The job deletes the marker and fetches again: a shallow clone of the pin, a check of the
+required files, the adapter under `<home>/egm/pi/agents`, then the marker. The bound is
+5 minutes. The job fails with the fetch error. A lead start fetches EGM the same way when
+pi-subagents is installed and EGM is not fetched. A failure there is one job log line, and
+the lead starts without EGM.
 
 ## Stack logs
 

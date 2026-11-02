@@ -254,6 +254,10 @@ A local daemon (`spinnerd`) owns sessions, stacks, agent processes and the pipel
 - A change to the protocol needs a dated entry under *Decisions* at the end of `docs/SESSION_PROTOCOL.md` before code follows it.
 - Docs are checked with `python3 tools/doc-metrics.py --fail`. Briefs and run sheets must pass.
 
+## Credits
+
+The design workflow runs Google's Elephant-Goldfish Model (EGM, Apache-2.0, https://github.com/google/elephant-goldfish-model) from a pinned copy that Spinner fetches. EGM is not an officially supported Google product.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

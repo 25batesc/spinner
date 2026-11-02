@@ -311,6 +311,49 @@ the daemon runs the CLI in the agent's worktree, signed as the agent, and hands 
 output. The reason for routing the CLI through the daemon: the extension holds no state and
 does not know where the viewer is. [DAEMON_API.md](DAEMON_API.md#the-diff-tab) has the shapes.
 
+### EGM (Elephant-Goldfish Model)
+
+Elephant-Goldfish Model by Google, Apache-2.0. Spinner runs its skills from a pinned copy. Not an officially supported Google product. Source: https://github.com/google/elephant-goldfish-model. The design is [designs/egm-adoption.md](designs/egm-adoption.md); build session 1 adds the harness adapter described here.
+
+The daemon fetches EGM like the diff viewer: a shallow clone of one commit, with no install step and no code run from the checkout. The pin is `EGM_PIN` in `packages/daemon/src/egm/pins.ts`. A moved pin, or a moved `EGM_ADAPTER_VERSION`, fetches again. A lead start fetches it when pi-subagents is installed, and `POST /egm/fetch` refetches it on request.
+
+```text
+~/.spinner/egm/
+├── src/            google/elephant-goldfish-model at the pin
+├── pi/agents/      one pi-subagents agent file per persona, generated at fetch time
+└── fetched.json    { sha, adapter_version, fetched }, written last
+```
+
+The adapter mirrors EGM's `.claude-plugin/agents/*.md`. Each generated file names the canonical persona under `src/agents/` and restricts the child's tools and context. Every adapter sets `systemPromptMode: replace`, the three `inherit*` fields to false, an empty `extensions:` and `defaultContext: fresh`.
+
+| Kind | Persona file | `tools` |
+| --- | --- | --- |
+| reviewer | every file except the two below | `read, grep, find, ls`, with `acceptanceRole: read-only` |
+| synthesizer | `synthesizer.md` | `read, grep, find, ls, write`; no `subagent`, so the lead dispatches each Goldfish itself |
+| bootstrap | `bootstrap_orchestrator.md` | `read, grep, find, ls, write, edit, bash, subagent` |
+
+`AgentManager.add` asks `egm_spawn` for EGM paths when four conditions hold. The agent is the `lead`, the session is of kind `session`, EGM is fetched, and the operator's pi settings list pi-subagents. The paths are computed at each spawn, so a resume after a fetch picks them up. `pi_spawn_plan` then adds:
+
+| Item | Value | Why |
+| --- | --- | --- |
+| `--skill` | `<home>/egm/src/skills` | pi discovers the 7 EGM skills. |
+| `--exclude-tools` | `subagents_enable` | Keeps `subagent` active from the first request. |
+| `PI_SUBAGENT_EXTRA_AGENT_DIRS` | `<home>/egm/pi/agents` | pi-subagents loads the adapters as user agents. |
+| `PI_SUBAGENTS_TEMP_ROOT` | `<session>/egm-runs` | Async run status files land inside the session. |
+| `SPINNER_EGM_ROOT` | `<home>/egm/src` | The extension's prompt section names the plugin root. |
+| `SPINNER_EGM_ARTIFACTS` | `<session>/design` | The extension's prompt section names the artifact directory. |
+
+The session `AGENTS.md` of every ordinary session names the EGM artifact directory, as EGM's `docs/harnesses.md` defines that override. A review session has no EGM lines.
+
+Four layers keep a Goldfish free of the lead's context:
+
+1. The adapter's `defaultContext: fresh`, `systemPromptMode: replace` and the three `inherit*: false` fields.
+2. The adapter's empty `extensions:`, which disables discovered extensions in the child.
+3. The Spinner extension registers nothing when `PI_SUBAGENT_CHILD` is `1`. Without this check a child would carry `MISSION.md` and take the lead's commands.
+4. The `tools:` allowlist, which pi enforces. It is not a filesystem sandbox.
+
+The tty channel rewrites a prompt or a steer that starts with `/skill:<name>`. `pi.sendUserMessage` does not expand it, so the extension sends "Read the skill file at `<path>` and follow it in this thread". The evidence for each layer and each probe is in [egm/HARNESS_EVIDENCE.md](egm/HARNESS_EVIDENCE.md).
+
 ### Storage
 
 Files, no database. Every session is a directory of YAML, Markdown and JSONL under `~/.spinner/sessions/` ([layout](SESSION_PROTOCOL.md#where-everything-lives)); the daemon's only state is process handles and an in-memory index it rebuilds from the tree at start. Reasons: an agent reads and writes the same files with its ordinary tools; a person can `cat`, `grep` and `git`-archive a session; the pi transcripts are already JSONL files; there is no migration tooling beyond the `version` field; and a crashed daemon loses nothing.
