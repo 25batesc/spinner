@@ -69,6 +69,9 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
             "and `agent_steer` run the other agents; `adopt` brings a pull request in. The",
             "operator pushes, posts, approves, lands, resets and closes; you do not.",
         );
+        if (env.egm_root !== null) {
+            lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? ""));
+        }
     }
     const hosts = Object.entries(files.hosts);
     if (hosts.length > 0) {
@@ -88,6 +91,23 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
         files.mission.trim(),
     );
     return lines.join("\n");
+}
+
+/** The lead's EGM lines (docs/designs/egm-adoption.md, 1.23). */
+function egm_lines(root: string, artifacts: string): string[] {
+    return [
+        "EGM (Elephant-Goldfish Model, Apache-2.0) is loaded. You are the Elephant.",
+        `EGM plugin root: ${root}. EGM artifact directory: ${artifacts}.`,
+        `You run in pi, not Codex or Claude Code: read ${root}/docs/harnesses.md once.`,
+        "EGM skills are /skill:egm-<name>. The subagent tool is `subagent` (pi-subagents).",
+        "The Goldfish are registered as egm-zoom-out, egm-design, egm-comprehension,",
+        "egm-structural, egm-style, egm-implementation-readiness and egm-codebase-details.",
+        "In this harness a Goldfish cannot spawn subagents: egm-synthesizer has no subagent",
+        "tool. So use direct dispatch: launch each Goldfish yourself.",
+        'Launch them with context "fresh" and the default async launch. Each result arrives',
+        "as a completion message. Wait for every Goldfish of a stage, with bg_wait if needed,",
+        "before you consolidate.",
+    ];
 }
 
 /**

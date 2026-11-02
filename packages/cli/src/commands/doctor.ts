@@ -1,18 +1,23 @@
 // `spinner doctor`: one line per check, `ok` or `FAIL`, each with what was found and what to
 // do. The checks are the things the README's newcomer path trips over: the home inside a
 // git repo, Docker down, `gh` logged out, no `pi`, an old Node, a stopped proxy or Postgres,
-// a `config.yaml` that does not parse, the diff viewer fetched or not. Exit 1 when any check
-// fails. The Slack token is reported as present or absent only; both are fine, its value is
-// never printed.
+// a `config.yaml` that does not parse, the diff viewer and EGM fetched or not, pi-subagents
+// in the pi settings or not. Exit 1 when any check fails. The Slack token is reported as
+// present or absent only; both are fine, its value is never printed.
 import assert from "node:assert/strict";
 import { existsSync, statSync } from "node:fs";
 import {
     DIFF_PINS,
+    EGM_PIN,
     daemon_pid_file,
     describe_build,
     diff_fetched,
     diff_viewer_bin,
+    egm_fetched,
+    pi_settings_path,
+    read_egm_marker,
     read_fetch_marker,
+    subagents_installed,
     is_inside_git_repo,
     load_config,
     pid_alive,
@@ -62,8 +67,10 @@ async function run_doctor(args: string[], home: SpinnerHome, io: CliIo): Promise
         check_token(io.env),
         await check_daemon(home, io.env),
         check_diffview(home),
+        check_egm(home),
+        check_subagents(io.env),
     ];
-    assert.ok(checks.length === 11, "every check reports exactly one line");
+    assert.ok(checks.length === 13, "every check reports exactly one line");
     const width = Math.max(...checks.map((check) => check.name.length));
     for (const check of checks) {
         const mark = check.ok ? "ok  " : "FAIL";
@@ -204,6 +211,27 @@ function check_diffview(home: SpinnerHome): Check {
         return pass(name, `${detail}; the next diff tab click fetches again`);
     }
     return pass(name, `not fetched (optional; the first diff tab click fetches it)`);
+}
+
+/** EGM is optional: a lead starts without it. The pin is `EGM_PIN` in the daemon. */
+function check_egm(home: SpinnerHome): Check {
+    const name = "egm";
+    const marker = read_egm_marker(home);
+    if (egm_fetched(home) && marker !== null) {
+        const sha = EGM_PIN.sha.slice(0, 12);
+        const date = marker.fetched.slice(0, 10);
+        return pass(name, `${sha} fetched ${date} (adapter v${marker.adapter_version})`);
+    }
+    return pass(name, "not fetched (Spinner fetches it when a lead starts, or: POST /egm/fetch)");
+}
+
+/** pi-subagents gives the lead the `subagent` tool; without it EGM stays off. */
+function check_subagents(env: NodeJS.ProcessEnv): Check {
+    const name = "pi-subagents";
+    if (subagents_installed(env)) {
+        return pass(name, "installed");
+    }
+    return pass(name, `not in ${pi_settings_path(env)}; EGM stays off`);
 }
 
 function check_token(env: NodeJS.ProcessEnv): Check {

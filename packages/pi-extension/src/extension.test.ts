@@ -220,6 +220,15 @@ describe("registration", () => {
         expect(pi.commands.size).toBe(0);
     });
 
+    it("registers nothing in a pi-subagents child, even with a full Spinner env", () => {
+        const pi = fake_pi();
+        const env = { ...env_for("lead", "http://127.0.0.1:1"), SPINNER_HARNESS: "tty" };
+        expect(register(pi, { env: { ...env, PI_SUBAGENT_CHILD: "1" } })).toBeNull();
+        expect(pi.tools.size).toBe(0);
+        expect(pi.commands.size).toBe(0);
+        expect(pi.handlers.size).toBe(0);
+    });
+
     it("registers worker tools, fixer tools for the fixer, and /spinner-reload", async () => {
         const worker = fake_pi();
         register(worker, { env: env_for("worker", "") });
@@ -277,6 +286,35 @@ describe("prompt section", () => {
         } finally {
             daemon.close();
         }
+    });
+
+    it("gives the EGM lines to a lead with SPINNER_EGM_ROOT, not to a worker", async () => {
+        const egm = {
+            SPINNER_EGM_ROOT: "/home/egm/src",
+            SPINNER_EGM_ARTIFACTS: `${session_dir}/design`,
+        };
+        const section_for = async (env: NodeJS.ProcessEnv): Promise<string> => {
+            const pi = fake_pi();
+            register(pi, { env });
+            const event: BeforeAgentStartEvent = {
+                messageType: "user",
+                systemPromptOptions: { sections: {}, cwd: session_dir },
+            };
+            await pi.handlers.get("before_agent_start")?.[0]?.(event as never, {} as never);
+            return event.systemPromptOptions.sections["spinner_session"] ?? "";
+        };
+        const lead = await section_for({ ...env_for("lead", ""), ...egm });
+        expect(lead).toContain("EGM (Elephant-Goldfish Model, Apache-2.0) is loaded.");
+        expect(lead).toContain(
+            `EGM plugin root: /home/egm/src. EGM artifact directory: ${session_dir}/design.`,
+        );
+        expect(lead).toContain("read /home/egm/src/docs/harnesses.md once.");
+        expect(lead).toContain("So use direct dispatch: launch each Goldfish yourself.");
+        const worker = await section_for({ ...env_for("worker", ""), ...egm });
+        expect(worker).not.toContain("EGM");
+        const plain = await section_for(env_for("lead", ""));
+        expect(plain).toContain("You are the lead");
+        expect(plain).not.toContain("EGM");
     });
 
     it("refuses a newer session.yaml and digests the roster", () => {
