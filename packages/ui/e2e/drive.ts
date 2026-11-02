@@ -2176,6 +2176,98 @@ if (flow === "costs") {
     await finish();
 }
 
+if (flow === "reviews") {
+    // The Reviews panel (s015), against the fixture: the icon in the activity bar opens it;
+    // the review sessions are not in the Sessions panel; the cards come latest activity
+    // first with the CI pill (the failing checks in its tooltip), the decision pill and the
+    // thread count; a card opens the review's middle pane with the PR header and the swarm
+    // chips; a chip opens the reviewer's terminal; the right pane opens on `diff`. A paste
+    // in the box makes a review; `review` in the context bar starts the swarm, whose chips
+    // go queued, reading, posted as `review.updated` arrives, and the thread count follows.
+    const sessionsText = text(".sessions-pane");
+    if ((await evaluate(`${sessionsText}.includes("Retry the upload")`)) === true) {
+        throw new Error("a review session shows in the Sessions panel");
+    }
+    await click(".activity-bar button[aria-label='Show reviews']");
+    const pane = `document.querySelector(".reviews-pane")`;
+    await until("reviews pane", `${pane} !== null`);
+    const cards = `[...document.querySelectorAll(".rv-card")]`;
+    await until("two cards", `${cards}.length === 2`);
+    const order = (await evaluate(
+        `${cards}.map((c) => c.querySelector(".rv-title").innerText)`,
+    )) as string[];
+    console.log("cards:", JSON.stringify(order));
+    if (order[0] !== "Retry the upload on 5xx") {
+        throw new Error("the review with the latest activity is not first");
+    }
+    const firstCard = `${cards}[0]`;
+    const ci = (await evaluate(`${firstCard}.querySelector(".rv-ci").title`)) as string;
+    const decision = (await evaluate(`${firstCard}.querySelector(".rv-decision").innerText`));
+    const threads = (await evaluate(`${firstCard}.querySelector(".rv-threads").innerText`));
+    console.log("first card:", JSON.stringify({ ci, decision, threads }));
+    if (!ci.includes("lint") || decision !== "changes requested" || threads !== "\u2442 4") {
+        throw new Error("the first card's pills do not carry the fixture's facts");
+    }
+    if ((await evaluate(`${text(".reviews-pane")}.includes("Refund flow")`)) === true) {
+        throw new Error("an ordinary session shows in the Reviews panel");
+    }
+    await shot("70-reviews-panel");
+    await click(".rv-card-body", "Retry the upload on 5xx");
+    await until("review pane", `document.querySelector(".rv-pane .rv-head") !== null`);
+    await until("card selected", `${firstCard}.classList.contains("rv-card-selected")`);
+    await until("context bar names the review",
+        `${text(".context-bar")}.includes("Retry the upload on 5xx")`);
+    await until("review button in the bar",
+        `[...document.querySelectorAll(".context-bar .rv-toolbar button")]
+            .some((b) => b.textContent === "review")`);
+    const chips = `[...document.querySelectorAll(".rv-swarm .chip-name")]`;
+    await until("three chips", `${chips}.length === 3`);
+    const states = (await evaluate(`${chips}.map((c) => c.dataset.state)`)) as string[];
+    console.log("chip states:", JSON.stringify(states));
+    if (JSON.stringify(states) !== JSON.stringify(["posted", "reading", "queued"])) {
+        throw new Error("the chips do not show the swarm's states");
+    }
+    await until("diff tab shown",
+        `document.querySelector(".preview-pane .view-tab.tab-selected")?.textContent === "diff"`);
+    await until("threads shown", `document.querySelector(".rv-pane .threads") !== null`);
+    if ((await evaluate(`${text(".rv-pane .threads")}.includes("fix")`)) === true) {
+        throw new Error("the threads view of a review offers fix");
+    }
+    await shot("71-review-pane");
+    await click(".rv-swarm .chip-name", "opus");
+    await until("reviewer terminal",
+        `document.querySelector(".rv-pane .agent-terminal:not([hidden])") !== null`);
+    await until("terminal banner", `${text(".rv-pane .agent-terminal:not([hidden])")}.length > 0`);
+    await shot("72-reviewer-terminal");
+    await click(".rv-pane .tabs-sub .tab", "threads");
+    await until("threads back", `document.querySelector(".rv-pane .threads") !== null`);
+    // A paste makes a review; the job's session is selected when it finishes.
+    await fill("textarea[aria-label='Pull requests to review']",
+        "please look at https://github.com/acme/peanut/pull/9");
+    await until("PR found", `${text(".rv-found")}.includes("acme/peanut#9")`);
+    await shot("73-review-paste");
+    await click(".rv-compose-actions .primary", "Start review");
+    await until("three cards", `${cards}.length === 3`);
+    await until("new review selected",
+        `${text(".rv-card-selected")}.includes("PR 9 of peanut")`);
+    await until("box cleared",
+        `document.querySelector("textarea[aria-label='Pull requests to review']").value === ""`);
+    await until("no reviewers yet", `${text(".rv-swarm")}.includes("no reviewers yet")`);
+    await until("job finished", `${text(".drawer")}.includes("ok")`);
+    await click(".context-bar .rv-toolbar button", "review");
+    await until("chips queued", `${chips}.some((c) => c.dataset.state === "queued")`);
+    await shot("74-swarm-queued");
+    await until("a chip reads", `${chips}.some((c) => c.dataset.state === "reading")`);
+    await until("all posted",
+        `${chips}.length === 2 && ${chips}.every((c) => c.dataset.state === "posted")`);
+    await until("thread count follows", `${text(".context-bar .rv-threads")} === "\u2442 4"`);
+    await until("card count follows",
+        `${text(".rv-card-selected .rv-threads")} === "\u2442 4"`);
+    await shot("75-swarm-posted");
+    console.log("reviews ok");
+    await finish();
+}
+
 if (flow === "agents") {
     await click(".session", "Refund flow");
     await until("agent tab", `document.querySelector(".agents-pane .tab") !== null`);

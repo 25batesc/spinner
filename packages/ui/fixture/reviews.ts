@@ -2,9 +2,10 @@
 // per PR of the paste, and `POST /sessions/:dir/review` on a review session starts the
 // swarm, one tty reviewer per model, each moving from `queued` to `reading` to `posted` with
 // a `review.updated` per change. The shape of the review fields is in `src/review.ts`.
-import type { Job, JobAction, PrFacts, SessionView, SpinnerEvent } from "@spinner/protocol";
+import type {
+    Job, JobAction, PrFacts, SessionView, SpinnerEvent, SwarmMember,
+} from "@spinner/protocol";
 
-import type { ReviewSessionView, SwarmMember } from "../src/review.ts";
 import { pr, reviewerName, reviewView, session } from "./data.ts";
 import { extract } from "./extract.ts";
 
@@ -26,8 +27,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** The models the fixture's swarm runs; the daemon reads `settings.review.models`. */
 export const SWARM_MODELS = ["anthropic/claude-opus-5-5", "openai/gpt-6-luna"];
 
-export function isReviewSession(view: SessionView | undefined): view is ReviewSessionView {
-    return (view as ReviewSessionView | undefined)?.kind === "review";
+export function isReviewSession(view: SessionView | undefined): view is SessionView {
+    return view?.kind === "review";
 }
 
 export class ReviewFixture {
@@ -39,13 +40,17 @@ export class ReviewFixture {
     }
 
     /**
-     * `POST /reviews { text }`: one job; every PR with a URL in the paste becomes a review
-     * session, no project needed. The job names the last one made, so the UI selects it.
+     * `POST /reviews { text }`: one `reviews` job; every PR with a URL in the paste becomes
+     * a review session, no project needed. The job names the first one made, as the daemon
+     * does, so the UI selects it. Null when no reference resolves (the daemon's 409).
      */
-    create(text: string): Job {
+    create(text: string): Job | null {
         const found = extract(text, []).prs.filter((item) => item.url !== null);
-        return this.host.start("adopt", null, async (log) => {
-            let last: string | null = null;
+        if (found.length === 0) {
+            return null;
+        }
+        return this.host.start("reviews", null, async (log) => {
+            let first: string | null = null;
             for (const item of found) {
                 this.counter += 1;
                 const repo = item.repo?.split("/")[1] ?? "repo";
@@ -56,6 +61,7 @@ export class ReviewFixture {
                 const title = item.title ?? `${repo}#${item.number}`;
                 const base = session({
                     id, slug: `${repo}-${item.number}`, title, stage: "peer-review",
+                    kind: "review",
                     created: new Date().toISOString(),
                     branch: item.branch ?? "unknown", base: item.base ?? "main",
                 });
@@ -69,12 +75,9 @@ export class ReviewFixture {
                     swarm: [],
                 }));
                 log(`review ${dir} ready`);
-                last = dir;
+                first ??= dir;
             }
-            if (found.length === 0) {
-                log("no PR in the text");
-            }
-            return last;
+            return first;
         });
     }
 
@@ -89,8 +92,9 @@ export class ReviewFixture {
             return null;
         }
         return this.host.start("review", dir, async (log) => {
+            const repo = current.board?.prs[0]?.repo ?? "repo";
             const members: SwarmMember[] = SWARM_MODELS.map((model) => ({
-                name: reviewerName(model), model, state: "queued", usd: 0,
+                name: reviewerName(model), model, state: "queued", usd: 0, pr: repo,
             }));
             this.put(dir, members, log, "swarm queued");
             for (const [index, member] of members.entries()) {
@@ -134,7 +138,7 @@ export class ReviewFixture {
             swarm: [...swarm],
         };
         review.threads += threadsAdded;
-        const next: ReviewSessionView = {
+        const next: SessionView = {
             ...current,
             summary: { ...current.summary, session: { ...base, agents } },
             agents_running: running,
@@ -143,7 +147,7 @@ export class ReviewFixture {
         this.host.update(next);
         log(line);
         this.host.emit({
-            type: "review.updated", ts: new Date().toISOString(), session: dir, data: next,
-        } as unknown as SpinnerEvent);
+            type: "review.updated", ts: new Date().toISOString(), session: dir, data: review,
+        });
     }
 }

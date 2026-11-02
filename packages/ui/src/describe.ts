@@ -60,6 +60,11 @@ export function describeEvent(event: SpinnerEvent): string | null {
             return `${event.data.action} started`;
         case "job.finished":
             return event.ok ? `${event.data.action} finished` : `${event.data.action} failed`;
+        case "review.updated": {
+            const swarm = event.data.swarm;
+            const posted = swarm.filter((member) => member.state === "posted").length;
+            return `review: ${posted} of ${swarm.length} posted, ${event.data.threads} threads`;
+        }
         case "agent.event":
         case "stack.log":
         case "job.log":

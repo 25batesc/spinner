@@ -10,13 +10,13 @@ import {
     type OperatorView,
     type SessionResponse,
     type SessionsResponse,
+    type ReviewFields,
     type SessionView,
     type SpinnerEvent,
 } from "@spinner/protocol";
 import { afterEach, expect, it } from "vitest";
 import { WebSocket } from "ws";
 
-import type { ReviewSessionView } from "../src/review.ts";
 import { initialReviews, initialSessions } from "./data.ts";
 import { isReviewSession } from "./reviews.ts";
 import { startFixture } from "./server.ts";
@@ -81,12 +81,17 @@ it("POST /reviews makes a review per PR; review on it runs the swarm with review
     socket.close();
     const updates = events.filter((e) => e.type === "review.updated");
     expect(updates.length).toBeGreaterThan(2);
-    const last = updates.at(-1)?.data as ReviewSessionView;
-    expect(last.review?.swarm.map((m) => m.state)).toEqual(["posted", "posted"]);
-    expect(last.review?.threads).toBe(4);
-    expect(Object.keys(last.summary.session.agents)).toEqual(
-        last.review?.swarm.map((m) => m.name),
-    );
+    const last = updates.at(-1)?.data as ReviewFields;
+    expect(last.swarm.map((m) => m.state)).toEqual(["posted", "posted"]);
+    expect(last.threads).toBe(4);
+    const views = events.filter((e) => e.type === "session.updated");
+    const view = views.at(-1)?.data as SessionView;
+    expect(Object.keys(view.summary.session.agents)).toEqual(last.swarm.map((m) => m.name));
+    const empty = await fetch(`http://127.0.0.1:${port}/reviews`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "nothing here" }),
+    });
+    expect(empty.status).toBe(409);
 });
 
 it("runs `up` as a job: 202, job.log lines, job.finished, then a healthy stack", async () => {

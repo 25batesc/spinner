@@ -414,7 +414,12 @@ class FixtureDaemon {
                 sendJson(response, { error: "text is empty" }, 400);
                 return true;
             }
-            return this.accepted(response, this.reviews.create(text));
+            const job = this.reviews.create(text);
+            if (job === null) {
+                sendJson(response, { error: "no PR reference in the text" }, 409);
+                return true;
+            }
+            return this.accepted(response, job);
         }
         if (path === "/sessions" && typeof body["text"] === "string") {
             // Chat first (s014): the paste, the ticked PRs, and a lead agent on its terminal.

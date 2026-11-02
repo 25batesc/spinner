@@ -45,7 +45,7 @@ function ProjectSelect(props: {
     );
 }
 
-interface Extraction {
+export interface Extraction {
     prs: ExtractedPr[];
     ticked: Set<string>;
     /** True between the pause and the daemon's answer. */
@@ -60,7 +60,9 @@ const NO_EXTRACTION: Extraction = { prs: [], ticked: new Set(), pending: false, 
  * keystroke cancels the timer and the request in flight. The ticks follow `nextTicks`, so an
  * untick survives a re-extraction while the PR is still in the text.
  */
-function useExtraction(text: string, project: string): [Extraction, (url: string) => void] {
+export function useExtraction(
+    text: string, project: string,
+): [Extraction, (url: string) => void] {
     const [state, setState] = useState<Extraction>(NO_EXTRACTION);
     // The PRs of the last answer, for `nextTicks`; a ref so the effect does not depend on them.
     const previous = useRef<ExtractedPr[]>([]);

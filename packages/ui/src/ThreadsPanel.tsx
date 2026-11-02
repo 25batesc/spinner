@@ -17,6 +17,8 @@ export interface ThreadsPanelProps {
     revision: number;
     busy: boolean;
     run: RunAction;
+    /** False hides `fix`: a review session (s015) has no pipeline but `review`. */
+    fixable?: boolean;
 }
 
 /** `05:08` in the operator's time zone; the full timestamp stays in the tooltip. */
@@ -97,9 +99,10 @@ interface PrProps {
     dir: string;
     busy: boolean;
     run: RunAction;
+    fixable: boolean;
 }
 
-function Pr({ pr, dir, busy, run }: PrProps) {
+function Pr({ pr, dir, busy, run, fixable }: PrProps) {
     return (
         <section className="pr-threads" data-pr={`${pr.repo}#${pr.number}`}>
             <h3>
@@ -112,12 +115,14 @@ function Pr({ pr, dir, busy, run }: PrProps) {
                 {pr.open_bot} bot open · {pr.open_human} human open · {pr.resolved} resolved ·{" "}
                 {pr.flagged} flagged
             </p>
-            <button
-                disabled={busy}
-                onClick={() => void run(`/sessions/${dir}/fix`, { pr: pr.repo })}
-            >
-                fix
-            </button>
+            {fixable && (
+                <button
+                    disabled={busy}
+                    onClick={() => void run(`/sessions/${dir}/fix`, { pr: pr.repo })}
+                >
+                    fix
+                </button>
+            )}
             <ul className="thread-list">
                 {pr.threads.map((thread) => (
                     <Thread key={thread.id} pr={pr} thread={thread} dir={dir} />
@@ -129,7 +134,8 @@ function Pr({ pr, dir, busy, run }: PrProps) {
 }
 
 /** One block per PR with every thread's state, author kind, location, body and flag. */
-export function ThreadsPanel({ dir, revision, busy, run }: ThreadsPanelProps) {
+export function ThreadsPanel(props: ThreadsPanelProps) {
+    const { dir, revision, busy, run, fixable = true } = props;
     const loaded = useLoaded(`${dir}#${revision}`, (signal) => fetchThreads(dir, signal));
     const [error, setError] = useState<string | null>(null);
     const view = loaded.value;
@@ -155,7 +161,14 @@ export function ThreadsPanel({ dir, revision, busy, run }: ThreadsPanelProps) {
             </div>
             {shownError !== null && <p className="needs-human">{shownError}</p>}
             {view?.prs.map((pr) => (
-                <Pr key={`${pr.repo}#${pr.number}`} pr={pr} dir={dir} busy={busy} run={run} />
+                <Pr
+                    key={`${pr.repo}#${pr.number}`}
+                    pr={pr}
+                    dir={dir}
+                    busy={busy}
+                    run={run}
+                    fixable={fixable}
+                />
             ))}
             {view !== undefined && view.prs.length === 0 && (
                 <p className="muted">No PRs with threads.</p>

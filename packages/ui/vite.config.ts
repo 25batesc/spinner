@@ -20,7 +20,7 @@ export default defineConfig({
             ...Object.fromEntries(
                 [
                     "/projects", "/jobs", "/models", "/health", "/usage", "/costs", "/settings",
-                    "/themes",
+                    "/themes", "/reviews",
                 ].map((path) => [path, DAEMON_URL]),
             ),
             // The agent tty route upgrades to a WebSocket under `/sessions`.

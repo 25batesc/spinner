@@ -6,6 +6,7 @@ import type {
     DiffView,
     MachineUsage,
     PrFacts,
+    ReviewFields,
     ProjectView,
     ServiceStatus,
     ServiceUsage,
@@ -16,7 +17,6 @@ import type {
     StackView,
 } from "@spinner/protocol";
 
-import type { ReviewFields, ReviewSessionView } from "../src/review.ts";
 import { sessionCost } from "./costs.ts";
 import { fixturePort } from "./port.ts";
 
@@ -201,8 +201,16 @@ export function reviewView(
     prFacts: PrFacts,
     review: ReviewFields,
     agentsRunning: string[] = [],
-): ReviewSessionView {
-    const plain = view(dir, base, stackView(base.id, "none"), [prFacts], agentsRunning);
+): SessionView {
+    // One repo keyed by the GitHub repo name, as the contract has it: the diff tab has a repo.
+    const repos = {
+        [prFacts.repo]: {
+            path: `/home/fixture/.spinner/reviews/example-${prFacts.repo}`,
+            worktree: `worktrees/${prFacts.repo}`, changed: false,
+        },
+    };
+    const withRepo = { ...base, repos };
+    const plain = view(dir, withRepo, stackView(base.id, "none"), [prFacts], agentsRunning);
     return { ...plain, kind: "review", review };
 }
 
@@ -214,9 +222,9 @@ export function reviewerName(model: string): string {
 }
 
 /** The two reviews at the fixture's start: one swarm mid-flight, one not started. */
-export function initialReviews(): ReviewSessionView[] {
+export function initialReviews(): SessionView[] {
     const upload = session({
-        id: "r51", slug: "peanut-51", title: "Retry the upload on 5xx",
+        id: "r51", slug: "peanut-51", title: "Retry the upload on 5xx", kind: "review",
         created: "2026-11-02T09:30:00Z", stage: "peer-review",
         branch: "fix/retry-upload", base: "main",
         agents: Object.fromEntries(REVIEW_MODELS.map((model) => [
@@ -230,14 +238,14 @@ export function initialReviews(): ReviewSessionView[] {
     });
     const swarm = [
         { name: reviewerName(REVIEW_MODELS[0] ?? ""), model: REVIEW_MODELS[0] ?? "",
-          state: "posted" as const, usd: 0.42 },
+          state: "posted" as const, usd: 0.42, pr: "peanut" },
         { name: reviewerName(REVIEW_MODELS[1] ?? ""), model: REVIEW_MODELS[1] ?? "",
-          state: "reading" as const, usd: 0.11 },
+          state: "reading" as const, usd: 0.11, pr: "peanut" },
         { name: reviewerName(REVIEW_MODELS[2] ?? ""), model: REVIEW_MODELS[2] ?? "",
-          state: "queued" as const, usd: 0 },
+          state: "queued" as const, usd: 0, pr: "peanut" },
     ];
     const dark = session({
-        id: "r77", slug: "web-77", title: "Dark mode for the settings page",
+        id: "r77", slug: "web-77", title: "Dark mode for the settings page", kind: "review",
         created: "2026-11-01T16:00:00Z", stage: "peer-review",
         branch: "feat/dark-settings", base: "main",
     });

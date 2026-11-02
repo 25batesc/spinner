@@ -177,6 +177,15 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
                 return state;
             }
             return { ...state, missions: { ...state.missions, [event.session]: event.view } };
+        case "review.updated": {
+            // The review fields alone (s015); the cards and the chips move without a view.
+            const view = state.sessions[event.session];
+            if (view === undefined) {
+                return state;
+            }
+            const next = { ...view, review: event.data };
+            return { ...state, sessions: { ...state.sessions, [event.session]: next } };
+        }
         default:
             return state;
     }

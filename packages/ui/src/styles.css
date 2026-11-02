@@ -896,3 +896,80 @@ html, body, #root { height: 100%; margin: 0; }
 }
 [data-theme="rainbow"] .activity-bar { animation: rainbow-hue 12s linear infinite; }
 @keyframes rainbow-hue { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+/* The Reviews panel (s015): the paste box at the top, then one card per review. The card
+   follows the session card (surface, 6 px radius, the selected one tinted with a left bar)
+   but grows with its content: a title, the author and `branch → base`, the pills, and the
+   two actions on their own row. */
+.rv-compose {
+    display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3);
+    padding: var(--space-2); background: var(--surface);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+}
+.rv-compose textarea { resize: vertical; min-height: 56px; font-size: var(--text-dense); }
+.rv-found {
+    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
+    font-size: var(--text-meta);
+}
+.rv-found-pr { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; }
+.rv-found-pr code { font-family: var(--font-mono); flex: none; }
+.rv-found-pr .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-found-reason, .rv-extracting { margin: 0; font-size: var(--text-meta); }
+.rv-compose-actions { display: flex; justify-content: flex-end; }
+.rv-compose-actions button { height: var(--control-form); padding: 0 14px; }
+.rv-list { list-style: none; margin: 0; padding: 0; }
+.rv-card {
+    display: flex; flex-direction: column; margin-bottom: var(--space-2); overflow: hidden;
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    background: var(--surface); transition: background-color 0.1s, border-color 0.1s;
+}
+.rv-card:hover { background: color-mix(in srgb, var(--surface) 100%, var(--text) 5%); }
+.rv-card.rv-card-selected {
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent);
+}
+.rv-card-body {
+    display: flex; flex-direction: column; gap: var(--space-1); width: 100%; min-width: 0;
+    padding: var(--space-2) var(--space-3); border: 0; background: transparent; color: inherit;
+    font: inherit; text-align: left; cursor: pointer;
+}
+.rv-title {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    line-height: 16px; font-size: var(--text-body); font-weight: 600;
+}
+.rv-meta {
+    display: flex; gap: var(--space-2); align-items: baseline; min-width: 0;
+    font-size: var(--text-meta);
+}
+.rv-author { flex: none; }
+.rv-branches {
+    font-family: var(--font-mono); font-size: var(--text-meta); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.rv-pills { flex-wrap: wrap; row-gap: var(--space-1); font-size: var(--text-dense); }
+.rv-threads { font-variant-numeric: tabular-nums; }
+.rv-card-actions {
+    display: flex; gap: var(--space-2); align-items: center; padding: var(--space-1) var(--space-3)
+    var(--space-2); font-size: var(--text-dense);
+}
+.rv-card-actions button { height: var(--control-row); }
+.rv-github { color: var(--link, var(--accent)); text-decoration: none; }
+.rv-github:hover { text-decoration: underline; }
+/* The middle pane of a review: the PR header, the swarm chips, the sub tabs. A chip's dot
+   follows the reviewer's state: a hollow ring queued, green reading, filled green posted, red
+   failed; the cost sits after the model as meta. */
+.rv-head {
+    display: flex; flex-direction: column; gap: var(--space-1); flex: none;
+    padding: var(--space-2) var(--space-3); background: var(--surface);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+}
+.rv-head-title { font-size: var(--text-title); font-weight: 600; color: inherit; }
+a.rv-head-title { text-decoration: none; }
+a.rv-head-title:hover { text-decoration: underline; }
+.rv-swarm { min-height: var(--control-row); font-size: var(--text-dense); }
+.rv-chip-cost { font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
+.rv-chip-posted .chip-dot { background: var(--ok); border-color: var(--ok); }
+.rv-chip-reading .chip-dot { animation: rv-pulse 1.2s ease-in-out infinite; }
+.rv-chip-failed .chip-name { color: var(--fail); }
+@keyframes rv-pulse { 50% { opacity: 0.35; } }
+.rv-context .rv-branches { max-width: 220px; }
+.rv-toolbar button { height: var(--control-row); }

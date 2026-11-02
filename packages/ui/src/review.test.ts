@@ -3,7 +3,7 @@
 // swarm line counts. Checked through the functions the components call.
 import { expect, it } from "vitest";
 
-import type { PrFacts, SessionView } from "@spinner/protocol";
+import type { PrFacts, ReviewFields, SessionView } from "@spinner/protocol";
 
 import {
     ciPill,
@@ -13,8 +13,6 @@ import {
     reviewsByActivity,
     swarmDot,
     swarmLine,
-    type ReviewFields,
-    type ReviewSessionView,
 } from "./review.ts";
 
 function pr(partial: Partial<PrFacts> = {}): PrFacts {
@@ -38,10 +36,15 @@ function view(
         pipeline: { verified_locally: false, slack_post: null }, id: dir, slug: dir,
         title: `Title ${dir}`,
     };
-    const typed: ReviewSessionView = {
+    const typed: SessionView = {
         summary: { dir, path: `/home/x/${dir}`, session },
-        board: prs.length === 0 ? null : { stage: "peer-review", needs_human: null, stale: false, prs },
-        stack: { state: "none", project: null, database: null, services: [], observed: null, last_job: null },
+        board: prs.length === 0
+            ? null
+            : { stage: "peer-review", needs_human: null, stale: false, prs },
+        stack: {
+            state: "none", project: null, database: null, services: [], observed: null,
+            last_job: null,
+        },
         agents_running: [], can_verify: false, kind,
         cost: { usd: 1.5, tokens_in: 10, tokens_out: 5, agents: {} },
         ...(review === undefined ? {} : { review }),
@@ -52,9 +55,9 @@ function view(
 const fields: ReviewFields = {
     checks: "red", failing: ["lint", "e2e"], review_decision: "changes_requested", threads: 7,
     swarm: [
-        { name: "review-opus", model: "anthropic/opus", state: "posted", usd: 0.4 },
-        { name: "review-gpt", model: "openai/gpt", state: "failed", usd: 0.1 },
-        { name: "review-grok", model: "x-ai/grok", state: "queued", usd: 0 },
+        { name: "review-opus", model: "anthropic/opus", state: "posted", usd: 0.4, pr: "peanut" },
+        { name: "review-gpt", model: "openai/gpt", state: "failed", usd: 0.1, pr: "peanut" },
+        { name: "review-grok", model: "x-ai/grok", state: "queued", usd: 0, pr: "peanut" },
     ],
 };
 

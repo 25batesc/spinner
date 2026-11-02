@@ -8,6 +8,7 @@ import type { CostTotals, PrFacts, SessionView } from "@spinner/protocol";
 
 import { formatTokens, formatUsd } from "./costs.ts";
 import type { PaneName } from "./layout.ts";
+import { ciPill, decisionPill, reviewFacts, type Pill } from "./review.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import {
     machineLine,
@@ -112,8 +113,8 @@ export function IconButton({ icon, label, onClick, active, className }: IconButt
 }
 
 export interface PaneHeadProps {
-    /** The pane, or a view that takes a pane's place (`settings` in the side panel). */
-    name: PaneName | "settings";
+    /** The pane, or a view that takes a pane's place (`reviews`, `settings` in the side panel). */
+    name: PaneName | "reviews" | "settings";
     /** The icon buttons at the right; none when the `?pane=` route renders the pane alone. */
     controls: IconButtonProps[] | undefined;
     /** An icon button at the left of the title, for example the side-panel toggle. */
@@ -162,11 +163,11 @@ export function PaneStrip({ name, popped, onRestore }: PaneStripProps) {
 }
 
 /**
- * A view of the left panel, one icon each in the activity bar. Today there is one; the board,
- * threads and settings come later.
+ * A view of the left panel, one icon each in the activity bar: the sessions, the reviews of
+ * the peers' PRs (s015), and settings at the bottom.
  */
 export interface PanelView {
-    id: "sessions" | "settings";
+    id: "sessions" | "reviews" | "settings";
     icon: IconName;
     label: string;
     /** Drawn at the bottom of the bar, apart from the views above. */
@@ -175,6 +176,7 @@ export interface PanelView {
 
 export const PANEL_VIEWS: readonly PanelView[] = [
     { id: "sessions", icon: "sessions", label: "Sessions" },
+    { id: "reviews", icon: "pull-request", label: "Reviews" },
     { id: "settings", icon: "gear", label: "Settings", bottom: true },
 ];
 
@@ -250,6 +252,15 @@ export function CostFigure({ cost }: { cost: CostTotals | undefined }) {
     );
 }
 
+/** A state pill of a review (s015): the CI state, the review decision. */
+export function StatePill({ pill, className }: { pill: Pill; className: string }) {
+    return (
+        <span className={`pill ${pill.tone} ${className}`.trim()} title={pill.title}>
+            {pill.text}
+        </span>
+    );
+}
+
 /** `⑂ 4`: the session's PR count; green once every PR's checks are green. */
 export function PrBadge({ prs }: { prs: PrFacts[] }) {
     if (prs.length === 0) {
@@ -315,6 +326,28 @@ export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) 
         return (
             <div className="context-bar muted">
                 No session selected. <MachineLine usage={usage} />
+                <OperatorNotice operator={operator} />
+                {toolbar}
+            </div>
+        );
+    }
+    const review = reviewFacts(view);
+    if (review !== null) {
+        // A review: the PR's facts in place of the stage and the stack; `review` as the toolbar.
+        return (
+            <div className="context-bar rv-context" aria-label="Review">
+                <span className="context-title" title={review.title}>
+                    {review.title}
+                </span>
+                <span className="badge">review</span>
+                <code className="muted rv-branches">{review.branch} → {review.base}</code>
+                <StatePill pill={ciPill(review.checks, review.failing)} className="rv-ci" />
+                <StatePill pill={decisionPill(review.decision)} className="rv-decision" />
+                <span className="pill rv-threads" title={`${review.threads} review threads`}>
+                    ⑂ {review.threads}
+                </span>
+                <CostFigure cost={view.cost} />
+                <MachineLine usage={usage} />
                 <OperatorNotice operator={operator} />
                 {toolbar}
             </div>

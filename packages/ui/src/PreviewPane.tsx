@@ -3,6 +3,7 @@ import { useState } from "react";
 import { preview_key, type Job, type ServiceView, type SessionView } from "@spinner/protocol";
 
 import { diffPreviewService, diffRepos, diffSelected } from "./diff-view.ts";
+import { isReview } from "./review.ts";
 import { DiffPage } from "./DiffPage.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
 import { Preview, type PopOutRequest } from "./Preview.tsx";
@@ -100,7 +101,9 @@ function shownPreview(
 export function PreviewPane(props: PreviewPaneProps) {
     const { view, busy, run, unverify, controls, diffJob } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
-    const [tab, setTab] = useState<string>("previews");
+    // A review session (s015) opens on the diff at the PR head; it has no stack to preview.
+    const [tabPicked, setTab] = useState<string | undefined>(undefined);
+    const tab = tabPicked ?? (isReview(view) ? "diff" : "previews");
     const [repoPicked, setRepoPicked] = useState<string | undefined>(undefined);
     const services = (view?.stack.services ?? []).filter((service) => service.url !== null);
     const names = services.map((service) => service.name);

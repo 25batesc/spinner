@@ -23,8 +23,11 @@ import {
 import { diffJob } from "./diff-view.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
+import { ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
+import { ReviewPane } from "./ReviewPane.tsx";
+import { ReviewsPane } from "./ReviewsPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
-import { EMPTY_DRAFT, type ComposeDraft } from "./SessionForms.tsx";
+import { EMPTY_DRAFT, type ComposeDraft, type RunAction } from "./SessionForms.tsx";
 import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
@@ -44,6 +47,22 @@ function transcriptsFor(dir: string | undefined, all: Record<string, Transcript>
         }
     }
     return result;
+}
+
+/** The one action of a review session (s015): the swarm, in the context bar. */
+function ReviewToolbar(props: { dir: string; busy: boolean; run: RunAction }) {
+    const { dir, busy, run } = props;
+    return (
+        <div className="actions toolbar rv-toolbar" role="toolbar" aria-label="Review actions">
+            <button
+                disabled={busy}
+                title="Start the review swarm: one reviewer per model"
+                onClick={() => void run(`/sessions/${dir}/review`)}
+            >
+                review
+            </button>
+        </div>
+    );
 }
 
 /** True when a PR of the session is open or a draft: what the `review` step needs. */
@@ -85,9 +104,11 @@ function useAppState(state: UiState, initial: string | undefined) {
     const busy = selected !== undefined && runningJob(state, selected) !== undefined;
     const job = watched === undefined ? undefined : state.jobs[watched];
 
-    // A finished `new` or `adopt` names its session; show it.
+    // A finished `new`, `adopt` or `reviews` names its session; show it.
     useEffect(() => {
-        const created = job?.state === "ok" && (job.action === "new" || job.action === "adopt");
+        const creates = job?.action === "new" || job?.action === "adopt" ||
+            job?.action === "reviews";
+        const created = job?.state === "ok" && creates;
         if (created && job.session !== null) {
             setPicked(job.session);
             setCompose(false);
@@ -253,9 +274,23 @@ export function App() {
             togglePanel();
         }
     };
+    const review = view === undefined ? null : reviewFacts(view);
+    const reviewsPane = (
+        <ReviewsPane
+            reviews={reviewsByActivity(sessions)}
+            selected={selected}
+            busy={busy}
+            onSelect={(dir) => {
+                app.setCompose(false);
+                setPicked(dir);
+            }}
+            run={run}
+            controls={inRoute ? undefined : []}
+        />
+    );
     const sessionsPane = (
         <SessionsPane
-            sessions={sessions}
+            sessions={ordinarySessions(sessions)}
             usage={state.usage}
             selected={selected}
             onSelect={(dir) => {
@@ -267,7 +302,18 @@ export function App() {
             controls={inRoute ? undefined : []}
         />
     );
-    const agentsPane = (
+    const agentsPane = review !== null && view !== undefined && !app.compose ? (
+        <ReviewPane
+            view={view}
+            facts={review}
+            busy={busy}
+            run={run}
+            revisions={revisionsOf(state, selected)}
+            controls={inRoute ? undefined : []}
+        >
+            {drawer}
+        </ReviewPane>
+    ) : (
         <AgentsPane
             view={view}
             busy={busy}
@@ -324,7 +370,8 @@ export function App() {
     const operatorPane = (
         <OperatorPane view={state.operator} controls={inRoute ? undefined : []} />
     );
-    const sidePanel = panelView === "settings" ? settingsPane : sessionsPane;
+    const sidePanels = { sessions: sessionsPane, reviews: reviewsPane, settings: settingsPane };
+    const sidePanel = sidePanels[panelView];
     // The operator tab goes when the agent is off and stopped: back to the session.
     const operatorOn = middle === "operator" && !operatorHidden(state.operator);
     const middlePane = operatorOn ? operatorPane : agentsPane;
@@ -376,13 +423,17 @@ export function App() {
                 usage={state.usage}
                 operator={operatorBar}
                 toolbar={
-                    <SessionToolbar
-                        dir={selected}
-                        openPr={hasOpenPr(view)}
-                        busy={busy}
-                        run={run}
-                        revision={revisionsOf(state, selected).pipeline}
-                    />
+                    review !== null && selected !== undefined ? (
+                        <ReviewToolbar dir={selected} busy={busy} run={run} />
+                    ) : (
+                        <SessionToolbar
+                            dir={selected}
+                            openPr={hasOpenPr(view)}
+                            busy={busy}
+                            run={run}
+                            revision={revisionsOf(state, selected).pipeline}
+                        />
+                    )
                 }
             />
             <div className="shell-body">
