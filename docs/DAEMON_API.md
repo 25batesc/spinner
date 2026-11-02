@@ -23,7 +23,7 @@ WebSockets below.
 | `POST /sessions` | `NewSessionRequest` | `JobResponse` | With `title`: the job attaches the project. With `text` (chat first, below): the job attaches, adopts, starts the lead and sends it the text. |
 | `POST /sessions/extract` | `ExtractRequest` | `ExtractResponse` | The PR references in a paste, resolved against the project and looked up. Synchronous; below. |
 | `POST /sessions/adopt` | `AdoptRequest` | `JobResponse` | PRs opened outside Spinner. |
-| `POST /reviews` | `ReviewsRequest` | `JobResponse` | One session of `kind: review` per PR reference in `text`; below. 409 without a reference. |
+| `POST /reviews` | `ReviewsRequest` | `JobResponse` | One session of `kind: review` per PR reference in `text`, with its `lead` and its swarm started; below. 409 without a reference. |
 | `POST /sessions/:dir/adopt` | `SessionAdoptRequest` | `JobResponse` | PR references into an existing session; the lead's `adopt` tool. 409 without a project. |
 | `PUT /sessions/:dir/title` | `SessionTitleRequest` | `SessionResponse` | `session.yaml` and the mission heading. Query `author`, default `operator`. |
 | `GET /sessions/:dir/mission/view` | | `MissionViewResponse` | The structured mission; below. |
@@ -36,6 +36,11 @@ WebSockets below.
 | `POST /sessions/:dir/pr` | `PrRequest` | `JobResponse` | One PR per changed repo, as the operator. |
 | `POST /sessions/:dir/fix` | `FixRequest` | `JobResponse` | Renders `threads/`, then starts or steers the fixer. |
 | `POST /sessions/:dir/review` | `ReviewRequest`, optional | `JobResponse` | Starts the review swarm on each open PR; below. 409 without an open PR, without a worktree for it, or while a reviewer of it reads. |
+| `GET /sessions/:dir/review/briefing` | | `text/markdown` | The lead's briefing, `artifacts/briefing.md`. 404 before it exists. |
+| `PUT /sessions/:dir/review/briefing` | `ReviewBriefingRequest` | `OkResponse` | The lead's `review_briefing` tool writes the briefing. 400 when `markdown` is empty. |
+| `PUT /sessions/:dir/review/draft` | `ReviewDraft` | `ReviewDraftResponse` | The lead's `review_draft` tool and the operator's edits; validated against the PR diff, below. 400 with every fault; 409 without a PR. |
+| `DELETE /sessions/:dir/review/draft` | | `OkResponse` | Drops the draft. 404 without one. |
+| `POST /sessions/:dir/review/post` | | `ReviewPostResponse` | Posts the draft as one PR review through the operator's `gh`; below. 409 without a draft; 502 when GitHub refuses. |
 | `GET /sessions/:dir/threads` | | `ThreadsResponse` | From the last render. |
 | `POST /sessions/:dir/threads/refresh` | | `ThreadsResponse` | Re-renders from GitHub now. |
 | `POST /sessions/:dir/threads/:id/reply` | `ThreadReplyRequest` | `ThreadResponse` | As the operator. |
@@ -313,7 +318,7 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 | `operator.model` | Optional. `provider/model` for the operator agent; else `default_model`, else the daemon's default. |
 | `review.models` | Optional. The swarm's models, `provider/model`; default `x-ai/grok-4.6`, `anthropic/claude-opus-5-5`, `openai/gpt-6-luna`. |
 | `review.n` | Optional, 1 to 20. How many of `models` run, from the first; default 3. |
-| `review.skill` | Optional. The review skill's directory, given to every reviewer with `--skill`; default `~/.pi/agent/skills/review-pr` when it exists. |
+| `review.skill` | Optional. The `pr-review` skill's directory; the rulebook (`engineer-conventions`, `backend-conventions`, `principles`, `interrogate/references/lead-judgment.md`) is read from the `skills/` directory next to it; default `~/.pi/agent/skills/pr-review`. |
 
 `GET /settings` answers `SettingsResponse { settings, path }`; without a file, `settings` is
 `{ theme: "system" }`. `PUT /settings` takes the whole document as the body, validates it, and
@@ -389,19 +394,25 @@ names the first problem. An unknown id is one.
 A review (s015) is a session of `kind: review`: a place for a peer's PR. `POST /reviews
 { text }` runs the extractor over the paste and makes one session per PR, in one job
 (action `reviews`). Full URLs and `owner/repo#N` resolve; there is no project, so a bare
-`#N` does not. The
-job's `session` is the first one; its log names each. For each PR the daemon clones the
-repository once under `<home>/reviews/<owner>-<name>/` and fetches `refs/pull/<n>/head`.
-It checks the PR head out detached under the session's `worktrees/<name>`, so nothing can
-be pushed from it. The session has no project and no stack. `branch` and `base` are the PR's.
-`repos.<name>.pr` holds the facts as an adopted PR's, so the poller, the board and the
-threads track it. A reference GitHub does not know is skipped with the reason in the log; a
-paste with no reference is a 409.
+`#N` does not. The job's `session` is the first one; its log names each. For each PR the
+daemon clones the repository once under `<home>/reviews/<owner>-<name>/` and fetches
+`refs/pull/<n>/head`. It checks the PR head out detached under the session's
+`worktrees/<name>`, so nothing can be pushed from it. The session has no project and no
+stack. `branch` and `base` are the PR's. `repos.<name>.pr` holds the facts as an adopted
+PR's, so the poller, the board and the threads track it. A reference GitHub does not know
+is skipped with the reason in the log; a paste with no reference is a 409.
+
+The same job then starts the review (s016): the agent `lead` in the PR worktree, with
+model `settings.default_model` and the review lead's brief (the operator's `pr-review`
+skill, with the daemon in the loop), the PR as its first message; then the swarm, below.
+A lead that does not start is one job log line; the swarm runs either way.
 
 `SessionView.kind` is `review` for such a session and `session` otherwise.
 `SessionView.review` (`ReviewFields`) carries the PR's `checks` with the `failing` check
 names, the `review_decision` and the `threads` count (open and resolved). Its `swarm` is
-one `SwarmMember { name, model, state, usd, pr }` per reviewer. `review.updated { data }` goes on
+one `SwarmMember { name, model, state, usd, pr }` per reviewer. `briefing` is true once
+`artifacts/briefing.md` exists; `draft` is the `ReviewDraft` of `artifacts/review-draft.json`
+or null; `posted_url` is the posted review's URL or null. `review.updated { data }` goes on
 the bus whenever those fields change, right after the `session.updated` that carries them.
 An ordinary session gets `review` too once its swarm ran, so its chips show. Every PR the
 poller tracks carries `checks_failing`, the names of the red checks.
@@ -412,26 +423,62 @@ poller tracks carries `checks_failing`, the names of the red checks.
 It runs on each open or draft PR of the session, or on the one repo key `pr` names. The
 swarm is one tty agent per model in `settings.review.models`, the first `n` of them. A
 reviewer is named `review-<model-slug>`: the model id in lower case, one dash per run of
-other characters. With several target PRs the name is `review-<repo>-<model-slug>`. Each reviewer starts in the PR repo's worktree with
-`agents/<name>/BRIEF.md`, written once from the review brief. The brief is the prompt
-`review-blast` gave its agents, with the PR and the model filled in. The reviewer reads the diff and the
-code it hooks into, and posts inline comments only, each identified as
-`**review-blast** · <model>`. It never approves, never requests changes and never pushes.
-It prints `POSTED model=<model> blockers=N should-fix=M` last. The review skill goes in with
-`--skill`: `settings.review.skill`, else `~/.pi/agent/skills/review-pr` when it exists.
-`agents.<name>.skills` in `session.yaml` keeps the path, so a resumed reviewer loads it.
+other characters. With several target PRs the name is `review-<repo>-<model-slug>`. Each
+reviewer starts in the PR repo's worktree with `agents/<name>/BRIEF.md`, written once from
+the reviewer brief: the operator's `reviewer` role word for word, with the PR, the detached
+checkout, the rulebook by path, the skill's comment format and the `VERDICT` contract. The
+reviewer reads only: it never comments, reviews, posts, edits or pushes. It ends its turn
+with the verdict block. The role's skills (`engineer-conventions`, `principles`) go in with
+`--skill` when they exist next to `settings.review.skill`; `agents.<name>.skills` in
+`session.yaml` keeps the paths, so a resumed reviewer loads them.
 
 The states live in `session.yaml` under `review.swarm.<name>`. `queued` is a reviewer the
-running-agents cap (24) holds back. `reading` is one that started. `posted` is one whose
-settled turn ended with an assistant text that carries `POSTED model=`. `failed` is one
-whose pi exited without that line. On `posted` the daemon stops the reviewer's pi, so the slot frees and the next
-queued reviewer starts. The transcript stays, and the tab resumes it on request. One GitHub
-poll follows a post, so the thread count moves at once. On daemon start, queued reviewers go
-back in the queue and reading ones without a process are failed.
+running-agents cap (24) holds back. `reading` is one that started. `done` is one whose
+settled turn ended with an assistant text that carries `VERDICT: BLOCKING` or `VERDICT:
+CLEAR`: the daemon saves that text as `artifacts/reviews/<model-slug>.md` and stops the
+reviewer's pi, so the slot frees and the next queued reviewer starts. `failed` is one whose
+pi exited without that line. The transcript stays, and the tab resumes it on request. When
+no reviewer is `queued` or `reading` any more, the lead gets the verdicts notice through
+the extension channel: the files by absolute path, the reviewers that failed, the
+lead-judgment rules and the `review_draft` contract; a lead that is not running gets it
+with its next prompt. The reviewers hear no mission or notes notices. On daemon start,
+queued reviewers go back in the queue and reading ones without a process are failed.
 
 A review holds no session lock: it runs beside another job on the session. The route is a
 409 for a session without an open PR, for a PR whose repo has no worktree, and while a
 reviewer of that PR still reads. A second `review` after the swarm settled runs it again.
+On an ordinary session the lead is the session's own `lead`; the notice reaches it the
+same way.
+
+## The review draft and the post
+
+The lead's two tools write through two routes. `PUT /sessions/:dir/review/briefing
+{ markdown }` writes `artifacts/briefing.md`; the UI reads it from `GET
+/sessions/:dir/review/briefing` as `text/markdown`. `PUT /sessions/:dir/review/draft` takes
+a `ReviewDraft { event, body, comments: [{ path, line, body }] }`, from the lead's
+`review_draft` tool (whose `comments` is a JSON array text) or from the operator's edits in
+the review pane. The daemon reads the PR diff once per write (`gh api
+repos/:owner/:repo/pulls/:n/files`, a read) and checks: `event` is `APPROVE` or `COMMENT`,
+and not `APPROVE` with a `BLOCKING:` comment; `body` is not empty; each comment body starts
+with `BLOCKING:`, `BUG:`, `NIT:` or `SUPER NIT:`; each `path:line` is on the right side of
+the diff (an added or a context line). A fault is a 400 whose `error` lists every one, and
+nothing is written. A whole draft is written to `artifacts/review-draft.json`,
+`review.draft` in `session.yaml` is true, and the tracker sets `needs_human` to `post or
+drop the review draft` (`REVIEW_DRAFT_NEEDS_HUMAN`), which wins over the pipeline's own
+text until the draft goes. `DELETE /sessions/:dir/review/draft` drops it.
+
+`POST /sessions/:dir/review/post` is the operator's click and the only path that posts a
+review. It runs `gh api --method POST repos/:owner/:repo/pulls/:n/reviews --input <file>`
+through the GitHub writer with `commit_id` at the PR head, `event`, `body` and `comments[]`
+with `side: RIGHT`. An `APPROVE` GitHub refuses for the author's own PR is reposted as
+`COMMENT`; the answer `ReviewPostResponse { url, event, fell_back }` says so. The URL lands
+in `session.yaml` (`review.posted_url`), in `artifacts/review-posted.json` (the draft as
+posted) and in one Log line by `operator`; the draft file goes, `needs_human` clears, one
+GitHub poll follows, and `review.updated` carries the change. The write guard applies: a
+review session's PR repo is allowed; an ordinary session's PR must be on its project's
+`pipeline.github.write_repos`. 409 without a draft; 502 with GitHub's reason when it
+refuses. The lead role's bash guard refuses `gh pr review`, `gh pr comment` and `gh api`
+writes, so the lead cannot post by hand.
 
 ## The operator agent
 

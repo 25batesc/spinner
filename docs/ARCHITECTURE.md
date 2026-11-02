@@ -190,7 +190,7 @@ One agent per home, outside every session. It runs Spinner for the operator the 
 
 The e2e `packages/daemon/e2e/operator.ts` runs the real pi on a scratch daemon. The request is "start a session for the sample stack named Refund flow with one agent `backend` that adds a health endpoint". The result is a session on a scratch copy of the sample project, a mission with a Goal and Plan items, a brief, and a running `backend`. The agent's `agent.settled` reaches the operator agent as a notice.
 
-### Reviews (packages/daemon/src/pipeline/reviews.ts, agents/swarm.ts)
+### Reviews (packages/daemon/src/pipeline/reviews.ts, agents/swarm.ts, agents/review-lead.ts)
 
 A review (s015) is a session of `kind: review`: a place for a peer's PR, with no project and
 no stack. `POST /reviews { text }` runs the extractor over a paste and makes one session per
@@ -199,19 +199,57 @@ review (`refs/pull/<n>/head`, so a fork's PR works too). The PR head is checked 
 under the session's `worktrees/<name>`, so nothing can be pushed from it. The PR facts go
 into `session.yaml` as an adopted PR's, and the poller, the threads and the board track it
 with no new machinery. The view adds `kind` and `review` (`ReviewFields`: the checks with
-the failing names, the decision, the thread count, the swarm), and `review.updated` follows
-each change.
+the failing names, the decision, the thread count, the swarm, and since s016 `briefing`,
+`draft` and `posted_url`), and `review.updated` follows each change.
 
-`review` on any session with an open PR starts the swarm: one tty agent per model of
-`settings.review.models`, named `review-<model-slug>`, in the PR repo's worktree. Each gets
-the review brief (`store/review-brief.ts`: the prompt the operator's `review-blast` gave its
-agents, word for word) and the review skill through `--skill`. Each reviewer is an ordinary
-agent of the session, so its terminal, its transcript and its cost come from what exists.
-The swarm module keeps each reviewer's state in `session.yaml` under `review.swarm`.
-`queued` is a reviewer behind the running-agents cap. `reading` is one that started.
-`posted` is one whose settled turn ended with `POSTED model=`; the daemon then stops that
-pi, so the slot frees and the next queued reviewer starts. `failed` is an exit without it. The s016 `review` step on
-an ordinary session runs the same swarm; `review-blast` is no longer called.
+The review process (s016) is the operator's `pr-review` skill, end to end, with the daemon
+in the loop. The paste starts two kinds of agent in the PR worktree, as one job:
+
+- The agent `lead` (model `settings.default_model`), with the skill as its brief
+  (`store/review-brief.ts`, `render_review_lead_brief`: the skill's rules word for word;
+  where the skill launches three `subagent` calls, the daemon has started the reviewers;
+  where it posts after the user's yes, the lead writes a draft and the operator posts). The
+  lead reads the PR and writes the briefing with `review_briefing` while the reviewers read,
+  then waits.
+- The swarm: one tty agent per model of `settings.review.models`, named
+  `review-<model-slug>`, with the operator's `reviewer` role as its brief word for word, the
+  rulebook (`engineer-conventions`, `backend-conventions`, `principles`) named by path next
+  to `settings.review.skill`, and the role's two skills through `--skill`. A reviewer reads
+  only, never posts, and ends with the role's `VERDICT` block.
+
+Each reviewer is an ordinary agent of the session, so its terminal, its transcript and its
+cost come from what exists; the deliverer leaves the `review-*` agents out of mission and
+notes notices. The swarm keeps each reviewer's state in `session.yaml` under `review.swarm`.
+`queued` is a reviewer behind the running-agents cap. `reading` is one that started. `done`
+is one whose settled turn ended with a `VERDICT: BLOCKING` or `VERDICT: CLEAR` line: the
+daemon saves that text as `artifacts/reviews/<model-slug>.md` and stops the pi, so the slot
+frees and the next queued reviewer starts. `failed` is an exit without one. When no
+reviewer is `queued` or `reading` any more, the lead gets the verdicts notice through the
+extension channel (`notify`), with the files by absolute path and the lead-judgment rules;
+a lead that is not running gets it with its next prompt. The lead reconciles and writes the
+one review with `review_draft`.
+
+The draft (`pipeline/review-draft.ts`) is validated before it is written: `event` is
+`APPROVE` or `COMMENT` (`APPROVE` with a `BLOCKING:` comment is refused), each comment body
+starts with `BLOCKING:`, `BUG:`, `NIT:` or `SUPER NIT:`, and each `path:line` is on the
+right side of the PR diff, read from `gh api repos/:o/:r/pulls/:n/files` (added and context
+lines). A bad draft returns every fault and writes nothing. A good one is
+`artifacts/review-draft.json`; `review.draft: true` in `session.yaml` makes the tracker set
+`needs_human` to `post or drop the review draft`, which wins over the pipeline's own text.
+The operator edits the draft through the same route, drops it, or posts it:
+`POST /sessions/:dir/review/post` is the only path that posts, one PR review through the
+operator's `gh` (`gh api --method POST .../reviews --input`) at the head SHA with
+`comments[]` on `side: RIGHT`; an `APPROVE` GitHub refuses for the author's own PR is
+reposted as `COMMENT` and the answer says so. The URL lands in `session.yaml`
+(`review.posted_url`), in `artifacts/review-posted.json` and in one Log line; the draft file
+goes. The write guard applies: a review session's PR repo is allowed (the session exists
+for it, on the operator's paste); an ordinary session's PR must be on its project's
+`write_repos`. The lead role's bash guard refuses `gh pr review`, `gh pr comment` and `gh
+api` writes, so the lead cannot post by hand.
+
+`review` on an ordinary session with an open PR runs the same swarm (`POST
+/sessions/:dir/review`); its lead is the session's own `lead`, which gets the same notice.
+On a review session the route runs a second round. `review-blast` is no longer called.
 
 ### Skills and context files
 
