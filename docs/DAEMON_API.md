@@ -34,6 +34,7 @@ WebSockets below.
 | `DELETE /sessions/:dir/verify` | | `SessionResponse` | Clears the tick. Synchronous; the new view answers. 404 without the session. |
 | `POST /sessions/:dir/pr` | `PrRequest` | `JobResponse` | One PR per changed repo, as the operator. |
 | `POST /sessions/:dir/fix` | `FixRequest` | `JobResponse` | Renders `threads/`, then starts or steers the fixer. |
+| `POST /sessions/:dir/review` | `ReviewRequest`, optional | `JobResponse` | One `review` job per open PR runs `review-blast`; below. 409 without an open PR, or while one runs. |
 | `GET /sessions/:dir/threads` | | `ThreadsResponse` | From the last render. |
 | `POST /sessions/:dir/threads/refresh` | | `ThreadsResponse` | Re-renders from GitHub now. |
 | `POST /sessions/:dir/threads/:id/reply` | `ThreadReplyRequest` | `ThreadResponse` | As the operator. |
@@ -309,6 +310,9 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 | `agents.harness` | Optional. `tty` or `rpc`. |
 | `operator.enabled` | Optional, default false since s014. The daemon starts the operator agent at boot when true. |
 | `operator.model` | Optional. `provider/model` for the operator agent; else `default_model`, else the daemon's default. |
+| `review.command` | Optional. The `review-blast` script; else `SPINNER_REVIEW_BLAST`, else `review-blast` on PATH. |
+| `review.models` | Optional. The `--models` list; default `x-ai/grok-4.6`, `anthropic/claude-opus-5-5`, `openai/gpt-6-luna`. |
+| `review.n` | Optional, 1 to 20. The `--n` count; default 3. |
 
 `GET /settings` answers `SettingsResponse { settings, path }`; without a file, `settings` is
 `{ theme: "system" }`. `PUT /settings` takes the whole document as the body, validates it, and
@@ -378,6 +382,24 @@ the time. `edit` replaces the text. `assign` sets the owner. `reorder` takes the
 new order; unlisted items follow in their old order. Ids never change. A Plan line
 written before s014 without a number gets one on the first write to the section. A 400
 names the first problem. An unknown id is one.
+
+## The review step
+
+`POST /sessions/:dir/review { pr? }` starts one job (action `review`) per open or draft PR of
+the session, or for the one repo key `pr` names. The answer names the first job; the rest are
+on the bus and in `GET /jobs`. Each job runs the operator's script:
+
+    review-blast <pr url> --models <a,b,c> --n <n>
+
+The script is `SPINNER_REVIEW_BLAST` in the daemon's environment, else `settings.review.command`,
+else `review-blast` on PATH. `--models` and `--n` come from `settings.review`, else the
+defaults above. The script runs in the session directory. Its stdout goes to the job log line
+by line; stderr lines carry a `stderr:` prefix. A run is bounded at 20 minutes; past that the
+daemon kills it and the job fails. A non-zero exit fails the job with the code. After a run the
+daemon polls GitHub once, so the new review threads show without waiting for the next round.
+
+A review holds no session lock: it runs beside another job on the session. A second review of
+a PR whose review still runs is a 409, as is a session without an open PR.
 
 ## The operator agent
 

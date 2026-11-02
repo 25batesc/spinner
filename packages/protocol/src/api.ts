@@ -68,6 +68,11 @@ export const ROUTES = {
     "POST /sessions/:dir/pr": "JobResponse",
     /** Render `threads/` from GitHub, then start or steer the fixer agent. Body: FixRequest. */
     "POST /sessions/:dir/fix": "JobResponse",
+    /**
+     * Run the operator's `review-blast` on each open PR (or the one `pr` names), one job per
+     * PR, then poll once. Body: ReviewRequest. 409 without an open PR or while one runs.
+     */
+    "POST /sessions/:dir/review": "JobResponse",
     /** The review threads of every PR, from the last render. 404 without a session. */
     "GET /sessions/:dir/threads": "ThreadsResponse",
     /** Re-render `threads/` from GitHub now and return it. */
@@ -430,6 +435,7 @@ export type JobAction =
     | "verify"
     | "pr"
     | "fix"
+    | "review"
     | "post"
     | "approve"
     | "land"
@@ -446,6 +452,7 @@ export const JOB_ACTIONS: readonly JobAction[] = [
     "verify",
     "pr",
     "fix",
+    "review",
     "post",
     "approve",
     "land",
@@ -586,6 +593,23 @@ export interface FixRequest {
     /** Repo key of one PR. Every PR with open threads when absent. */
     pr?: string;
 }
+
+/** `POST /sessions/:dir/review`: one `review-blast` job per open PR (s014, Plan item 10). */
+export interface ReviewRequest {
+    /** Repo key of one PR. Every open PR when absent. */
+    pr?: string;
+}
+
+/** `settings.review` when absent: the models `review-blast` runs and how many reviews. */
+export const REVIEW_MODELS_DEFAULT: readonly string[] = [
+    "x-ai/grok-4.6",
+    "anthropic/claude-opus-5-5",
+    "openai/gpt-6-luna",
+];
+export const REVIEW_N_DEFAULT = 3;
+
+/** The time one `review-blast` run gets before the job fails. */
+export const REVIEW_TIMEOUT_MS = 20 * 60_000;
 
 export interface ThreadsResponse {
     threads: ThreadsView;

@@ -1,4 +1,5 @@
-// The pipeline commands' routes (`pr`, `fix`, `threads`, `post`, `approve`, `land`, `reset`),
+// The pipeline commands' routes (`pr`, `fix`, `review`, `threads`, `post`, `approve`, `land`,
+// `reset`),
 // mounted on the daemon's Hono app by one registry line in `server.ts`. Each write starts a
 // job on `actions.ts`, the same functions the CLI calls; each read answers from the session
 // directory. Bodies are parsed here, so a bad request is a 400 before any job starts.
@@ -15,13 +16,21 @@ import type {
     PostResponse,
     PrRequest,
     ResetRequest,
+    ReviewRequest,
     SessionSummary,
+    Settings,
     ThreadFlagRequest,
     ThreadReplyRequest,
     ThreadResponse,
     ThreadsResponse,
 } from "@spinner/protocol";
 import { thread_file, type ThreadsDiff } from "./threads.js";
+import {
+    resolve_review_blast,
+    review_settings,
+    review_targets,
+    run_review_blast,
+} from "./review.js";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
 import type { EventBus } from "../event-bus.js";
@@ -37,7 +46,18 @@ export interface PipelineRouteDeps {
     bus: EventBus;
     /** Called after a job on `dir` finished, so the view carries fresh facts. */
     refresh: (dir: string) => Promise<void>;
+    /** The operator's settings, for `review`; the defaults when absent. */
+    settings?: () => Settings;
+    /** One poll round now, after a `review` job, so the new comments show. */
+    poll?: () => Promise<void>;
+    /** The daemon's environment, for `SPINNER_REVIEW_BLAST`; `process.env` when absent. */
+    env?: NodeJS.ProcessEnv;
+    /** For tests: a shorter bound on one `review-blast` run. */
+    review_timeout_ms?: number;
 }
+
+/** The PRs whose review runs, as `<dir>/<repo>`, so a second review of one PR is a 409. */
+const reviews_running = new Set<string>();
 
 export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void {
     app.post("/sessions/:dir/pr", async (c) => {
@@ -67,6 +87,75 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
             const result = await actions.fix(deps.ctx, summary, request, log);
             publish_threads(deps, summary, result.diffs);
         });
+    });
+
+    app.post("/sessions/:dir/review", async (c) => {
+        const request = parse_review(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        let targets;
+        try {
+            targets = review_targets(summary, request);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 409);
+        }
+        const busy = targets.find((target) => reviews_running.has(`${summary.dir}/${target.key}`));
+        if (busy !== undefined) {
+            const message = `a review of ${busy.key}#${busy.number} already runs in ${summary.dir}`;
+            return c.json(error_body(message), 409);
+        }
+        const settings = deps.settings?.() ?? { theme: "system" };
+        const env = deps.env ?? process.env;
+        const bin = resolve_review_blast(env, settings);
+        const { models, n } = review_settings(settings);
+        // One job per PR; the first one's job answers, the rest are on the bus and GET /jobs.
+        let first: JobResponse | null = null;
+        for (const target of targets) {
+            const key = `${summary.dir}/${target.key}`;
+            reviews_running.add(key);
+            const work: JobWork = async (log) => {
+                try {
+                    const what = `${target.key}#${target.number}`;
+                    log(`review of ${what}: ${models.length} models, ${n} each`);
+                    await run_review_blast(
+                        {
+                            bin,
+                            url: target.url,
+                            models,
+                            n,
+                            cwd: summary.path,
+                            env,
+                            ...(deps.review_timeout_ms === undefined
+                                ? {}
+                                : { timeout_ms: deps.review_timeout_ms }),
+                        },
+                        log,
+                    );
+                } finally {
+                    reviews_running.delete(key);
+                }
+                if (deps.poll !== undefined) {
+                    log("polling GitHub once for the new review threads");
+                    await deps.poll();
+                }
+                await deps.refresh(summary.dir);
+            };
+            try {
+                const job = deps.jobs.start("review", summary.dir, work, { exclusive: false });
+                first ??= { job };
+            } catch (error) {
+                reviews_running.delete(key);
+                if (first === null) {
+                    return c.json(error_body(describe_error(error)), 409);
+                }
+            }
+        }
+        return c.json(first, 202);
     });
 
     app.get("/sessions/:dir/threads", (c) => {
@@ -317,6 +406,21 @@ export function parse_pr(input: unknown): PrRequest | string {
 }
 
 export function parse_fix(input: unknown): FixRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const pr = optional_string(record, "pr");
+    if (typeof pr === "string") {
+        return { pr };
+    }
+    return pr === undefined ? {} : "`pr` must be a repo key";
+}
+
+export function parse_review(input: unknown): ReviewRequest | string {
+    if (input === undefined || input === null) {
+        return {};
+    }
     const record = as_record(input);
     if (typeof record === "string") {
         return record;

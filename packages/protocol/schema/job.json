@@ -71,6 +71,7 @@
                 "verify",
                 "pr",
                 "fix",
+                "review",
                 "post",
                 "approve",
                 "land",

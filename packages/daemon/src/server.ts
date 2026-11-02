@@ -74,7 +74,7 @@ import { mount_diff_routes } from "./diff/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
-import { start_poller, type Poller } from "./pipeline/poller.js";
+import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
 import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { watch_stack_jobs } from "./stack/job-record.js";
 import { service_log_lines, StackLogsError } from "./stack/logs.js";
@@ -153,6 +153,10 @@ export interface DaemonOptions {
     diffview_bin?: string;
     /** The watchers' `diffview comments wait --timeout`; tests shorten it. */
     diff_wait_timeout?: string;
+    /** The bound on one `review-blast` run; tests shorten it. */
+    review_timeout_ms?: number;
+    /** The environment `review` resolves `SPINNER_REVIEW_BLAST` from; `process.env` else. */
+    env?: NodeJS.ProcessEnv;
 }
 
 export interface Daemon {
@@ -200,6 +204,13 @@ export interface AppDeps {
     deliverer?: Deliverer;
     /** The diff viewers (s012); their routes mount when given. */
     diff?: DiffManager;
+    /** The operator's settings, for the `review` step. */
+    settings?: () => Settings;
+    /** One GitHub poll round now, after a `review` job. */
+    poll?: () => Promise<void>;
+    /** For the `review` step: where `SPINNER_REVIEW_BLAST` is read; tests set it. */
+    env?: NodeJS.ProcessEnv;
+    review_timeout_ms?: number;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -589,7 +600,8 @@ export function create_app(deps: AppDeps): Hono {
         return c.json(body);
     });
 
-    mount_pipeline_routes(app, deps); // engine: pr, fix, threads, post, approve, land, reset
+    // engine: pr, fix, review, threads, post, approve, land, reset
+    mount_pipeline_routes(app, deps);
     if (deps.diff !== undefined) {
         mount_diff_routes(app, { ...deps, diff: deps.diff });
     }
@@ -786,6 +798,17 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     };
 
     const build = options.build ?? { version: "0.0.0", commit: null, built: null };
+    // The poller starts after the port opens; a `review` job asks it for a round through
+    // this closure, or runs one round itself when polling is off.
+    let poller: Poller | null = null;
+    const poll_options = poll_options_for(options, ctx, log);
+    const poll = async (): Promise<void> => {
+        if (poller !== null) {
+            await poller.round();
+            return;
+        }
+        await poll_once(home, poll_options);
+    };
     const ui_source = options.ui_dir === undefined ? default_ui_dir() : options.ui_dir;
     const ui = ui_source === null ? null : snapshot_ui(home, ui_source, build.commit, log);
     const app = create_app({
@@ -809,6 +832,12 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         writer,
         deliverer,
         diff,
+        settings: () => read_settings_or_default(home, log),
+        poll,
+        env: options.env ?? process.env,
+        ...(options.review_timeout_ms === undefined
+            ? {}
+            : { review_timeout_ms: options.review_timeout_ms }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.
     await diff.reattach_all(list_sessions(home).sessions);
@@ -833,7 +862,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     bound_port = address.port;
     const ttys = tty_upgrader({ home, agents, tty, operator, log });
     const sockets = attach_events_socket(server, bus, log, ttys.handle);
-    const poller = start_github_poller(options, ctx, log);
+    poller = start_github_poller(options, poll_options, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
     for (const resumed of await agents.adopt_all()) {
         log(`adopt: resumed tty agent ${resumed} on its transcript`);
@@ -886,7 +915,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
  */
 function start_github_poller(
     options: DaemonOptions,
-    ctx: ActionContext,
+    poll_options: PollOptions,
     log: (line: string) => void,
 ): Poller | null {
     const seconds = options.poll_seconds ?? POLL_SECONDS_DEFAULT;
@@ -895,13 +924,7 @@ function start_github_poller(
     }
     return start_poller(
         options.home,
-        {
-            gh: ctx.gh,
-            notify: options.notify ?? macos_notifier,
-            cwd: ctx.cwd,
-            log,
-            slack: (summary) => actions.slack_of(ctx, summary),
-        },
+        poll_options,
         seconds * 1000,
         (report) => {
             for (const failure of report.errors) {
@@ -912,6 +935,21 @@ function start_github_poller(
             }
         },
     );
+}
+
+/** What one poll round needs: the read-only `gh`, the notifier and the Slack client. */
+function poll_options_for(
+    options: DaemonOptions,
+    ctx: ActionContext,
+    log: (line: string) => void,
+): PollOptions {
+    return {
+        gh: ctx.gh,
+        notify: options.notify ?? macos_notifier,
+        cwd: ctx.cwd,
+        log,
+        slack: (summary) => actions.slack_of(ctx, summary),
+    };
 }
 
 function listen(app: Hono, hostname: string, port: number): Promise<Server> {

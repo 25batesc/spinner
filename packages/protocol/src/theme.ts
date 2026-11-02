@@ -147,6 +147,18 @@ export interface Settings {
     agents?: {
         harness?: "tty" | "rpc";
     };
+    /**
+     * The `review` pipeline step (s014, Plan item 10): the operator's `review-blast` script.
+     * Absent means the script on PATH, `REVIEW_MODELS_DEFAULT` and `REVIEW_N_DEFAULT`.
+     */
+    review?: {
+        /** The script to run; else `SPINNER_REVIEW_BLAST`, else `review-blast` on PATH. */
+        command?: string;
+        /** `--models`, as `provider/model` ids. */
+        models?: string[];
+        /** `--n`: reviews per PR. */
+        n?: number;
+    };
     /** The operator agent (MISSION.md s013). Absent means off since s014, the default model. */
     operator?: {
         /** The daemon starts the operator agent at boot. Default false (s014). */

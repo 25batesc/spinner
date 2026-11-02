@@ -25,6 +25,15 @@ export interface JobRunnerOptions {
     now?: () => Date;
 }
 
+export interface JobStartOptions {
+    /**
+     * True (the default) holds the session: one job at a time on it. False for a job that
+     * touches nothing of the session's state (a `review` runs a script on a PR URL), so
+     * several run beside each other and beside an exclusive job.
+     */
+    exclusive?: boolean;
+}
+
 export class JobRunner {
     private readonly jobs = new Map<string, Job>();
     private readonly running_by_session = new Map<string, string>();
@@ -60,8 +69,14 @@ export class JobRunner {
      * Starts a job and returns it at once, state `running`. Throws when the session already
      * has a running job or when too many jobs run: the caller turns that into a 409.
      */
-    start(action: JobAction, session: string | null, work: JobWork): Job {
-        if (session !== null && this.running_by_session.has(session)) {
+    start(
+        action: JobAction,
+        session: string | null,
+        work: JobWork,
+        options: JobStartOptions = {},
+    ): Job {
+        const exclusive = options.exclusive ?? true;
+        if (exclusive && session !== null && this.running_by_session.has(session)) {
             const other = this.running_by_session.get(session);
             throw new Error(`session ${session} already has job ${other ?? "?"} running`);
         }
@@ -82,7 +97,7 @@ export class JobRunner {
         this.jobs.set(job.id, job);
         this.forget_old();
         this.running_count += 1;
-        if (session !== null) {
+        if (exclusive && session !== null) {
             this.running_by_session.set(session, job.id);
         }
         this.bus.publish({ type: "job.started", ts: job.started, session, job: job.id, data: job });

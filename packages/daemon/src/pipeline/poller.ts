@@ -166,6 +166,8 @@ export function transition_message(session: Session, transition: Transition): st
 
 export interface Poller {
     stop(): void;
+    /** One round now, after the running one when there is one; for the `review` job. */
+    round(): Promise<PollReport>;
 }
 
 /**
@@ -182,8 +184,16 @@ export function start_poller(
     assert.ok(interval_ms >= 1000, "poll interval must be at least one second");
     let stopped = false;
     let timer: NodeJS.Timeout | null = null;
+    // Rounds chain on one promise, so a round asked for from outside (`round()`) waits for
+    // the loop's own and the loop's next waits for it.
+    let chain: Promise<unknown> = Promise.resolve();
+    const run = (): Promise<PollReport> => {
+        const next = chain.then(() => poll_once(home, options));
+        chain = next.catch(() => undefined);
+        return next;
+    };
     const round = async (): Promise<void> => {
-        const report = await poll_once(home, options);
+        const report = await run();
         if (stopped) {
             return;
         }
@@ -192,6 +202,7 @@ export function start_poller(
     };
     void round();
     return {
+        round: run,
         stop: () => {
             stopped = true;
             if (timer !== null) {

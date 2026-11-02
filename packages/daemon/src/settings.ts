@@ -32,9 +32,13 @@ const THEMES_MAX = 200;
 /** Upper bound on one theme file; a palette is a few hundred bytes. */
 const THEME_FILE_BYTES_MAX = 256 * 1024;
 
-const SETTINGS_KEYS = ["theme", "default_model", "agents", "operator"];
+const SETTINGS_KEYS = ["theme", "default_model", "agents", "operator", "review"];
 const AGENTS_KEYS = ["harness"];
 const OPERATOR_KEYS = ["enabled", "model"];
+const REVIEW_KEYS = ["command", "models", "n"];
+
+/** Upper bound on `review.n`; more reviews than this is a mistake, not a preference. */
+const REVIEW_N_MAX = 20;
 
 export function settings_path(home: SpinnerHome): string {
     return join(home.root, "settings.yaml");
@@ -150,7 +154,55 @@ export function validate_settings(input: unknown, home: SpinnerHome): Settings |
             settings.operator.model = model;
         }
     }
+    const review = record["review"];
+    if (review !== undefined) {
+        const checked = validate_review(review);
+        if (typeof checked === "string") {
+            return checked;
+        }
+        settings.review = checked;
+    }
     return settings;
+}
+
+/** `settings.review` (s014, Plan item 10): the script, its models and the count. */
+function validate_review(review: unknown): NonNullable<Settings["review"]> | string {
+    if (typeof review !== "object" || review === null || Array.isArray(review)) {
+        return "`review` must be a mapping";
+    }
+    const block = review as Record<string, unknown>;
+    for (const key of Object.keys(block)) {
+        if (!REVIEW_KEYS.includes(key)) {
+            return `unknown key "review.${key}" (known: ${REVIEW_KEYS.join(", ")})`;
+        }
+    }
+    const out: NonNullable<Settings["review"]> = {};
+    const command = block["command"];
+    if (command !== undefined) {
+        if (typeof command !== "string" || command.length === 0) {
+            return "`review.command` must be a non-empty string when given";
+        }
+        out.command = command;
+    }
+    const models = block["models"];
+    if (models !== undefined) {
+        const ok =
+            Array.isArray(models) &&
+            models.length > 0 &&
+            models.every((model) => typeof model === "string" && model.length > 0);
+        if (!ok) {
+            return "`review.models` must be a non-empty list of provider/model ids";
+        }
+        out.models = models as string[];
+    }
+    const n = block["n"];
+    if (n !== undefined) {
+        if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > REVIEW_N_MAX) {
+            return `\`review.n\` must be an integer from 1 to ${REVIEW_N_MAX}`;
+        }
+        out.n = n;
+    }
+    return out;
 }
 
 /** `system`, a built-in, or a user file that validates. */
