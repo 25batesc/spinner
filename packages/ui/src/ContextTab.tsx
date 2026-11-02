@@ -114,13 +114,12 @@ const COMMANDS_KEY = "#commands";
 
 /**
  * The agent's context-file chain, from user level to its directory, plus its loaded commands,
- * each a collapsible section so the list reads at a glance. The first file starts open; the
- * rest and the commands start closed. `openPaths` is null until the first click or the
- * collapse-all / expand-all buttons set it.
+ * each a collapsible section so the list reads at a glance. Every section starts closed;
+ * `edit` on a file and `expand all` open them.
  */
 export function ContextTab({ base, revision }: ContextTabProps) {
     const loaded = useLoaded(`${base}#${revision}`, (signal) => fetchContext(base, signal));
-    const [openPaths, setOpenPaths] = useState<ReadonlySet<string> | null>(null);
+    const [open, setOpenPaths] = useState<ReadonlySet<string>>(new Set());
     if (loaded.error !== null) {
         return <p className="needs-human">{loaded.error}</p>;
     }
@@ -129,7 +128,6 @@ export function ContextTab({ base, revision }: ContextTabProps) {
     }
     const { files, commands } = loaded.value;
     const keys = [...files.map((file) => file.path), COMMANDS_KEY];
-    const open = openPaths ?? new Set(keys.slice(0, 1));
     const sectionFor = (key: string): Section => ({
         open: open.has(key),
         onToggle: () => {
