@@ -95,7 +95,7 @@ function ApproveDialog(props: DialogProps) {
 /** One sentence per button, as its tooltip. */
 export const PIPELINE_TIPS = {
     pr: "Open a pull request from this session's branch, one per changed repo.",
-    review: "Post independent reviews from several models on the PR; they post as you.",
+    review: "Start the review swarm: one reviewer per model on the PR; they post as you.",
     fix: "Have the fixer answer the open review threads.",
     post: "Post the review request to Slack as you, after a preview.",
     approve: "Approve the pull request as you, after a preview.",

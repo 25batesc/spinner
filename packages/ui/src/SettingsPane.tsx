@@ -103,8 +103,8 @@ function ReviewBlock(props: { settings: Settings; onSave: (next: Settings) => vo
                 />
             </label>
             <p className="muted settings-hint">
-                <code>review</code> runs <code>review-blast</code> with these models and this
-                count on each open PR; the reviews post as you.
+                <code>review</code> starts the swarm: one reviewer per model, the first
+                <em>n</em> of the list, on each open PR; they post inline comments as you.
             </p>
             <span className="review-actions">
                 <button

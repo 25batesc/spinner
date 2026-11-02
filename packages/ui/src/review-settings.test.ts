@@ -13,12 +13,12 @@ it("parses the lines: trimmed, blanks dropped, duplicates folded", () => {
     expect(parseModels(" a/x \n\nb/y\na/x\n")).toEqual(["a/x", "b/y"]);
 });
 
-it("writes models and n, keeps command, and drops models when the list is empty", () => {
-    const base = { theme: "system", review: { command: "/opt/rb", models: ["old"], n: 2 } };
+it("writes models and n, keeps skill, and drops models when the list is empty", () => {
+    const base = { theme: "system", review: { skill: "/opt/rp", models: ["old"], n: 2 } };
     expect(withReview(base, "a/x\nb/y", 4)).toEqual({
-        theme: "system", review: { command: "/opt/rb", models: ["a/x", "b/y"], n: 4 },
+        theme: "system", review: { skill: "/opt/rp", models: ["a/x", "b/y"], n: 4 },
     });
     expect(withReview(base, "  \n", 1)).toEqual({
-        theme: "system", review: { command: "/opt/rb", n: 1 },
+        theme: "system", review: { skill: "/opt/rp", n: 1 },
     });
 });

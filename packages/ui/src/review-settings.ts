@@ -1,5 +1,6 @@
-// `settings.review` as the Settings view edits it: the model list, one per line, and the
-// count. The daemon validates the whole document on `PUT /settings` (`n` from 1 to 20).
+// `settings.review` as the Settings view edits it: the model list, one per line, and how
+// many of them the swarm runs. The daemon validates the whole document on `PUT /settings`
+// (`n` from 1 to 20).
 import { REVIEW_MODELS_DEFAULT, REVIEW_N_DEFAULT, type Settings } from "@spinner/protocol";
 
 /** The textarea's text: the configured models, else the defaults, one per line. */
@@ -25,7 +26,7 @@ export function parseModels(text: string): string[] {
 }
 
 /**
- * The settings with `review.models` and `review.n` set; the other review keys (`command`)
+ * The settings with `review.models` and `review.n` set; the other review keys (`skill`)
  * stay. An empty list falls back to the defaults by leaving `models` out.
  */
 export function withReview(settings: Settings, modelsText: string, n: number): Settings {

@@ -515,14 +515,17 @@ if (flow === "panes") {
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
-        bar: 3, barOn: "true", popOuts: 1, top: 0, inSessions: 0,
+        // The bar: sessions, reviews (s015), the operator, the gear.
+        bar: 4, barOn: "true", popOuts: 1, top: 0, inSessions: 0,
         // `$3.27` is the fixture session's cost (s013), between the stack and the PR badge.
         context: ["Refund flow", "peer-review", "stack up", "$3.27", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
         links: 0, icons: 7,
     };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
-        throw new Error("expected the bar (sessions, operator, gear), 1 pop-out, 7 icons");
+        throw new Error(
+            "expected the bar (sessions, reviews, operator, gear), 1 pop-out, 7 icons",
+        );
     }
     const popOutOwner = await evaluate(
         `document.querySelector("button[aria-label^='Pop out']").closest(".pane").className`,
@@ -1065,7 +1068,10 @@ if (flow === "pipeline") {
         await click(".actions button", action);
         await until(`${action} finished`, `${text(".drawer")}.includes("ok")`);
         if (action === "review") {
-            await until("review log", `${text(".drawer")}.includes("posted 3 reviews")`);
+            // The swarm (s015): the reviewers are agents of the session, so their chips show.
+            await until("review log", `${text(".drawer")}.includes("POSTED")`);
+            await until("reviewer chips",
+                `${text(".agents-pane .chips")}.includes("review-anthropic-claude-opus-5-5")`);
         }
         await click(".drawer button", "close");
     }
@@ -1870,7 +1876,7 @@ if (flow === "operator") {
     const bar = await evaluate(`[...document.querySelectorAll(".activity-bar .icon-button")]
         .map((b) => b.getAttribute("aria-label"))`);
     console.log("activity bar:", JSON.stringify(bar));
-    const wantedBar = ["Hide sessions", "Show operator", "Show settings"];
+    const wantedBar = ["Hide sessions", "Show reviews", "Show operator", "Show settings"];
     if (JSON.stringify(bar) !== JSON.stringify(wantedBar)) {
         throw new Error("the operator icon must sit between the views and the gear");
     }

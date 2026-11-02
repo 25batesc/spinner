@@ -329,18 +329,11 @@ export class PipelineFixture {
             return sendJson(response, { error: `${action} needs confirm: true` }, 400);
         }
         if (action === "review") {
-            // As the daemon: one job per open PR; 409 without one.
-            const prs = this.host.sessions.get(dir)?.board?.prs ?? [];
-            if (!prs.some((pr) => pr.state === "open" || pr.state === "draft")) {
-                return sendJson(response, { error: "no open PR to review" }, 409);
-            }
+            // The swarm answered before this (`server.ts`); here only the 409 without a PR.
+            return sendJson(response, { error: "no open PR to review" }, 409);
         }
-        const lines: Record<typeof action, string[]> = {
+        const lines: Record<Exclude<typeof action, "review">, string[]> = {
             pr: ["pushing web", "opened web#412"],
-            review: [
-                "review-blast https://github.com/example/web/pull/412 --n 3",
-                "posted 3 reviews as you",
-            ],
             fix: ["rendering threads", "fixer steered"],
             post: ["posting through the fixture"],
             approve: ["submitting the approving review"],

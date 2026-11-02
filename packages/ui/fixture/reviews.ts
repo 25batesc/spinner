@@ -82,13 +82,15 @@ export class ReviewFixture {
     }
 
     /**
-     * `POST /sessions/:dir/review` on a review session: the swarm. Each reviewer is a tty
-     * agent of the session; the first two start at once and the rest wait as `queued` (the
-     * running-agents cap). A reviewer reads, then posts; the thread count follows.
+     * `POST /sessions/:dir/review` on any session with an open PR: the swarm (s016 moved the
+     * ordinary session's `review` onto it too). Each reviewer is a tty agent of the session;
+     * it is `queued`, then reads, then posts; the thread count follows. Null without a session
+     * or an open PR, as the daemon's 404 and 409.
      */
     swarm(dir: string): Job | null {
         const current = this.host.sessions.get(dir);
-        if (!isReviewSession(current)) {
+        const prs = current?.board?.prs ?? [];
+        if (current === undefined || !prs.some((p) => p.state === "open" || p.state === "draft")) {
             return null;
         }
         return this.host.start("review", dir, async (log) => {
@@ -116,7 +118,7 @@ export class ReviewFixture {
         threadsAdded = 0,
     ): void {
         const current = this.host.sessions.get(dir);
-        if (!isReviewSession(current)) {
+        if (current === undefined) {
             return;
         }
         const base = current.summary.session;
