@@ -356,7 +356,7 @@ export class ReviewSwarm {
             url: target.url,
             head: read.summary.session.repos[target.key]?.pr?.head ?? "",
             skill: this.skill_dir(),
-            files: done.map(([, record]) => verdict_file(record.model)),
+            files: done.map(([, record]) => join(read.summary.path, verdict_file(record.model))),
             failed: failed.map(([name]) => name),
         });
         const lead = this.deps.agents.get(dir, LEAD_NAME);

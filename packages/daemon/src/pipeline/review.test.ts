@@ -318,7 +318,7 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         // No lead runs in this session: the verdicts notice waits for its next prompt.
         await until(() => daemon?.agents.pending_for(summary.dir, "lead").length === 1, "notice");
         const notice = daemon?.agents.pending_for(summary.dir, "lead")[0] ?? "";
-        expect(notice).toContain(`1 verdict file: ${verdict_file(MODEL_A)}`);
+        expect(notice).toContain(`1 verdict file: ${join(summary.path, verdict_file(MODEL_A))}`);
         expect(notice).toContain(`${NAME_B} ended without a verdict`);
         expect(notice).toContain("lead-judgment.md");
         expect(notice).toContain("`review_draft`");

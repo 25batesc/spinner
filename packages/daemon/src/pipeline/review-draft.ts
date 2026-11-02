@@ -319,10 +319,15 @@ export function write_posted(
     writeFileSync(path, `${JSON.stringify({ ...draft, ...result }, null, 2)}\n`);
 }
 
+/**
+ * `gh api` prints GitHub's JSON body (with `errors[]`) on stdout and one line on stderr; the
+ * `execFile` rejection carries both, and the self-approval reason is in the body.
+ */
 function error_text(error: unknown): string {
     if (error instanceof Error) {
         const stderr = "stderr" in error ? String((error as { stderr: unknown }).stderr) : "";
-        return `${error.message} ${stderr}`.trim();
+        const stdout = "stdout" in error ? String((error as { stdout: unknown }).stdout) : "";
+        return `${error.message} ${stderr} ${stdout}`.trim();
     }
     return String(error);
 }

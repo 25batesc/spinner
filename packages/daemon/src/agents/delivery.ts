@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DeliveryKind, SessionSummary } from "@spinner/protocol";
+import { REVIEW_AGENT_PREFIX } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { mission_view } from "../pipeline/mission-sections.js";
@@ -260,13 +261,17 @@ export class Deliverer {
         return read.ok ? read.summary : null;
     }
 
-    /** The agents `session.yaml` lists plus the ones running, sorted. */
+    /**
+     * The agents `session.yaml` lists plus the ones running, sorted. The reviewers of the
+     * swarm (s016) are left out: they read the PR, not the mission, and a notice would cost
+     * each of them a model turn on every Log line the lead writes.
+     */
     private agent_names(summary: SessionSummary): string[] {
         const names = new Set(Object.keys(summary.session.agents ?? {}));
         for (const name of this.agents.running(summary.dir)) {
             names.add(name);
         }
-        return [...names].sort();
+        return [...names].filter((name) => !name.startsWith(REVIEW_AGENT_PREFIX)).sort();
     }
 }
 

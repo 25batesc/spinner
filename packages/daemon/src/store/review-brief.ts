@@ -168,7 +168,8 @@ export function render_review_brief(input: ReviewBriefInput): string {
         "reconciles the verdicts into one review and the operator posts it. Nobody reads this",
         "terminal while you work: do not ask, do not wait; review, then end with the verdict",
         "block. The daemon saves your last message as your verdict file under",
-        `\`${REVIEW_VERDICTS_DIR}/\`; a last message without the block counts as no verdict.`,
+        `\`${REVIEW_VERDICTS_DIR}/\` in the session directory (\`.spinner/\` from this worktree);`,
+        "a last message without the block counts as no verdict.",
         "",
         "## Load the rulebook first",
         "",
@@ -263,8 +264,8 @@ function reconcile_lines(rules: Rulebook): string[] {
         "## Reconcile on completion",
         "",
         "The daemon tells you in this terminal when the last verdict has landed, and names the " +
-            `files under \`${REVIEW_VERDICTS_DIR}/\` (one per reviewer, its model in the name). ` +
-            "Until then, wait: do not start the reconciliation on a partial set.",
+            "files by absolute path (one per reviewer, its model in the name). Until then, " +
+            "wait: do not start the reconciliation on a partial set.",
         "",
         "Wait until all results have landed before you reconcile. Read " +
             `\`${rules.lead_judgment}\` and apply it as the lead reviewer.`,
@@ -357,8 +358,9 @@ export function render_review_lead_brief(input: LeadBriefInput): string {
             `(${input.models.join(", ")}), each in its own pi with the \`reviewer\` role, the ` +
             "rulebook, the PR URL and the comment format; they do not edit files and do not " +
             "comment on GitHub. Do not launch reviewers yourself: no `subagent`, no `pi`. Each " +
-            `verdict lands as \`${REVIEW_VERDICTS_DIR}/<model-slug>.md\` and the daemon tells ` +
-            "you when the last one is in.",
+            `verdict lands as \`${REVIEW_VERDICTS_DIR}/<model-slug>.md\` in the session ` +
+            "directory (`.spinner/` from this worktree) and the daemon tells you when the last " +
+            "one is in.",
         "",
         ...BRIEFING,
         "",
@@ -395,7 +397,7 @@ export interface VerdictsNoticeInput {
     url: string;
     head: string;
     skill: string | null;
-    /** The verdict files, relative to the session directory. */
+    /** The verdict files, by absolute path. */
     files: readonly string[];
     /** The reviewers that ended without a verdict. */
     failed: readonly string[];
