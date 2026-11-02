@@ -66,8 +66,12 @@ WebSockets below.
 | `GET /operator/commands` | | `AgentCommandPollResponse` | Extension only; the long-poll. |
 | `POST /operator/events` | `AgentEventsRequest` | `AgentCommandResponse` | Extension only; 202. |
 | `GET /operator/tty` | | WebSocket | The operator agent's pty; the frames of the tty WebSocket below. 404 while stopped. |
+| `POST /sessions/:dir/diff/start` | `DiffRepoRequest` | `JobResponse` | The job fetches the viewer on first use, then starts one viewer per repo (`repo` names one). 404 for an unknown repo. |
+| `POST /sessions/:dir/diff/stop` | `DiffRepoRequest` | `SessionResponse` | Stops one viewer or every viewer; synchronous. |
+| `POST /sessions/:dir/agents/:name/diff/comments` | `DiffCommentsRequest` | `DiffCommentsResponse` | Runs `diffview comments` in the agent's worktree. 404 for an agent without a repo, 409 before the fetch. |
 | `GET /sessions/:dir/stack/logs/:service` | | `StackLogsResponse` | Query `lines`, 1 to 2000. |
 | `GET /usage` | | `UsageResponse` | The machine and every up stack. |
+| `GET /costs` | | `CostsResponse` | Spend by period, session, model and agent over a span of days. Query: `from`, `to`, `group`. |
 | `GET /settings` | | `SettingsResponse` | Defaults when the file is absent. |
 | `PUT /settings` | `Settings` | `SettingsResponse` | The whole document; 400 names the first problem. |
 | `GET /themes` | | `ThemesResponse` | Built-ins and user palettes. |
@@ -168,6 +172,38 @@ message (`customType: spinner_notice`). The message starts a turn when pi is idl
 the running one when it is busy. One notice per failed job; every running tty agent of the session
 receives it. An `rpc` agent receives none.
 
+## The diff tab
+
+`SessionView.diff` describes the diff viewers of a session (MISSION.md s012). `fetch` is
+`absent` before the first start, `fetching` while the job clones the viewer, `ready` once it
+answers, `failed` with `fetch_error`. `available` is `fetch === "ready"`. `repos[<repo>]` has
+one entry per repo of `session.yaml`: `state` (`stopped`, `starting`, `running`, `failed`),
+`url` (`http://127.0.0.1:<port>/`, direct, never through the proxy), `pid`, `error` and
+`waiting` (`agent` and `human` thread counts). The viewers are not a package dependency. The
+first `POST /sessions/:dir/diff/start` clones `adamsanghera/diff-viewer` and
+`adamsanghera/peanut` at the commits in `packages/daemon/src/diff/pins.ts` under
+`<home>/diffview/src/` and runs `npm install` there, as the `diff` job, bounded at 5 minutes.
+`<home>/diffview/` is also `DIFFVIEW_HOME`: the comment store and the viewer registry.
+
+A viewer runs in the repo's worktree as a Spinner-managed host process: `session.yaml`
+records it under `diff.repos.<repo>` with `pid`, `started`, `port` and `log`
+(`diff/<repo>.log`). A port comes from the top of the session's host half, `base + 49`
+downward. `down` and `close` stop the viewers; a daemon restart reattaches them by pid identity.
+
+The daemon watches each viewer with `diffview comments wait` in 30 s rounds. A new thread
+waiting on the agent is one `notify` to every running tty agent of the session, at most 2
+per second: line 1 `diff comment #<id> on <repo> <path>:<start>[-<end>] waits on you.`, line
+2 `<author>: <text>` (cut at 200 characters), line 3 `Read it with diff_comments show <id>;
+answer with diff_reply.`. Each round also records the unresolved threads of both sides under
+`diff.threads`; a thread waiting on the operator becomes `needs_human`
+(`answer diff comment #<id> on <where>[ and <n> more]`) when the pipeline has nothing for them.
+
+`DiffCommentsRequest` is `{ command, threads?, text? }` with `command` one of `list`, `show`,
+`reply`, `suggest-resolve`. The daemon runs the CLI with `DIFFVIEW_AUTHOR=<agent>` and a 30 s
+bound and answers `{ code, stdout, stderr }`; the CLI's exit code is in the body, not the
+status. The worker role's `diff_comments` (`list`, `show`) and `diff_reply` (`reply`,
+`suggest-resolve`) tools call this route. `spinner doctor` reports the fetch.
+
 ## Stack logs
 
 `GET /sessions/:dir/stack/logs/:service?lines=N` answers `StackLogsResponse`:
@@ -221,6 +257,39 @@ Where neither is readable it is `os.freemem()`. `os.freemem()` alone reported 1.
 Mac with 17 GB reclaimable. The other fields are total memory, the cpu count, and the 1-minute
 load average. `stacks_up` counts the sampled stacks and `mem_sessions_bytes` sums their
 `mem_bytes`.
+
+## Costs
+
+pi writes the cost and the tokens of every turn into each agent's transcript
+(`usage.cost.total` on an assistant message). The daemon adds them up and prices nothing
+itself. The ledger folds `<home>/sessions/*/agents/*/pi/*.jsonl`, the same under
+`<home>/archive/`, and `<home>/operator/pi/*.jsonl`. Each assistant message is one row. The
+row holds `ts`, `session` (null for the operator agent), `agent`, `model` as
+`provider/model`, `usd`, `tokens_in`, `tokens_out`, `cache_read` and `cache_write`. The rows are cached per file by size
+and mtime, so a refold reads only the files that changed. The ledger refolds at start, on
+every `agent.settled`, and every 60 s. The daemon writes no cost file; a closed session's
+transcripts in the archive stay the record.
+
+`SessionView.cost` is `SessionCost { usd, tokens_in, tokens_out, agents }`, where `agents`
+maps each agent to `{ usd, tokens_in, tokens_out, model }` and `model` is that of its latest
+message. `OperatorView.cost` is the same without `agents`. Token counts leave the cache
+counts out.
+
+`GET /costs?from=YYYY-MM-DD&to=YYYY-MM-DD&group=day|week|month` answers `CostsResponse`.
+`from` and `to` are days in the daemon's local zone, both inclusive. `to` defaults to today
+and `from` to 29 days before `to`; `group` defaults to `day`. A span over 366 days, `from`
+after `to`, or a bad date or group is a 400. The response holds `total`, `by_period`, `by_session`, `by_model` and
+`by_agent`. `by_period` lists `period`, `usd` and `tokens` for the periods with a row, oldest
+first. `by_session` lists `dir`, `title`, `usd`, `tokens` and `last_active`, by cost,
+highest first.
+`period` is `YYYY-MM-DD` for a day, the Monday's `YYYY-MM-DD` for a week, `YYYY-MM` for a
+month. `tokens` is `tokens_in + tokens_out`. The operator agent appears as `dir: "operator"`
+with the title `Operator agent`.
+
+A refold that changed a total publishes the bus event `costs { type, ts, session: null,
+today, week, month, changed }`. The three totals are local-zone: today, the week from Monday,
+and the calendar month, each up to now. `changed` holds the new `SessionCost` of each session
+whose total moved. Each changed session also gets a `session.updated`.
 
 ## Settings
 

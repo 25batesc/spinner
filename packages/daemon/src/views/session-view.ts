@@ -10,6 +10,7 @@ import type {
     DiffView,
     ServiceStatus,
     ServiceView,
+    SessionCost,
     SessionSummary,
     SessionUsage,
     SessionView,
@@ -42,6 +43,8 @@ export interface ViewContext {
     agents_running: (dir: string) => string[];
     /** The diff viewers of a session (s012); the feature reads as absent when not given. */
     diff?: (summary: SessionSummary) => DiffView;
+    /** The session's spend from the cost ledger (s013); absent when not given. */
+    cost?: (dir: string) => SessionCost;
     now: () => Date;
     log: (line: string) => void;
 }
@@ -63,6 +66,7 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         agents_running: ctx.agents_running(summary.dir),
         can_verify: summary.session.stack?.state === "up",
         diff: ctx.diff?.(summary) ?? DIFF_ABSENT,
+        ...(ctx.cost === undefined ? {} : { cost: ctx.cost(summary.dir) }),
     };
 }
 

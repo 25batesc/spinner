@@ -11,7 +11,13 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { OperatorNotice, OperatorView, Settings, SpinnerEvent } from "@spinner/protocol";
+import type {
+    OperatorCost,
+    OperatorNotice,
+    OperatorView,
+    Settings,
+    SpinnerEvent,
+} from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { is_spinner_leader, process_start_time } from "../stack/host-service.js";
@@ -44,6 +50,8 @@ export interface OperatorHostOptions {
     now?: () => Date;
     /** For tests: a shorter batch window. */
     batch_ms?: number;
+    /** The operator agent's spend from the cost ledger (s013); absent before the ledger exists. */
+    cost?: () => OperatorCost;
 }
 
 /** `<home>/operator/process.json`: who ran last, so a restart can stop a leftover pi. */
@@ -109,6 +117,7 @@ export class OperatorHost {
             waiting_on: waiting_on_of(process_),
             last_notice: this.last_notice,
             notices_pending: this.queue.length,
+            ...(this.options.cost === undefined ? {} : { cost: this.options.cost() }),
         };
     }
 

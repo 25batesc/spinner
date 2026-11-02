@@ -14,9 +14,12 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
+import { parse } from "yaml";
 import type {
     AgentCommandResponse,
     AgentEventsResponse,
+    CostRow,
+    CostsResponse,
     AgentNotRunningResponse,
     AgentResponse,
     BuildInfo,
@@ -46,6 +49,7 @@ import {
     STACK_LOGS_LINES_DEFAULT,
     STACK_LOGS_LINES_MAX,
     USAGE_INTERVAL_MS,
+    COSTS_REFOLD_INTERVAL_MS,
 } from "@spinner/protocol";
 import * as actions from "./actions.js";
 import type { ActionContext } from "./actions.js";
@@ -74,6 +78,8 @@ import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { watch_stack_jobs } from "./stack/job-record.js";
 import { service_log_lines, StackLogsError } from "./stack/logs.js";
 import { start_usage_sampler, type UsageSampler } from "./stack/usage.js";
+import { start_cost_ledger, type LedgerLoop } from "./costs/ledger.js";
+import { parse_span, report } from "./costs/periods.js";
 import { list_themes, read_settings, write_settings } from "./settings.js";
 import { snapshot_ui } from "./ui-snapshot.js";
 import { list_projects } from "./projects.js";
@@ -123,6 +129,8 @@ export interface DaemonOptions {
     observe_interval_ms?: number;
     /** The usage sampler's interval; tests shorten it. */
     usage_interval_ms?: number;
+    /** The cost ledger's refold timer; tests shorten it. */
+    costs_refold_ms?: number;
     /** The pi executable; `SPINNER_PI` or `pi` on PATH when absent. Tests pass a fake. */
     pi?: string;
     /** The Spinner pi extension entry; the checkout's `packages/pi-extension` when absent. */
@@ -179,6 +187,8 @@ export interface AppDeps {
     operator?: OperatorHost;
     /** `GET /usage`; a route test passes a stub. */
     usage?: () => UsageResponse;
+    /** `GET /costs`: the ledger's rows; a route test passes a stub. 503 when absent. */
+    cost_rows?: () => CostRow[];
     models: () => Promise<ModelView[]>;
     bus: EventBus;
     /** ext: the mission writer and the deliverer; the agent routes mount when both are set. */
@@ -479,6 +489,29 @@ export function create_app(deps: AppDeps): Hono {
         return c.json(list_themes(deps.home));
     });
 
+    app.get("/costs", (c) => {
+        if (deps.cost_rows === undefined) {
+            return c.json(error_body("the cost ledger is not available"), 503);
+        }
+        const from = c.req.query("from");
+        const to = c.req.query("to");
+        const group = c.req.query("group");
+        const span = parse_span(
+            {
+                ...(from === undefined ? {} : { from }),
+                ...(to === undefined ? {} : { to }),
+                ...(group === undefined ? {} : { group }),
+            },
+            { now: () => new Date() },
+        );
+        if (typeof span === "string") {
+            return c.json(error_body(span), 400);
+        }
+        const title_of = (dir: string): string => session_title(deps.home, dir);
+        const body: CostsResponse = report(deps.cost_rows(), span, title_of);
+        return c.json(body);
+    });
+
     app.get("/usage", (c) => {
         if (deps.usage === undefined) {
             return c.json(error_body("usage sampling is not available"), 503);
@@ -639,6 +672,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         settings: () => read_settings_or_default(home, log),
         log,
         ...(options.operator_batch_ms === undefined ? {} : { batch_ms: options.operator_batch_ms }),
+        cost: () => costs?.ledger.operator_cost() ?? { usd: 0, tokens_in: 0, tokens_out: 0 },
     });
     ctx.fixer = fixer_driver({ home, agents, cwd });
 
@@ -654,11 +688,14 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     });
     let observer: StackObserver | null = null;
     let usage: UsageSampler | null = null;
+    let costs: LedgerLoop | null = null;
     const view_ctx: ViewContext = {
         home,
         cwd,
         observation: (dir) => observer?.get(dir) ?? null,
         usage: (dir) => usage?.get(dir) ?? null,
+        cost: (dir) =>
+            costs?.ledger.session_cost(dir) ?? { usd: 0, tokens_in: 0, tokens_out: 0, agents: {} },
         agents_running: (dir) => agents.running(dir),
         diff: (summary) => diff.view(summary),
         now: () => new Date(),
@@ -692,6 +729,10 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         options.usage_interval_ms ?? USAGE_INTERVAL_MS,
     );
     const sampler = usage;
+    costs = start_cost_ledger(
+        { home, bus, log, on_session_changed: (dir) => publish_view(dir) },
+        options.costs_refold_ms ?? COSTS_REFOLD_INTERVAL_MS,
+    );
     const refresh = async (dir: string): Promise<void> => {
         await observer?.round();
         sampler.wake();
@@ -716,6 +757,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         tty,
         operator,
         usage: () => sampler.response(),
+        cost_rows: () => costs?.ledger.rows() ?? [],
         models: models_source(pi, home.root),
         bus,
         writer,
@@ -773,6 +815,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             poller?.stop();
             observer?.stop();
             sampler.stop();
+            costs?.stop();
             deliverer.close();
             await files.close();
             await watcher.close();
@@ -882,6 +925,26 @@ function read_settings_or_default(home: SpinnerHome, log: (line: string) => void
         log(`settings: ${describe_error(error)}`);
         return SETTINGS_DEFAULT;
     }
+}
+
+/** The session's title from `session.yaml`, live or archived; the directory name without one. */
+function session_title(home: SpinnerHome, dir: string): string {
+    const live = read_session(home, dir);
+    if (live.ok) {
+        return live.summary.session.title;
+    }
+    const archived = join(home.archive, dir, "session.yaml");
+    if (existsSync(archived)) {
+        try {
+            const parsed = parse(readFileSync(archived, "utf8")) as { title?: unknown };
+            if (typeof parsed.title === "string" && parsed.title.length > 0) {
+                return parsed.title;
+            }
+        } catch {
+            // An unreadable archived file: the directory name stands in.
+        }
+    }
+    return dir;
 }
 
 /** `?lines=` of the stack logs route: 1 to `STACK_LOGS_LINES_MAX`, default 100. */
