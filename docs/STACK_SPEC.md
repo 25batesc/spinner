@@ -123,6 +123,11 @@ A monorepo needs one entry under `repos` and `path: .`. A single-service project
 
 **Database, `per-session` mode.** A `postgres` service is added to the session's compose project from a prebuilt image whose data directory already contains the seed (`spinner seed rebuild` builds that image). Slower to start, fully isolated, lets a branch run a different Postgres version.
 
+**The diff viewer.** Not a service, and never in this file. The daemon runs `diffview` per repo
+of a session as a host process of the session (`session.yaml` `diff.repos`). The UI's diff tab
+starts it; `down` and `close` stop it. A spec that names it has an unknown service.
+See [ARCHITECTURE.md](ARCHITECTURE.md#the-diff-tab-packagesdaemonsrcdiff).
+
 **Temporal.** Optional, like any other service. When present, it runs per session, so workflow tasks never cross branches, and its UI gets a preview pane.
 
 **Proxy.** One Traefik container with the Docker provider, started by the daemon on first `up`. Labels on each service do the routing. `strip_frame_headers` adds a response-header middleware that removes `X-Frame-Options` and the `frame-ancestors` CSP directive so the web UI can embed the service.

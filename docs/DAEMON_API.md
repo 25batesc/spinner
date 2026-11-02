@@ -192,9 +192,10 @@ downward. `down` and `close` stop the viewers; a daemon restart reattaches them 
 
 The daemon watches each viewer with `diffview comments wait` in 30 s rounds. A new thread
 waiting on the agent is one `notify` to every running tty agent of the session, at most 2
-per second: line 1 `diff comment #<id> on <repo> <path>:<start>[-<end>] waits on you.`, line
-2 `<author>: <text>` (cut at 200 characters), line 3 `Read it with diff_comments show <id>;
-answer with diff_reply.`. Each round also records the unresolved threads of both sides under
+per second. The notice has three lines. Line 1 is
+`diff comment #<id> on <repo> <path>:<start>[-<end>] waits on you.`. Line 2 is
+`<author>: <text>`, cut at 200 characters. Line 3 is
+`Read it with diff_comments show <id>; answer with diff_reply.`. Each round also records the unresolved threads of both sides under
 `diff.threads`; a thread waiting on the operator becomes `needs_human`
 (`answer diff comment #<id> on <where>[ and <n> more]`) when the pipeline has nothing for them.
 

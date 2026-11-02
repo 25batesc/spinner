@@ -183,6 +183,36 @@ The operator asked how much each session costs the machine. A sampler runs every
 
 The view carries the last sample as `stack.usage` and `services[].usage`. `GET /usage` and the `usage` event carry the machine line (total and available memory, cpu count, load) and every up stack with its services. The UI shows the stack line on each session card, the machine line in the context bar, and six columns in the `services` view. The reason for one sampler over per-request probes: `docker stats` takes about a second, and every open window would otherwise run it. [DAEMON_API.md](DAEMON_API.md#resource-usage) has the fields.
 
+### The diff tab (packages/daemon/src/diff)
+
+The operator wants to see what a session changed without a terminal or GitHub. The daemon
+runs one `diffview` per repo of a session, in that repo's worktree, as a Spinner-managed host
+process (MISSION.md s012). `diffview` is a local viewer for stacked branches with comments
+on lines. It is not a package dependency: its `package.json` names its comment library as
+`file:../peanut`, and the library ships TypeScript that Node refuses to run from under
+`node_modules`. So the first `POST /sessions/:dir/diff/start` clones both repositories at
+the commits in `pins.ts`, side by side under `<home>/diffview/src/`, and runs `npm install`
+there, as a job with a log, bounded at 5 minutes. The tab is off until that fetch succeeds,
+and `spinner doctor` says so. `<home>/diffview/` is also `DIFFVIEW_HOME`, the comment store.
+
+`viewer.ts` starts a viewer detached on a port from the top of the session's host half,
+waits on the viewer's own registry file for the port it took, records it under `session.yaml`
+`diff.repos.<repo>`, and stops it by pid identity like a host service. `actions.down` and
+`actions.close` stop the viewers before the stack, so the CLI path works without the daemon.
+`manager.ts` owns the fetch state, the starts in flight and `SessionView.diff`. Viewers start
+on the first click of the UI's `diff` tab, not with `up`, and outlive the daemon; a restart
+reattaches them.
+
+`watcher.ts` parks `diffview comments wait` per viewer in 30 s rounds. A new thread waiting
+on the agent becomes one `notify` to the session's tty agents, at most 2 per second. Each
+round records the unresolved threads under `diff.threads`; the tracker reads the ones
+waiting on the operator as `PipelineFacts.diff_waiting`, and `derive_stage` makes the oldest
+one `needs_human` when the pipeline has nothing for the operator. The worker role's
+`diff_comments` and `diff_reply` tools call `POST /sessions/:dir/agents/:name/diff/comments`;
+the daemon runs the CLI in the agent's worktree, signed as the agent, and hands back its
+output. The reason for routing the CLI through the daemon: the extension holds no state and
+does not know where the viewer is. [DAEMON_API.md](DAEMON_API.md#the-diff-tab) has the shapes.
+
 ### Storage
 
 Files, no database. Every session is a directory of YAML, Markdown and JSONL under `~/.spinner/sessions/` ([layout](SESSION_PROTOCOL.md#where-everything-lives)); the daemon's only state is process handles and an in-memory index it rebuilds from the tree at start. Reasons: an agent reads and writes the same files with its ordinary tools; a person can `cat`, `grep` and `git`-archive a session; the pi transcripts are already JSONL files; there is no migration tooling beyond the `version` field; and a crashed daemon loses nothing.
