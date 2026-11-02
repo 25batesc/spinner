@@ -42,13 +42,16 @@ function PostDialog(props: DialogProps) {
                     {post.posted !== null && <p className="muted">Already posted: {post.posted}</p>}
                 </>
             )}
-            <button
-                disabled={post === undefined || post.blocked !== null}
-                onClick={() => void send()}
-            >
-                post this message
-            </button>
-            <button onClick={props.close}>cancel</button>
+            <span className="confirm-actions">
+                <button
+                    className="primary"
+                    disabled={post === undefined || post.blocked !== null}
+                    onClick={() => void send()}
+                >
+                    post this message
+                </button>
+                <button onClick={props.close}>cancel</button>
+            </span>
         </div>
     );
 }
@@ -77,8 +80,12 @@ function ApproveDialog(props: DialogProps) {
                     </li>
                 ))}
             </ul>
-            <button disabled={!ready} onClick={() => void send()}>approve</button>
-            <button onClick={props.close}>cancel</button>
+            <span className="confirm-actions">
+                <button className="primary" disabled={!ready} onClick={() => void send()}>
+                    approve
+                </button>
+                <button onClick={props.close}>cancel</button>
+            </span>
         </div>
     );
 }
