@@ -1,0 +1,32 @@
+version: 1
+id: s014
+slug: chat-first
+title: "Chat first: a session is a conversation, the agent owns the mission"
+created: 2026-11-02
+stage: planned
+needs_human: null
+branch: main
+base: main
+repos:
+  spinner:
+    path: .
+    changed: true
+    pr: null
+pipeline:
+  verified_locally: false
+  slack_post: null
+stack:
+  state: none
+agents:
+  engine:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
+  ui:
+    harness: pi
+    model: anthropic/claude-fable-5-1
+    process: idle
+  design:
+    harness: pi
+    model: anthropic/claude-opus-5-5
+    process: idle
