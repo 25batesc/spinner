@@ -168,7 +168,7 @@ describe("POST /sessions/extract", () => {
             ["other#1", null, null, false],
         ]);
         expect(body.prs[0]?.branch).toBe(head_of(APPROVING));
-        expect(body.prs[2]?.reason).toContain("Could not resolve");
+        expect(body.prs[2]?.reason).toBe("no PR #4 in acme/backend");
         expect(body.prs[3]?.reason).toContain("not a repo of the project");
         // No project: a full URL still resolves, but nothing is adoptable.
         const bare = await call("POST", "/sessions/extract", { text: PR_URL });
