@@ -291,7 +291,7 @@
 }
 /* Wide enough for both: Done when sits beside the Goal card. With the Log at the right (from
    1000 px) the main column is 364 px narrower, so the pair waits for 1240 px. */
-@container mw (min-width: 860px) and (max-width: 999px), (min-width: 1240px) {
+@container mw ((min-width: 860px) and (max-width: 999px)) or (min-width: 1240px) {
     .mw-main { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
     .mw-goal { grid-column: 1; grid-row: 1; }
     .mw-done-when { grid-column: 2; grid-row: 1; }
