@@ -1016,6 +1016,29 @@ if (flow === "pipeline") {
         "the second one is the open one",
         `document.querySelector(".context-file:nth-child(2)").dataset.open === "true"`,
     );
+    // The file renders as markdown: a table, read-only task boxes, a highlighted fence; the
+    // script in the fixture's file is gone. `raw` shows the text; `rendered` brings it back.
+    const rendered = await evaluate(`({
+        tables: document.querySelectorAll(".context-file .md table").length,
+        boxes: [...document.querySelectorAll(".context-file .md input[type=checkbox]")]
+            .map((b) => [b.checked, b.disabled]),
+        keyword: document.querySelectorAll(".context-file .md .hljs-keyword").length,
+        scripts: document.querySelectorAll(".context-file .md script").length,
+        ran: window.contextScriptRan === true,
+    })`);
+    console.log("rendered:", JSON.stringify(rendered));
+    const wantedRendered = {
+        tables: 1, boxes: [[true, true], [false, true]], keyword: 1, scripts: 0, ran: false,
+    };
+    if (JSON.stringify(rendered) !== JSON.stringify(wantedRendered)) {
+        throw new Error("the context file is not rendered and sanitized as expected");
+    }
+    await shot("20a-context-rendered");
+    await click(".context-file:nth-child(2) .md-toolbar .link", "raw");
+    await until("raw text", `${text(".context-file:nth-child(2) pre")}.includes("| Rule |")`);
+    await click(".context-file:nth-child(2) .md-toolbar .link", "rendered");
+    const tables = `document.querySelectorAll(".context-file .md table").length`;
+    await until("rendered again", `${tables} === 1`);
     await click(".context-toolbar .link", "collapse all");
     await until("all collapsed", `${openCount} === 0`);
     await click(".context-toolbar .link", "expand all");

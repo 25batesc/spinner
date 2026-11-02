@@ -1,0 +1,85 @@
+/* Rendered markdown under a `.md` root: the Context tab's files and the mission's source
+   view. The rules are borrowed from mdview's `doc.css` and `tables.css`
+   (https://github.com/25batesc/mdview, MIT) and mapped onto the DESIGN-PASS variables:
+   headings on the type scale, code in the mono font, task lists as read-only checkboxes. */
+.md-block { display: flex; flex-direction: column; gap: var(--space-1); }
+.md-toolbar { display: flex; justify-content: flex-end; }
+.md {
+    font-size: var(--text-body); line-height: 1.6; overflow-wrap: break-word;
+    padding: var(--space-2) var(--space-3); background: var(--bg);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-control);
+}
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    position: relative; line-height: 1.3; font-weight: 600; margin: 1.4em 0 0.5em;
+}
+.md h1 { font-size: var(--text-heading); margin-top: 0.4em; }
+.md h2 {
+    font-size: var(--text-title); padding-bottom: 0.3em; border-bottom: 1px solid var(--line-soft);
+}
+.md h3 { font-size: var(--text-body); }
+.md h4, .md h5, .md h6 { font-size: var(--text-dense); color: var(--muted); }
+.md .header-anchor {
+    position: absolute; left: -1.1em; padding-right: 0.3em; color: var(--muted);
+    font-weight: 400; text-decoration: none; opacity: 0; transition: opacity 120ms;
+}
+.md :is(h1, h2, h3, h4, h5, h6):hover .header-anchor { opacity: 1; }
+.md p, .md ul, .md ol, .md dl, .md blockquote, .md pre, .md .table-wrap, .md details {
+    margin: 0 0 0.9em;
+}
+.md ul, .md ol { padding-left: 1.6em; }
+.md li + li { margin-top: 0.2em; }
+.md li > ul, .md li > ol { margin: 0.2em 0 0; }
+.md li > p { margin: 0 0 0.4em; }
+.md strong { font-weight: 600; }
+.md a { color: var(--link); text-decoration: none; }
+.md a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.md code {
+    padding: 0.1em 0.35em; border-radius: 3px; background: var(--fill-soft);
+    font-family: var(--font-mono); font-size: 0.9em;
+}
+.md pre.code {
+    position: relative; padding: var(--space-2) var(--space-3); overflow-x: auto;
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    background: var(--surface); font-size: var(--text-dense); line-height: 1.55;
+}
+.md pre.code code { padding: 0; background: none; font-size: inherit; }
+.md pre .hljs { background: none; color: inherit; padding: 0; }
+.md pre.code[data-lang]::before {
+    content: attr(data-lang); position: absolute; top: 4px; right: 8px; color: var(--muted);
+    font: var(--text-meta) var(--font-mono);
+}
+.md blockquote {
+    padding: 0.1em 1em; border-left: 3px solid var(--border); color: var(--muted);
+}
+.md blockquote > :last-child { margin-bottom: 0; }
+.md hr { margin: 1.6em 0; border: 0; border-top: 1px solid var(--line-soft); }
+.md img { max-width: 100%; height: auto; border-radius: var(--radius-box); }
+.md .task-list-item { list-style: none; }
+.md .task-list-item input { margin: 0 0.5em 0 -1.3em; vertical-align: -1px; }
+.md .footnotes { margin-top: 2em; font-size: var(--text-dense); color: var(--muted); }
+/* Tables as the services and roster tables: hairlines, a muted head, tabular numerals. */
+.md .table-wrap { overflow-x: auto; }
+.md table {
+    width: 100%; border-collapse: collapse; font-size: var(--text-dense); line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+}
+.md th {
+    font-size: var(--text-meta); font-weight: 600; color: var(--muted); text-align: left;
+    white-space: nowrap;
+}
+.md th, .md td {
+    padding: 6px var(--space-2); border-bottom: 1px solid var(--line-soft); vertical-align: top;
+}
+.md tbody tr:hover td { background: var(--fill-soft); }
+/* highlight.js tokens on the palette, in place of a bundled hljs theme. */
+.md .hljs-comment, .md .hljs-quote { color: var(--muted); font-style: italic; }
+.md .hljs-keyword, .md .hljs-selector-tag, .md .hljs-meta { color: var(--accent); }
+.md .hljs-string, .md .hljs-attr, .md .hljs-addition { color: var(--ok); }
+.md .hljs-number, .md .hljs-literal, .md .hljs-symbol { color: var(--warn); }
+.md .hljs-title, .md .hljs-section, .md .hljs-name { color: var(--text); font-weight: 600; }
+.md .hljs-deletion { color: var(--fail); }
+.md .hljs-built_in, .md .hljs-type, .md .hljs-variable { color: var(--link); }
+.md .hljs-emphasis { font-style: italic; }
+.md .hljs-strong { font-weight: 600; }

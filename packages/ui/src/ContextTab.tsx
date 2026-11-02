@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 
 import type { ContextFileView } from "@spinner/protocol";
 
+import { Markdown } from "./Markdown.tsx";
 import { fetchContext, putContext, useLoaded } from "./remote.ts";
 
 export interface ContextTabProps {
@@ -88,7 +89,9 @@ function FileRow({ base, file, section }: {
                 </p>
             )}
             {draft === null ? (
-                <pre className="section-body">{file.exists ? file.content : "(no file yet)"}</pre>
+                file.exists
+                    ? <Markdown text={file.content} label={file.path} />
+                    : <pre className="section-body">(no file yet)</pre>
             ) : (
                 <div className="section-edit">
                     <textarea

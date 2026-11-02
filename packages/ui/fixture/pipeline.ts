@@ -48,6 +48,19 @@ function thread(label: string, partial: Partial<ThreadView>): ThreadView {
     };
 }
 
+/**
+ * A context file's text: markdown with the forms the UI renders (a heading, a table, a task
+ * list, a fence) and one thing it must drop (a script), so the driver sees the sanitizer work.
+ */
+export function contextContent(scope: ContextFileView["scope"]): string {
+    return [
+        `# Rules for ${scope} scope`, "", "| Rule | Why |", "|---|---|",
+        "| stage by path | the other agent commits too |", "", "- [x] read the brief",
+        "- [ ] tick your items", "", "```ts", "const scope = \"" + scope + "\";", "```", "",
+        "<script>window.contextScriptRan = true</script>", "",
+    ].join("\n");
+}
+
 function sendJson(response: ServerResponse, body: unknown, status = 200): true {
     response.writeHead(status, { "content-type": "application/json" });
     response.end(JSON.stringify(body));
@@ -284,7 +297,7 @@ export class PipelineFixture {
         ];
         const files = defaults.map(([path, scope, tracked]): ContextFileView =>
             this.context.get(path) ?? {
-                path, scope, exists: true, tracked, content: `Rules for ${scope} scope.`,
+                path, scope, exists: true, tracked, content: contextContent(scope),
             },
         );
         const commands = [
