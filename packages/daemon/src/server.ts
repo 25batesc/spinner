@@ -76,7 +76,9 @@ import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
-import { start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
+import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
+import { mount_review_routes } from "./pipeline/review-routes.js";
+import { start_review_lead } from "./agents/review-lead.js";
 import { create_reviews, type CreateReviewsInput } from "./pipeline/reviews.js";
 import { mount_pipeline_routes } from "./pipeline/routes.js";
 import { watch_stack_jobs } from "./stack/job-record.js";
@@ -216,6 +218,8 @@ export interface AppDeps {
     swarm?: ReviewSwarm;
     /** `POST /reviews`: where a repository is cloned from; GitHub when absent. Tests: a path. */
     clone_url?: CreateReviewsInput["clone_url"];
+    /** One GitHub poll round, after a posted review (s016); absent in a route test. */
+    poll?: () => Promise<void>;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -347,6 +351,12 @@ export function create_app(deps: AppDeps): Hono {
             set_session(first.dir);
             for (const summary of result.sessions) {
                 await deps.refresh(summary.dir);
+                // s016: the lead and the swarm start on the paste; the paste is the request.
+                if (deps.swarm !== undefined) {
+                    const lead_deps = { agents: deps.agents, swarm: deps.swarm };
+                    await start_review_lead(lead_deps, summary, log);
+                    await deps.refresh(summary.dir);
+                }
             }
         });
     });
@@ -633,6 +643,15 @@ export function create_app(deps: AppDeps): Hono {
 
     // engine: pr, fix, review, threads, post, approve, land, reset
     mount_pipeline_routes(app, deps);
+    // engine (s016): the review lead's briefing, draft and post
+    mount_review_routes(app, {
+        home: deps.home,
+        ctx: deps.ctx,
+        refresh: deps.refresh,
+        log: deps.log,
+        ...(deps.writer === undefined ? {} : { writer: deps.writer }),
+        ...(deps.poll === undefined ? {} : { poll: deps.poll }),
+    });
     if (deps.diff !== undefined) {
         mount_diff_routes(app, { ...deps, diff: deps.diff });
     }
@@ -858,9 +877,17 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     };
 
     const build = options.build ?? { version: "0.0.0", commit: null, built: null };
-    // The poller starts after the port opens.
+    // The poller starts after the port opens; a posted review asks it for a round through
+    // this closure, or runs one round itself when polling is off.
     let poller: Poller | null = null;
     const poll_options = poll_options_for(options, ctx, log);
+    const poll = async (): Promise<void> => {
+        if (poller !== null) {
+            await poller.round();
+            return;
+        }
+        await poll_once(home, poll_options);
+    };
     const swarm = new ReviewSwarm({
         home,
         agents,
@@ -897,6 +924,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         diff,
         settings: () => read_settings_or_default(home, log),
         swarm,
+        poll,
         ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.

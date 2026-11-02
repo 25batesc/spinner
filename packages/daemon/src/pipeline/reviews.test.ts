@@ -184,13 +184,29 @@ describe("POST /reviews", () => {
             (await (await call("GET", `/sessions/${dir}`)).json()) as { session: SessionView }
         ).session;
         expect(view.kind).toBe("review");
+        // The paste starts the lead and the swarm (s016); this daemon has no pi, so each
+        // reviewer fails to start and the lead's failure is one job log line.
         expect(view.review).toEqual({
             checks: "red",
             failing: ["Independent approval"],
             review_decision: "none",
             threads: 2,
-            swarm: [],
+            swarm: [
+                ["review-x-ai-grok-4-6", "x-ai/grok-4.6"],
+                ["review-anthropic-claude-opus-5-5", "anthropic/claude-opus-5-5"],
+                ["review-openai-gpt-6-luna", "openai/gpt-6-luna"],
+            ].map(([name, model]) => ({ name, model, state: "failed", usd: 0, pr: "backend" })),
+            briefing: false,
+            draft: null,
+            posted_url: null,
         });
+        expect(job.log.some((line) => line.startsWith("lead did not start:"))).toBe(true);
+        expect(job.log).toContain("swarm of 3: 0 started, 0 queued, 3 failed");
+        const brief_file = join(home.sessions, dir, "agents", "lead", "BRIEF.md");
+        const lead_brief = readFileSync(brief_file, "utf8");
+        expect(lead_brief).toContain("Role: lead reviewer of acme/backend#4812");
+        expect(lead_brief).toContain("Do not launch reviewers yourself: no `subagent`, no `pi`.");
+        expect(lead_brief).toContain("| Any `BLOCKING:` finding | `COMMENT` | `A few blockers` |");
         expect(view.board?.prs[0]?.url).toBe(PR_URL);
         const updated = events.find(
             (event): event is ReviewUpdatedEvent =>

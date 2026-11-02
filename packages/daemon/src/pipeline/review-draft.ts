@@ -135,7 +135,9 @@ export function validate_draft(draft: ReviewDraft, diff: DiffLines): string[] {
         errors.push(`event "${String(draft.event)}" is not APPROVE or COMMENT`);
     }
     if (draft.body.trim().length === 0) {
-        errors.push("body is empty; the summary goes there (LGTM, A few nits, but LGTM, A few blockers)");
+        errors.push(
+            "body is empty; the summary goes there (LGTM, A few nits, but LGTM, A few blockers)",
+        );
     }
     const blocking = draft.comments.some((comment) => comment.body.startsWith("BLOCKING:"));
     if (blocking && draft.event === "APPROVE") {
@@ -307,7 +309,11 @@ export async function post_review(
 }
 
 /** Records the posted review next to the draft, for the pane and the record. */
-export function write_posted(session_path: string, draft: ReviewDraft, result: PostReviewResult): void {
+export function write_posted(
+    session_path: string,
+    draft: ReviewDraft,
+    result: PostReviewResult,
+): void {
     const path = join(session_path, REVIEW_POSTED_FILE);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `${JSON.stringify({ ...draft, ...result }, null, 2)}\n`);

@@ -96,6 +96,11 @@ export interface PipelineFacts {
      * pipeline needs the operator, the first one becomes `needs_human`.
      */
     diff_waiting?: DiffThreadRecord[];
+    /**
+     * True while the review lead's draft waits in `artifacts/review-draft.json` (s016). It
+     * wins over the pipeline's own `needs_human`: the operator posts or drops it first.
+     */
+    review_draft?: boolean;
 }
 
 /** The single next action for the operator, or null when nothing waits on them. */

@@ -90,6 +90,16 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 answer(200, { ok: true, disposition: "queued" });
             } else if (path === `/sessions/${DIR}`) {
                 answer(200, { session: { stack: { services: [] } } });
+            } else if (path === `/sessions/${DIR}/review/briefing`) {
+                answer(200, { ok: true });
+            } else if (path === `/sessions/${DIR}/review/draft`) {
+                const draft = body as { comments: unknown[] };
+                if (draft.comments.length > 1) {
+                    const fault = "comments[1] (x.ts:9): x.ts is not in the diff";
+                    answer(400, { error: `the draft has 1 fault: ${fault}` });
+                } else {
+                    answer(200, { draft: body });
+                }
             } else {
                 answer(404, { error: `no route ${path}` });
             }
@@ -232,6 +242,49 @@ describe("the lead role", () => {
             const steered = await run(pi, "agent_steer", { agent: "backend", text: "go" });
             expect(steered).toContain("queued");
             expect(daemon.requests.at(-1)?.path).toBe(`/sessions/${DIR}/agents/backend/steer`);
+            // The review lead's two tools (s016).
+            const briefed = await run(pi, "review_briefing", {
+                markdown: "# What\n\nIt adds a line.",
+            });
+            expect(briefed).toContain("Briefing written");
+            expect(daemon.requests.at(-1)).toEqual({
+                method: "PUT",
+                path: `/sessions/${DIR}/review/briefing`,
+                body: { markdown: "# What\n\nIt adds a line." },
+            });
+            const comment = {
+                path: "README.md",
+                line: 2,
+                body: "BLOCKING: Fix the count. It is off.",
+            };
+            const drafted = await run(pi, "review_draft", {
+                event: "COMMENT",
+                body: "A few blockers",
+                comments: JSON.stringify([comment]),
+            });
+            expect(drafted).toContain('Draft written: COMMENT, "A few blockers", 1 line comment');
+            expect(drafted).toContain("do not post");
+            expect(daemon.requests.at(-1)).toEqual({
+                method: "PUT",
+                path: `/sessions/${DIR}/review/draft`,
+                body: { event: "COMMENT", body: "A few blockers", comments: [comment] },
+            });
+            const clear = await run(pi, "review_draft", {
+                event: "APPROVE",
+                body: "LGTM",
+                comments: "",
+            });
+            expect(clear).toContain("0 line comments");
+            await expect(
+                run(pi, "review_draft", {
+                    event: "COMMENT",
+                    body: "A few blockers",
+                    comments: JSON.stringify([comment, { path: "x.ts", line: 9, body: "NIT: y" }]),
+                }),
+            ).rejects.toThrow(/x\.ts is not in the diff/);
+            await expect(
+                run(pi, "review_draft", { event: "COMMENT", body: "x", comments: "not json" }),
+            ).rejects.toThrow(/JSON array/);
         } finally {
             daemon.close();
         }
@@ -244,11 +297,23 @@ describe("the lead role", () => {
         const verdict = (command: string): ToolCallResult | undefined => {
             const event: ToolCallEvent = { toolName: "bash", input: { command } };
             return handler?.(event as never, { cwd: session_dir, hasUI: false } as never) as
-                | ToolCallResult
-                | undefined;
+                ToolCallResult | undefined;
         };
         expect(verdict("spinner land s4")?.block).toBe(true);
         expect(verdict("git push")?.reason).toMatch(/the operator must do it/);
         expect(verdict("git commit -m x")).toBeUndefined();
+        // The review lead never posts (s016): the review verbs and gh api writes are refused.
+        expect(verdict("gh pr review 2 --approve")?.block).toBe(true);
+        expect(verdict("gh pr comment 2 --body hi")?.block).toBe(true);
+        expect(verdict("gh api -X POST repos/a/b/pulls/2/reviews --input r.json")?.block).toBe(
+            true,
+        );
+        expect(verdict("gh api repos/a/b/pulls/2/reviews --method POST -f body=x")?.block).toBe(
+            true,
+        );
+        expect(verdict("gh api repos/a/b/pulls/2/reviews -f event=COMMENT")?.block).toBe(true);
+        expect(verdict("gh api repos/a/b/pulls/2/files --paginate")).toBeUndefined();
+        expect(verdict("gh api -X GET repos/a/b/pulls/2")).toBeUndefined();
+        expect(verdict("gh pr diff 2")).toBeUndefined();
     });
 });

@@ -9,15 +9,22 @@ import { section_body } from "./prompt.js";
 
 /**
  * The shell commands the operator role refuses (MISSION.md s013, Contracts): `spinner` with
- * one of `OPERATOR_REFUSED_ACTIONS`, `git push`, and the `gh pr` verbs that open, merge or
- * review. The message says the operator must do it. Null when the command is allowed.
+ * one of `OPERATOR_REFUSED_ACTIONS`, `git push`, the `gh pr` verbs that open, merge or
+ * review, `gh pr comment`, and a `gh api` call that writes (a method other than GET, or
+ * `--input`, `-f`, `-F`, `--field`, `--raw-field`), which is how a review would be posted
+ * (s016: the lead drafts, the operator posts). The message says the operator must do it.
+ * Null when the command is allowed.
  */
 export function refuse_operator_bash(command: string): string | null {
+    const method = /(?:-X|--method)[\s=]+(?!GET\b)\w+/.source;
+    const fields = /--input\b|\s-[fF]\s|--(?:raw-)?field\b/.source;
+    const GH_API_WRITE = new RegExp(`(^|[\\s;&|])gh\\s+api\\b[^;&|]*(?:${method}|${fields})`);
     const actions = OPERATOR_REFUSED_ACTIONS.join("|");
     const checks: Array<[RegExp, string]> = [
         [new RegExp(`(^|[\\s;&|])spinner\\s+(${actions})\\b`), "spinner $2"],
         [/(^|[\s;&|])git\s+(?:[^\s;&|]+\s+)*push\b/, "git push"],
-        [/(^|[\s;&|])gh\s+pr\s+(create|merge|review|close)\b/, "gh pr $2"],
+        [/(^|[\s;&|])gh\s+pr\s+(create|merge|review|close|comment)\b/, "gh pr $2"],
+        [GH_API_WRITE, "gh api (a write)"],
     ];
     for (const [pattern, what] of checks) {
         const match = pattern.exec(command);

@@ -1,15 +1,17 @@
-// Goal: the `review` step as the swarm (MISSION.md s015, Plan item 3). `POST
-// /sessions/:dir/review` starts one tty agent per model of `settings.review` in the PR
-// repo's worktree, each with the review brief and the skill through `--skill`; a reviewer
-// whose settled turn carries `POSTED model=` is `posted` and its pi stops; one that exits
-// without it is `failed`; past the running-agents cap the rest wait as `queued` and start on
-// an exit; the same swarm runs on an ordinary session (s016) so its chips show; the view and
-// `review.updated` carry the swarm; the route refuses a session without an open PR, a PR
-// without a worktree, a reviewer still reading, and a bad body; `PUT /settings` validates
+// Goal: the `review` step as the swarm (MISSION.md s015 Plan item 3, s016 Plan item 2).
+// `POST /sessions/:dir/review` starts one tty agent per model of `settings.review` in the PR
+// repo's worktree, each with the reviewer brief (the `reviewer` role) and the role's skills
+// through `--skill`; a reviewer whose settled turn carries a `VERDICT:` line is `done`: its
+// text is saved as `artifacts/reviews/<model-slug>.md` and its pi stops; one that exits
+// without it is `failed`; when the last one lands the lead gets the verdicts notice (or it
+// waits for its next prompt); past the running-agents cap the rest wait as `queued` and
+// start on an exit; the same swarm runs on an ordinary session so its chips show; the view
+// and `review.updated` carry the swarm; the route refuses a session without an open PR, a
+// PR without a worktree, a reviewer still reading, and a bad body; `PUT /settings` validates
 // `review`. Method: a daemon on a temporary home with a fake `gh`, a local origin repository
 // the review session clones, and the fake interactive pi (`test/fixtures/fake-pi-tty.ts`),
 // which echoes each prompt as its assistant text, so a prompt whose second line is
-// `POSTED model=...` is the reviewer's last line and a prompt of `exit` is an exit without one.
+// `VERDICT: CLEAR` is the reviewer's verdict and a prompt of `exit` is an exit without one.
 import { execFileSync } from "node:child_process";
 import {
     chmodSync,
@@ -34,8 +36,8 @@ import type {
     Settings,
     SpinnerEvent,
 } from "@spinner/protocol";
-import { REVIEW_POSTED_PREFIX } from "@spinner/protocol";
-import { has_posted_line, reviewer_name } from "../agents/swarm.js";
+import { REVIEW_VERDICTS_DIR } from "@spinner/protocol";
+import { has_verdict_line, reviewer_name, verdict_file } from "../agents/swarm.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { start_daemon, type Daemon } from "../server.js";
 import { create_session, read_session, write_session } from "../store/session-store.js";
@@ -103,9 +105,14 @@ async function boot(cap: number): Promise<void> {
     mkdirSync(home.root, { recursive: true });
     origin = join(root, "origin");
     head = make_origin(origin);
-    skill_dir = join(root, "review-pr");
-    mkdirSync(skill_dir);
-    writeFileSync(join(skill_dir, "SKILL.md"), "# review-pr\n");
+    // The skill directory stands next to the rulebook, as in `~/.pi/agent/skills/`.
+    skill_dir = join(root, "skills", "pr-review");
+    mkdirSync(skill_dir, { recursive: true });
+    writeFileSync(join(skill_dir, "SKILL.md"), "# pr-review\n");
+    for (const name of ["engineer-conventions", "principles"]) {
+        mkdirSync(join(root, "skills", name));
+        writeFileSync(join(root, "skills", name, "SKILL.md"), `# ${name}\n`);
+    }
     args_file = join(root, "pi-args.json");
     process.env["FAKE_PI_ARGS_FILE"] = args_file;
     gh_calls = [];
@@ -224,18 +231,20 @@ function prompt(dir: string, name: string, text: string): Promise<Response> {
 }
 
 describe("review helpers", () => {
-    it("names reviewers and reads the POSTED line", () => {
+    it("names reviewers and reads the VERDICT line", () => {
         daemon = undefined;
         expect(NAME_A).toBe("review-x-ai-grok-4-6");
         expect(reviewer_name("anthropic/claude-opus-5-5", "web", true)).toBe(
             "review-web-anthropic-claude-opus-5-5",
         );
-        expect(has_posted_line(`done.\n${REVIEW_POSTED_PREFIX}a/b blockers=0 should-fix=1`)).toBe(
-            true,
-        );
-        expect(has_posted_line("I posted nothing")).toBe(false);
-        expect(has_posted_line(`${REVIEW_POSTED_PREFIX}a/b blockers=N should-fix=M`)).toBe(false);
-        expect(has_posted_line(`echo: ${REVIEW_POSTED_PREFIX}a/b blockers=0`)).toBe(false);
+        expect(verdict_file(MODEL_A)).toBe(`${REVIEW_VERDICTS_DIR}/x-ai-grok-4-6.md`);
+        expect(has_verdict_line("done.\nVERDICT: CLEAR\nNON-BLOCKING:\n- none")).toBe(true);
+        expect(has_verdict_line("```\nVERDICT: BLOCKING\nBLOCKING:\n- a.ts:1 x\n```")).toBe(true);
+        expect(has_verdict_line("**VERDICT: CLEAR**")).toBe(true);
+        expect(has_verdict_line("I found nothing; no verdict yet")).toBe(false);
+        // The brief's template line, echoed back, is not a verdict.
+        expect(has_verdict_line("VERDICT: BLOCKING | CLEAR")).toBe(false);
+        expect(has_verdict_line("echo: VERDICT: CLEAR")).toBe(false);
     });
 
     it("targets every open PR, or the one named, and refuses the rest", async () => {
@@ -253,56 +262,76 @@ describe("review helpers", () => {
 
 // Each case boots a daemon and spawns pty pis; under the whole suite that passes 5 s.
 describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
-    it("one reviewer per model, brief and skill; POSTED posts, an exit fails", async () => {
+    it("one reviewer per model, brief and skills; a VERDICT is done, an exit fails", async () => {
         await boot(24);
         const summary = await review_session();
         const settings = { theme: "system", review: { models: [MODEL_A, MODEL_B], n: 2 } };
         expect((await call("PUT", "/settings", settings)).status).toBe(200);
         const job = await start_review(summary.dir);
-        expect(job.log.join("\n")).toContain(`${NAME_A} started with ${skill_dir}`);
+        const conventions = join(root, "skills", "engineer-conventions");
+        const principles = join(root, "skills", "principles");
+        const log = job.log.join("\n");
+        expect(log).toContain(`${NAME_A} started with ${conventions}, ${principles}`);
         expect(job.log.join("\n")).toContain("2 started, 0 queued");
         expect(swarm_state(summary.dir, NAME_A)).toBe("reading");
         expect(swarm_state(summary.dir, NAME_B)).toBe("reading");
         expect(daemon?.agents.running(summary.dir).sort()).toEqual([NAME_A, NAME_B].sort());
 
         const brief = readFileSync(join(summary.path, "agents", NAME_A, "BRIEF.md"), "utf8");
-        expect(brief).toContain(`Target: ${PR_URL}`);
-        expect(brief).toContain(`Identify every comment as: **review-blast** · ${MODEL_A}`);
-        expect(brief).toContain("Never approve, never request-changes.");
-        expect(brief).toContain("Do not checkout, switch, or edit the branch. Do not push.");
-        expect(brief).toContain(`POSTED model=${MODEL_A} blockers=N should-fix=M`);
+        expect(brief).toContain(`Role: reviewer of acme/backend#4812 (${PR_URL}) with the model`);
+        expect(brief).toContain(`${MODEL_A},`);
+        expect(brief).toContain("You are a read-only code reviewer.");
+        expect(brief).toContain("Do not comment, review or post on GitHub");
+        expect(brief).toContain("VERDICT: BLOCKING | CLEAR");
+        expect(brief).toContain("- `BLOCKING:` for a verified issue that must be fixed before");
+        expect(brief).toContain(join(root, "skills", "engineer-conventions", "SKILL.md"));
+        expect(brief).toContain(join(root, "skills", "backend-conventions", "SKILL.md"));
+        expect(brief).toContain("(not installed here");
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as {
             argv: string[];
             cwd: string;
         };
-        expect(spawned.argv).toContain("--skill");
-        expect(spawned.argv[spawned.argv.indexOf("--skill") + 1]).toBe(skill_dir);
+        const skill_args = spawned.argv.filter((_, i) => spawned.argv[i - 1] === "--skill");
+        expect(skill_args).toEqual([conventions, principles]);
         expect(spawned.argv.join(" ")).toContain("--provider openai --model gpt-6-luna");
         expect(spawned.cwd).toContain(join("worktrees", "backend"));
-        expect(session_yaml(summary.dir).agents[NAME_A]?.skills).toEqual([skill_dir]);
+        expect(session_yaml(summary.dir).agents[NAME_A]?.skills).toEqual([
+            conventions,
+            principles,
+        ]);
 
-        // The kickoff echoed back is not a POSTED line: still reading.
+        // The kickoff echoed back carries no verdict: still reading.
         await until(() => events.some((e) => e.type === "agent.settled" && e.agent === NAME_A));
         expect(swarm_state(summary.dir, NAME_A)).toBe("reading");
 
-        const calls_before = gh_calls.length;
-        const line = `done.\n${REVIEW_POSTED_PREFIX}${MODEL_A} blockers=0 should-fix=1`;
-        const posted = await prompt(summary.dir, NAME_A, line);
-        expect(posted.status).toBe(200);
-        await until(() => swarm_state(summary.dir, NAME_A) === "posted", "posted");
+        const verdict = "Read it.\nVERDICT: BLOCKING\nBLOCKING:\n- README.md:1 off by one";
+        const settled = await prompt(summary.dir, NAME_A, verdict);
+        expect(settled.status).toBe(200);
+        await until(() => swarm_state(summary.dir, NAME_A) === "done", "done");
         await until(() => daemon?.agents.get(summary.dir, NAME_A) === null, "the reviewer's exit");
-        expect(swarm_state(summary.dir, NAME_A)).toBe("posted");
-        await until(() => gh_calls.length > calls_before, "the poll after the post");
+        expect(swarm_state(summary.dir, NAME_A)).toBe("done");
+        const file = join(summary.path, verdict_file(MODEL_A));
+        expect(readFileSync(file, "utf8")).toBe(`echo: ${verdict}\n`);
 
         expect((await prompt(summary.dir, NAME_B, "exit")).status).toBe(200);
         await until(() => swarm_state(summary.dir, NAME_B) === "failed", "failed");
+        // No lead runs in this session: the verdicts notice waits for its next prompt.
+        await until(() => daemon?.agents.pending_for(summary.dir, "lead").length === 1, "notice");
+        const notice = daemon?.agents.pending_for(summary.dir, "lead")[0] ?? "";
+        expect(notice).toContain(`1 verdict file: ${verdict_file(MODEL_A)}`);
+        expect(notice).toContain(`${NAME_B} ended without a verdict`);
+        expect(notice).toContain("lead-judgment.md");
+        expect(notice).toContain("`review_draft`");
 
         const view = await view_of(summary.dir);
         expect(view.kind).toBe("review");
         expect(view.review?.swarm).toEqual([
-            { name: NAME_A, model: MODEL_A, state: "posted", usd: 0, pr: "backend" },
+            { name: NAME_A, model: MODEL_A, state: "done", usd: 0, pr: "backend" },
             { name: NAME_B, model: MODEL_B, state: "failed", usd: 0, pr: "backend" },
         ]);
+        expect(view.review?.briefing).toBe(false);
+        expect(view.review?.draft).toBeNull();
+        expect(view.review?.posted_url).toBeNull();
         const carried = events.filter(
             (event): event is ReviewUpdatedEvent =>
                 event.type === "review.updated" && event.session === summary.dir,
@@ -311,7 +340,7 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
             event.data.swarm.map((member) => `${member.name}:${member.state}`).join(","),
         );
         expect(states).toContain(`${NAME_A}:reading,${NAME_B}:reading`);
-        expect(states.at(-1)).toBe(`${NAME_A}:posted,${NAME_B}:failed`);
+        expect(states.at(-1)).toBe(`${NAME_A}:done,${NAME_B}:failed`);
         expect(existsSync(join(summary.path, "agents", NAME_A, "pi"))).toBe(true);
     });
 
@@ -328,9 +357,9 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
             "reading",
             "queued",
         ]);
-        await prompt(summary.dir, NAME_A, `done.\n${REVIEW_POSTED_PREFIX}${MODEL_A} blockers=0`);
+        await prompt(summary.dir, NAME_A, "done.\nVERDICT: CLEAR");
         await until(() => swarm_state(summary.dir, NAME_B) === "reading", "the next reviewer");
-        expect(swarm_state(summary.dir, NAME_A)).toBe("posted");
+        expect(swarm_state(summary.dir, NAME_A)).toBe("done");
         expect(daemon?.agents.running(summary.dir)).toEqual([NAME_B]);
     });
 
@@ -347,6 +376,19 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
             { name: NAME_A, model: MODEL_A, state: "reading", usd: 0, pr: "backend" },
         ]);
         expect(view.review?.failing).toEqual(["Independent approval"]);
+        // The session's own lead is the review lead: the verdicts notice reaches it.
+        const added = await call("POST", `/sessions/${summary.dir}/agents`, { name: "lead" });
+        expect(added.status, await added.clone().text()).toBe(201);
+        await prompt(summary.dir, NAME_A, "Read it.\nVERDICT: CLEAR");
+        await until(() => swarm_state(summary.dir, NAME_A) === "done", "done");
+        await until(
+            () =>
+                (daemon?.tty.lookup(summary.dir, "lead")?.scrollback_text() ?? "").includes(
+                    "notice: Spinner: every reviewer of acme/backend#4812",
+                ),
+            "the lead's notice",
+        );
+        expect(existsSync(join(summary.path, verdict_file(MODEL_A)))).toBe(true);
     });
 
     it("refuses no open PR, no worktree, a reviewer still reading, and a bad body", async () => {

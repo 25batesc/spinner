@@ -89,7 +89,7 @@ export const ROUTES = {
     "POST /sessions/:dir/review": "JobResponse",
     /** The lead's briefing (s016), `text/markdown`. 404 before `artifacts/briefing.md` exists. */
     "GET /sessions/:dir/review/briefing": "text/markdown",
-    /** The lead's `review_briefing` tool (s016): writes `artifacts/briefing.md`. Body: ReviewBriefingRequest. */
+    /** The lead's `review_briefing` tool (s016) writes `artifacts/briefing.md`. Body: markdown. */
     "PUT /sessions/:dir/review/briefing": "OkResponse",
     /**
      * The lead's `review_draft` tool and the operator's edits (s016): validates the draft (the

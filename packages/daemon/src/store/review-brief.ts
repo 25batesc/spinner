@@ -44,7 +44,7 @@ export function rulebook_of(skill: string | null): Rulebook {
     };
 }
 
-/** The skill directories a reviewer loads with `--skill`: the `reviewer` role's two, when present. */
+/** The skill directories a reviewer loads with `--skill`: the `reviewer` role's two, if present. */
 export function reviewer_skill_dirs(skill: string | null): string[] {
     const skills = dirname(skill ?? default_review_skill());
     return ["engineer-conventions", "principles"]
@@ -57,7 +57,7 @@ export interface ReviewBriefInput {
     model: string;
     pr: PrRef;
     url: string;
-    /** The `pr-review` skill's directory, or null when none is configured and the default is absent. */
+    /** The `pr-review` skill's directory; null when none is configured and none is installed. */
     skill: string | null;
 }
 
@@ -83,7 +83,8 @@ const REVIEWER_ROLE = [
     "   dictionaries. **BLOCKING** on new/changed code. Spacing and `shape`-in-name nits are",
     "   **NON-BLOCKING** unless the repo's lint already errors on them.",
     "",
-    "Style and polish otherwise stay secondary. If the task supplies a narrower rubric (e.g. security-only,",
+    "Style and polish otherwise stay secondary. If the task supplies a narrower rubric (e.g. " +
+        "security-only,",
     "plan-only), follow that rubric but keep the output contract below.",
     "",
     "## Output contract (required)",
@@ -92,38 +93,49 @@ const REVIEWER_ROLE = [
     "```",
     "VERDICT: BLOCKING | CLEAR",
     "BLOCKING:",
-    "- <file:line. Concrete correctness, acceptance-contract, regression, security, or scope finding>",
+    "- <file:line. Concrete correctness, acceptance-contract, regression, security, or scope " +
+        "finding>",
     "NON-BLOCKING:",
     "- <optional observation>",
     "```",
     "",
     "Rules:",
-    "- `VERDICT: CLEAR` only when there are zero BLOCKING items (omit the BLOCKING list, or leave it empty).",
-    "- **BLOCKING** = must fix before merge/continue. Concrete enough that a builder can act without re-asking.",
-    "- **NON-BLOCKING** = optional polish, nits, questions, taste. Never spends a repair round on its own.",
-    "- Do not restate the full diff. Do not propose drive-by refactors outside the change under review.",
-    "- If you run tests or commands, cite exit codes / relevant output briefly above the verdict block.",
+    "- `VERDICT: CLEAR` only when there are zero BLOCKING items (omit the BLOCKING list, or " +
+        "leave it empty).",
+    "- **BLOCKING** = must fix before merge/continue. Concrete enough that a builder can act " +
+        "without re-asking.",
+    "- **NON-BLOCKING** = optional polish, nits, questions, taste. Never spends a repair round " +
+        "on its own.",
+    "- Do not restate the full diff. Do not propose drive-by refactors outside the change under " +
+        "review.",
+    "- If you run tests or commands, cite exit codes / relevant output briefly above the " +
+        "verdict block.",
 ];
 
 /** The skill's "What to judge", word for word. */
 const WHAT_TO_JUDGE = [
     "## What to judge",
     "",
-    "Correctness, races, regressions, and missing tests come first. Approach comes next. Prefer the smallest change that solves the goal. Name cruft such as a duplicate copy, an empty wrapper, a broken lock, or a cast at a trust boundary.",
+    "Correctness, races, regressions, and missing tests come first. Approach comes next. Prefer " +
+        "the smallest change that solves the goal. Name cruft such as a duplicate copy, an " +
+        "empty wrapper, a broken lock, or a cast at a trust boundary.",
     "",
-    "Skip drive-by refactors. Skip a finding the author already answered on this PR unless the current head still has the bug.",
+    "Skip drive-by refactors. Skip a finding the author already answered on this PR unless the " +
+        "current head still has the bug.",
 ];
 
 /** The skill's "Comment format", word for word. */
 const COMMENT_FORMAT = [
     "## Comment format",
     "",
-    "Target about 80% of ASD-STE100 for GitHub line comments. Do not enforce the aerospace dictionary. Do enforce the sentence rules:",
+    "Target about 80% of ASD-STE100 for GitHub line comments. Do not enforce the aerospace " +
+        "dictionary. Do enforce the sentence rules:",
     "",
     "- One finding per line comment.",
     "- First sentence: imperative action in 20 words or fewer.",
     "- Second sentence: the impact in 20 words or fewer.",
-    "- Active voice. Present tense for the code. No hedging words such as maybe, consider, should, quite, or nit.",
+    "- Active voice. Present tense for the code. No hedging words such as maybe, consider, " +
+        "should, quite, or nit.",
     "- No contractions. No `e.g.`, `i.e.`, `via`, or phrasal verbs.",
     "- Keep identifiers exact. Do not restate the diff.",
     "- Start the action sentence with one severity label, followed by a colon:",
@@ -147,7 +159,8 @@ export function render_review_brief(input: ReviewBriefInput): string {
     return [
         `# ${input.name}`,
         "",
-        `Role: reviewer of ${owner}/${name}#${number} (${input.url}) with the model ${input.model},`,
+        `Role: reviewer of ${owner}/${name}#${number} (${input.url}) with the model ` +
+            `${input.model},`,
         "one of several reviewers of a Spinner review. The worktree you start in is a read-only",
         "checkout detached at the PR head. Read the diff with `gh pr diff` and `gh pr view`, and",
         "the code it hooks into with `git show` and the read tools. Do not edit files. Do not",
@@ -208,25 +221,38 @@ export interface LeadBriefInput {
 const BRIEFING = [
     "## Deliver the reviewer briefing while the ensemble runs",
     "",
-    "Do not wait for the reviewers before you write the briefing. Inspect the PR diff and surrounding repository files yourself. Finish that turn by writing the reviewer briefing with `review_briefing` right away so the user can read it while the reviewers run in the background.",
+    "Do not wait for the reviewers before you write the briefing. Inspect the PR diff and " +
+        "surrounding repository files yourself. Finish that turn by writing the reviewer " +
+        "briefing with `review_briefing` right away so the user can read it while the reviewers " +
+        "run in the background.",
     "",
     "Write the briefing in ELI5 and ASD-STE100 style:",
     "",
-    "- Explain the change in plain, everyday words so a tired engineer gets the mental model on the first read.",
+    "- Explain the change in plain, everyday words so a tired engineer gets the mental model on " +
+        "the first read.",
     "- Use a concrete analogy when it clarifies a tricky mechanism.",
-    "- Put one thought in each sentence. Keep instructions under 20 words and other sentences under 25 words.",
+    "- Put one thought in each sentence. Keep instructions under 20 words and other sentences " +
+        "under 25 words.",
     "- Use active voice and name the actor. Keep \"the\" and \"a\".",
     "- Give each word one meaning and keep that word.",
     "- Do not use em dashes. Use a colon only before a list.",
-    "- Put the file citation such as `file:line` or the label `measured`, `inferred`, or `guess` in the same sentence as the claim.",
+    "- Put the file citation such as `file:line` or the label `measured`, `inferred`, or " +
+        "`guess` in the same sentence as the claim.",
     "",
     "Include these five sections in the briefing:",
     "",
-    "1. **What this PR does.** Name who or what this PR changes behavior for, and state the plain-language before and after.",
-    "2. **How it does it.** Walk through the data flow and control flow step by step using the real symbols and `file:line` citations.",
-    "3. **Design pattern.** Name the category of design pattern the PR uses, such as strategy, adapter, repository, state machine, middleware, or inline procedural change. Explain how the diff maps to that pattern.",
-    "4. **Codebase fit.** State whether the PR matches existing patterns in this repository. Cite neighbor files with `file:line` that follow the same pattern or a competing one.",
-    "5. **Approach and slop verdict.** State whether the approach is sound or flawed, and whether the diff contains code slop or type-evidence slop. Call out trade-offs, hidden coupling, blast radius, and missing tests that the reviewer needs to judge the PR.",
+    "1. **What this PR does.** Name who or what this PR changes behavior for, and state the " +
+        "plain-language before and after.",
+    "2. **How it does it.** Walk through the data flow and control flow step by step using the " +
+        "real symbols and `file:line` citations.",
+    "3. **Design pattern.** Name the category of design pattern the PR uses, such as strategy, " +
+        "adapter, repository, state machine, middleware, or inline procedural change. Explain " +
+        "how the diff maps to that pattern.",
+    "4. **Codebase fit.** State whether the PR matches existing patterns in this repository. " +
+        "Cite neighbor files with `file:line` that follow the same pattern or a competing one.",
+    "5. **Approach and slop verdict.** State whether the approach is sound or flawed, and " +
+        "whether the diff contains code slop or type-evidence slop. Call out trade-offs, hidden " +
+        "coupling, blast radius, and missing tests that the reviewer needs to judge the PR.",
     "",
     "Do not post this briefing to GitHub. It belongs only in `review_briefing`.",
 ];
@@ -240,9 +266,14 @@ function reconcile_lines(rules: Rulebook): string[] {
             `files under \`${REVIEW_VERDICTS_DIR}/\` (one per reviewer, its model in the name). ` +
             "Until then, wait: do not start the reconciliation on a partial set.",
         "",
-        `Wait until all results have landed before you reconcile. Read \`${rules.lead_judgment}\` and apply it as the lead reviewer.`,
+        "Wait until all results have landed before you reconcile. Read " +
+            `\`${rules.lead_judgment}\` and apply it as the lead reviewer.`,
         "",
-        "Keep a finding only when the head code supports it. Treat agreement between two or more models as a strong signal. Keep a lone-model finding only when you verify the exact execution path in the code. Drop hypotheticals, style preferences, and findings that fight the author's existing review comments or the repository's patterns.",
+        "Keep a finding only when the head code supports it. Treat agreement between two or " +
+            "more models as a strong signal. Keep a lone-model finding only when you verify the " +
+            "exact execution path in the code. Drop hypotheticals, style preferences, and " +
+            "findings that fight the author's existing review comments or the repository's " +
+            "patterns.",
         "",
         "Write the GitHub review in one voice. Never put model names in any GitHub text.",
     ];
@@ -254,12 +285,14 @@ const DRAFT = [
     "",
     "Read the current review comments on the PR first. Do not repeat them.",
     "",
-    "Comment only on lines that appear in the pull request diff. If the target line is outside the diff, move the comment to the nearest changed line in that hunk, or drop it.",
+    "Comment only on lines that appear in the pull request diff. If the target line is outside " +
+        "the diff, move the comment to the nearest changed line in that hunk, or drop it.",
     "",
     "The operator posts one pull request review from the draft, not issue comments:",
     "",
     "- `commit_id` is the head SHA.",
-    "- `event` is `APPROVE` when there are no `BLOCKING:` findings, or `COMMENT` when any `BLOCKING:` finding exists.",
+    "- `event` is `APPROVE` when there are no `BLOCKING:` findings, or `COMMENT` when any " +
+        "`BLOCKING:` finding exists.",
     "- `body` is only the summary from the table below. Do not repeat the line comments in `body`.",
     "- `comments[]` holds the line comments with `path`, `line`, `side: RIGHT`, and `body`.",
     "",
@@ -273,7 +306,15 @@ const DRAFT = [
     "",
     "If the review has no line comments, still write the summary and the event.",
     "",
-    "Do not post. You have no way to: `gh pr review` and `gh api` writes are refused in this role, and the daemon posts only on the operator's click. When reconciliation finishes, write the draft with `review_draft`: the event, the summary body, and each line comment with its `path:line`. The daemon checks each label and each line against the diff and returns the faults instead of writing; fix them and call it again. Then write one Log line with `mission_log`: what the reviewers agreed on and what you dismissed, with the reason. The operator reads the draft in the review pane, edits it, and posts it or drops it. A later change to the draft is the operator's; do not rewrite a draft the operator edited unless asked in this terminal.",
+    "Do not post. You have no way to: `gh pr review` and `gh api` writes are refused in this " +
+        "role, and the daemon posts only on the operator's click. When reconciliation finishes, " +
+        "write the draft with `review_draft`: the event, the summary body, and each line " +
+        "comment with its `path:line`. The daemon checks each label and each line against the " +
+        "diff and returns the faults instead of writing; fix them and call it again. Then write " +
+        "one Log line with `mission_log`: what the reviewers agreed on and what you dismissed, " +
+        "with the reason. The operator reads the draft in the review pane, edits it, and posts " +
+        "it or drops it. A later change to the draft is the operator's; do not rewrite a draft " +
+        "the operator edited unless asked in this terminal.",
 ];
 
 /** The lead's brief: the `pr-review` skill, word for word, with the daemon in the loop. */
@@ -304,7 +345,9 @@ export function render_review_lead_brief(input: LeadBriefInput): string {
         ),
         path_line("lead-judgment (for the reconciliation)", rules.lead_judgment),
         "",
-        "Match the repository when it already chose a pattern. Do not force styled-components onto a Tailwind or existing `components/ui` codebase. Do not tell the author to inline a component they already asked to split.",
+        "Match the repository when it already chose a pattern. Do not force styled-components " +
+            "onto a Tailwind or existing `components/ui` codebase. Do not tell the author to " +
+            "inline a component they already asked to split.",
         "",
         ...WHAT_TO_JUDGE,
         "",
@@ -328,8 +371,10 @@ export function render_review_lead_brief(input: LeadBriefInput): string {
         "## Every turn",
         "",
         "1. Keep your Roster row current with `mission_roster`: what you do, and what blocks you.",
-        "2. Append one Log line with `mission_log` for each thing that happened: the briefing written, the verdicts read, the draft written.",
-        "3. A question only the operator can answer goes under Open questions with `mission_question`; continue with what does not depend on it.",
+        "2. Append one Log line with `mission_log` for each thing that happened: the briefing " +
+            "written, the verdicts read, the draft written.",
+        "3. A question only the operator can answer goes under Open questions with " +
+            "`mission_question`; continue with what does not depend on it.",
         "",
     ].join("\n");
 }
@@ -363,6 +408,7 @@ export interface VerdictsNoticeInput {
 export function verdicts_notice(input: VerdictsNoticeInput): string {
     const { owner, name, number } = input.pr;
     const rules = rulebook_of(input.skill);
+    const labels = REVIEW_SEVERITY_LABELS.map((label) => `\`${label}\``).join(", ");
     const failed =
         input.failed.length === 0
             ? ""
@@ -385,7 +431,7 @@ export function verdicts_notice(input: VerdictsNoticeInput): string {
             "`BLOCKING:` finding and `COMMENT` otherwise; `body` is only the summary (`LGTM`, " +
             "`A few nits, but LGTM`, or `A few blockers`); `comments` is a JSON array of " +
             "`{ path, line, body }`, one finding per comment, on a line of the PR diff, the " +
-            `body starting with one of ${REVIEW_SEVERITY_LABELS.map((l) => `\`${l}\``).join(", ")}` +
+            `body starting with one of ${labels}` +
             ", first sentence an imperative action in 20 words or fewer, second sentence the " +
             "impact in 20 words or fewer, no hedging, no contractions. Never name a model in " +
             "the draft. Do not post: the operator posts from the review pane. Then one " +

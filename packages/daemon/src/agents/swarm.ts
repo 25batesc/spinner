@@ -62,6 +62,8 @@ export interface SwarmDeps {
 export interface SwarmStartResult {
     started: string[];
     queued: string[];
+    /** Reviewers whose pi did not start; the reason is in the daemon log. */
+    failed: string[];
 }
 
 interface Queued {
@@ -177,7 +179,7 @@ export class ReviewSwarm {
         log: (line: string) => void,
     ): Promise<SwarmStartResult> {
         const plan = await this.check(summary, request);
-        const result: SwarmStartResult = { started: [], queued: [] };
+        const result: SwarmStartResult = { started: [], queued: [], failed: [] };
         for (const reviewer of plan.reviewers) {
             this.ensure_brief(summary, reviewer.name, reviewer.model, reviewer.target, plan.skill);
             this.record(summary.dir, reviewer.name, "queued", {
@@ -195,6 +197,14 @@ export class ReviewSwarm {
         for (const entry of this.queues.get(summary.dir) ?? []) {
             result.queued.push(entry.name);
             log(`${entry.name} (${entry.model}) queued behind the cap`);
+        }
+        for (const reviewer of plan.reviewers) {
+            const placed =
+                result.started.includes(reviewer.name) || result.queued.includes(reviewer.name);
+            if (!placed) {
+                result.failed.push(reviewer.name);
+                log(`${reviewer.name} (${reviewer.model}) did not start; see the daemon log`);
+            }
         }
         return result;
     }

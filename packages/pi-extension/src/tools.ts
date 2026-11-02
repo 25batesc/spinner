@@ -11,6 +11,8 @@ import type {
     ExtensionToolSpec,
     InboxMessageResponse,
     JobResponse,
+    OkResponse,
+    ReviewDraftResponse,
     MissionItemCommand,
     MissionItemRequest,
     MissionSectionRequest,
@@ -285,6 +287,32 @@ export async function run_tool(
             const tail = job.log.slice(-6).map((line) => `  ${line}`);
             return ["Adopted. The job's last lines:", ...tail].join("\n");
         }
+        case "review_briefing": {
+            const markdown = text("markdown");
+            if (markdown.trim().length === 0) {
+                throw new Error("`markdown` must not be empty");
+            }
+            await client.send<OkResponse>("PUT", `${session}/review/briefing`, { markdown });
+            return "Briefing written: the operator sees it in the review pane.";
+        }
+        case "review_draft": {
+            const body = {
+                event: text("event").trim(),
+                body: text("body"),
+                comments: parse_comments(text("comments")),
+            };
+            const response = await client.send<ReviewDraftResponse>(
+                "PUT",
+                `${session}/review/draft`,
+                body,
+            );
+            const count = response.draft.comments.length;
+            return (
+                `Draft written: ${response.draft.event}, "${response.draft.body}", ${count} line ` +
+                `comment${count === 1 ? "" : "s"}. The operator posts or drops it from the ` +
+                "review pane; do not post."
+            );
+        }
         default:
             throw new Error(`${spec.name} is not implemented in this role`);
     }
@@ -460,6 +488,26 @@ async function thread_action(
     const view = response.thread;
     const state = view.flagged !== null ? `flagged (${view.flagged})` : view.state;
     return `${view.label} on ${response.repo}#${response.number}: ${action} done; now ${state}.`;
+}
+
+/** The `comments` text of `review_draft`: a JSON array; an empty text is no comments. */
+export function parse_comments(text: string): unknown[] {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+        return [];
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(trimmed);
+    } catch {
+        throw new Error(
+            '`comments` must be a JSON array text: [{"path": "...", "line": 1, "body": "..."}]',
+        );
+    }
+    if (!Array.isArray(parsed)) {
+        throw new Error("`comments` must be a JSON array; [] for none");
+    }
+    return parsed;
 }
 
 /** `backend#100`, `backend #100` or `backend` → `backend`. */

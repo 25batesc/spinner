@@ -67,7 +67,7 @@ describe("extension manifest", () => {
         }
     });
 
-    it("gives the lead the mission, review tools, agent_add and adopt; no thread or operator tool", () => {
+    it("gives the lead the mission and review tools, agent_add and adopt; nothing else", () => {
         const lead_tools = EXTENSION_MANIFEST.tools
             .filter((tool) => tool.roles.includes("lead"))
             .map((tool) => tool.name);

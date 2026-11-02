@@ -647,11 +647,15 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                     description: "APPROVE with no BLOCKING finding, COMMENT otherwise",
                     enum: ["APPROVE", "COMMENT"],
                 },
-                body: { type: "string", description: "The summary only: LGTM, A few nits, but LGTM, or A few blockers" },
+                body: {
+                    type: "string",
+                    description: "The summary only: LGTM, A few nits, but LGTM, or A few blockers",
+                },
                 comments: {
                     type: "string",
                     description:
-                        'JSON array text: [{"path": "src/a.ts", "line": 12, "body": "BLOCKING: ..."}]; [] for none',
+                        'JSON array text: [{"path": "src/a.ts", "line": 12, "body": ' +
+                        '"BLOCKING: ..."}]; [] for none',
                 },
             },
             required: ["event", "body", "comments"],

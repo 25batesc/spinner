@@ -5,7 +5,7 @@
 // one fixture per table row proves the table.
 import assert from "node:assert/strict";
 import type { NeedsHuman, PipelineFacts, PrFacts, Stage, StageResult } from "@spinner/protocol";
-import { STAGES, diff_needs_human } from "@spinner/protocol";
+import { REVIEW_DRAFT_NEEDS_HUMAN, STAGES, diff_needs_human } from "@spinner/protocol";
 
 /** Upper bound on PRs per session. A session spans a handful of repos, never hundreds. */
 const PRS_MAX = 100;
@@ -13,7 +13,19 @@ const PRS_MAX = 100;
 export function derive_stage(facts: PipelineFacts): StageResult {
     assert.ok(facts.prs.length <= PRS_MAX, `more than ${PRS_MAX} PRs in one session`);
     assert.ok(facts.stale_after_hours > 0, "stale_after_hours must be positive");
-    return with_diff_comments(facts, derive_pipeline(facts));
+    return with_review_draft(facts, with_diff_comments(facts, derive_pipeline(facts)));
+}
+
+/**
+ * A review draft waiting for the operator is the next action (MISSION.md s016, Contracts):
+ * it wins over the pipeline's own text, because posting or dropping it is one click and the
+ * lead waits on it.
+ */
+function with_review_draft(facts: PipelineFacts, result: StageResult): StageResult {
+    if (facts.review_draft !== true || result.stage === "closed") {
+        return result;
+    }
+    return { ...result, needs_human: REVIEW_DRAFT_NEEDS_HUMAN };
 }
 
 /**

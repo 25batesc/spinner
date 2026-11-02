@@ -102,9 +102,10 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
         }
         const work: JobWork = async (log) => {
             const result = await swarm.start(summary, request, log);
-            const total = result.started.length + result.queued.length;
+            const total = result.started.length + result.queued.length + result.failed.length;
             const counts = `${result.started.length} started, ${result.queued.length} queued`;
-            log(`swarm of ${total}: ${counts}`);
+            const failed = result.failed.length === 0 ? "" : `, ${result.failed.length} failed`;
+            log(`swarm of ${total}: ${counts}${failed}`);
         };
         try {
             const job = deps.jobs.start("review", summary.dir, work, { exclusive: false });
