@@ -211,6 +211,23 @@ export interface Session {
 /** One `diffview` process per repo, by repo key, while it runs. Reattached by pid identity. */
 export interface DiffState {
     repos: Record<string, HostProcess>;
+    /**
+     * The unresolved comment threads of every running viewer, from the watcher's last
+     * `diffview comments list --json`. The view counts them and the stage derivation turns
+     * the ones waiting on the operator into `needs_human`.
+     */
+    threads?: DiffThreadRecord[];
+}
+
+/** One unresolved thread, as much of it as `needs_human` and the tab's badge need. */
+export interface DiffThreadRecord {
+    repo: string;
+    thread: number;
+    waiting_on: "agent" | "human";
+    /** The file, or null for a thread on the whole branch or on a description. */
+    path: string | null;
+    start_line: number | null;
+    end_line: number | null;
 }
 
 /** What the daemon reports about a session: the parsed file plus where it lives. */

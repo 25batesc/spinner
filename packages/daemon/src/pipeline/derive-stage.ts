@@ -5,7 +5,7 @@
 // one fixture per table row proves the table.
 import assert from "node:assert/strict";
 import type { NeedsHuman, PipelineFacts, PrFacts, Stage, StageResult } from "@spinner/protocol";
-import { STAGES } from "@spinner/protocol";
+import { STAGES, diff_needs_human } from "@spinner/protocol";
 
 /** Upper bound on PRs per session. A session spans a handful of repos, never hundreds. */
 const PRS_MAX = 100;
@@ -13,6 +13,23 @@ const PRS_MAX = 100;
 export function derive_stage(facts: PipelineFacts): StageResult {
     assert.ok(facts.prs.length <= PRS_MAX, `more than ${PRS_MAX} PRs in one session`);
     assert.ok(facts.stale_after_hours > 0, "stale_after_hours must be positive");
+    return with_diff_comments(facts, derive_pipeline(facts));
+}
+
+/**
+ * A diff comment thread waiting on the operator is the next action when the pipeline itself
+ * has none (MISSION.md s012, Contracts: the pipeline's own `needs_human` wins).
+ */
+function with_diff_comments(facts: PipelineFacts, result: StageResult): StageResult {
+    const waiting = facts.diff_waiting ?? [];
+    const first = waiting[0];
+    if (first === undefined || result.needs_human !== null || result.stage === "closed") {
+        return result;
+    }
+    return { ...result, needs_human: diff_needs_human(waiting.length, first) };
+}
+
+function derive_pipeline(facts: PipelineFacts): StageResult {
     if (facts.closed) {
         return { stage: "closed", needs_human: null, stale: false };
     }

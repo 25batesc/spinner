@@ -4,7 +4,7 @@
 // docs/SESSION_PROTOCOL.md. Nothing here is specific to one team: defaults describe a plain
 // GitHub repo with no bots, no approval check and no merge queue.
 
-import type { ApprovalRole, Pipeline, PullRequest, Stage } from "./session.js";
+import type { ApprovalRole, DiffThreadRecord, Pipeline, PullRequest, Stage } from "./session.js";
 
 /** Who must approve, by PR author kind. Spinner-opened PRs fall under `human_author`. */
 export interface ApprovalPolicy {
@@ -91,6 +91,11 @@ export interface PipelineFacts {
     /** True when `github.bot_logins` is non-empty: a bot review is expected before fixing. */
     bots_expected: boolean;
     stale_after_hours: number;
+    /**
+     * Diff comment threads waiting on the operator (s012), oldest first. When nothing in the
+     * pipeline needs the operator, the first one becomes `needs_human`.
+     */
+    diff_waiting?: DiffThreadRecord[];
 }
 
 /** The single next action for the operator, or null when nothing waits on them. */

@@ -52,6 +52,33 @@ function verified(prs: PrFacts[] = [pr()]): PipelineFacts {
     );
 }
 
+describe("derive_stage: diff comments waiting on the operator", () => {
+    const thread = (id: number) => ({
+        repo: "backend",
+        thread: id,
+        waiting_on: "human" as const,
+        path: "src/app.ts",
+        start_line: 4,
+        end_line: 4,
+    });
+
+    it("is the next action when the pipeline has none, counting the rest", () => {
+        const one = derive_stage(facts({ prs: [], diff_waiting: [thread(7)] }));
+        expect(one).toEqual({
+            stage: "building",
+            needs_human: "answer diff comment #7 on backend src/app.ts:4",
+            stale: false,
+        });
+        const two = derive_stage(facts({ prs: [], diff_waiting: [thread(7), thread(9)] }));
+        expect(two.needs_human).toBe("answer diff comment #7 on backend src/app.ts:4 and 1 more");
+    });
+
+    it("yields to the pipeline's own action", () => {
+        const result = derive_stage(facts({ diff_waiting: [thread(7)] }, [pr()]));
+        expect(result.needs_human).toBe("verify locally (backend#412)");
+    });
+});
+
 describe("derive_stage: one row of the stage table per test", () => {
     it("planned: session created, no commits", () => {
         const result = derive_stage(facts({ has_commits: false }, []));

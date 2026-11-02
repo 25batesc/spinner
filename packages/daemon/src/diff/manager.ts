@@ -6,10 +6,21 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { DiffFetchState, DiffRepoView, DiffView, SessionSummary } from "@spinner/protocol";
+import type {
+    DiffFetchState,
+    DiffRepoView,
+    DiffThreadRecord,
+    DiffView,
+    DiffWaiting,
+    SessionSummary,
+} from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
+import { derive_stage } from "../pipeline/derive-stage.js";
+import { config_for } from "../pipeline/poller.js";
+import { facts_from_session } from "../pipeline/tracker.js";
 import { process_alive } from "../stack/host-service.js";
-import { read_session } from "../store/session-store.js";
+import { read_session, write_session } from "../store/session-store.js";
+import { run_comments } from "./comments.js";
 import {
     diff_fetched,
     diff_home,
@@ -26,10 +37,17 @@ import {
     start_viewer,
     stop_viewers,
 } from "./viewer.js";
+import { DiffWatcher, NoticeLimiter } from "./watcher.js";
 
 export interface DiffManagerOptions {
     home: SpinnerHome;
+    /** Directory `find_spec` searches when a session names no project. */
+    cwd: string;
     log: Log;
+    /** Sends one notice to every running tty agent of a session; absent means no notices. */
+    notify?: (dir: string, text: string) => Promise<unknown>;
+    /** `diffview comments wait --timeout` of the watchers; tests shorten it. */
+    wait_timeout?: string;
     /** The viewer's executable; the fetched checkout's when absent. A test passes a fake. */
     bin?: string;
     /** The fetch's command runner; a test passes one that fetches nothing. */
@@ -51,7 +69,14 @@ const IDLE: DiffRepoView = {
 
 export class DiffManager {
     private readonly home: SpinnerHome;
+    private readonly cwd: string;
     private readonly log: Log;
+    private readonly notify: ((dir: string, text: string) => Promise<unknown>) | null;
+    private readonly wait_timeout: string | undefined;
+    /** `<dir>/<repo>` to its watcher while the viewer runs. */
+    private readonly watchers = new Map<string, DiffWatcher>();
+    /** One notice bound per session, kept across viewers. */
+    private readonly limiters = new Map<string, NoticeLimiter>();
     private readonly bin_override: string | null;
     private readonly runner: Runner | undefined;
     private readonly start_timeout_ms: number | undefined;
@@ -62,7 +87,10 @@ export class DiffManager {
 
     constructor(options: DiffManagerOptions) {
         this.home = options.home;
+        this.cwd = options.cwd;
         this.log = options.log;
+        this.notify = options.notify ?? null;
+        this.wait_timeout = options.wait_timeout;
         this.bin_override = options.bin ?? null;
         this.runner = options.runner;
         this.start_timeout_ms = options.start_timeout_ms;
@@ -105,7 +133,7 @@ export class DiffManager {
                     url: diff_url(record.port),
                     pid: record.pid,
                     error: null,
-                    waiting: NO_WAITING,
+                    waiting: waiting_of(summary.session.diff?.threads ?? [], repo),
                 };
             } else if (remembered?.state === "starting") {
                 repos[repo] = { ...IDLE, state: "starting" };
@@ -158,6 +186,7 @@ export class DiffManager {
                 record_viewer(fresh, name, started);
                 this.memory.delete(key);
                 log(`diff viewer of ${name}: pid ${started.pid} on ${diff_url(started.port)}`);
+                this.watch(fresh, name, 0);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 this.memory.set(key, { state: "failed", error: message });
@@ -171,17 +200,145 @@ export class DiffManager {
         const names = this.repo_names(summary, repo);
         for (const name of names) {
             this.memory.delete(`${summary.dir}/${name}`);
+            this.unwatch(summary.dir, name);
         }
-        await stop_viewers(this.reread(summary), this.diff_home(), log, names);
+        const fresh = this.reread(summary);
+        await stop_viewers(fresh, this.diff_home(), log, names);
+        this.record_threads(fresh, names, []);
     }
 
-    /** At daemon start: validates every recorded viewer by pid identity. */
+    /**
+     * At daemon start: validates every recorded viewer by pid identity and watches the live
+     * ones from their newest message, so a restart repeats no notice.
+     */
     async reattach_all(summaries: SessionSummary[]): Promise<void> {
         for (const summary of summaries) {
-            if (summary.session.diff !== undefined) {
-                await reattach_viewers(summary, this.log);
+            if (summary.session.diff === undefined) {
+                continue;
+            }
+            for (const repo of await reattach_viewers(summary, this.log)) {
+                this.watch(summary, repo, null);
             }
         }
+    }
+
+    /** Ends every watcher; the viewers stay, they outlive the daemon. */
+    close(): void {
+        for (const watcher of this.watchers.values()) {
+            watcher.stop();
+        }
+        this.watchers.clear();
+    }
+
+    /**
+     * Runs `diffview comments <args>` in `agent`'s worktree as that agent, then refreshes the
+     * repo's thread records: a reply turns a thread to the operator at once.
+     */
+    async comments(
+        summary: SessionSummary,
+        repo: string,
+        agent: string,
+        args: string[],
+    ): Promise<{ code: number; stdout: string; stderr: string }> {
+        const bin = this.bin();
+        assert.ok(bin !== null, "the caller checked that the viewer is available");
+        const worktree = summary.session.repos?.[repo]?.worktree;
+        assert.ok(worktree !== undefined, `repo ${repo} has a worktree`);
+        const result = await run_comments(
+            {
+                bin,
+                diff_home: this.diff_home(),
+                worktree: join(summary.path, worktree),
+                author: agent,
+                session: summary.dir,
+            },
+            args,
+        );
+        return result;
+    }
+
+    /** Starts the watcher of a running viewer. `cursor` null means "from the newest message". */
+    private watch(summary: SessionSummary, repo: string, cursor: number | null): void {
+        const bin = this.bin();
+        const worktree = summary.session.repos?.[repo]?.worktree;
+        if (bin === null || worktree === undefined) {
+            return;
+        }
+        const key = `${summary.dir}/${repo}`;
+        this.unwatch(summary.dir, repo);
+        const dir = summary.dir;
+        const limiter = this.limiters.get(dir) ?? new NoticeLimiter();
+        this.limiters.set(dir, limiter);
+        const alive = (): boolean => {
+            const read = read_session(this.home, dir);
+            const record = read.ok ? read.summary.session.diff?.repos[repo] : undefined;
+            return record !== undefined && process_alive(record.pid);
+        };
+        const watcher = new DiffWatcher({
+            repo,
+            comments: {
+                bin,
+                diff_home: this.diff_home(),
+                worktree: join(summary.path, worktree),
+                session: dir,
+            },
+            ...(this.wait_timeout === undefined ? {} : { wait_timeout: this.wait_timeout }),
+            cursor,
+            alive,
+            notify: (text) => this.notify?.(dir, text) ?? Promise.resolve(),
+            on_threads: (records) => {
+                const read = read_session(this.home, dir);
+                if (read.ok) {
+                    this.record_threads(read.summary, [repo], records);
+                }
+            },
+            limiter,
+            log: this.log,
+        });
+        this.watchers.set(key, watcher);
+        void watcher.done.then(() => {
+            if (this.watchers.get(key) === watcher) {
+                this.watchers.delete(key);
+            }
+        });
+    }
+
+    private unwatch(dir: string, repo: string): void {
+        const key = `${dir}/${repo}`;
+        this.watchers.get(key)?.stop();
+        this.watchers.delete(key);
+    }
+
+    /**
+     * Replaces the records of `repos` with `records`, re-derives `stage` and `needs_human`
+     * from the facts, and writes `session.yaml` when the records changed.
+     */
+    private record_threads(
+        summary: SessionSummary,
+        repos: string[],
+        records: DiffThreadRecord[],
+    ): void {
+        const session = summary.session;
+        const before = session.diff?.threads ?? [];
+        const kept = before.filter((t) => !repos.includes(t.repo));
+        const threads = [...kept, ...records].sort((a, b) => a.thread - b.thread);
+        if (JSON.stringify(before) === JSON.stringify(threads)) {
+            return;
+        }
+        if (threads.length > 0) {
+            session.diff ??= { repos: {} };
+            session.diff.threads = threads;
+        } else if (session.diff !== undefined) {
+            delete session.diff.threads;
+            if (Object.keys(session.diff.repos).length === 0) {
+                delete session.diff;
+            }
+        }
+        const config = config_for(session, this.home, this.cwd, this.log);
+        const result = derive_stage(facts_from_session(session, config, new Date()));
+        session.stage = result.stage;
+        session.needs_human = result.needs_human;
+        write_session(summary);
     }
 
     /** Validates `repo` against the session, or lists every repo. */
@@ -219,6 +376,15 @@ export class DiffManager {
         const read = read_session(this.home, summary.dir);
         return read.ok ? read.summary : summary;
     }
+}
+
+/** How many of a repo's recorded threads wait on each side. */
+function waiting_of(threads: DiffThreadRecord[], repo: string): DiffWaiting {
+    const mine = threads.filter((t) => t.repo === repo);
+    return {
+        agent: mine.filter((t) => t.waiting_on === "agent").length,
+        human: mine.filter((t) => t.waiting_on === "human").length,
+    };
 }
 
 /** `POST diff/start` or `diff/stop` named a repo the session does not have: a 404. */

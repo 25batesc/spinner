@@ -583,6 +583,13 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/HostProcess"
                     }
+                },
+                "threads": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/DiffThreadRecord"
+                    },
+                    "description": "The unresolved comment threads of every running viewer, from the watcher's last `diffview comments list --json`. The view counts them and the stage derivation turns the ones waiting on the operator into `needs_human`."
                 }
             },
             "required": [
@@ -590,6 +597,53 @@
             ],
             "additionalProperties": false,
             "description": "One `diffview` process per repo, by repo key, while it runs. Reattached by pid identity."
+        },
+        "DiffThreadRecord": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string"
+                },
+                "thread": {
+                    "type": "number"
+                },
+                "waiting_on": {
+                    "type": "string",
+                    "enum": [
+                        "agent",
+                        "human"
+                    ]
+                },
+                "path": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The file, or null for a thread on the whole branch or on a description."
+                },
+                "start_line": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "end_line": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "repo",
+                "thread",
+                "waiting_on",
+                "path",
+                "start_line",
+                "end_line"
+            ],
+            "additionalProperties": false,
+            "description": "One unresolved thread, as much of it as `needs_human` and the tab's badge need."
         }
     },
     "$id": "https://spinner.dev/schema/session.json",

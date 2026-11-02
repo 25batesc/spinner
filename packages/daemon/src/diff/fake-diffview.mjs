@@ -96,16 +96,22 @@ function run_comments(verb, rest) {
         return 0;
     }
     if (verb === "wait") {
-        run_wait(Number(flag(rest, "--after") ?? 0));
+        run_wait(Number(flag(rest, "--after") ?? 0), duration_ms(flag(rest, "--timeout") ?? "30m"));
         return null;
     }
     process.stderr.write(`diffview comments: unknown verb ${verb}\n`);
     return 2;
 }
 
+/** `30s`, `10m`, `1h` to milliseconds, as the real CLI reads `--timeout`. */
+function duration_ms(text) {
+    const match = /^(\d+)(s|m|h)?$/.exec(text);
+    const unit = { s: 1_000, m: 60_000, h: 3_600_000 }[match[2] ?? "s"];
+    return Number(match[1]) * unit;
+}
+
 /** Polls the thread file until a thread waits on the agent with a message newer than `after`. */
-function run_wait(after) {
-    const timeout_ms = Number(process.env.FAKE_DIFFVIEW_WAIT_TIMEOUT_MS ?? 30_000);
+function run_wait(after, timeout_ms) {
     const started = Date.now();
     const poll = () => {
         const all = read_threads();

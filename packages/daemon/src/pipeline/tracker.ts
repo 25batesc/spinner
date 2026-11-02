@@ -38,6 +38,7 @@ export function facts_from_session(
         pipeline: session.pipeline ?? { verified_locally: false, slack_post: null },
         bots_expected: config.github.bot_logins.length > 0,
         stale_after_hours: config.threads.stale_after_hours,
+        diff_waiting: (session.diff?.threads ?? []).filter((t) => t.waiting_on === "human"),
     };
 }
 

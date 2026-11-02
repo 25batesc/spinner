@@ -139,6 +139,8 @@ export interface DaemonOptions {
     operator_batch_ms?: number;
     /** The diff viewer's executable instead of the fetched checkout's; tests pass a fake. */
     diffview_bin?: string;
+    /** The watchers' `diffview comments wait --timeout`; tests shorten it. */
+    diff_wait_timeout?: string;
 }
 
 export interface Daemon {
@@ -642,8 +644,13 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
 
     const diff = new DiffManager({
         home,
+        cwd,
         log,
+        notify: (dir, text) => agents.notify_all(dir, text),
         ...(options.diffview_bin === undefined ? {} : { bin: options.diffview_bin }),
+        ...(options.diff_wait_timeout === undefined
+            ? {}
+            : { wait_timeout: options.diff_wait_timeout }),
     });
     let observer: StackObserver | null = null;
     let usage: UsageSampler | null = null;
@@ -760,6 +767,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         watcher,
         close: async () => {
             unwatch_stack_jobs();
+            diff.close();
             await operator.close();
             await agents.stop_all();
             poller?.stop();
