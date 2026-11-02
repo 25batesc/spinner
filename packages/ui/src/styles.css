@@ -128,7 +128,9 @@ html {
     background: transparent; color: var(--fail);
     border-color: color-mix(in srgb, var(--fail) 50%, transparent);
 }
-:where(button.danger):hover:not(:disabled) { background: var(--fail-fill); border-color: var(--fail); }
+:where(button.danger):hover:not(:disabled) {
+    background: var(--fail-fill); border-color: var(--fail);
+}
 :where(button:not([class]), button.primary, button.danger):disabled {
     opacity: 0.4; cursor: default;
 }
@@ -160,7 +162,9 @@ html, body, #root { height: 100%; margin: 0; }
     grid-template-rows: 1fr auto;
     height: 100%;
 }
-.pane { overflow: auto; padding: var(--space-2) var(--space-3); min-width: 0; box-sizing: border-box; }
+.pane {
+    overflow: auto; padding: var(--space-2) var(--space-3); min-width: 0; box-sizing: border-box;
+}
 .pane h2 { font-size: var(--text-title); font-weight: 600; margin: 0 0 var(--space-2); }
 /* The divider keeps its hit area from `layout.ts`; it draws one hairline in the middle, which
    lights up under the pointer and during a drag. */
@@ -229,7 +233,9 @@ html, body, #root { height: 100%; margin: 0; }
     box-sizing: border-box; background: var(--surface);
 }
 .activity-bar .icon-button { width: 32px; height: 32px; border-radius: var(--radius-box); }
-.activity-bar .icon-on { opacity: 1; background: var(--fill); box-shadow: inset 2px 0 0 var(--accent); }
+.activity-bar .icon-on {
+    opacity: 1; background: var(--fill); box-shadow: inset 2px 0 0 var(--accent);
+}
 .activity-bar .bar-popped { color: var(--accent); opacity: 1; }
 .layout { flex: 1; min-width: 0; }
 /* A collapsed or popped-out pane: a 24 px strip, the name turned sideways. */
@@ -410,7 +416,8 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .chip-off .chip-name { color: var(--muted); }
 .chip.chip-selected {
-    border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--accent-tint);
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: var(--accent-tint);
 }
 .chip .chip-name.tab-selected { font-weight: 600; }
 .chip-selected .chip-name { padding-right: 4px; }
@@ -496,7 +503,9 @@ html, body, #root { height: 100%; margin: 0; }
 .services td:first-child { font-weight: 500; }
 .services td:nth-child(5) { white-space: normal; font-size: var(--text-meta); }
 .services td:nth-child(2) .dot { margin-right: 4px; vertical-align: -0.5px; }
-.service-url { font-size: var(--text-meta); display: block; font-weight: 400; font-family: var(--font-mono); }
+.service-url {
+    font-size: var(--text-meta); display: block; font-weight: 400; font-family: var(--font-mono);
+}
 /* The activity drawer: a fixed height from the layout record, the divider on its top edge,
    the job log then the events inside. The terminal above refits as the drawer changes. The
    head carries the title, the job's state as a pill and the minimize icon. */
@@ -556,8 +565,12 @@ html, body, #root { height: 100%; margin: 0; }
     overflow: hidden; text-overflow: ellipsis;
 }
 .drawer-bar:hover { background: var(--fill-soft); }
-.drawer-failed, .drawer-bar.drawer-failed { border-color: color-mix(in srgb, var(--fail) 50%, transparent); }
-.drawer-error, .drawer-bar.drawer-error { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.drawer-failed, .drawer-bar.drawer-failed {
+    border-color: color-mix(in srgb, var(--fail) 50%, transparent);
+}
+.drawer-error, .drawer-bar.drawer-error {
+    border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+}
 .verified { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
 /* The browser bar above the preview content. */
 .browser-bar { display: flex; gap: 2px; align-items: center; position: relative; min-height: 32px; }
@@ -606,9 +619,13 @@ html, body, #root { height: 100%; margin: 0; }
     border-radius: var(--radius-control);
 }
 .attach-banner .muted { color: var(--text); flex: 1 1 100%; }
-.attach-banner select { min-height: var(--control-row); padding: 0 var(--space-1); font-size: var(--text-dense); }
+.attach-banner select {
+    min-height: var(--control-row); padding: 0 var(--space-1); font-size: var(--text-dense);
+}
 /* The mission: one block per section, a small muted label with its edit button, the body. */
-.mission { display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-1); }
+.mission {
+    display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-1);
+}
 .mission h2 { font-size: var(--text-title); font-weight: 600; margin: 0; }
 .mission-section { border-radius: var(--radius-control); }
 .mission h3, .context h3 {
@@ -636,8 +653,12 @@ html, body, #root { height: 100%; margin: 0; }
 @keyframes flash { from { background: var(--warn-fill); } to { background: transparent; } }
 /* The threads: a toolbar, then per PR a header and one card per thread with its location in
    mono, as review comments are shown. */
-.threads { display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-1); }
-.thread-toolbar { display: flex; gap: var(--space-2); align-items: center; font-size: var(--text-dense); }
+.threads {
+    display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-1);
+}
+.thread-toolbar {
+    display: flex; gap: var(--space-2); align-items: center; font-size: var(--text-dense);
+}
 .pr-threads > p { margin: 0 0 var(--space-2); font-size: var(--text-dense); }
 .thread {
     list-style: none; border: 1px solid var(--line-soft); border-radius: var(--radius-box);
@@ -646,14 +667,19 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .thread-list { padding: 0; margin: var(--space-2) 0 0; }
 .thread-resolved { opacity: 0.6; }
-.thread-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: var(--text-dense); }
+.thread-head {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: var(--text-dense);
+}
 .thread-location { font-size: var(--text-meta); color: var(--muted); }
 .thread-body, .thread-reply { margin: 6px 0; white-space: pre-wrap; }
 .thread-reply {
-    margin-left: var(--space-1); padding-left: var(--space-2); border-left: 2px solid var(--line-soft);
+    margin-left: var(--space-1); padding-left: var(--space-2);
+    border-left: 2px solid var(--line-soft);
 }
 .thread-actions { display: flex; gap: 6px; align-items: center; }
-.thread-actions input { flex: 1; min-width: 0; min-height: var(--control-row); font-size: var(--text-dense); }
+.thread-actions input {
+    flex: 1; min-width: 0; min-height: var(--control-row); font-size: var(--text-dense);
+}
 .badge.flagged { background: var(--warn-tint); color: var(--warn); }
 .badge.tracked { background: var(--accent-tint); color: var(--accent); }
 /* The Context tab: one bordered list, a row per file with the chevron first; the paths in mono. */
@@ -686,7 +712,9 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .disclosure:hover { color: var(--text); background: var(--fill-soft); }
 .context-size { font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
-.commands { list-style: none; margin: 0 0 var(--space-2) 22px; padding: 0; font-size: var(--text-dense); }
+.commands {
+    list-style: none; margin: 0 0 var(--space-2) 22px; padding: 0; font-size: var(--text-dense);
+}
 .commands li { padding: 2px 0; }
 .context-title { font-weight: 600; font-size: 13px; }
 /* The confirm dialogs of `post` and `approve`: a raised card, what will be sent, the filled
@@ -746,15 +774,21 @@ html, body, #root { height: 100%; margin: 0; }
 .operator-notice .link { margin-left: 0; padding: 0; font: inherit; font-size: 12px; }
 /* The settings view in the side panel: one labelled control per line, swatches under the
    theme select, the invalid custom themes struck through with their missing keys. */
-.settings { display: flex; flex-direction: column; gap: var(--space-4); font-size: var(--text-body); }
+.settings {
+    display: flex; flex-direction: column; gap: var(--space-4); font-size: var(--text-body);
+}
 .setting { display: flex; flex-direction: column; gap: 6px; }
 .setting > span { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .setting select { width: 100%; }
 .swatches { display: flex; gap: 2px; }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line-soft); }
-.invalid-themes { margin: calc(-1 * var(--space-2)) 0 0; padding-left: var(--space-4); font-size: var(--text-dense); }
+.invalid-themes {
+    margin: calc(-1 * var(--space-2)) 0 0; padding-left: var(--space-4);
+    font-size: var(--text-dense);
+}
 .settings-hint {
-    margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-dense); line-height: 1.5;
+    margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-dense);
+    line-height: 1.5;
     background: var(--fill-soft); border-radius: var(--radius-box);
 }
 .settings-hint .link { margin-left: 0; padding: 0; height: auto; }

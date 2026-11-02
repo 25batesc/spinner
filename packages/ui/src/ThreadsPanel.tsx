@@ -148,7 +148,9 @@ export function ThreadsPanel({ dir, revision, busy, run }: ThreadsPanelProps) {
                     refresh from GitHub
                 </button>
                 <span className="muted" title={view?.rendered ?? undefined}>
-                    {view?.rendered == null ? "not rendered yet" : `rendered ${clockOf(view.rendered)}`}
+                    {view?.rendered == null
+                        ? "not rendered yet"
+                        : `rendered ${clockOf(view.rendered)}`}
                 </span>
             </div>
             {shownError !== null && <p className="needs-human">{shownError}</p>}
