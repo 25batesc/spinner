@@ -77,13 +77,79 @@
     --warn-fill: color-mix(in srgb, var(--warn) 30%, transparent);
     --warn-tint: color-mix(in srgb, var(--warn) 18%, transparent);
     --fail-fill: color-mix(in srgb, var(--fail) 15%, transparent);
+    --ok-tint: color-mix(in srgb, var(--ok) 14%, transparent);
+    --fail-tint: color-mix(in srgb, var(--fail) 10%, transparent);
+    /* The spacing scale: paddings and gaps use these steps and 2 px, nothing else. */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    /* The type scale: meta and labels, dense content, body, titles, form headings. */
+    --text-meta: 11px;
+    --text-dense: 12px;
+    --text-body: 13px;
+    --text-title: 14px;
+    --text-heading: 16px;
+    --radius-control: 4px;
+    --radius-box: 6px;
+    --control-row: 24px;
+    --control-form: 28px;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 html {
-    font-family: system-ui, sans-serif;
-    font-size: 14px;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: var(--text-body);
+    line-height: 1.4;
     background: var(--bg);
     color: var(--text);
+    -webkit-font-smoothing: antialiased;
 }
+/* The button kinds. `:where` keeps the base at zero specificity, so a button with a class of
+   its own (a tab, a chip, an icon, a card) keeps its own look. Secondary is the default;
+   `.primary` is the one filled action of a form or dialog; `.danger` is irreversible and says
+   so with its colour before the click. */
+:where(button:not([class]), button.primary, button.danger) {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1);
+    height: var(--control-row); padding: 0 10px; box-sizing: border-box;
+    font: inherit; font-size: var(--text-dense); font-weight: 500; white-space: nowrap;
+    color: var(--text); background: var(--fill-soft);
+    border: 1px solid var(--border); border-radius: var(--radius-control); cursor: pointer;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+:where(button:not([class])):hover:not(:disabled) { background: var(--fill); }
+:where(button.primary) {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+}
+:where(button.primary):hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+:where(button.danger) {
+    background: transparent; color: var(--fail);
+    border-color: color-mix(in srgb, var(--fail) 50%, transparent);
+}
+:where(button.danger):hover:not(:disabled) { background: var(--fail-fill); border-color: var(--fail); }
+:where(button:not([class]), button.primary, button.danger):disabled {
+    opacity: 0.4; cursor: default;
+}
+/* Fields follow the palette, not the OS: the page's background, a hairline, an accent ring on
+   focus. The checkbox keeps its native look with the accent colour. */
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    box-sizing: border-box; min-height: var(--control-form); padding: 4px var(--space-2);
+    font: inherit; font-size: var(--text-body); color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius-control);
+}
+:where(input, select, textarea):focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-fill);
+}
+:where(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+:where(input[type="checkbox"]) { accent-color: var(--accent); margin: 0; }
+:where(textarea) { resize: vertical; line-height: 1.4; }
+/* One focus ring for the keyboard on every control. */
+:where(button, a, [role="tab"], [tabindex]):focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+}
+code, pre, kbd { font-family: var(--font-mono); }
 /* Native controls follow the theme, not the OS: `theme.ts` sets `data-scheme` on the root. */
 :root[data-scheme="light"] { color-scheme: light; }
 :root[data-scheme="dark"] { color-scheme: dark; }
@@ -94,10 +160,19 @@ html, body, #root { height: 100%; margin: 0; }
     grid-template-rows: 1fr auto;
     height: 100%;
 }
-.pane { overflow: auto; padding: 8px; min-width: 0; border: 1px solid var(--line-soft); }
-.pane h2 { font-size: 13px; text-transform: uppercase; margin: 0 0 8px; }
-.handle { cursor: col-resize; background: var(--fill); touch-action: none; }
-.handle:hover, .handle:focus-visible { background: var(--border); outline: none; }
+.pane { overflow: auto; padding: var(--space-2) var(--space-3); min-width: 0; box-sizing: border-box; }
+.pane h2 { font-size: var(--text-title); font-weight: 600; margin: 0 0 var(--space-2); }
+/* The divider keeps its hit area from `layout.ts`; it draws one hairline in the middle, which
+   lights up under the pointer and during a drag. */
+.handle { position: relative; cursor: col-resize; background: transparent; touch-action: none; }
+.handle::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px;
+    background: var(--line-soft); transition: background-color 0.1s;
+}
+.handle:hover::after, .handle:focus-visible::after, .handle:active::after {
+    left: calc(50% - 1px); width: 2px; background: var(--accent);
+}
+.handle:focus-visible { outline: none; }
 /* An iframe under the pointer would take the drag's events away from the captured divider. */
 .layout-dragging iframe { pointer-events: none; }
 .layout-dragging, .handle { user-select: none; }
@@ -106,17 +181,20 @@ html, body, #root { height: 100%; margin: 0; }
 .layout[data-armed="sessions"] .sessions-pane, .layout[data-armed="previews"] .preview-pane {
     opacity: 0.35; transition: opacity 0.15s;
 }
-.layout[data-armed] .handle:active { background: var(--accent); }
-.pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.layout[data-armed] .handle:active::after { background: var(--accent); }
+.pane-head {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+    min-height: 28px; margin-bottom: var(--space-2);
+}
 .pane-head h2 { margin: 0; }
 .pane-controls { display: flex; gap: 2px; }
 /* Chrome shows muted monochrome icons with tooltips; they brighten on hover. */
 .icon-button {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px;
-    background: transparent; color: inherit; opacity: 0.55; cursor: pointer;
+    width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-control);
+    background: transparent; color: inherit; opacity: 0.6; cursor: pointer;
 }
-.icon-button:hover, .icon-button:focus-visible { opacity: 1; background: var(--fill); outline: none; }
+.icon-button:hover, .icon-button:focus-visible { opacity: 1; background: var(--fill-soft); }
 .icon-button.icon-on { opacity: 0.9; }
 .icon { display: block; }
 /* The window: the context bar above, then the activity bar beside the pane grid. */
@@ -132,8 +210,6 @@ html, body, #root { height: 100%; margin: 0; }
     font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;
 }
 .context-bar .needs-human { overflow: hidden; text-overflow: ellipsis; }
-.pr-badge { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--fill); }
-.pr-badge-green { background: var(--ok-fill); color: var(--ok); }
 .activity-bar {
     display: flex; flex-direction: column; align-items: center; gap: 4px; width: 40px;
     padding: 6px 0; border-right: 1px solid var(--line-soft); flex: none;
@@ -153,7 +229,17 @@ html, body, #root { height: 100%; margin: 0; }
 /* The `?pane=` route: one pane fills the window. */
 .layout-single { grid-template-columns: 1fr; }
 .drawer-row { grid-column: 1 / -1; padding: 4px 8px; }
-.status { grid-column: 1 / -1; padding: 2px 8px; font-size: 12px; border-top: 1px solid var(--line-soft); }
+/* The footer: one muted line with a dot for the events socket, green when it is open. */
+.status {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; height: 22px;
+    padding: 0 var(--space-3); font-size: var(--text-meta); color: var(--muted);
+    border-top: 1px solid var(--line-soft);
+}
+.status::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn);
+}
+.status[data-connection="open"]::before { background: var(--ok); }
+.status[data-connection="closed"]::before { background: var(--fail); }
 .muted { color: var(--muted); }
 .session-list { list-style: none; margin: 0; padding: 0; }
 /* Every card is the same height: two title lines, one badge line, one needs-you line. */
@@ -192,7 +278,16 @@ html, body, #root { height: 100%; margin: 0; }
 .usage-line { font-size: 11px; }
 .machine-line { font-size: 11px; white-space: nowrap; }
 .usage-share { margin: 0; font-size: 12px; }
-.badge { font-size: 11px; padding: 0 5px; border-radius: 8px; background: var(--fill); }
+/* A pill: neutral by default; a state pill takes the tint and the colour of its state. */
+.badge, .pr-badge, .pill {
+    display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px;
+    box-sizing: border-box; font-size: var(--text-meta); font-weight: 500; line-height: 1;
+    white-space: nowrap; border-radius: 999px; background: var(--fill-soft); color: var(--muted);
+}
+.pill-ok, .pr-badge-green { background: var(--ok-tint); color: var(--ok); }
+.pill-warn { background: var(--warn-tint); color: var(--warn); }
+.pill-fail { background: var(--fail-tint); color: var(--fail); }
+.pill-accent { background: var(--accent-tint); color: var(--accent); }
 .needs-human { color: var(--warn); font-size: 12px; }
 .agents-pane { display: flex; flex-direction: column; gap: 6px; }
 .chat { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow: auto; }
@@ -260,13 +355,18 @@ html, body, #root { height: 100%; margin: 0; }
 /* The native view covers the box; a transparent box keeps the view's own background visible. */
 .preview-box { background: transparent; }
 .preview-note { margin: 0; padding: 6px; font-size: 12px; border: 1px solid var(--warn); border-radius: 4px; }
-.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
-.dot-up, .dot-healthy { background: var(--ok); }
-.dot-starting { background: var(--warn); }
-.dot-failed { background: var(--fail); }
-.dot-unhealthy { background: var(--warn); }
-.tab-dot { width: 7px; height: 7px; margin-right: 5px; vertical-align: 1px; }
-.dot-unknown { background: var(--accent); }
+/* A dot: filled green for up or working, amber for starting or unhealthy, red for failed, a
+   hollow ring for none or idle, a dashed ring for off. */
+.dot {
+    display: inline-block; flex: none; width: 8px; height: 8px; box-sizing: border-box;
+    border-radius: 50%; background: transparent; border: 1.5px solid var(--muted);
+}
+.dot-up, .dot-healthy { background: var(--ok); border-color: var(--ok); }
+.dot-starting { background: var(--warn); border-color: var(--warn); }
+.dot-failed { background: var(--fail); border-color: var(--fail); }
+.dot-unhealthy { background: var(--warn); border-color: var(--warn); }
+.tab-dot { width: 7px; height: 7px; margin-right: 6px; vertical-align: 0; }
+.dot-unknown { background: var(--accent); border-color: var(--accent); }
 .pr-line { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.8; }
 .tab-grey { opacity: 0.4; }
 .services { border-collapse: collapse; font-size: 12px; }
