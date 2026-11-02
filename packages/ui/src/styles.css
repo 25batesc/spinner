@@ -201,21 +201,35 @@ html, body, #root { height: 100%; margin: 0; }
 .shell { display: flex; flex-direction: column; height: 100%; }
 .shell-body { display: flex; flex: 1; min-height: 0; }
 .pane-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
-/* The context bar: the active session on one line, the title truncated first. */
+/* The context bar: the active session on one line, the title truncated first. The title, then
+   the pills, then the usage as meta, and the needs-you pill alone at the right end. */
 .context-bar {
-    display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px;
-    font-size: 13px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; min-width: 0;
+    display: flex; align-items: center; gap: var(--space-2); height: 36px; flex: none;
+    padding: 0 var(--space-3); box-sizing: border-box; font-size: var(--text-dense);
+    border-bottom: 1px solid var(--line-soft); background: var(--surface);
+    white-space: nowrap; min-width: 0;
 }
-.context-title {
-    font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto;
+.context-bar .context-title {
+    font-size: var(--text-title); font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0; flex: 0 1 auto; margin-right: var(--space-1);
 }
-.context-bar .needs-human { overflow: hidden; text-overflow: ellipsis; }
+.context-bar .usage-line, .context-bar .machine-line {
+    font-size: var(--text-meta); font-variant-numeric: tabular-nums;
+}
+.context-bar .context-needs {
+    margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block;
+    line-height: 18px;
+}
+.context-bar .operator-notice { margin-left: auto; }
+.context-bar .context-needs ~ .operator-notice { margin-left: 0; }
+.context-stack { color: var(--text); }
 .activity-bar {
-    display: flex; flex-direction: column; align-items: center; gap: 4px; width: 40px;
-    padding: 6px 0; border-right: 1px solid var(--line-soft); flex: none;
+    display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: 40px;
+    padding: var(--space-2) 0; border-right: 1px solid var(--line-soft); flex: none;
+    box-sizing: border-box; background: var(--surface);
 }
-.activity-bar .icon-button { width: 32px; height: 32px; }
-.activity-bar .icon-on { opacity: 1; box-shadow: inset 2px 0 0 var(--accent); }
+.activity-bar .icon-button { width: 32px; height: 32px; border-radius: var(--radius-box); }
+.activity-bar .icon-on { opacity: 1; background: var(--fill); box-shadow: inset 2px 0 0 var(--accent); }
 .activity-bar .bar-popped { color: var(--accent); opacity: 1; }
 .layout { flex: 1; min-width: 0; }
 /* A collapsed or popped-out pane: a 24 px strip, the name turned sideways. */

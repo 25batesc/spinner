@@ -303,12 +303,18 @@ export function ContextBar({ view, usage, operator }: ContextBarProps) {
                 {view.summary.session.title}
             </span>
             <span className="badge">{stageOf(view)}</span>
-            <span className={`dot dot-${view.stack.state}`} />
-            <span className="muted">stack {view.stack.state}</span>
+            <span className="pill context-stack">
+                <span className={`dot dot-${view.stack.state}`} />
+                stack {view.stack.state}
+            </span>
             {stack !== null && <span className="muted usage-line">{stackLine(stack)}</span>}
             <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
-            {needs !== null && <span className="needs-human">{needs}</span>}
+            {needs !== null && (
+                <span className="needs-human pill pill-warn context-needs" title={needs}>
+                    {needs}
+                </span>
+            )}
             <OperatorNotice operator={operator} />
         </div>
     );
