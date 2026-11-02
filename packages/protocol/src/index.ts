@@ -13,3 +13,4 @@ export * from "./threads.js";
 export * from "./extension.js";
 export * from "./desktop-bridge.js";
 export * from "./theme.js";
+export * from "./diff.js";

@@ -59,6 +59,8 @@ export const EXTENSION_TOOLS = [
     "agent_add",
     "agent_steer",
     "inbox_send",
+    "diff_comments",
+    "diff_reply",
 ] as const;
 
 /** The sections `mission_write` takes; the Roster belongs to the agents and the writer. */
@@ -144,6 +146,14 @@ export interface ExtensionToolArgs {
     agent_steer: { session: string; agent: string; text: string };
     /** An `inbox/` message from `operator` to an agent or `all`. */
     inbox_send: { session: string; to: string; subject: string; text: string };
+    /**
+     * Read the diff viewer's comments on the agent's worktree (s012). `list` shows every
+     * unresolved thread of the branch; `show` prints the threads in `threads` in full, with
+     * the lines around them. `threads` is thread ids separated by spaces.
+     */
+    diff_comments: { command: "list" | "show"; threads?: string };
+    /** Reply in a diff comment thread, or suggest that it is resolved; the operator resolves. */
+    diff_reply: { command: "reply" | "suggest-resolve"; thread: number; text: string };
 }
 
 /** A tool's JSON-schema parameters, in the subset pi's `Type.Object` can express. */
@@ -184,6 +194,7 @@ const SESSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer"];
 const EVERY_ROLE: readonly ExtensionRole[] = ["worker", "fixer", "operator"];
 const FIXER: readonly ExtensionRole[] = ["fixer"];
 const OPERATOR: readonly ExtensionRole[] = ["operator"];
+const WORKER: readonly ExtensionRole[] = ["worker"];
 
 export const EXTENSION_MANIFEST: ExtensionManifest = {
     version: EXTENSION_VERSION,
@@ -437,6 +448,37 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["session", "to", "subject", "text"],
             roles: OPERATOR,
             route: "POST /sessions/:dir/inbox",
+        },
+        {
+            name: "diff_comments",
+            description:
+                "Read the operator's comments in the diff viewer of your worktree: list the " +
+                "unresolved threads, or show threads in full with the lines around them.",
+            parameters: {
+                command: { type: "string", description: "What to do", enum: ["list", "show"] },
+                threads: { type: "string", description: "Thread ids, space-separated, for show" },
+            },
+            required: ["command"],
+            roles: WORKER,
+            route: "POST /sessions/:dir/agents/:name/diff/comments",
+        },
+        {
+            name: "diff_reply",
+            description:
+                "Answer a diff comment thread: reply, or suggest that it is resolved after the " +
+                "fix is committed. Only the operator resolves.",
+            parameters: {
+                command: {
+                    type: "string",
+                    description: "What to do",
+                    enum: ["reply", "suggest-resolve"],
+                },
+                thread: { type: "number", description: "Thread id, as diff_comments shows it" },
+                text: { type: "string", description: "The message" },
+            },
+            required: ["command", "thread", "text"],
+            roles: WORKER,
+            route: "POST /sessions/:dir/agents/:name/diff/comments",
         },
     ],
 };

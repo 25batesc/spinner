@@ -204,6 +204,13 @@ export interface Session {
     pipeline?: Pipeline;
     stack: StackState;
     agents: Record<string, AgentSpec>;
+    /** The diff viewers the daemon runs for this session (s012). Absent before the first start. */
+    diff?: DiffState;
+}
+
+/** One `diffview` process per repo, by repo key, while it runs. Reattached by pid identity. */
+export interface DiffState {
+    repos: Record<string, HostProcess>;
 }
 
 /** What the daemon reports about a session: the parsed file plus where it lives. */

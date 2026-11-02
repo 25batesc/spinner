@@ -32,6 +32,10 @@
                 "can_verify": {
                     "type": "boolean",
                     "description": "True while the stack is up: the operator can test and tick `verify`."
+                },
+                "diff": {
+                    "$ref": "#/definitions/DiffView",
+                    "description": "The diff viewers (s012). The daemon always sets it; optional so a fixture written before s012 still type-checks."
                 }
             },
             "required": [
@@ -130,6 +134,10 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/AgentSpec"
                     }
+                },
+                "diff": {
+                    "$ref": "#/definitions/DiffState",
+                    "description": "The diff viewers the daemon runs for this session (s012). Absent before the first start."
                 }
             },
             "required": [
@@ -636,6 +644,22 @@
                 "exited"
             ]
         },
+        "DiffState": {
+            "type": "object",
+            "properties": {
+                "repos": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HostProcess"
+                    }
+                }
+            },
+            "required": [
+                "repos"
+            ],
+            "additionalProperties": false,
+            "description": "One `diffview` process per repo, by repo key, while it runs. Reattached by pid identity."
+        },
         "BoardView": {
             "type": "object",
             "properties": {
@@ -975,6 +999,96 @@
             ],
             "additionalProperties": false,
             "description": "The sum over a stack's services, from one sample."
+        },
+        "DiffView": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean",
+                    "description": "False when the daemon found no `diffview` binary; then `repos` is empty."
+                },
+                "repos": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DiffRepoView"
+                    },
+                    "description": "One entry per repo of `session.yaml`, in `repos` order, running or not."
+                }
+            },
+            "required": [
+                "available",
+                "repos"
+            ],
+            "additionalProperties": false,
+            "description": "`SessionView.diff`."
+        },
+        "DiffRepoView": {
+            "type": "object",
+            "properties": {
+                "state": {
+                    "$ref": "#/definitions/DiffViewerState"
+                },
+                "url": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "`http://127.0.0.1:<port>/`, or null when not running. The viewer refuses every other Host, so the UI embeds this URL directly; it never goes through the Spinner proxy."
+                },
+                "pid": {
+                    "type": [
+                        "number",
+                        "null"
+                    ],
+                    "description": "The viewer's pid while it runs, else null."
+                },
+                "error": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Why the last start failed, else null."
+                },
+                "waiting": {
+                    "$ref": "#/definitions/DiffWaiting"
+                }
+            },
+            "required": [
+                "state",
+                "url",
+                "pid",
+                "error",
+                "waiting"
+            ],
+            "additionalProperties": false,
+            "description": "One repo's viewer, under `SessionView.diff.repos[repo]`."
+        },
+        "DiffViewerState": {
+            "type": "string",
+            "enum": [
+                "starting",
+                "running",
+                "stopped",
+                "failed"
+            ],
+            "description": "A viewer's state. `stopped` is the rest state: no process, `url` null. `starting` is between spawn and the first answer on `GET /`. `failed` keeps `error` from the exit or the timeout; `start` clears it."
+        },
+        "DiffWaiting": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "number"
+                },
+                "human": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "agent",
+                "human"
+            ],
+            "additionalProperties": false,
+            "description": "How many threads wait on each side, from the last `diffview comments list --json`."
         }
     },
     "$id": "https://spinner.dev/schema/session-view.json",

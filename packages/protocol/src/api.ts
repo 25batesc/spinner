@@ -14,6 +14,7 @@ import type {
     StackLastJob,
     StackStateName,
 } from "./session.js";
+import type { DiffView } from "./diff.js";
 import type { PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
 
@@ -106,6 +107,20 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/events": "AgentCommandResponse",
     /** WebSocket upgrade to a tty agent's pty; see `TTY_PATH` and `TtyClientMessage`. */
     "GET /sessions/:dir/agents/:name/tty": "websocket",
+    /**
+     * Start the diff viewer of one repo, or of every repo. Body: DiffRepoRequest. Answers
+     * once the viewer serves `GET /` (or `DIFF_START_TIMEOUT_MS` passed and the repo is
+     * `failed`). 409 when `diffview` is not installed; 404 for an unknown repo.
+     */
+    "POST /sessions/:dir/diff/start": "SessionResponse",
+    /** Stop the diff viewer of one repo, or of every repo. Body: DiffRepoRequest. */
+    "POST /sessions/:dir/diff/stop": "SessionResponse",
+    /**
+     * Run `diffview comments <command>` in the agent's worktree, as the agent. Body:
+     * DiffCommentsRequest. 409 when `diffview` is not installed; 404 for an agent without a
+     * repo. The CLI's exit code comes back in the body, not as the HTTP status.
+     */
+    "POST /sessions/:dir/agents/:name/diff/comments": "DiffCommentsResponse",
     /** A service's last log lines: a host service's file or `docker logs`. Query: `lines` */
     "GET /sessions/:dir/stack/logs/:service": "StackLogsResponse",
     /** The machine's memory, cpu and load, and each up stack's share. */
@@ -369,6 +384,11 @@ export interface SessionView {
     agents_running: string[];
     /** True while the stack is up: the operator can test and tick `verify`. */
     can_verify: boolean;
+    /**
+     * The diff viewers (s012). The daemon always sets it; optional so a fixture written
+     * before s012 still type-checks.
+     */
+    diff?: DiffView;
 }
 
 export interface SessionsResponse {
