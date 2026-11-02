@@ -295,6 +295,83 @@ if (flow === "bridge-stub") {
     await finish();
 }
 
+if (flow === "workspace") {
+    // The mission view is the workspace (s014). On the fixture mission: the Goal card, the
+    // Done-when checklist, the Plan in three columns with owner chips, the Roster, one open
+    // question, the Contracts and the Log newest first. A tick writes through the item mode
+    // and comes back with the time; an edit changes the text; a note reaches the owner's
+    // inbox; an answer steers the asker and lands in the Log; the filter narrows the feed;
+    // `source` shows the rendered MISSION.md.
+    await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    await click(".agents-pane .tab", "mission");
+    await until("workspace shown", `document.querySelector(".mw") !== null`);
+    const columns = `[...document.querySelectorAll(".mw-column")]
+        .map((c) => [c.getAttribute("aria-label"), c.querySelectorAll(".mw-item").length])`;
+    const shape = await evaluate(`({
+        columns: ${columns},
+        doneWhen: document.querySelectorAll(".mw-done-when .mw-item").length,
+        agents: [...document.querySelectorAll(".mw-agent-name")].map((a) => a.textContent),
+        questions: document.querySelectorAll(".mw-questions .mw-question-text").length,
+        contracts: document.querySelectorAll(".mw-contracts .mw-item").length,
+        log: [...document.querySelectorAll(".mw-feed .mw-line-text")].map((l) => l.textContent),
+        goal: document.querySelector(".mw-goal .mw-text")?.textContent,
+    })`);
+    console.log("workspace:", JSON.stringify(shape));
+    const wanted = {
+        columns: [["Next", 1], ["Doing", 1], ["Done", 1]],
+        doneWhen: 2, agents: ["backend", "frontend"], questions: 1, contracts: 1,
+        log: ["button wired", "route done", "session created"],
+        goal: "Let a customer request a refund.",
+    };
+    if (JSON.stringify(shape) !== JSON.stringify(wanted)) {
+        throw new Error("the workspace does not show the fixture mission as expected");
+    }
+    await shot("80-workspace");
+    // Tick Plan item 2 (`next`): it moves to `done` with the owner and a time.
+    await click(".mw-item[data-id='plan:2'] .mw-check");
+    const doneItem =
+        `document.querySelector(".mw-column[aria-label=Done] .mw-item[data-id='plan:2']")`;
+    await until("item 2 done", `${doneItem} !== null`);
+    await until("tick time shown", `${doneItem}.querySelector(".mw-time") !== null`);
+    await shot("81-workspace-ticked");
+    // Edit Plan item 3's text in place.
+    await click(".mw-item[data-id='plan:3'] .mw-item-actions button", "edit");
+    await fill(".mw-item[data-id='plan:3'] textarea", "the Stripe refund call");
+    await click(".mw-item[data-id='plan:3'] .mw-inline .primary", "save");
+    const item3 = text(".mw-item[data-id='plan:3'] .mw-item-text");
+    await until("item 3 edited", `${item3}.includes("the Stripe refund call")`);
+    // A note on item 3 goes to its owner's inbox: the drawer's events show the delivery.
+    await click(".mw-item[data-id='plan:3'] .mw-item-actions button", "note");
+    await fill(".mw-item[data-id='plan:3'] textarea", "Use the idempotency key.");
+    await click(".mw-item[data-id='plan:3'] .mw-inline .primary", "send");
+    await until("note reached backend", `${text(".drawer")}.includes("operator → backend")`);
+    // The answer steers backend (running on the fixture) and lands in the Log.
+    await fill("input[aria-label='Answer 1']", "No, full refunds only in round one.");
+    await click(".mw-questions .mw-answer-form button[type=submit]");
+    await until("answer in the Log", `${text(".mw-feed")}.includes("full refunds only")`);
+    await until(
+        "answer first in the feed",
+        `document.querySelector(".mw-feed .mw-line-text")?.textContent.includes("answered")`,
+    );
+    // The filter narrows the feed to one agent.
+    await click(".mw-filter-chip", "frontend");
+    const lines =
+        `[...document.querySelectorAll(".mw-feed .mw-line-text")].map((l) => l.textContent)`;
+    await until("frontend's line alone", `JSON.stringify(${lines}) === '["button wired"]'`);
+    await click(".mw-filter-chip", "all");
+    await until("every line again", `${lines}.length >= 4`);
+    await shot("82-workspace-after-actions");
+    // The source view: the rendered MISSION.md with the Roster table, and its raw toggle.
+    await click(".mission-head .link", "source");
+    await until("source rendered", `document.querySelector(".mission .md table") !== null`);
+    await until("tick in the source", `${text(".mission .md")}.includes("the form")`);
+    await shot("83-workspace-source");
+    await click(".mission-head .link", "workspace");
+    await until("workspace again", `document.querySelector(".mw") !== null`);
+    console.log("workspace ok");
+    await finish();
+}
+
 if (flow === "expanded") {
     // Expanded is one state with one exit. Expand: the previews are the only pane and fill
     // the window, no drawer, no strips, no handles. The activity bar's sessions icon does
@@ -956,11 +1033,11 @@ if (flow === "pipeline") {
     // land and reset, on the first session that has a PR. Runs against the fixture or the daemon.
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     await click(".agents-pane .tab", "mission");
-    await until("mission shown", `${text(".mission")}.includes("Roster")`);
-    await click(".mission-section .link", "edit");
+    await until("mission shown", `document.querySelector(".mw") !== null`);
+    await click(".mw-goal .mw-text");
     await fill("textarea[aria-label='Edit goal']", "Let a customer ask for a refund. Edited.");
-    await click(".section-edit button", "save");
-    await until("goal changed", `${text(".mission")}.includes("Edited.")`);
+    await click(".mw-goal .mw-inline .primary", "save");
+    await until("goal changed", `${text(".mw-goal")}.includes("Edited.")`);
     await shot("13-mission-edited");
     await click(".agents-pane .tab", "threads");
     await until("threads shown", `document.querySelectorAll(".thread").length > 0`);
@@ -1052,7 +1129,7 @@ if (flow === "real-panels") {
     // Read-only look at the M2 panes on a real daemon: mission, threads, the post preview.
     await click(".session", process.env["E2E_SESSION"] ?? "");
     await click(".agents-pane .tab", "mission");
-    await until("mission shown", `${text(".mission")}.includes("Roster")`);
+    await until("mission shown", `document.querySelector(".mw") !== null`);
     await shot("21-real-mission");
     await click(".agents-pane .tab", "threads");
     await until("threads shown", `document.querySelector(".threads") !== null`);
@@ -1075,10 +1152,10 @@ if (flow === "m2-real") {
     };
     await click(".session", session);
     await click(".agents-pane .tab", "mission");
-    await until("mission shown", `${text(".mission")}.includes("Roster")`);
-    await click(".mission-section .link", "edit");
+    await until("mission shown", `document.querySelector(".mw") !== null`);
+    await click(".mw-goal .mw-text");
     await fill("textarea[aria-label='Edit goal']", "Let a customer ask for a refund.");
-    await click(".section-edit button", "save");
+    await click(".mw-goal .mw-inline .primary", "save");
     await until("goal rendered", `${text(".mission")}.includes("ask for a refund")`);
     const disk = readFileSync(process.env["E2E_MISSION"] ?? "", "utf8");
     if (!disk.includes("Let a customer ask for a refund.")) {

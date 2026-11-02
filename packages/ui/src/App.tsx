@@ -261,6 +261,7 @@ export function App() {
             transcripts={transcriptsFor(selected, state.transcripts)}
             usage={state.usage}
             revisions={revisionsOf(state, selected)}
+            mission={selected === undefined ? undefined : state.missions[selected]}
             controls={inRoute ? undefined : []}
             compose={app.compose ? { onCancel: () => app.setCompose(false) } : undefined}
         >

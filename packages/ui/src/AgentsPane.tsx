@@ -5,7 +5,7 @@ import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
-import { MissionPanel } from "./MissionPanel.tsx";
+import { MissionWorkspace } from "./MissionWorkspace.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
 import type { Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
@@ -14,7 +14,9 @@ import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
 import { ViewTabs } from "./ViewTabs.tsx";
-import { tty_path, type AgentCost, type AgentSpec, type SessionView } from "@spinner/protocol";
+import {
+    tty_path, type AgentCost, type AgentSpec, type MissionView, type SessionView,
+} from "@spinner/protocol";
 
 import { formatUsd } from "./costs.ts";
 
@@ -30,6 +32,8 @@ export interface AgentsPaneProps {
     /** The last usage sample, for the services view. */
     usage: UsageSample | null;
     revisions: Revisions;
+    /** The structured mission from the last `mission.changed`, for the mission view. */
+    mission: MissionView | undefined;
     /** The activity drawer, at the bottom of the pane. */
     children?: ReactNode;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
@@ -124,7 +128,7 @@ function agentBase(dir: string, agent: string): string {
 const VIEWS = ["agents", "mission", "threads", "services"];
 
 export function AgentsPane(props: AgentsPaneProps) {
-    const { view, busy, run, transcripts, usage, revisions, children } = props;
+    const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
     const { controls, leading, compose } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
     const [shown, setShown] = useState("agents");
@@ -177,7 +181,12 @@ export function AgentsPane(props: AgentsPaneProps) {
             />
             <div className="chat">
                 {view !== undefined && shown === "mission" && (
-                    <MissionPanel dir={view.summary.dir} revision={revisions.mission} />
+                    <MissionWorkspace
+                        dir={view.summary.dir}
+                        revision={revisions.mission}
+                        view={mission}
+                        running={view.agents_running}
+                    />
                 )}
                 {view !== undefined && shown === "threads" && (
                     <ThreadsPanel

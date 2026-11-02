@@ -1,0 +1,253 @@
+// The fixture's structured mission: `GET /sessions/:dir/mission/view` and the `item` mode of
+// the section route, in the daemon's format (`- [ ] 3. text (owner)`, `- [x] 3. text (owner,
+// 14:02)`). A compact mirror of `packages/daemon/src/pipeline/mission-sections.ts`, enough
+// for the UI drivers; the daemon's own tests cover the edge cases.
+import type {
+    DoneWhenItem, LogLine, MissionItemRequest, MissionLine, MissionView, PlanItem,
+    QuestionItem, RosterRow,
+} from "@spinner/protocol";
+
+interface Item {
+    checked: boolean;
+    id: number | null;
+    text: string;
+    owner: string | null;
+    ticked_at: string | null;
+}
+
+const ITEM_LINE = /^- \[( |x)\]\s*(?:(\d+)\.\s*)?(.*?)\s*$/;
+const TRAILING_PAREN = /^(.*?)\s*\(([^()]*)\)$/;
+const TIME = /^\d\d:\d\d$/;
+const OWNER = /^(?:the )?[A-Za-z0-9_.-]+$/;
+const STAMPED = /^(\S+)\s+([^:]+?):\s*(.*)$/;
+const AUTHORED = /^([^:\s][^:]*?):\s*(.*)$/;
+
+export function parseItem(line: string): Item | null {
+    const match = ITEM_LINE.exec(line);
+    if (match === null || match[3] === undefined || match[3] === "") {
+        return null;
+    }
+    const item: Item = {
+        checked: match[1] === "x", id: match[2] === undefined ? null : Number(match[2]),
+        text: match[3], owner: null, ticked_at: null,
+    };
+    const paren = TRAILING_PAREN.exec(item.text);
+    if (paren === null || paren[1] === undefined || paren[2] === undefined) {
+        return item;
+    }
+    const parts = paren[2].split(",").map((part) => part.trim());
+    const owner = parts[0] ?? "";
+    if (!OWNER.test(owner) || parts.length > 3) {
+        return item;
+    }
+    item.owner = owner;
+    item.ticked_at = parts.slice(1).find((part) => TIME.test(part)) ?? null;
+    item.text = paren[1];
+    return item;
+}
+
+export function renderItem(item: Item): string {
+    const id = item.id === null ? "" : `${item.id}. `;
+    const owner = item.owner ?? (item.ticked_at === null ? null : "?");
+    let tail = "";
+    if (owner !== null) {
+        tail = item.ticked_at === null ? ` (${owner})` : ` (${owner}, ${item.ticked_at})`;
+    }
+    return `- [${item.checked ? "x" : " "}] ${id}${item.text}${tail}`;
+}
+
+function sectionLines(text: string, heading: string): { start: number; end: number } | null {
+    const lines = text.split("\n");
+    const start = lines.indexOf(`## ${heading}`);
+    if (start === -1) {
+        return null;
+    }
+    const next = lines.findIndex((line, index) => index > start && line.startsWith("## "));
+    return { start: start + 1, end: next === -1 ? lines.length : next };
+}
+
+function body(text: string, heading: string): string {
+    const span = sectionLines(text, heading);
+    return span === null ? "" : text.split("\n").slice(span.start, span.end).join("\n");
+}
+
+function items(bodyText: string): Item[] {
+    return bodyText.split("\n").map(parseItem).filter((item): item is Item => item !== null);
+}
+
+/** Plan items without an id get `max + 1` in file order. */
+function withIds(list: Item[]): (Item & { id: number })[] {
+    let max = Math.max(0, ...list.map((item) => item.id ?? 0));
+    return list.map((item) => {
+        if (item.id !== null) {
+            return { ...item, id: item.id };
+        }
+        max += 1;
+        return { ...item, id: max };
+    });
+}
+
+function parseRoster(bodyText: string): RosterRow[] {
+    const rows: RosterRow[] = [];
+    for (const line of bodyText.split("\n")) {
+        if (!line.startsWith("|")) {
+            continue;
+        }
+        const cells = line.replace(/^\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+        const agent = cells[0] ?? "";
+        if (agent === "" || agent === "Agent" || /^-+$/.test(agent)) {
+            continue;
+        }
+        rows.push({
+            agent, owns: cells[1] ?? "", doing: cells[2] ?? "", blocked: cells[3] ?? "",
+            updated: cells[4] ?? "",
+        });
+    }
+    return rows;
+}
+
+function entries(bodyText: string): { head: string; rest: string[] }[] {
+    const out: { head: string; rest: string[] }[] = [];
+    for (const line of bodyText.split("\n")) {
+        if (line.startsWith("- ")) {
+            out.push({ head: line.slice(2).trim(), rest: [] });
+        } else if (line.trim() !== "" && out.length > 0) {
+            out[out.length - 1]?.rest.push(line.trim());
+        }
+    }
+    return out;
+}
+
+function parseLines(bodyText: string): MissionLine[] {
+    return entries(bodyText).map(({ head, rest }, index) => {
+        const tail = rest.length === 0 ? "" : `\n${rest.join("\n")}`;
+        const stamped = STAMPED.exec(head);
+        if (stamped !== null) {
+            const [, ts = "", author = "", text = ""] = stamped;
+            return { id: index + 1, ts, author, text: `${text}${tail}` };
+        }
+        const authored = AUTHORED.exec(head);
+        if (authored !== null && authored[1] !== undefined && !authored[1].includes(" ")) {
+            const text = `${authored[2] ?? ""}${tail}`;
+            return { id: index + 1, ts: null, author: authored[1], text };
+        }
+        return { id: index + 1, ts: null, author: null, text: `${head}${tail}` };
+    });
+}
+
+function parseQuestions(bodyText: string): QuestionItem[] {
+    return entries(bodyText).map(({ head, rest }, index) => {
+        const authored = AUTHORED.exec(head);
+        const named = authored !== null && authored[1] !== undefined && !authored[1].includes(" ");
+        const author = named ? (authored[1] ?? null) : null;
+        const text = author === null ? head : (authored?.[2] ?? "");
+        const answer = rest.map((line) => line.replace(/^-\s+/, "")).join("\n");
+        return { id: index + 1, author, text, answer: answer === "" ? null : answer };
+    });
+}
+
+function parseLog(bodyText: string): LogLine[] {
+    const lines: LogLine[] = [];
+    for (const { head } of entries(bodyText)) {
+        const stamped = STAMPED.exec(head);
+        if (stamped !== null) {
+            const [, ts = "", author = "", text = ""] = stamped;
+            lines.push({ ts, author, text });
+        }
+    }
+    return lines;
+}
+
+/** The structured mission of a MISSION.md text, as the daemon derives it on every read. */
+export function missionView(text: string): MissionView {
+    const roster = parseRoster(body(text, "Roster"));
+    const heading = text.split("\n").find((line) => line.startsWith("# ")) ?? "";
+    const title = /^\S+\s+·\s+(.+)$/.exec(heading.slice(2).trim())?.[1] ?? heading.slice(2).trim();
+    const plan: PlanItem[] = withIds(items(body(text, "Plan"))).map((item) => {
+        const row = roster.find((entry) => entry.agent === item.owner);
+        const mention = new RegExp(`(?:#|\\bitem )${item.id}\\b`);
+        const named = row !== undefined && mention.test(row.doing);
+        return {
+            id: item.id, text: item.text, owner: item.owner, ticked_at: item.ticked_at,
+            state: item.checked ? "done" : named ? "doing" : "next",
+        };
+    });
+    const doneWhen: DoneWhenItem[] = items(body(text, "Done when")).map((item, index) => ({
+        id: index + 1, text: item.text, owner: item.owner, ticked_at: item.ticked_at,
+        state: item.checked ? "done" : "open",
+    }));
+    return {
+        title, goal: body(text, "Goal").trim(), done_when: doneWhen, plan, roster,
+        contracts: parseLines(body(text, "Contracts & decisions")),
+        questions: parseQuestions(body(text, "Open questions")),
+        log: parseLog(body(text, "Log")),
+    };
+}
+
+/** `HH:MM` local, as the daemon stamps a tick. */
+export function clock(now = new Date()): string {
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+}
+
+/**
+ * The `item` mode on `plan` or `done_when`: returns the new text, or an error message. A
+ * done_when item's id is its position; a Plan id is the number in the line.
+ */
+export function applyItem(
+    text: string, section: "plan" | "done_when", author: string, request: MissionItemRequest,
+    now = clock(),
+): { text: string } | { error: string } {
+    const heading = section === "plan" ? "Plan" : "Done when";
+    const span = sectionLines(text, heading);
+    if (span === null) {
+        return { error: `no section ${heading}` };
+    }
+    const lines = text.split("\n");
+    const list = lines.slice(span.start, span.end)
+        .map((line, index) => ({ line: span.start + index, item: parseItem(line) }))
+        .filter((entry): entry is { line: number; item: Item } => entry.item !== null);
+    const withId = section === "plan"
+        ? withIds(list.map((entry) => entry.item))
+        : list.map((entry, index) => ({ ...entry.item, id: index + 1 }));
+    const found = withId.findIndex((item) => item.id === request.id);
+    const entry = list[found];
+    if (request.command === "add") {
+        if (request.text === undefined || request.text === "") {
+            return { error: "add needs text" };
+        }
+        const id = section === "plan" ? Math.max(0, ...withId.map((i) => i.id)) + 1 : null;
+        const owner = section === "plan" ? (request.owner ?? author) : null;
+        const line = renderItem({ checked: false, id, text: request.text, owner, ticked_at: null });
+        const at = list.length === 0 ? span.start : (list[list.length - 1]?.line ?? span.start) + 1;
+        lines.splice(at, 0, line);
+        return { text: lines.join("\n") };
+    }
+    if (entry === undefined) {
+        return { error: `no item ${String(request.id)} in ${heading}` };
+    }
+    // A Plan item keeps the id the view gave it; a done_when id is a position, not written.
+    const item: Item = {
+        ...entry.item, id: section === "plan" ? (withId[found]?.id ?? null) : entry.item.id,
+    };
+    if (request.command === "tick") {
+        item.checked = true;
+        item.ticked_at = now;
+        item.owner = section === "plan" ? (item.owner ?? author) : author;
+    } else if (request.command === "untick") {
+        item.checked = false;
+        item.ticked_at = null;
+    } else if (request.command === "edit") {
+        if (request.text === undefined || request.text === "") {
+            return { error: "edit needs text" };
+        }
+        item.text = request.text;
+    } else if (request.command === "assign") {
+        item.owner = request.owner ?? null;
+    } else {
+        return { error: `${request.command} is not supported by the fixture` };
+    }
+    lines[entry.line] = renderItem(item);
+    return { text: lines.join("\n") };
+}

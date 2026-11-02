@@ -4,6 +4,8 @@ import type { Job, SpinnerEvent } from "@spinner/protocol";
 import { describe, expect, it } from "vitest";
 
 import { initialSessions, session, stackView, view } from "../fixture/data.ts";
+import { missionView } from "../fixture/mission-view.ts";
+import { MISSION } from "../fixture/pipeline.ts";
 import {
     FEED_LIMIT,
     initialState,
@@ -130,5 +132,22 @@ describe("reduce", () => {
         });
         expect(again.costs?.revision).toBe(2);
         expect(again.costs?.today.usd).toBe(1.5);
+    });
+
+    it("keeps the structured mission from mission.changed and moves the revision", () => {
+        const parsed = missionView(MISSION);
+        const state = apply(loaded, {
+            type: "mission.changed", ts, session: "s17-refund-flow", author: "backend",
+            sections: ["plan"], view: parsed,
+        });
+        expect(state.missions["s17-refund-flow"]).toBe(parsed);
+        expect(revisionsOf(state, "s17-refund-flow").mission).toBe(1);
+        // An older daemon sends no view: the workspace loads the route instead.
+        const bare = apply(loaded, {
+            type: "mission.changed", ts, session: "s17-refund-flow", author: "backend",
+            sections: ["plan"],
+        });
+        expect(bare.missions).toEqual({});
+        expect(revisionsOf(bare, "s17-refund-flow").mission).toBe(1);
     });
 });

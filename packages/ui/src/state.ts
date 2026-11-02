@@ -6,6 +6,7 @@
 import type {
     CostsEvent,
     Job,
+    MissionView,
     OperatorView,
     SessionView,
     Settings,
@@ -54,6 +55,11 @@ export interface UiState {
      * Usage section reloads its report when the ledger changed. Null until the first event.
      */
     costs: CostFigures | null;
+    /**
+     * The structured mission per session, from `mission.changed` (s014). The workspace loads
+     * the view route once and then reads here, so an edit by an agent shows without a fetch.
+     */
+    missions: Record<string, MissionView>;
 }
 
 /** What the `costs` event carries for the Usage section's three figures. */
@@ -94,6 +100,7 @@ export const initialState: UiState = {
     settings: null,
     operator: null,
     costs: null,
+    missions: {},
 };
 
 export function transcriptKey(dir: string, agent: string): string {
@@ -165,6 +172,11 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
             return { ...state, settings: event.settings };
         case "operator.updated":
             return { ...state, operator: event.data };
+        case "mission.changed":
+            if (event.view === undefined) {
+                return state;
+            }
+            return { ...state, missions: { ...state.missions, [event.session]: event.view } };
         default:
             return state;
     }

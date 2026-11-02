@@ -14,7 +14,11 @@ import type {
     DiffRepoRequest,
     ExtractRequest,
     ExtractResponse,
+    InboxMessageRequest,
+    InboxMessageResponse,
     MissionSectionRequest,
+    MissionView,
+    MissionViewResponse,
     PostResponse,
     PostView,
     SessionResponse,
@@ -77,6 +81,20 @@ export async function fetchMission(dir: string, signal: AbortSignal): Promise<st
 
 export async function putMissionSection(dir: string, body: MissionSectionRequest): Promise<void> {
     await send("PUT", `/sessions/${dir}/mission/section`, body);
+}
+
+/** The structured mission (s014); `mission.changed` carries the same shape after a write. */
+export async function fetchMissionView(dir: string, signal: AbortSignal): Promise<MissionView> {
+    const response = await getJson<MissionViewResponse>(`/sessions/${dir}/mission/view`, signal);
+    return response.view;
+}
+
+/** Writes an `inbox/` message; the daemon delivers it and sends `inbox.message`. */
+export async function postInbox(
+    dir: string,
+    body: InboxMessageRequest,
+): Promise<InboxMessageResponse> {
+    return send("POST", `/sessions/${dir}/inbox`, body);
 }
 
 export async function fetchThreads(dir: string, signal: AbortSignal): Promise<ThreadsView> {

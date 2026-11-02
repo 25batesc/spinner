@@ -7,10 +7,13 @@ import type {
     ContextFileView,
     Job,
     JobAction,
+    MissionItemRequest,
     SessionView,
     SpinnerEvent,
     ThreadView,
 } from "@spinner/protocol";
+
+import { applyItem, missionView } from "./mission-view.ts";
 
 /** The part of the fixture daemon these routes use. */
 export interface Host {
@@ -26,13 +29,17 @@ export interface Host {
 
 export const MISSION = [
     "# s17 · Refund flow", "", "## Goal", "Let a customer request a refund.", "",
-    "## Done when", "- [ ] refund button works", "", "## Plan", "- [ ] 1. build it", "",
+    "## Done when", "- [x] refund button works (frontend, 10:20)", "- [ ] refunds reach Stripe",
+    "", "## Plan", "- [x] 1. the refund route (backend, 10:12)", "- [ ] 2. the form (frontend)",
+    "- [ ] 3. the Stripe call (backend)", "",
     "## Roster", "| Agent | Owns | Doing | Blocked? | Updated |",
     "|-------|------|-------|----------|---------|",
-    "| backend | api | refunds | no | 10:00 |",
+    "| backend | api | #3 the Stripe call | no | 10:00 |",
     "| frontend | web | form | waiting on api | 10:05 |", "",
-    "## Contracts & decisions", "- 10:00 backend: POST /refunds", "", "## Open questions", "",
-    "## Log", "- 10:00 operator: session created", "",
+    "## Contracts & decisions", "- 10:00 backend: POST /refunds", "",
+    "## Open questions", "- backend: partial refunds in the first round?", "",
+    "## Log", "- 10:00 operator: session created", "- 10:12 backend: route done",
+    "- 10:20 frontend: button wired", "",
 ].join("\n");
 
 const HEADINGS: Record<string, string> = {
@@ -75,6 +82,8 @@ export class PipelineFixture {
         thread("T3", { state: "resolved", replied: true, body: "Typo in the name." }),
     ];
     context = new Map<string, ContextFileView>();
+    /** The notes `POST /sessions/:dir/inbox` wrote, for the tests. */
+    inbox: { file: string; to: string; subject: string; text: string }[] = [];
     posted: string | null = null;
     approved = false;
 
@@ -112,19 +121,50 @@ export class PipelineFixture {
         this.host.emit({ ts: new Date().toISOString(), session: dir, ...event } as SpinnerEvent);
     }
 
-    private putSection(dir: string, body: Record<string, unknown>): string[] {
+    /**
+     * `PUT /sessions/:dir/mission/section`: `replace` and `append` as before, `item` on
+     * `plan` and `done_when` as the daemon (s014). `mission.changed` carries the view.
+     */
+    private putSection(
+        dir: string, body: Record<string, unknown>,
+    ): { sections: string[] } | { error: string } {
         const section = String(body["section"]);
         const heading = HEADINGS[section] ?? section;
-        const lines = this.mission(dir).split("\n");
-        const start = lines.indexOf(`## ${heading}`);
-        const next = lines.findIndex((line, i) => i > start && line.startsWith("## "));
-        const end = next === -1 ? lines.length : next;
-        const text = String(body["text"]);
-        lines.splice(start + 1, end - start - 1, ...text.split("\n"), "");
-        this.missions.set(dir, lines.join("\n"));
         const author = String(body["author"]);
-        this.event(dir, { type: "mission.changed", author, sections: [section] });
-        return [section];
+        const mode = String(body["mode"]);
+        let next: string;
+        if (mode === "item") {
+            if (section !== "plan" && section !== "done_when") {
+                return { error: `item mode is for plan and done_when, not ${section}` };
+            }
+            const request = body["item"] as MissionItemRequest | undefined;
+            if (request === undefined) {
+                return { error: "item mode needs item" };
+            }
+            const result = applyItem(this.mission(dir), section, author, request);
+            if ("error" in result) {
+                return result;
+            }
+            next = result.text;
+        } else {
+            const lines = this.mission(dir).split("\n");
+            const start = lines.indexOf(`## ${heading}`);
+            const after = lines.findIndex((line, i) => i > start && line.startsWith("## "));
+            const end = after === -1 ? lines.length : after;
+            const text = String(body["text"]);
+            if (mode === "append") {
+                const stamp = section === "log" || section === "contracts"
+                    ? `- ${new Date().toTimeString().slice(0, 5)} ${author}: ` : "- ";
+                lines.splice(end - 1, 0, `${stamp}${text}`);
+            } else {
+                lines.splice(start + 1, end - start - 1, ...text.split("\n"), "");
+            }
+            next = lines.join("\n");
+        }
+        this.missions.set(dir, next);
+        const view = missionView(next);
+        this.event(dir, { type: "mission.changed", author, sections: [section], view });
+        return { sections: [section] };
     }
 
     private afterThread(dir: string, opened: string[], resolved: string[]): void {
@@ -201,8 +241,28 @@ export class PipelineFixture {
             response.end(this.mission(dir));
             return true;
         }
+        if (method === "GET" && rest === "mission/view") {
+            return sendJson(response, { view: missionView(this.mission(dir)) });
+        }
         if (method === "PUT" && rest === "mission/section") {
-            return sendJson(response, { ok: true, sections: this.putSection(dir, body) });
+            const result = this.putSection(dir, body);
+            if ("error" in result) {
+                return sendJson(response, { error: result.error }, 400);
+            }
+            return sendJson(response, { ok: true, sections: result.sections });
+        }
+        if (method === "POST" && rest === "inbox") {
+            // As the daemon: the file is written, `inbox.message` tells the UI.
+            const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, "");
+            const to = String(body["to"]);
+            const file = `${stamp}-${String(body["from"])}-${to}.md`;
+            const subject = String(body["subject"]);
+            this.inbox.push({ file, to, subject, text: String(body["text"]) });
+            this.event(dir, {
+                type: "inbox.message", file, from: String(body["from"]), to,
+                subject: String(body["subject"]),
+            });
+            return sendJson(response, { file });
         }
         if (method === "GET" && rest === "threads") {
             return sendJson(response, { threads: this.threadsView(dir) });
