@@ -7,7 +7,6 @@ import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
 import { MissionPanel } from "./MissionPanel.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
-import { PipelineActions } from "./PipelineActions.tsx";
 import type { Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
@@ -39,57 +38,6 @@ export interface AgentsPaneProps {
     leading?: IconButtonProps | undefined;
     /** The compose box as the pane's view, in place of the agents tabs. */
     compose?: { onCancel: () => void } | undefined;
-}
-
-/** One sentence per session button, as its tooltip. */
-const SESSION_TIPS = {
-    up: "Start this session's stack on this machine.",
-    down: "Stop the local stack; the database and the volumes stay.",
-    reset: "Start the next round: a new branch from a fresh base, the facts cleared.",
-    close: "Remove the containers, the database and the worktrees, and archive the session.",
-} as const;
-
-/**
- * The toolbar under the view tabs: the local stack, the pipeline, then the two that end a
- * round or the session. `land`, `reset` and `close` are the irreversible ones and look it.
- */
-function Toolbar(props: {
-    dir: string | undefined;
-    busy: boolean;
-    run: RunAction;
-    revision: number;
-}) {
-    const { dir, busy, run } = props;
-    const off = dir === undefined || busy;
-    const post = (action: keyof typeof SESSION_TIPS) => () =>
-        void run(`/sessions/${dir}/${action}`);
-    const button = (action: keyof typeof SESSION_TIPS, label: string, danger = false) => (
-        <button
-            disabled={off}
-            title={SESSION_TIPS[action]}
-            className={danger ? "danger" : undefined}
-            onClick={post(action)}
-        >
-            {label}
-        </button>
-    );
-    return (
-        <div className="actions toolbar" role="toolbar" aria-label="Session actions">
-            <span className="toolbar-group">
-                {button("up", "run local")}
-                {button("down", "stop local")}
-            </span>
-            <span className="toolbar-sep" />
-            <span className="toolbar-group">
-                <PipelineActions dir={dir} busy={busy} run={run} revision={props.revision} />
-            </span>
-            <span className="toolbar-sep" />
-            <span className="toolbar-group">
-                {button("reset", "reset", true)}
-                {button("close", "close", true)}
-            </span>
-        </div>
-    );
 }
 
 /** The chip's dot: in a turn, hosted and idle, or not hosted at all. */
@@ -226,12 +174,6 @@ export function AgentsPane(props: AgentsPaneProps) {
                 onSelect={setShown}
                 controls={controls}
                 leading={leading}
-            />
-            <Toolbar
-                dir={view?.summary.dir}
-                busy={busy}
-                run={run}
-                revision={revisions.pipeline}
             />
             <div className="chat">
                 {view !== undefined && shown === "mission" && (

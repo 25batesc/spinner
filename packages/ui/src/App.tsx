@@ -22,6 +22,7 @@ import { diffJob } from "./diff-view.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
 import { SessionsPane } from "./SessionsPane.tsx";
+import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
 import { revisionsOf, runningJob, sortedSessions, type UiState } from "./state.ts";
@@ -342,7 +343,19 @@ export function App() {
         expanded || isStrip(layout.fitted.panes.agents) || middle === "operator";
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
-            <ContextBar view={view} usage={state.usage} operator={operatorBar} />
+            <ContextBar
+                view={view}
+                usage={state.usage}
+                operator={operatorBar}
+                toolbar={
+                    <SessionToolbar
+                        dir={selected}
+                        busy={busy}
+                        run={run}
+                        revision={revisionsOf(state, selected).pipeline}
+                    />
+                }
+            />
             <div className="shell-body">
                 <ActivityBar
                     shown={panelShown ? panelView : undefined}

@@ -117,6 +117,13 @@ const fill = (selector: string, value: string) =>
 const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
+// `reset` and `close` sit behind the toolbar's `⋯` menu in the context bar.
+async function clickEndAction(action: "reset" | "close"): Promise<void> {
+    await click(".toolbar-menu .icon-button");
+    await until(`${action} in the menu`, `document.querySelector(".toolbar-menu .menu") !== null`);
+    await click(".toolbar-menu .menu button", action);
+}
+
 await send("Page.enable");
 const BRIDGE_FLOWS = ["bridge-stub", "bridge-popout", "bridge-bar", "bridge-diff"];
 if (BRIDGE_FLOWS.includes(flow)) {
@@ -366,7 +373,7 @@ if (flow === "panes") {
         inSessions: document.querySelectorAll(".sessions-pane ${topToggle}").length,
         context: [...document.querySelector(".context-bar").children]
             .filter((c) => !c.classList.contains("usage-line")
-                && !c.classList.contains("machine-line"))
+                && !c.classList.contains("machine-line") && !c.classList.contains("toolbar"))
             .map((c) => c.innerText).filter((t) => t !== "").join("\\n"),
         links: document.querySelectorAll(".pane-head a, .pane-head .link, .browser-bar a")
             .length,
@@ -924,8 +931,12 @@ if (flow === "pipeline") {
     await click(".confirm button", "approve");
     await until("approve finished", `${text(".drawer")}.includes("approve · ok")`);
     await click(".drawer button", "close");
-    for (const action of ["land", "reset"]) {
-        await click(".actions button", action);
+    for (const action of ["land", "reset"] as const) {
+        if (action === "reset") {
+            await clickEndAction(action);
+        } else {
+            await click(".actions button", action);
+        }
         await until(`${action} finished`, `${text(".drawer")}.includes("${action} · ok")`);
         await click(".drawer button", "close");
     }
@@ -1051,7 +1062,7 @@ if (flow === "m2-real") {
     await click(".actions button", "land");
     await finished("land");
     await shot("31-m2-landed");
-    await click(".actions button", "reset");
+    await clickEndAction("reset");
     await finished("reset");
     await shot("32-m2-reset");
     await click(".agents-pane .tab", "agents");
@@ -1554,19 +1565,24 @@ if (flow === "terminal") {
         await shot("59c-added-agent-selected");
         await click(".agents-pane .tab", "backend");
         await until("back on backend", `${rows}.includes("hello")`);
-        // The pane's chrome: view tabs underlined with no title, the toolbar in three groups
-        // with a tooltip per button and the irreversible ones marked, the agents as chips with
-        // a state dot and a tooltip, the × only on the selected hosted chip, and the sub-tabs.
+        // The pane's chrome: view tabs underlined with no title, the toolbar in the context
+        // bar in three groups (the last one the `⋯` menu, opened here) with a tooltip per
+        // button and the irreversible ones marked, the agents as chips with a state dot and a
+        // tooltip, the × only on the selected hosted chip, and the sub-tabs.
+        await click(".toolbar-menu .icon-button");
+        await until("end menu open", `document.querySelector(".toolbar-menu .menu") !== null`);
         const chrome = await evaluate(`({
+            toolbarInPane: document.querySelectorAll(".agents-pane .toolbar").length,
+            toolbarInBar: document.querySelectorAll(".context-bar .toolbar").length,
             title: document.querySelectorAll(".agents-pane .pane-head").length,
             views: [...document.querySelectorAll(".agents-pane .view-tabs .view-tab")]
                 .map((t) => t.textContent),
             viewSelected: document.querySelector(".agents-pane .view-tabs .tab-selected")
                 ?.textContent,
-            groups: [...document.querySelectorAll(".toolbar .toolbar-group")]
+            groups: [...document.querySelectorAll(".toolbar > .toolbar-group")]
                 .map((g) => [...g.querySelectorAll("button")].map((b) => b.textContent)),
             seps: document.querySelectorAll(".toolbar .toolbar-sep").length,
-            untitled: [...document.querySelectorAll(".toolbar button")]
+            untitled: [...document.querySelectorAll(".toolbar button:not(.icon-button)")]
                 .filter((b) => !b.title.endsWith(".")).map((b) => b.textContent),
             danger: [...document.querySelectorAll(".toolbar .danger")].map((b) => b.textContent),
             chips: [...document.querySelectorAll(".chip")].map((c) => ({
@@ -1583,11 +1599,13 @@ if (flow === "terminal") {
         })`);
         console.log("chrome:", JSON.stringify(chrome));
         const wantedChrome = {
+            toolbarInPane: 0,
+            toolbarInBar: 1,
             title: 0,
             views: ["agents", "mission", "threads", "services"],
             viewSelected: "agents",
             groups: [["run local", "stop local"], ["create PR", "fix", "post", "approve", "land"],
-                ["reset", "close"]],
+                ["", "reset", "close"]],
             seps: 2,
             untitled: [],
             danger: ["land", "reset", "close"],
@@ -2025,7 +2043,7 @@ await until("tick enabled again", `document.querySelector(".verified input")?.di
 await click(".verified input");
 await until("ticked again", `document.querySelector(".verified input")?.checked === true`);
 
-await click(".actions button", "close");
+await clickEndAction("close");
 await until("session gone", `!${text(".sessions-pane")}.includes(${quoted})`);
 await shot("06-closed");
 console.log("lifecycle ok");

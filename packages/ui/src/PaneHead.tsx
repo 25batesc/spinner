@@ -2,6 +2,8 @@
 // pane header, the strip of a collapsed or popped-out pane, the activity bar at the far left
 // and the context bar that names the active session. Chrome shows icons with tooltips, never
 // link text.
+import type { ReactNode } from "react";
+
 import type { CostTotals, PrFacts, SessionView } from "@spinner/protocol";
 
 import { formatTokens, formatUsd } from "./costs.ts";
@@ -262,7 +264,8 @@ export function PrBadge({ prs }: { prs: PrFacts[] }) {
 
 /**
  * The bar above the panes, always visible: the active session's title, stage, stack, PR count
- * and `needs you` line, from `SessionView` alone. One line, the title truncated; no controls.
+ * and `needs you` line, from `SessionView` alone, then the session's toolbar at the right end.
+ * One line, the title truncated.
  */
 export interface ContextBarProps {
     view: SessionView | undefined;
@@ -270,6 +273,8 @@ export interface ContextBarProps {
     usage: UsageSample | null;
     /** The operator agent's notice when it is not running, with the way to start it again. */
     operator?: { notice: string; onResume: () => void } | undefined;
+    /** The session's actions (`SessionToolbar`), after the needs-you pill. */
+    toolbar?: ReactNode;
 }
 
 /** `operator agent not running · resume`: the only control the context bar has. */
@@ -303,12 +308,13 @@ function MachineLine({ usage }: { usage: UsageSample | null }) {
     );
 }
 
-export function ContextBar({ view, usage, operator }: ContextBarProps) {
+export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) {
     if (view === undefined) {
         return (
             <div className="context-bar muted">
                 No session selected. <MachineLine usage={usage} />
                 <OperatorNotice operator={operator} />
+                {toolbar}
             </div>
         );
     }
@@ -334,6 +340,7 @@ export function ContextBar({ view, usage, operator }: ContextBarProps) {
                 </span>
             )}
             <OperatorNotice operator={operator} />
+            {toolbar}
         </div>
     );
 }

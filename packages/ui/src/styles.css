@@ -386,15 +386,30 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .view-tabs .pane-controls, .view-tabs > .icon-button { align-self: center; }
 .view-tabs .pane-controls { margin-left: auto; }
-/* The toolbar under the view tabs: the local stack, the pipeline, and the group that ends a
-   round or the session, apart at the right end. Each group is one joined control that wraps
-   as a unit; the gap between groups replaces the separators. */
+/* The session toolbar, at the right end of the context bar: the local stack, the pipeline,
+   and the ellipsis menu with the two that end a round or the session. Each group is one joined
+   control; the gap between groups replaces the separators. */
 .actions.toolbar {
-    display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; flex: none;
-    gap: var(--space-2) var(--space-3);
+    display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; flex: none;
+    gap: var(--space-2); margin-left: auto;
+}
+.context-bar .context-needs ~ .toolbar, .context-bar .operator-notice ~ .toolbar {
+    margin-left: var(--space-2);
 }
 .toolbar-group { display: flex; flex-wrap: nowrap; }
-.toolbar-group:last-child { margin-left: auto; }
+.toolbar-menu { position: relative; display: flex; }
+.toolbar-menu .menu { top: 28px; min-width: 140px; gap: 2px; }
+.toolbar-menu .menu .danger { color: var(--fail); }
+/* In the menu the groups stack; each button is a full-width row with its own radius. */
+.toolbar-menu .menu .toolbar-group { flex-direction: column; }
+.toolbar-menu .menu .toolbar-group > button {
+    margin-left: 0; border: 0; border-radius: 3px; text-align: left; height: auto;
+    padding: 4px 8px; background: transparent;
+}
+.toolbar-menu .menu .toolbar-group > button:hover:not(:disabled) { background: var(--fill); }
+.toolbar-menu .menu .toolbar-group + .toolbar-group {
+    margin-top: 2px; padding-top: 2px; border-top: 1px solid var(--line-soft);
+}
 .toolbar-sep { display: none; }
 .toolbar-group > button { position: relative; border-radius: 0; margin-left: -1px; }
 .toolbar-group > button:first-child {
