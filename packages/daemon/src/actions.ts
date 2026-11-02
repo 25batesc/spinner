@@ -35,7 +35,7 @@ import {
     provisional_title,
     type ExtractRepo,
 } from "./pipeline/extract.js";
-import { origin_owner } from "./git/worktree.js";
+import { origin_repo } from "./git/worktree.js";
 import type { GhRunner } from "./pipeline/github.js";
 import {
     gh_write_runner,
@@ -164,15 +164,18 @@ export async function extract(ctx: ActionContext, input: ExtractRequest): Promis
     return extract_prs(input.text, repos, { gh: ctx.gh });
 }
 
-/** The project's repos as the extractor resolves against them. */
+/**
+ * The project's repos as the extractor resolves against them: the GitHub name and owner from
+ * each clone's `origin`, else the clone's directory name and `pipeline.github.org`.
+ */
 export async function extract_repos(spec: StackSpec): Promise<ExtractRepo[]> {
     const org = pipeline_config_from_spec(spec).github.org ?? null;
     const entries = Object.entries(spec.repos);
-    const owners = await Promise.all(entries.map(([, repo]) => origin_owner(repo.path)));
+    const origins = await Promise.all(entries.map(([, repo]) => origin_repo(repo.path)));
     return entries.map(([key, repo], index) => ({
         key,
-        owner: owners[index] ?? org,
-        name: basename(repo.path),
+        owner: origins[index]?.owner ?? org,
+        name: origins[index]?.name ?? basename(repo.path),
     }));
 }
 
@@ -201,7 +204,8 @@ export async function adopt_refs(
     if (urls.length === 0) {
         throw new Error("no adoptable pull request among the references; see the log");
     }
-    await adopt_into_session(ctx.home, summary, { urls, loaded, gh: ctx.gh, log });
+    const names = Object.fromEntries(repos.map((repo) => [repo.key, repo.name]));
+    await adopt_into_session(ctx.home, summary, { urls, loaded, names, gh: ctx.gh, log });
     return urls;
 }
 

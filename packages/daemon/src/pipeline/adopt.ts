@@ -93,6 +93,8 @@ export interface AdoptIntoInput {
     urls: string[];
     /** The project, loaded by the caller; the session need not be attached to it yet. */
     loaded: LoadedSpec;
+    /** Repo key to GitHub name, from each clone's origin, for a clone named otherwise. */
+    names?: Record<string, string>;
     gh: GhRunner;
     now?: () => Date;
     log?: (line: string) => void;
@@ -141,7 +143,7 @@ export async function adopt_into_session(
     for (const [index, ref] of refs.entries()) {
         const response = responses[index];
         assert.ok(response !== undefined);
-        const repo = repo_for(ref, spec, log);
+        const repo = repo_for(ref, spec, log, input.names ?? {});
         session.repos[repo.key] = { ...session.repos[repo.key], ...repo.entry };
         heads[repo.key] = response.data.repository.pullRequest.headRefName;
         const facts = pr_facts_from_response(response, { config: config.github, owner_login });
@@ -281,17 +283,19 @@ interface RepoMatch {
 }
 
 /**
- * Maps a PR's GitHub repo to a repo of the spec by the basename of its path, which is the
- * clone directory name in the common case. Without a match, the GitHub name is the key and
- * the PR's repository URL stands in for the path, since no checkout exists for it.
+ * Maps a PR's GitHub repo to a repo of the spec by the name its origin carries (`names`),
+ * else by the basename of its path, which is the clone directory name in the common case.
+ * Without a match, the GitHub name is the key and the PR's repository URL stands in for the
+ * path, since no checkout exists for it.
  */
 function repo_for(
     ref: PrRef,
     spec: Pick<StackSpec, "repos">,
     log: (line: string) => void,
+    names: Record<string, string> = {},
 ): RepoMatch {
     for (const [key, repo] of Object.entries(spec.repos)) {
-        if (basename(repo.path) === ref.name) {
+        if ((names[key] ?? basename(repo.path)) === ref.name) {
             return { key, entry: { path: repo.path, changed: true, pr: null } };
         }
     }

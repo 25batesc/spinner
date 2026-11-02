@@ -125,12 +125,17 @@ export async function checkout_branch(worktree_path: string, branch: string): Pr
     return true;
 }
 
+export interface OriginRepo {
+    owner: string;
+    name: string;
+}
+
 /**
- * The GitHub `owner` of a checkout's `origin`, from `git remote get-url origin`, for
+ * The GitHub `owner/name` of a checkout's `origin`, from `git remote get-url origin`, for
  * `https://github.com/owner/name(.git)` and `git@github.com:owner/name(.git)`; null without
- * an origin or for another host.
+ * an origin or for another host. A clone's directory need not carry the repository's name.
  */
-export async function origin_owner(repo_path: string): Promise<string | null> {
+export async function origin_repo(repo_path: string): Promise<OriginRepo | null> {
     const result = await run("git", ["-C", repo_path, "remote", "get-url", "origin"], {
         timeout_ms: 5_000,
     });
@@ -138,8 +143,11 @@ export async function origin_owner(repo_path: string): Promise<string | null> {
         return null;
     }
     const url = String(result.stdout).trim();
-    const match = /github\.com[:/]([^/]+)\/[^/]+?(?:\.git)?\/?$/.exec(url);
-    return match?.[1] ?? null;
+    const match = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url);
+    if (match === null || match[1] === undefined || match[2] === undefined) {
+        return null;
+    }
+    return { owner: match[1], name: match[2] };
 }
 
 async function branch_exists(repo_path: string, branch: string): Promise<boolean> {

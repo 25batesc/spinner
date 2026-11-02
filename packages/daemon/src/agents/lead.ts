@@ -41,9 +41,12 @@ export async function start_lead_session(
     if (request.project !== undefined) {
         const loaded = load_spec(actions.resolve_project(deps.ctx, request.project));
         if (adopt.length > 0) {
+            const repos = await actions.extract_repos(loaded.spec);
+            const names = Object.fromEntries(repos.map((repo) => [repo.key, repo.name]));
             current = await adopt_into_session(deps.home, current, {
                 urls: adopt,
                 loaded,
+                names,
                 gh: deps.ctx.gh,
                 log,
             });
