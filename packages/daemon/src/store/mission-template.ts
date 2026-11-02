@@ -70,6 +70,11 @@ export interface AgentsFileInput {
     hosts?: Record<string, string>;
     /** Absolute path of the session directory, so an agent in a worktree can find the mission. */
     path?: string;
+    /**
+     * True for an ordinary session (not a review): with `path` set, the file names the EGM
+     * artifact directory, as EGM's `docs/harnesses.md` defines the override. Default false.
+     */
+    egm?: boolean;
 }
 
 /**
@@ -87,6 +92,18 @@ export function render_agents_file(input: AgentsFileInput): string {
         hosts.length === 0
             ? ["This session has no stack yet."]
             : ["## Stack", "", ...hosts.map(([name, host]) => `- ${name}: http://${host}`)];
+    const egm =
+        input.egm === true && input.path !== undefined
+            ? [
+                  "",
+                  "## EGM",
+                  "",
+                  `EGM artifact directory: ${input.path}/design`,
+                  "",
+                  "EGM skills write their briefs, drafts and reports there. " +
+                      "The design doc itself goes into the repo.",
+              ]
+            : [];
     return [
         `# Spinner session ${input.id}`,
         "",
@@ -97,6 +114,7 @@ export function render_agents_file(input: AgentsFileInput): string {
         "3. Follow the editing rules in the brief for `MISSION.md`.",
         "",
         ...stack,
+        ...egm,
         "",
     ].join("\n");
 }

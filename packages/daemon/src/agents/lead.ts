@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import type { NewSessionRequest, SessionSummary, StackSpec } from "@spinner/protocol";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
+import { type EgmFetcher, egm_fetched } from "../egm/fetch.js";
+import { EGM_PIN } from "../egm/pins.js";
 import type { SpinnerHome } from "../home.js";
 import { adopt_into_session } from "../pipeline/adopt.js";
 import { extract_prs } from "../pipeline/extract.js";
@@ -25,6 +27,11 @@ export interface LeadStartDeps {
     home: SpinnerHome;
     ctx: ActionContext;
     agents: AgentManager;
+    /**
+     * The daemon's EGM fetcher. Optional, because route tests call `create_app` without
+     * one; without it the lead starts with no EGM step and no EGM log line.
+     */
+    egm?: EgmFetcher;
 }
 
 /** The job half of `new` with `text`: attach, adopt, start the lead, send the first message. */
@@ -57,6 +64,9 @@ export async function start_lead_session(
     }
     current = upgrade_title(deps, current);
     const repo = single_repo(current);
+    if (deps.egm !== undefined) {
+        await prepare_egm(deps.home, deps.egm, log);
+    }
     log(`starting ${LEAD_NAME}${repo === undefined ? "" : ` in the ${repo} worktree`}`);
     const handle = await deps.agents.add(current, {
         name: LEAD_NAME,
@@ -75,6 +85,27 @@ export async function start_lead_session(
     const check = read_session(deps.home, current.dir);
     assert.ok(check.ok, "a started session must read back");
     return check.summary;
+}
+
+/**
+ * Fetches EGM before the lead's spawn when pi-subagents is installed and EGM is not fetched
+ * yet. A failure is logged and the lead starts without EGM (docs/designs/egm-adoption.md,
+ * 1.17).
+ */
+async function prepare_egm(home: SpinnerHome, egm: EgmFetcher, log: Log): Promise<void> {
+    if (!egm.status().subagents) {
+        log("EGM unavailable: pi-subagents is not in the pi settings; the lead starts without it");
+        return;
+    }
+    if (egm_fetched(home)) {
+        return;
+    }
+    log(`fetching EGM ${EGM_PIN.sha.slice(0, 12)}`);
+    if (await egm.ensure(log)) {
+        log("EGM ready");
+        return;
+    }
+    log(`EGM unavailable: ${egm.status().error ?? "the fetch failed"}; the lead starts without it`);
 }
 
 /** The fallback title gives way to the first adopted PR's title, when one was adopted. */

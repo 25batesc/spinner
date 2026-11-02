@@ -72,6 +72,8 @@ import type { SpinnerHome } from "./home.js";
 import { JobRunner, type JobWork } from "./jobs/jobs.js";
 import { DiffManager } from "./diff/manager.js";
 import { mount_diff_routes } from "./diff/routes.js";
+import { EgmFetcher } from "./egm/fetch.js";
+import { mount_egm_routes } from "./egm/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
@@ -220,6 +222,8 @@ export interface AppDeps {
     clone_url?: CreateReviewsInput["clone_url"];
     /** One GitHub poll round, after a posted review (s016); absent in a route test. */
     poll?: () => Promise<void>;
+    /** The EGM fetcher; `/egm` mounts and a lead fetches EGM when given. */
+    egm?: EgmFetcher;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -273,7 +277,12 @@ export function create_app(deps: AppDeps): Hono {
         const dir = summary.dir;
         if (request.text !== undefined) {
             // s014, chat first: attach, adopt, start the lead, send the paste as its message.
-            const lead_deps = { home: deps.home, ctx: deps.ctx, agents: deps.agents };
+            const lead_deps = {
+                home: deps.home,
+                ctx: deps.ctx,
+                agents: deps.agents,
+                ...(deps.egm === undefined ? {} : { egm: deps.egm }),
+            };
             return start_job(c, deps, "new", dir, (log) =>
                 start_lead_session(lead_deps, summary, request, log).then(() => {}),
             );
@@ -655,6 +664,9 @@ export function create_app(deps: AppDeps): Hono {
     if (deps.diff !== undefined) {
         mount_diff_routes(app, { ...deps, diff: deps.diff });
     }
+    if (deps.egm !== undefined) {
+        mount_egm_routes(app, { fetcher: deps.egm, jobs: deps.jobs });
+    }
     if (deps.writer !== undefined && deps.deliverer !== undefined) {
         // ext: mission section, inbox, context
         mount_agent_routes(app, { ...deps, writer: deps.writer, deliverer: deps.deliverer });
@@ -925,6 +937,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         settings: () => read_settings_or_default(home, log),
         swarm,
         poll,
+        egm: new EgmFetcher(home, process.env),
         ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.

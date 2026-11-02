@@ -27,11 +27,16 @@ import type {
     MissionViewResponse,
     SpinnerEvent,
 } from "@spinner/protocol";
+import { EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES } from "@spinner/protocol";
+import { EgmFetcher, egm_source_dir, marker_path } from "../egm/fetch.js";
+import type { Runner } from "../git/pinned-clone.js";
+import { EGM_PIN } from "../egm/pins.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import type { GhRunner, PrResponse } from "../pipeline/github.js";
 import { start_daemon, type Daemon } from "../server.js";
 import { run_ok } from "../stack/shell.js";
-import { read_session } from "../store/session-store.js";
+import { create_session, read_session } from "../store/session-store.js";
+import { start_lead_session } from "./lead.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = resolve(here, "..", "..", "test", "fixtures", "fake-pi-tty.ts");
@@ -319,5 +324,69 @@ describe("POST /sessions/:dir/adopt", () => {
         const failed = await wait_job(((await none.json()) as { job: Job }).job.id);
         expect(failed.state).toBe("failed");
         expect(failed.error).toContain("no adoptable");
+    });
+});
+
+describe("the EGM step of a lead start", () => {
+    /** A pi agent dir whose settings list pi-subagents, or list nothing. */
+    function pi_env(installed: boolean): NodeJS.ProcessEnv {
+        const dir = mkdtempSync(join(root, "pi-"));
+        const packages = installed ? ["npm:pi-subagents"] : [];
+        writeFileSync(join(dir, "settings.json"), JSON.stringify({ packages }));
+        return { PI_CODING_AGENT_DIR: dir };
+    }
+
+    const failing: Runner = () =>
+        Promise.resolve({ code: 128, stdout: "", stderr: "network down" });
+
+    async function start(egm: EgmFetcher | undefined): Promise<string[]> {
+        const summary = create_session(home, { title: "Egm lead", lead: true });
+        const lines: string[] = [];
+        const deps = {
+            home,
+            ctx: { home, cwd: root, gh },
+            agents: daemon.agents,
+            ...(egm === undefined ? {} : { egm }),
+        };
+        const started = await start_lead_session(deps, summary, { text: "Add a flag" }, (line) =>
+            lines.push(line),
+        );
+        expect(started.session.agents?.["lead"]?.process).toBe("idle");
+        await daemon.agents.stop(summary.dir, "lead");
+        return lines;
+    }
+
+    it("starts the lead and logs the reason when the fetch fails", async () => {
+        const lines = await start(new EgmFetcher(home, pi_env(true), failing));
+        expect(lines).toContain(`fetching EGM ${EGM_PIN.sha.slice(0, 12)}`);
+        const reason = lines.find((line) => line.startsWith("EGM unavailable: "));
+        expect(reason).toMatch(/network down[\s\S]*; the lead starts without it$/);
+        expect(lines.some((line) => line.startsWith("lead started"))).toBe(true);
+    });
+
+    it("skips the fetch without pi-subagents and logs the reason", async () => {
+        const lines = await start(new EgmFetcher(home, pi_env(false), failing));
+        expect(lines).toContain(
+            "EGM unavailable: pi-subagents is not in the pi settings; the lead starts without it",
+        );
+        expect(lines.some((line) => line.startsWith("fetching EGM"))).toBe(false);
+    });
+
+    it("skips the fetch on a fetched home", async () => {
+        for (const file of EGM_REQUIRED_FILES) {
+            const path = join(egm_source_dir(home), file);
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, "x\n");
+        }
+        const marker = { sha: EGM_PIN.sha, adapter_version: EGM_ADAPTER_VERSION, fetched: "x" };
+        writeFileSync(marker_path(home), JSON.stringify(marker));
+        const lines = await start(new EgmFetcher(home, pi_env(true), failing));
+        expect(lines.filter((line) => line.includes("EGM"))).toEqual([]);
+    });
+
+    it("logs no EGM line without a fetcher", async () => {
+        const lines = await start(undefined);
+        expect(lines.filter((line) => line.includes("EGM"))).toEqual([]);
+        expect(lines.some((line) => line.startsWith("lead started"))).toBe(true);
     });
 });

@@ -9,13 +9,21 @@
 // the environment (`EXTENSION_ENV`); it adds the mission to the prompt, the tools and
 // `/spinner-reload`, which makes a context edit a reload instead of a restart. `PiTtyHarness`
 // (`tty-harness.ts`) runs the same pi interactively in a pty; `pi_spawn_options` is the
-// builder both share.
+// builder both share. A lead in an EGM session also gets the EGM skills, the adapters and
+// the run directory (Technical Plan T3 of the EGM design).
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PiEvent, SessionSummary } from "@spinner/protocol";
-import { EXTENSION_ENV, role_of_agent, type ExtensionRole } from "@spinner/protocol";
+import {
+    EXTENSION_ENV,
+    SUBAGENTS_TEMP_ROOT_ENV,
+    SUBAGENT_EXTRA_AGENT_DIRS_ENV,
+    role_of_agent,
+    type ExtensionRole,
+} from "@spinner/protocol";
+import type { EgmSpawn } from "../egm/spawn.js";
 import { model_args, spawn_pi, type PiProcess, type PiSpawnOptions } from "./pi-rpc.js";
 
 export interface AgentSpawnSpec {
@@ -28,6 +36,8 @@ export interface AgentSpawnSpec {
     role?: ExtensionRole;
     /** Skill directories beyond the session's `skills/`, each one `--skill` (s015). */
     skills?: string[];
+    /** The EGM paths of a lead in an EGM session (`egm_spawn`); absent everywhere else. */
+    egm?: EgmSpawn;
 }
 
 /** A command pi lists through `get_commands`: a skill, a prompt template or an extension. */
@@ -144,6 +154,7 @@ export function pi_spawn_options(
             skills_dir: join(session.path, "skills"),
             session_dir: session.path,
             ...(agent.skills === undefined ? {} : { skills: agent.skills }),
+            ...(agent.egm === undefined ? {} : { egm: agent.egm }),
         },
         options,
     );
@@ -166,6 +177,8 @@ export interface PiSpawnInput {
     skills?: string[];
     /** `SPINNER_SESSION_DIR` for the extension. */
     session_dir: string;
+    /** The EGM skills, adapters, run and artifact directories, for a lead of an EGM session. */
+    egm?: EgmSpawn;
 }
 
 /**
@@ -200,6 +213,16 @@ export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): P
         [EXTENSION_ENV.daemon_url]: options.daemon_url?.() ?? "",
         [EXTENSION_ENV.role]: input.role,
     };
+    const egm = input.egm;
+    if (egm !== undefined && existsSync(egm.skills_dir)) {
+        // `subagents_enable` hides `subagent` until the model calls it; a model that sees no
+        // `subagent` tool stops an EGM review (A3 risk 1).
+        extra_args.push("--skill", egm.skills_dir, "--exclude-tools", "subagents_enable");
+        env[SUBAGENT_EXTRA_AGENT_DIRS_ENV] = egm.agents_dir;
+        env[SUBAGENTS_TEMP_ROOT_ENV] = egm.runs_dir;
+        env[EXTENSION_ENV.egm_root] = egm.root;
+        env[EXTENSION_ENV.egm_artifacts] = egm.artifacts_dir;
+    }
     return {
         pi: options.pi(),
         cwd: input.cwd,

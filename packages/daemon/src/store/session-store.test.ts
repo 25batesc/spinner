@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolve_home, type SpinnerHome } from "../home.js";
+import { render_agents_file } from "./mission-template.js";
 import {
     SESSION_FILES,
     SESSION_SUBDIRS,
@@ -138,6 +139,22 @@ describe("list_sessions and read_session", () => {
         if (!read.ok) {
             expect(read.error).toMatch(/newer than supported/);
         }
+    });
+});
+
+describe("render_agents_file", () => {
+    it("names the EGM artifact directory with egm and a path, and only then", () => {
+        const input = { id: "s040", dir: "s040-egm", path: "/home/sessions/s040-egm" };
+        const with_egm = render_agents_file({ ...input, egm: true });
+        expect(with_egm).toContain("## EGM");
+        expect(with_egm.split("\n")).toContain(
+            "EGM artifact directory: /home/sessions/s040-egm/design",
+        );
+        expect(render_agents_file({ ...input, egm: false })).not.toContain("## EGM");
+        expect(render_agents_file(input)).not.toContain("## EGM");
+        expect(render_agents_file({ id: "s040", dir: "s040-egm", egm: true })).not.toContain(
+            "## EGM",
+        );
     });
 });
 

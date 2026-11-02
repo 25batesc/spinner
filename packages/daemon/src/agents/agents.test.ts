@@ -10,11 +10,19 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Session, SpinnerEvent } from "@spinner/protocol";
+import {
+    EGM_ADAPTER_VERSION,
+    EGM_REQUIRED_FILES,
+    type Session,
+    type SpinnerEvent,
+} from "@spinner/protocol";
+import { egm_adapter_dir, egm_source_dir, marker_path } from "../egm/fetch.js";
+import { EGM_PIN } from "../egm/pins.js";
+import type { EgmSpawn } from "../egm/spawn.js";
 import { EventBus } from "../event-bus.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
-import { create_session } from "../store/session-store.js";
-import { PiRpcHarness, default_extension_path } from "./harness.js";
+import { create_session, write_session } from "../store/session-store.js";
+import { PiRpcHarness, default_extension_path, pi_spawn_plan } from "./harness.js";
 import { events_of_transcript } from "./history.js";
 import { AgentManager, ensure_brief } from "./manager.js";
 import { models_of } from "./models.js";
@@ -284,6 +292,125 @@ describe("AgentManager with PiRpcHarness", () => {
         expect(again.argv).toContain("claude-r");
         await manager.stop_all();
         delete process.env["FAKE_PI_ARGS_FILE"];
+    });
+});
+
+/** A home with every required EGM file and a marker at the pin: `egm_fetched` is true. */
+function fetch_egm_by_hand(target: SpinnerHome): void {
+    for (const file of EGM_REQUIRED_FILES) {
+        const path = join(egm_source_dir(target), file);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, "x\n");
+    }
+    mkdirSync(egm_adapter_dir(target), { recursive: true });
+    const marker = { sha: EGM_PIN.sha, adapter_version: EGM_ADAPTER_VERSION, fetched: "now" };
+    writeFileSync(marker_path(target), JSON.stringify(marker));
+}
+
+describe("the EGM spawn of a lead", () => {
+    const EGM_ENV = [
+        "PI_SUBAGENT_EXTRA_AGENT_DIRS",
+        "PI_SUBAGENTS_TEMP_ROOT",
+        "SPINNER_EGM_ROOT",
+        "SPINNER_EGM_ARTIFACTS",
+    ];
+
+    it("pi_spawn_plan adds the skills, the exclusion and four variables only with egm", () => {
+        const summary = create_session(home, { title: "Plan" });
+        const brief = join(summary.path, "BRIEF.md");
+        writeFileSync(brief, "# lead\n");
+        const skills_dir = join(home.root, "egm", "src", "skills");
+        mkdirSync(skills_dir, { recursive: true });
+        const egm: EgmSpawn = {
+            root: join(home.root, "egm", "src"),
+            skills_dir,
+            agents_dir: join(home.root, "egm", "pi", "agents"),
+            runs_dir: join(summary.path, "egm-runs"),
+            artifacts_dir: join(summary.path, "design"),
+        };
+        const input = {
+            name: "lead",
+            cwd: summary.path,
+            model: undefined,
+            role: "lead" as const,
+            brief,
+            pi_dir: join(summary.path, "agents", "lead", "pi"),
+            session_dir: summary.path,
+        };
+        const options = { pi: () => FAKE_PI, extension: null };
+        const plan = pi_spawn_plan({ ...input, egm }, options);
+        expect(plan.extra_args).toContain("--exclude-tools");
+        const skill_at = plan.extra_args.indexOf(skills_dir);
+        expect(plan.extra_args[skill_at - 1]).toBe("--skill");
+        const exclude_at = plan.extra_args.indexOf("--exclude-tools");
+        expect(plan.extra_args[exclude_at + 1]).toBe("subagents_enable");
+        expect(plan.env).toMatchObject({
+            PI_SUBAGENT_EXTRA_AGENT_DIRS: egm.agents_dir,
+            PI_SUBAGENTS_TEMP_ROOT: egm.runs_dir,
+            SPINNER_EGM_ROOT: egm.root,
+            SPINNER_EGM_ARTIFACTS: egm.artifacts_dir,
+        });
+        const plain = pi_spawn_plan(input, options);
+        expect(plain.extra_args).not.toContain("--exclude-tools");
+        expect(plain.extra_args).not.toContain(skills_dir);
+        for (const name of EGM_ENV) {
+            expect(Object.keys(plain.env ?? {})).not.toContain(name);
+        }
+    });
+
+    it("AgentManager gives a lead the EGM spawn, never a worker; AGENTS.md by kind", async () => {
+        fetch_egm_by_hand(home);
+        const pi_dir = mkdtempSync(join(tmpdir(), "spinner-pi-"));
+        writeFileSync(join(pi_dir, "settings.json"), '{"packages":["npm:pi-subagents"]}');
+        const saved = process.env["PI_CODING_AGENT_DIR"];
+        process.env["PI_CODING_AGENT_DIR"] = pi_dir;
+        const args_file = join(home.root, "args.json");
+        process.env["FAKE_PI_ARGS_FILE"] = args_file;
+        try {
+            const summary = create_session(home, { title: "Egm" });
+            const harness = new PiRpcHarness({ pi: () => FAKE_PI });
+            const manager = new AgentManager(
+                home,
+                { default: "rpc", rpc: harness },
+                new EventBus(),
+            );
+            await manager.add(summary, { name: "lead", brief: "# lead" });
+            const lead = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
+            expect(lead.argv).toContain(join(egm_source_dir(home), "skills"));
+            expect(lead.argv).toContain("subagents_enable");
+            expect(lead.env).toMatchObject({
+                // The fake pi records only the SPINNER_* variables; the plan test checks the rest.
+                SPINNER_EGM_ROOT: egm_source_dir(home),
+                SPINNER_EGM_ARTIFACTS: join(summary.path, "design"),
+            });
+            const agents_file = readFileSync(join(summary.path, "AGENTS.md"), "utf8");
+            expect(agents_file).toContain(`EGM artifact directory: ${summary.path}/design`);
+
+            await manager.add(summary, { name: "backend", brief: "# backend" });
+            const worker = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
+            expect(worker.argv).not.toContain("subagents_enable");
+            for (const name of EGM_ENV) {
+                expect(Object.keys(worker.env)).not.toContain(name);
+            }
+            await manager.stop_all();
+
+            const review = create_session(home, { title: "Review" });
+            review.session.kind = "review";
+            write_session(review);
+            await manager.add(review, { name: "lead", brief: "# lead" });
+            const reviewed = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
+            expect(reviewed.argv).not.toContain("subagents_enable");
+            const review_file = readFileSync(join(review.path, "AGENTS.md"), "utf8");
+            expect(review_file).not.toContain("## EGM");
+            await manager.stop_all();
+        } finally {
+            delete process.env["FAKE_PI_ARGS_FILE"];
+            if (saved === undefined) {
+                delete process.env["PI_CODING_AGENT_DIR"];
+            } else {
+                process.env["PI_CODING_AGENT_DIR"] = saved;
+            }
+        }
     });
 });
 

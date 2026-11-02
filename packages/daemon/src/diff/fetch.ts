@@ -7,13 +7,16 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import { DIFF_FETCH_TIMEOUT_MS, DIFF_HOME_DIR } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
-import { run as run_command, type RunOptions, type RunResult } from "../stack/shell.js";
-import { DIFF_PINS, DIFF_VIEWER_BIN, type DiffPin } from "./pins.js";
+import {
+    clone_at_sha,
+    run as run_command,
+    run_step,
+    type Log,
+    type Runner,
+} from "../git/pinned-clone.js";
+import { DIFF_PINS, DIFF_VIEWER_BIN } from "./pins.js";
 
-export type Log = (line: string) => void;
-
-/** The command runner, injectable so a test fetches nothing. */
-export type Runner = (command: string, args: string[], options?: RunOptions) => Promise<RunResult>;
+export type { Log, Runner };
 
 /** `<home>/diffview`: `DIFFVIEW_HOME` for the viewer and the CLI. */
 export function diff_home(home: SpinnerHome): string {
@@ -90,14 +93,17 @@ export async function fetch_diffview(
     const source = diff_source_dir(home);
     mkdirSync(source, { recursive: true });
     rmSync(marker_path(home), { force: true });
+    const bound = { runner, deadline, timeout_ms: DIFF_FETCH_TIMEOUT_MS, what: "diffview" };
     for (const pin of [DIFF_PINS.peanut, DIFF_PINS.viewer]) {
-        await clone_pin(source, pin, log, runner, deadline);
+        const dir = join(source, pin.dir);
+        await clone_at_sha({ dir, repo: pin.repo, sha: pin.sha, log, ...bound });
     }
     const viewer = join(source, DIFF_PINS.viewer.dir);
     log(`npm install in ${viewer}`);
-    await step(runner, "npm", ["install", "--no-audit", "--no-fund"], viewer, deadline);
+    const install = ["install", "--no-audit", "--no-fund"];
+    await run_step({ command: "npm", args: install, cwd: viewer, ...bound });
     log(`check: node ${DIFF_VIEWER_BIN} --help`);
-    await step(runner, "node", [DIFF_VIEWER_BIN, "--help"], viewer, deadline);
+    await run_step({ command: "node", args: [DIFF_VIEWER_BIN, "--help"], cwd: viewer, ...bound });
     const marker: FetchMarker = {
         viewer: DIFF_PINS.viewer.sha,
         peanut: DIFF_PINS.peanut.sha,
@@ -106,47 +112,6 @@ export async function fetch_diffview(
     writeFileSync(marker_path(home), `${JSON.stringify(marker, null, 4)}\n`);
     log(`fetched diffview ${short(marker.viewer)} and peanut ${short(marker.peanut)}`);
     return marker;
-}
-
-async function clone_pin(
-    source: string,
-    pin: DiffPin,
-    log: Log,
-    runner: Runner,
-    deadline: number,
-): Promise<void> {
-    const dir = join(source, pin.dir);
-    rmSync(dir, { recursive: true, force: true });
-    mkdirSync(dir, { recursive: true });
-    const url = `https://github.com/${pin.repo}.git`;
-    log(`clone ${pin.repo} at ${short(pin.sha)} into ${dir}`);
-    // A shallow fetch of one commit: `git clone` cannot take a sha, and the history is not
-    // needed to run the viewer.
-    await step(runner, "git", ["init", "--quiet"], dir, deadline);
-    await step(runner, "git", ["remote", "add", "origin", url], dir, deadline);
-    const fetch_args = ["fetch", "--quiet", "--depth", "1", "origin", pin.sha];
-    await step(runner, "git", fetch_args, dir, deadline);
-    await step(runner, "git", ["checkout", "--quiet", "FETCH_HEAD"], dir, deadline);
-}
-
-/** Runs one command inside what is left of the bound; a non-zero exit is an error. */
-async function step(
-    runner: Runner,
-    command: string,
-    args: string[],
-    cwd: string,
-    deadline: number,
-): Promise<void> {
-    const left = deadline - Date.now();
-    if (left <= 0) {
-        const minutes = DIFF_FETCH_TIMEOUT_MS / 60_000;
-        throw new Error(`the diffview fetch passed its ${minutes} minute bound`);
-    }
-    const result = await runner(command, args, { cwd, timeout_ms: left });
-    if (result.code !== 0) {
-        const output = `${String(result.stdout)}\n${result.stderr}`.trim();
-        throw new Error(`${command} ${args.join(" ")} exited ${result.code} in ${cwd}:\n${output}`);
-    }
 }
 
 function short(sha: string): string {

@@ -20,6 +20,7 @@ import type {
 } from "@spinner/protocol";
 import { SETTINGS_DEFAULT, role_of_agent } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
+import { egm_spawn } from "../egm/spawn.js";
 import type { SpinnerHome } from "../home.js";
 import { is_spinner_leader, process_start_time } from "../stack/host-service.js";
 import { render_brief } from "../store/brief-template.js";
@@ -186,11 +187,18 @@ export class AgentManager {
         const harness = this.harnesses[harness_name];
         assert.ok(harness !== undefined, `no ${harness_name} harness`);
         const skills = extra.skills ?? listed?.skills;
+        // EGM paths are computed on every spawn, not recorded, so a resume after a fetch
+        // picks them up.
+        const egm =
+            role_of_agent(request.name) === "lead"
+                ? egm_spawn(this.home, summary, process.env)
+                : null;
         const spawned = await harness.spawn(summary, {
             name: request.name,
             model,
             cwd,
             ...(skills === undefined ? {} : { skills }),
+            ...(egm === null ? {} : { egm }),
         });
         const handle = this.with_pending(key, spawned);
         const started = process_start_time(handle.pid);
@@ -420,6 +428,7 @@ export class AgentManager {
                 id: summary.session.id,
                 dir: summary.dir,
                 path: summary.path,
+                egm: (summary.session.kind ?? "session") === "session",
                 ...(hosts === undefined ? {} : { hosts }),
             }),
         );
