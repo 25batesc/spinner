@@ -797,6 +797,10 @@
                 "pr": {
                     "type": "string",
                     "description": "Repo key of `repos` whose PR the reviewer reads."
+                },
+                "error": {
+                    "type": "string",
+                    "description": "Why the reviewer is `failed` (s016): the start error, the last text, or the exit code."
                 }
             },
             "required": [
@@ -1379,6 +1383,25 @@
                         "null"
                     ],
                     "description": "The posted review's URL (s016), null until `post`."
+                },
+                "state": {
+                    "$ref": "#/definitions/ReviewProgress",
+                    "description": "The daemon always sets the next three; optional so an older fixture type-checks."
+                },
+                "comment_count": {
+                    "type": "number",
+                    "description": "Line comments in the draft; 0 without one."
+                },
+                "event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ReviewEvent"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The draft's event (`APPROVE` when the lead found nothing); null without a draft."
                 }
             },
             "required": [
@@ -1414,6 +1437,13 @@
                 "pr": {
                     "type": "string",
                     "description": "Repo key of the PR the reviewer reads."
+                },
+                "error": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Why a `failed` reviewer failed (s016), truncated; null in the other states. The daemon always sets it; optional so a fixture written before s016 still type-checks."
                 }
             },
             "required": [
@@ -1480,6 +1510,16 @@
             ],
             "additionalProperties": false,
             "description": "One line comment of the draft: the file, the line on the right side of the diff, the body."
+        },
+        "ReviewProgress": {
+            "type": "string",
+            "enum": [
+                "idle",
+                "reviewing",
+                "drafted",
+                "posted"
+            ],
+            "description": "Where a review stands (s016): `drafted` while a draft exists; else `reviewing` while a reviewer is `queued` or `reading` or the lead runs a turn; else `posted` once a review went up; else `idle`."
         }
     },
     "$id": "https://spinner.dev/schema/session-view.json",

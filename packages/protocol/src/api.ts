@@ -469,7 +469,19 @@ export interface SwarmMember {
     usd: number;
     /** Repo key of the PR the reviewer reads. */
     pr: string;
+    /**
+     * Why a `failed` reviewer failed (s016), truncated; null in the other states. The daemon
+     * always sets it; optional so a fixture written before s016 still type-checks.
+     */
+    error?: string | null;
 }
+
+/**
+ * Where a review stands (s016): `drafted` while a draft exists; else `reviewing` while a
+ * reviewer is `queued` or `reading` or the lead runs a turn; else `posted` once a review
+ * went up; else `idle`.
+ */
+export type ReviewProgress = "idle" | "reviewing" | "drafted" | "posted";
 
 /** The review fields of a `SessionView` (s015, s016); the `review.updated` payload. */
 export interface ReviewFields {
@@ -486,6 +498,12 @@ export interface ReviewFields {
     draft: ReviewDraft | null;
     /** The posted review's URL (s016), null until `post`. */
     posted_url: string | null;
+    /** The daemon always sets the next three; optional so an older fixture type-checks. */
+    state?: ReviewProgress;
+    /** Line comments in the draft; 0 without one. */
+    comment_count?: number;
+    /** The draft's event (`APPROVE` when the lead found nothing); null without a draft. */
+    event?: ReviewEvent | null;
 }
 
 /** The review events of a PR review, as GitHub names them (s016). */

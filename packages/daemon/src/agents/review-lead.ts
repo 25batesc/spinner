@@ -1,8 +1,10 @@
 // The review lead (MISSION.md s016, Plan item 2): the `reviews` job, after `create_reviews`
 // made the session, starts the agent `lead` in the PR worktree with the review lead's brief
 // (the operator's `pr-review` skill, `store/review-brief.ts`), sends it the PR as its first
-// message, and starts the swarm. The lead writes the briefing while the reviewers read, and
-// the swarm notifies it when the last verdict lands. The model is `settings.default_model`
+// message, and starts the swarm. Both run headless on the rpc harness (s016: an interactive
+// pi's startup screen ate the first message). The lead writes the briefing while the
+// reviewers read, and the swarm notifies it when the last verdict lands. The model is
+// `settings.default_model`
 // (the manager applies it when the request names none). An ordinary session's `review` does
 // not come through here: its lead is the session's own, and the swarm's notice reaches it.
 import assert from "node:assert/strict";
@@ -44,7 +46,12 @@ export async function start_review_lead(
         writeFileSync(brief_file, render_review_lead_brief(input));
     }
     try {
-        const handle = await deps.agents.add(summary, { name: LEAD_NAME, repo: key });
+        // Headless (s016): no pty, so no startup screen eats the first message.
+        const handle = await deps.agents.add(
+            summary,
+            { name: LEAD_NAME, repo: key },
+            { harness: "rpc" },
+        );
         log(`${LEAD_NAME} started (pid ${handle.pid}) in the ${key} worktree`);
         const message = review_lead_kickoff(input, pr.head);
         try {

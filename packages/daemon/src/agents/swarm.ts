@@ -1,12 +1,13 @@
 // The review swarm (MISSION.md s015 Plan item 3, s016 Plan item 2): one tty agent per model
 // in `settings.review.models` on each target PR, each with the reviewer brief
 // (`store/review-brief.ts`, the operator's `reviewer` role) in the PR repo's worktree and
-// the role's skills through `--skill`. The swarm is bounded by the running-agents cap: a
+// the role's skills through `--skill`, headless on the rpc harness (s016: an interactive
+// pi's startup screen ate the first message). The swarm is bounded by the running-agents cap: a
 // reviewer that cannot start waits in a queue per session as `queued`, and the next one
 // starts on `agent.exited`. A reviewer is `reading` from its start; `done` when the last
 // assistant text of its settled turn carries a `VERDICT:` line: the daemon saves that text
-// as `artifacts/reviews/<model-slug>.md` and stops the pi, so the slot frees and the
-// transcript stays for the tab; `failed` when it exits without one. Reviewers never post.
+// as `artifacts/reviews/<model-slug>.md` and stops the pi, so the slot frees; `failed`,
+// with the reason in the record, when it cannot start or exits without one. Reviewers never post.
 // When the last reviewer of a session lands, the lead gets the verdicts notice through the
 // extension channel (or with its next prompt when it is not running). The states live in
 // `session.yaml` under `review.swarm`, so the view and a restarted daemon read them.
@@ -40,12 +41,15 @@ import {
     verdicts_notice,
 } from "../store/review-brief.js";
 import { list_sessions, read_session, write_session } from "../store/session-store.js";
-import { agent_brief_path } from "./harness.js";
+import { agent_brief_path, type AgentHandle } from "./harness.js";
 import { agent_history } from "./history.js";
 import type { AgentManager } from "./manager.js";
 
 /** Upper bound on reviewers waiting in one session's queue. */
 const QUEUE_PER_SESSION_MAX = 100;
+
+/** Upper bound on a `failed` reason's length in `session.yaml` and on the chip. */
+const ERROR_CHARS_MAX = 300;
 
 export interface SwarmDeps {
     home: SpinnerHome;
@@ -94,7 +98,7 @@ export class ReviewSwarm {
             } else if (event.type === "agent.settled") {
                 void this.on_settled(event.session, event.agent);
             } else if (event.type === "agent.exited") {
-                void this.on_exited(event.session, event.agent);
+                void this.on_exited(event.session, event.agent, event.code);
             }
         });
     }
@@ -247,7 +251,7 @@ export class ReviewSwarm {
             const handle = await this.deps.agents.add(
                 read.summary,
                 { name: entry.name, model: entry.model, repo: entry.target.key },
-                skills.length === 0 ? {} : { skills },
+                { harness: "rpc", ...(skills.length === 0 ? {} : { skills }) },
             );
             this.last_text.delete(key_of(entry.dir, entry.name));
             this.record(entry.dir, entry.name, "reading");
@@ -262,7 +266,7 @@ export class ReviewSwarm {
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             this.log(`reviewer ${entry.name} in ${entry.dir} did not start: ${reason}`);
-            this.record(entry.dir, entry.name, "failed");
+            this.record(entry.dir, entry.name, "failed", undefined, `did not start: ${reason}`);
             await this.refresh(entry.dir);
             await this.notify_lead_when_landed(entry.dir);
             return false;
@@ -308,11 +312,19 @@ export class ReviewSwarm {
         await this.notify_lead_when_landed(dir);
     }
 
-    /** An exit without a verdict is `failed`; either way the next queued reviewer starts. */
-    private async on_exited(dir: string, agent: string): Promise<void> {
+    /**
+     * An exit without a verdict is `failed`, with the last assistant text as the reason (else
+     * the exit code); either way the next queued reviewer starts.
+     */
+    private async on_exited(dir: string, agent: string, code: number | null): Promise<void> {
         const record = this.swarm_record(dir, agent);
         if (record !== null && record.state === "reading") {
-            this.record(dir, agent, "failed");
+            const read = read_session(this.deps.home, dir);
+            const text =
+                this.last_text.get(key_of(dir, agent)) ??
+                (read.ok ? last_assistant_text(read.summary.path, agent) : "");
+            const why = text.trim().length > 0 ? text : `pi exited with ${code ?? "a signal"}`;
+            this.record(dir, agent, "failed", undefined, `exited without a verdict: ${why}`);
             this.log(`reviewer ${agent} in ${dir} exited without a verdict: failed`);
             await this.refresh(dir);
             await this.notify_lead_when_landed(dir);
@@ -360,18 +372,37 @@ export class ReviewSwarm {
             failed: failed.map(([name]) => name),
         });
         const lead = this.deps.agents.get(dir, LEAD_NAME);
-        if (lead === null || lead.notify === undefined) {
+        if (lead === null) {
             this.deps.agents.queue_for_next_prompt(dir, LEAD_NAME, text);
             this.log(`verdicts of ${dir} landed; the notice waits for ${LEAD_NAME}'s next prompt`);
             return;
         }
         try {
-            const disposition = await lead.notify(text);
+            const disposition = await this.deliver_to_lead(dir, lead, text);
             this.log(`verdicts of ${dir} landed; ${LEAD_NAME} notified (${disposition})`);
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             this.deps.agents.queue_for_next_prompt(dir, LEAD_NAME, text);
             this.log(`verdicts of ${dir} landed; notify ${LEAD_NAME} failed (${reason}); queued`);
+        }
+    }
+
+    /**
+     * The notice to a running lead. A tty lead takes `notify`. A headless (rpc) lead has no
+     * custom message: it gets a prompt when idle and a steer while it runs (the rpc `prompt`
+     * refuses a busy pi); a prompt that loses that race is sent again as a steer.
+     */
+    private async deliver_to_lead(dir: string, lead: AgentHandle, text: string): Promise<string> {
+        if (lead.notify !== undefined) {
+            return lead.notify(text);
+        }
+        if (this.deps.agents.is_busy(dir, LEAD_NAME)) {
+            return lead.steer(text);
+        }
+        try {
+            return await lead.prompt(text);
+        } catch {
+            return lead.steer(text);
         }
     }
 
@@ -386,12 +417,16 @@ export class ReviewSwarm {
         return read.summary.session.review?.swarm[agent] ?? null;
     }
 
-    /** Writes the reviewer's state (and on the first write, its model and PR) to the file. */
+    /**
+     * Writes the reviewer's state (and on the first write, its model and PR) to the file. A
+     * `failed` state carries its reason, truncated; the other states drop an old one.
+     */
     private record(
         dir: string,
         name: string,
         state: SwarmState,
         facts?: Pick<SwarmRecord, "model" | "pr">,
+        error?: string,
     ): void {
         const read = read_session(this.deps.home, dir);
         if (!read.ok) {
@@ -403,7 +438,13 @@ export class ReviewSwarm {
         const base =
             facts ?? (current === undefined ? null : { model: current.model, pr: current.pr });
         assert.ok(base !== null, `reviewer ${name} has no record in ${dir}`);
-        session.review.swarm[name] = { model: base.model, pr: base.pr, state };
+        const reason = error === undefined ? undefined : truncate(error, ERROR_CHARS_MAX);
+        session.review.swarm[name] = {
+            model: base.model,
+            pr: base.pr,
+            state,
+            ...(reason === undefined ? {} : { error: reason }),
+        };
         write_session(read.summary);
     }
 
@@ -506,6 +547,11 @@ function target_of(summary: SessionSummary, key: string): ReviewTarget | null {
         return null;
     }
     return { key, number: pr.number, url: pr.url };
+}
+
+function truncate(text: string, max: number): string {
+    const flat = text.replace(/\s+/g, " ").trim();
+    return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
 
 function key_of(dir: string, name: string): string {

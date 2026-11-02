@@ -285,6 +285,9 @@ describe("the review routes", () => {
         expect(session.needs_human).toBe(REVIEW_DRAFT_NEEDS_HUMAN);
         const view = await view_of(dir);
         expect(view.review?.draft).toEqual(GOOD);
+        expect(view.review?.state).toBe("drafted");
+        expect(view.review?.comment_count).toBe(1);
+        expect(view.review?.event).toBe("COMMENT");
         expect(view.board?.needs_human).toBe(REVIEW_DRAFT_NEEDS_HUMAN);
 
         expect((await call("DELETE", `/sessions/${dir}/review/draft`)).status).toBe(200);
@@ -332,6 +335,9 @@ describe("the review routes", () => {
         const view = await view_of(dir);
         expect(view.review?.posted_url).toBe(result.url);
         expect(view.review?.draft).toBeNull();
+        expect(view.review?.state).toBe("posted");
+        expect(view.review?.comment_count).toBe(0);
+        expect(view.review?.event).toBeNull();
         expect((await call("POST", `/sessions/${dir}/review/post`)).status).toBe(409);
     });
 

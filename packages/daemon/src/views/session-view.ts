@@ -9,6 +9,7 @@ import type {
     BoardView,
     DiffView,
     ReviewFields,
+    ReviewProgress,
     ServiceStatus,
     ServiceView,
     SessionCost,
@@ -19,6 +20,7 @@ import type {
     StackView,
     SwarmMember,
 } from "@spinner/protocol";
+import { LEAD_NAME } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { derive_stage } from "../pipeline/derive-stage.js";
 import { briefing_path, read_draft } from "../pipeline/review-draft.js";
@@ -99,8 +101,23 @@ export function build_review(
             state: record.state,
             usd: cost?.agents[name]?.usd ?? 0,
             pr: record.pr,
+            error: record.state === "failed" ? (record.error ?? null) : null,
         }),
     );
+    const draft = read_draft(summary.path);
+    const posted_url = session.review?.posted_url ?? null;
+    // The lead's process stays up after the draft and after the post, waiting for the
+    // operator; only a running turn (reconciling) counts as reviewing.
+    const busy = swarm.some((m) => m.state === "queued" || m.state === "reading");
+    const lead_busy = session.agents?.[LEAD_NAME]?.process === "running";
+    let state: ReviewProgress = "idle";
+    if (draft !== null) {
+        state = "drafted";
+    } else if (busy || lead_busy) {
+        state = "reviewing";
+    } else if (posted_url !== null) {
+        state = "posted";
+    }
     return {
         checks: pr?.checks ?? "pending",
         failing: pr?.checks_failing ?? [],
@@ -109,8 +126,11 @@ export function build_review(
             pr === null ? 0 : pr.threads.bots_open + pr.threads.humans_open + pr.threads.resolved,
         swarm,
         briefing: existsSync(briefing_path(summary.path)),
-        draft: read_draft(summary.path),
-        posted_url: session.review?.posted_url ?? null,
+        draft,
+        posted_url,
+        state,
+        comment_count: draft?.comments.length ?? 0,
+        event: draft?.event ?? null,
     };
 }
 

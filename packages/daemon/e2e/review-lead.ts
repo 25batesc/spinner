@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // E2e for the review lead against the real pi (MISSION.md s016, "Done when", the e2e line): a
 // scratch daemon on a scratch SPINNER_HOME and a free port. The script pastes the sandbox PR
-// through `POST /reviews` with one reviewer model and the same model for the lead, then
+// through `POST /reviews` with one real reviewer model, one reviewer on a model that does
+// not exist (its chip must read `failed` with the reason), and the same real model for the
+// lead; the lead and the reviewers run headless (rpc), so `/tty` refuses them with 409. It
 // waits on artifacts: the lead's process and the reviewer's chip, `artifacts/briefing.md`
 // (`review.briefing` on the view), the verdict file `artifacts/reviews/<model-slug>.md`
 // (the chip reads `done`), the draft `artifacts/review-draft.json` with `needs_human` set,
@@ -18,7 +20,7 @@
 // anthropic/claude-fable-5-1) pick the pull request and the model. The scratch home is
 // printed and kept.
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -34,12 +36,11 @@ const PR_NUMBER = Number(process.env["SPINNER_E2E_PR"] ?? "2");
 const MODEL = process.env["SPINNER_E2E_MODEL"] ?? "anthropic/claude-fable-5-1";
 const PR_URL = `https://github.com/${REPO}/pull/${PR_NUMBER}`;
 const PASTE = `Please review ${PR_URL} for me.`;
+const BAD_MODEL = "nope/no-such-model";
 const NEEDS_HUMAN = "post or drop the review draft";
 
 /** The time each step gets: the briefing, the verdict, the draft. */
 const STEP_WITHIN_MS = 15 * 60_000;
-
-let last_term: Term | null = null;
 
 const scratch = mkdtempSync(join(tmpdir(), "spinner-e2e-review-lead-"));
 const home_root = join(scratch, "home");
@@ -60,11 +61,11 @@ const bus = new WebSocket(`ws://127.0.0.1:${port}/events`);
 bus.on("message", (data) => events.push(JSON.parse(String(data)) as { type: string }));
 await new Promise<void>((resolve_) => bus.once("open", () => resolve_()));
 
-step("settings: one model for the swarm and for the lead");
+step("settings: one real model and one bad one for the swarm; the real one for the lead");
 const settings = await put("/settings", {
     theme: "system",
     default_model: MODEL,
-    review: { models: [MODEL], n: 1 },
+    review: { models: [MODEL, BAD_MODEL], n: 2 },
 });
 check(settings.status === 200, `PUT /settings → ${settings.status}`);
 
@@ -88,27 +89,29 @@ check(
 let view = await session_view();
 check(view.kind === "review", "the view's kind is review");
 check(view.agents_running.includes("lead"), "the lead's pi runs");
-const member = view.review?.swarm[0];
+const member = view.review?.swarm.find((m) => m.model === MODEL);
 check(member !== undefined, `one reviewer: ${member?.name} (${member?.model})`);
 check(member?.state === "reading", `its chip reads ${member?.state}`);
 const reviewer = member?.name ?? "";
+const bad = view.review?.swarm.find((m) => m.model === BAD_MODEL);
+check(bad?.state === "failed", `the bad model's chip reads ${bad?.state}`);
+console.log(`  its reason: ${bad?.error}`);
+check((bad?.error ?? "").includes("Unknown provider"), "the reason names the unknown provider");
+check(view.review?.state === "reviewing", `review.state ${view.review?.state}`);
+check(session_yaml().agents?.["lead"]?.harness === "rpc", "the lead is headless (rpc)");
+check(session_yaml().agents?.[reviewer]?.harness === "rpc", "the reviewer is headless (rpc)");
 check(view.review?.briefing === false, "no briefing yet");
 check(view.review?.draft === null, "no draft yet");
 const lead_brief = readFileSync(join(session_path, "agents", "lead", "BRIEF.md"), "utf8");
 check(lead_brief.includes("Role: lead reviewer of"), "the lead's brief is the review lead's");
 
-step("the terminals: pi's startup notices, if any");
-const lead_term = await attach(`/sessions/${session_dir}/agents/lead/tty`);
-await wait_for(() => lead_term.text().length > 0, "the lead's first pty bytes", 20_000);
-lead_term.socket.send(JSON.stringify({ resize: { cols: 140, rows: 45 } }));
-await dismiss_notices(lead_term);
-const reviewer_term = await attach(`/sessions/${session_dir}/agents/${reviewer}/tty`);
-await wait_for(() => reviewer_term.text().length > 0, "the reviewer's first pty bytes", 20_000);
-reviewer_term.socket.send(JSON.stringify({ resize: { cols: 140, rows: 45 } }));
-await dismiss_notices(reviewer_term);
+step("no terminal: /tty refuses the review session's agents");
+for (const name of ["lead", reviewer]) {
+    const status = await tty_status(`/sessions/${session_dir}/agents/${name}/tty`);
+    check(status === 409, `/tty of ${name} → ${status}`);
+}
 
 step("the briefing appears");
-last_term = lead_term;
 await wait_for(
     async () => (await session_view()).review?.briefing === true,
     "review.briefing on the view",
@@ -124,14 +127,14 @@ console.log(`  first line: ${briefing_text.split("\n")[0] ?? ""}`);
 check(/what this pr does/i.test(briefing_text), "the briefing has the first section");
 
 step("the verdict file appears; the chip reads done");
-last_term = reviewer_term;
 await wait_for(
-    async () => (await session_view()).review?.swarm[0]?.state !== "reading",
+    async () =>
+        (await session_view()).review?.swarm.find((m) => m.model === MODEL)?.state !== "reading",
     "the reviewer to leave reading",
     STEP_WITHIN_MS,
 );
 view = await session_view();
-const final = view.review?.swarm[0];
+const final = view.review?.swarm.find((m) => m.model === MODEL);
 console.log(`  after ${elapsed()} s: ${final?.state}`);
 check(final?.state === "done", `the chip reads done (${final?.state})`);
 const slug = MODEL.toLowerCase()
@@ -150,7 +153,6 @@ await wait_for(
 );
 
 step("the draft appears with needs_human");
-last_term = lead_term;
 await wait_for(
     async () => (await session_view()).review?.draft !== null,
     "review.draft on the view",
@@ -168,6 +170,12 @@ for (const comment of draft?.comments ?? []) {
 check(existsSync(join(session_path, "artifacts", "review-draft.json")), "the draft file exists");
 check(view.board?.needs_human === NEEDS_HUMAN, `needs_human: ${view.board?.needs_human}`);
 check(session_yaml().needs_human === NEEDS_HUMAN, "session.yaml needs_human");
+check(view.review?.state === "drafted", `review.state ${view.review?.state}`);
+check(
+    view.review?.comment_count === draft?.comments.length,
+    `comment_count ${view.review?.comment_count}`,
+);
+check(view.review?.event === draft?.event, `event ${view.review?.event}`);
 const model_named = JSON.stringify(draft)
     .toLowerCase()
     .includes(MODEL.split("/")[1] ?? MODEL);
@@ -177,11 +185,11 @@ const carried = events.filter(
 );
 const trail = carried.map((event) => {
     const data = event["data"] as {
-        swarm: Array<{ state: string }>;
+        swarm: Array<{ model: string; state: string }>;
         briefing: boolean;
         draft: unknown;
     };
-    const state = data.swarm[0]?.state ?? "-";
+    const state = data.swarm.find((m) => m.model === MODEL)?.state ?? "-";
     return `${state}/${data.briefing ? "b" : "-"}/${data.draft === null ? "-" : "d"}`;
 });
 console.log(`  review.updated: ${[...new Set(trail)].join(" → ")}`);
@@ -202,6 +210,12 @@ check(view.review?.posted_url === result.url, "the view carries posted_url");
 check(view.review?.draft === null, "the draft is gone from the view");
 check(session_yaml().review?.posted_url === result.url, "session.yaml carries posted_url");
 check(session_yaml().needs_human !== NEEDS_HUMAN, "needs_human cleared");
+await wait_for(
+    async () => (await session_view()).review?.state === "posted",
+    "review.state posted (the lead's turn ends)",
+    60_000,
+);
+check((await session_view()).review?.state === "posted", "review.state posted");
 const mission = readFileSync(join(session_path, "MISSION.md"), "utf8");
 check(mission.includes(result.url), "the Log carries the URL");
 const reviews_after = await reviews_count();
@@ -214,8 +228,6 @@ check(again.status === 409, `a second post → ${again.status}`);
 
 step("stop");
 bus.close();
-lead_term.socket.close();
-reviewer_term.socket.close();
 spinnerd.kill("SIGTERM");
 await new Promise<void>((resolve_) => spinnerd.once("exit", () => resolve_()));
 console.log(`\nPASS in ${elapsed()} s. scratch home kept at ${home_root}`);
@@ -297,7 +309,10 @@ interface ReviewFields {
     briefing: boolean;
     draft: Draft | null;
     posted_url: string | null;
-    swarm: Array<{ name: string; model: string; state: string; usd: number }>;
+    state: string;
+    comment_count: number;
+    event: string | null;
+    swarm: Array<{ name: string; model: string; state: string; usd: number; error: string | null }>;
 }
 
 interface View {
@@ -336,48 +351,25 @@ async function reviews_count(): Promise<number> {
     });
 }
 
-interface Term {
-    socket: WebSocket;
-    text(): string;
-}
-
-function attach(path: string): Promise<Term> {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}${path}`);
-    const chunks: Buffer[] = [];
-    socket.on("message", (data, is_binary) => {
-        if (is_binary) {
-            chunks.push(Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer));
-        }
-    });
-    return new Promise((resolve_, reject) => {
+/** The status of the `/tty` upgrade: 101 when a pty answers, else the refusal's status. */
+function tty_status(path: string): Promise<number> {
+    return new Promise((resolve_) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${port}${path}`);
         socket.once("open", () => {
-            const term_: Term = { socket, text: () => Buffer.concat(chunks).toString("utf8") };
-            last_term = term_;
-            resolve_(term_);
+            socket.close();
+            resolve_(101);
         });
-        socket.once("unexpected-response", (_request, response) =>
-            reject(new Error(`attach ${path} refused: ${response.statusCode}`)),
-        );
-        socket.once("error", reject);
+        socket.once("unexpected-response", (_request, response) => {
+            resolve_(response.statusCode ?? 0);
+        });
+        socket.once("error", () => resolve_(0));
     });
-}
-
-/** pi's startup notices wait for a key; the e2e presses Enter for them. Up to 3 notices. */
-async function dismiss_notices(term_: Term): Promise<void> {
-    for (let i = 0; i < 3; i += 1) {
-        await sleep(1_500);
-        const notices = term_.text().split("Press any key to continue").length - 1;
-        if (notices <= i) {
-            return;
-        }
-        console.log("  pi shows a startup notice; pressing Enter as the operator would");
-        term_.socket.send(Buffer.from("\r"), { binary: true });
-    }
 }
 
 interface SessionYaml {
     needs_human?: string | null;
     review?: { posted_url?: string | null };
+    agents?: Record<string, { harness?: string }>;
 }
 
 function session_yaml(): SessionYaml {
@@ -430,10 +422,6 @@ function check(ok: boolean, what: string): void {
 
 function fail(what: string): never {
     console.error(`FAIL: ${what}`);
-    if (last_term !== null) {
-        writeFileSync(join(scratch, "terminal.txt"), last_term.text());
-        console.error(`terminal bytes kept at ${join(scratch, "terminal.txt")}`);
-    }
     console.error(`scratch home kept at ${home_root}`);
     daemon?.kill("SIGTERM");
     process.exit(1);

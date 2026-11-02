@@ -405,12 +405,18 @@ is skipped with the reason in the log; a paste with no reference is a 409.
 The same job then starts the review (s016): the agent `lead` in the PR worktree, with
 model `settings.default_model` and the review lead's brief (the operator's `pr-review`
 skill, with the daemon in the loop), the PR as its first message; then the swarm, below.
-A lead that does not start is one job log line; the swarm runs either way.
+Both run headless on the rpc harness (`agents.<name>.harness: rpc` in `session.yaml`): no
+pty, no startup screen, no terminal tab; `GET /sessions/:dir/agents/:name/tty` answers 409
+for them. A lead that does not start is one job log line; the swarm runs either way.
 
 `SessionView.kind` is `review` for such a session and `session` otherwise.
 `SessionView.review` (`ReviewFields`) carries the PR's `checks` with the `failing` check
 names, the `review_decision` and the `threads` count (open and resolved). Its `swarm` is
-one `SwarmMember { name, model, state, usd, pr }` per reviewer. `briefing` is true once
+one `SwarmMember { name, model, state, usd, pr, error }` per reviewer, `error` the reason of
+a `failed` one (null otherwise). `state` sums the review up: `drafted` while a draft exists,
+else `reviewing` while a reviewer is `queued` or `reading` or the lead runs a turn, else
+`posted` once a review went up, else `idle`; `comment_count` and `event` are the draft's
+(`0` and null without one). `briefing` is true once
 `artifacts/briefing.md` exists; `draft` is the `ReviewDraft` of `artifacts/review-draft.json`
 or null; `posted_url` is the posted review's URL or null. `review.updated { data }` goes on
 the bus whenever those fields change, right after the `session.updated` that carries them.
@@ -421,7 +427,8 @@ poller tracks carries `checks_failing`, the names of the red checks.
 
 `POST /sessions/:dir/review { pr? }` starts the review swarm in one job (action `review`).
 It runs on each open or draft PR of the session, or on the one repo key `pr` names. The
-swarm is one tty agent per model in `settings.review.models`, the first `n` of them. A
+swarm is one headless (rpc) agent per model in `settings.review.models`, the first `n` of
+them. A
 reviewer is named `review-<model-slug>`: the model id in lower case, one dash per run of
 other characters. With several target PRs the name is `review-<repo>-<model-slug>`. Each
 reviewer starts in the PR repo's worktree with `agents/<name>/BRIEF.md`, written once from
@@ -437,11 +444,13 @@ running-agents cap (24) holds back. `reading` is one that started. `done` is one
 settled turn ended with an assistant text that carries `VERDICT: BLOCKING` or `VERDICT:
 CLEAR`: the daemon saves that text as `artifacts/reviews/<model-slug>.md` and stops the
 reviewer's pi, so the slot frees and the next queued reviewer starts. `failed` is one whose
-pi exited without that line. The transcript stays, and the tab resumes it on request. When
-no reviewer is `queued` or `reading` any more, the lead gets the verdicts notice through
-the extension channel: the files by absolute path, the reviewers that failed, the
-lead-judgment rules and the `review_draft` contract; a lead that is not running gets it
-with its next prompt. The reviewers hear no mission or notes notices. On daemon start,
+pi did not start or exited without that line; `review.swarm.<name>.error` holds the reason
+(the start error, else the last assistant text, else the exit code; 300 characters at
+most). The transcript stays. When no reviewer is `queued` or `reading` any more, the lead
+gets the verdicts notice: the files by absolute path, the reviewers that failed, the
+lead-judgment rules and the `review_draft` contract. A tty lead gets it through the
+extension channel; a headless lead as a prompt when idle, a steer while it runs; a lead that
+is not running gets it with its next prompt. The reviewers hear no mission or notes notices. On daemon start,
 queued reviewers go back in the queue and reading ones without a process are failed.
 
 A review holds no session lock: it runs beside another job on the session. The route is a

@@ -716,6 +716,10 @@
                 "pr": {
                     "type": "string",
                     "description": "Repo key of `repos` whose PR the reviewer reads."
+                },
+                "error": {
+                    "type": "string",
+                    "description": "Why the reviewer is `failed` (s016): the start error, the last text, or the exit code."
                 }
             },
             "required": [

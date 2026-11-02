@@ -10,6 +10,16 @@
 // environment go to FAKE_PI_ARGS_FILE when set.
 import { writeFileSync } from "node:fs";
 
+// The swarm's reviewers and a review's lead run headless (s016): the same binary under
+// `--mode rpc` is the rpc fake, so one `pi` serves both harnesses in a test.
+if (process.argv.includes("--mode") && process.argv[process.argv.indexOf("--mode") + 1] === "rpc") {
+    await import("./fake-pi.ts");
+} else {
+    await run_tty();
+}
+
+async function run_tty(): Promise<void> {
+
 const args_file = process.env["FAKE_PI_ARGS_FILE"];
 if (args_file !== undefined && args_file !== "") {
     const spinner_env = Object.fromEntries(
@@ -147,3 +157,4 @@ await post("/hello", {
     ],
 });
 void poll_loop();
+}

@@ -204,6 +204,8 @@ export interface SwarmRecord {
     state: SwarmState;
     /** Repo key of `repos` whose PR the reviewer reads. */
     pr: string;
+    /** Why the reviewer is `failed` (s016): the start error, the last text, or the exit code. */
+    error?: string;
 }
 
 /** The review swarm of a session (s015): the daemon writes it, `SessionView.review` reads it. */

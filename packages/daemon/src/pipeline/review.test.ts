@@ -8,10 +8,12 @@
 // start on an exit; the same swarm runs on an ordinary session so its chips show; the view
 // and `review.updated` carry the swarm; the route refuses a session without an open PR, a
 // PR without a worktree, a reviewer still reading, and a bad body; `PUT /settings` validates
-// `review`. Method: a daemon on a temporary home with a fake `gh`, a local origin repository
-// the review session clones, and the fake interactive pi (`test/fixtures/fake-pi-tty.ts`),
-// which echoes each prompt as its assistant text, so a prompt whose second line is
-// `VERDICT: CLEAR` is the reviewer's verdict and a prompt of `exit` is an exit without one.
+// `review`; the reviewers run headless on the rpc harness (s016), so `/tty` refuses them with
+// 409 and a `failed` chip carries its reason. Method: a daemon on a temporary home with a
+// fake `gh`, a local origin repository the review session clones, and the fake pi
+// (`test/fixtures/fake-pi-tty.ts`, which is the rpc fake under `--mode rpc`), which echoes
+// each prompt as its assistant text, so a prompt whose second line is `VERDICT: CLEAR` is the
+// reviewer's verdict and a prompt of `exit` is an exit without one.
 import { execFileSync } from "node:child_process";
 import {
     chmodSync,
@@ -26,6 +28,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { parse } from "yaml";
 import type {
     Job,
@@ -294,7 +297,18 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         const skill_args = spawned.argv.filter((_, i) => spawned.argv[i - 1] === "--skill");
         expect(skill_args).toEqual([conventions, principles]);
         expect(spawned.argv.join(" ")).toContain("--provider openai --model gpt-6-luna");
+        expect(spawned.argv.slice(0, 2)).toEqual(["--mode", "rpc"]);
         expect(spawned.cwd).toContain(join("worktrees", "backend"));
+        expect(session_yaml(summary.dir).agents[NAME_A]?.harness).toBe("rpc");
+        // Headless: no terminal to attach to.
+        const refused = await new Promise<number>((resolve_) => {
+            const socket = new WebSocket(
+                `${base.replace("http", "ws")}/sessions/${summary.dir}/agents/${NAME_A}/tty`,
+            );
+            socket.once("unexpected-response", (_req, res) => resolve_(res.statusCode ?? 0));
+            socket.once("open", () => resolve_(101));
+        });
+        expect(refused).toBe(409);
         expect(session_yaml(summary.dir).agents[NAME_A]?.skills).toEqual([
             conventions,
             principles,
@@ -326,12 +340,26 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         const view = await view_of(summary.dir);
         expect(view.kind).toBe("review");
         expect(view.review?.swarm).toEqual([
-            { name: NAME_A, model: MODEL_A, state: "done", usd: 0, pr: "backend" },
-            { name: NAME_B, model: MODEL_B, state: "failed", usd: 0, pr: "backend" },
+            { name: NAME_A, model: MODEL_A, state: "done", usd: 0, pr: "backend", error: null },
+            {
+                name: NAME_B,
+                model: MODEL_B,
+                state: "failed",
+                usd: 0,
+                pr: "backend",
+                // The last assistant text before the exit, the kickoff's echo, truncated.
+                error: expect.stringMatching(/^exited without a verdict: echo: Review/) as string,
+            },
         ]);
+        const reason = view.review?.swarm[1]?.error ?? "";
+        expect(reason.length).toBeLessThanOrEqual(300);
+        expect(reason.endsWith("…")).toBe(true);
         expect(view.review?.briefing).toBe(false);
         expect(view.review?.draft).toBeNull();
         expect(view.review?.posted_url).toBeNull();
+        expect(view.review?.state).toBe("idle");
+        expect(view.review?.comment_count).toBe(0);
+        expect(view.review?.event).toBeNull();
         const carried = events.filter(
             (event): event is ReviewUpdatedEvent =>
                 event.type === "review.updated" && event.session === summary.dir,
@@ -373,8 +401,9 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         const view = await view_of(summary.dir);
         expect(view.kind).toBe("session");
         expect(view.review?.swarm).toEqual([
-            { name: NAME_A, model: MODEL_A, state: "reading", usd: 0, pr: "backend" },
+            { name: NAME_A, model: MODEL_A, state: "reading", usd: 0, pr: "backend", error: null },
         ]);
+        expect(view.review?.state).toBe("reviewing");
         expect(view.review?.failing).toEqual(["Independent approval"]);
         // The session's own lead is the review lead: the verdicts notice reaches it.
         const added = await call("POST", `/sessions/${summary.dir}/agents`, { name: "lead" });

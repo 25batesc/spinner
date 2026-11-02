@@ -195,10 +195,20 @@ describe("POST /reviews", () => {
                 ["review-x-ai-grok-4-6", "x-ai/grok-4.6"],
                 ["review-anthropic-claude-opus-5-5", "anthropic/claude-opus-5-5"],
                 ["review-openai-gpt-6-luna", "openai/gpt-6-luna"],
-            ].map(([name, model]) => ({ name, model, state: "failed", usd: 0, pr: "backend" })),
+            ].map(([name, model]) => ({
+                name,
+                model,
+                state: "failed",
+                usd: 0,
+                pr: "backend",
+                error: expect.stringMatching(/^did not start: pi is not on PATH/) as string,
+            })),
             briefing: false,
             draft: null,
             posted_url: null,
+            state: "idle",
+            comment_count: 0,
+            event: null,
         });
         expect(job.log.some((line) => line.startsWith("lead did not start:"))).toBe(true);
         expect(job.log).toContain("swarm of 3: 0 started, 0 queued, 3 failed");

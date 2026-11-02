@@ -52,6 +52,11 @@ export interface AgentManagerOptions {
 export interface AddAgentExtra {
     /** Skill directories pi loads with `--skill` (s015, the review skill). */
     skills?: string[];
+    /**
+     * The harness for this agent, over the settings (s016): a review's reviewers and lead
+     * run headless on `rpc`, so no startup screen eats their first message.
+     */
+    harness?: "tty" | "rpc";
 }
 
 interface Hosted {
@@ -177,7 +182,7 @@ export class AgentManager {
         const settings = this.read_settings();
         const model = request.model ?? listed_model ?? settings.default_model;
         this.write_agents_file(summary);
-        const harness_name = settings.agents?.harness ?? this.harnesses.default;
+        const harness_name = extra.harness ?? settings.agents?.harness ?? this.harnesses.default;
         const harness = this.harnesses[harness_name];
         assert.ok(harness !== undefined, `no ${harness_name} harness`);
         const skills = extra.skills ?? listed?.skills;

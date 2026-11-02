@@ -203,7 +203,11 @@ the failing names, the decision, the thread count, the swarm, and since s016 `br
 `draft` and `posted_url`), and `review.updated` follows each change.
 
 The review process (s016) is the operator's `pr-review` skill, end to end, with the daemon
-in the loop. The paste starts two kinds of agent in the PR worktree, as one job:
+in the loop. The paste starts two kinds of agent in the PR worktree, as one job. Both run
+headless on the rpc harness: an interactive pi's startup screen (skill conflicts, the update
+banner, "press any key") ate the first message in real use and left three terminals at an
+empty prompt. A headless agent has no pty and no terminal tab (`/tty` answers 409); its only
+outputs are the briefing, the verdict files and the draft:
 
 - The agent `lead` (model `settings.default_model`), with the skill as its brief
   (`store/review-brief.ts`, `render_review_lead_brief`: the skill's rules word for word;
@@ -217,16 +221,19 @@ in the loop. The paste starts two kinds of agent in the PR worktree, as one job:
   to `settings.review.skill`, and the role's two skills through `--skill`. A reviewer reads
   only, never posts, and ends with the role's `VERDICT` block.
 
-Each reviewer is an ordinary agent of the session, so its terminal, its transcript and its
-cost come from what exists; the deliverer leaves the `review-*` agents out of mission and
-notes notices. The swarm keeps each reviewer's state in `session.yaml` under `review.swarm`.
+Each reviewer is an ordinary agent of the session, so its transcript and its cost come from
+what exists; the deliverer leaves the `review-*` agents out of mission and notes notices. The swarm keeps each reviewer's state in `session.yaml` under `review.swarm`.
 `queued` is a reviewer behind the running-agents cap. `reading` is one that started. `done`
 is one whose settled turn ended with a `VERDICT: BLOCKING` or `VERDICT: CLEAR` line: the
 daemon saves that text as `artifacts/reviews/<model-slug>.md` and stops the pi, so the slot
-frees and the next queued reviewer starts. `failed` is an exit without one. When no
-reviewer is `queued` or `reading` any more, the lead gets the verdicts notice through the
-extension channel (`notify`), with the files by absolute path and the lead-judgment rules;
-a lead that is not running gets it with its next prompt. The lead reconciles and writes the
+frees and the next queued reviewer starts. `failed` is a start that failed or an exit
+without one; the record carries the reason (the start error, else the last assistant text,
+else the exit code, truncated to 300 characters) and the chip shows it as
+`SwarmMember.error`, because there is no terminal to read. When no reviewer is `queued` or
+`reading` any more, the lead gets the verdicts notice, with the files by absolute path and
+the lead-judgment rules: a tty lead through the extension channel (`notify`), a headless
+lead as a prompt when idle and a steer while it runs; a lead that is not running gets it
+with its next prompt. The lead reconciles and writes the
 one review with `review_draft`.
 
 The draft (`pipeline/review-draft.ts`) is validated before it is written: `event` is
@@ -247,9 +254,13 @@ for it, on the operator's paste); an ordinary session's PR must be on its projec
 `write_repos`. The lead role's bash guard refuses `gh pr review`, `gh pr comment` and `gh
 api` writes, so the lead cannot post by hand.
 
-`review` on an ordinary session with an open PR runs the same swarm (`POST
-/sessions/:dir/review`); its lead is the session's own `lead`, which gets the same notice.
-On a review session the route runs a second round. `review-blast` is no longer called.
+`review` on an ordinary session with an open PR runs the same headless swarm (`POST
+/sessions/:dir/review`); its lead is the session's own `lead`, which stays tty and gets the
+same notice. On a review session the route runs a second round. `review-blast` is no longer
+called. The view sums the review up for the card: `review.state` is `drafted` while a draft
+exists, else `reviewing` while a reviewer is `queued` or `reading` or the lead runs a turn,
+else `posted` once a review went up, else `idle`; `review.comment_count` and `review.event`
+are the draft's.
 
 ### Skills and context files
 

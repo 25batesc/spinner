@@ -64,6 +64,12 @@ function handle(command: Command): void {
                 refuse(command, "no");
                 return;
             }
+            if (command.message === "exit") {
+                // A pi that dies mid-review (the swarm reads `failed` from the exit).
+                respond(command, { disposition: "started" });
+                setTimeout(() => process.exit(0), 50);
+                return;
+            }
             if (command.message?.startsWith("/") === true) {
                 // An extension command runs at once and starts no run, as pi does.
                 respond(command, { disposition: "handled" });
