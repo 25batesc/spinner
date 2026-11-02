@@ -8,6 +8,10 @@
                 "summary": {
                     "$ref": "#/definitions/SessionSummary"
                 },
+                "kind": {
+                    "$ref": "#/definitions/SessionKind",
+                    "description": "`review` for a review session (s015), `session` otherwise. The daemon always sets it; optional so a fixture written before s015 still type-checks."
+                },
                 "board": {
                     "anyOf": [
                         {
@@ -40,6 +44,10 @@
                 "cost": {
                     "$ref": "#/definitions/SessionCost",
                     "description": "What the session's agents have spent (s013), from their transcripts. The daemon always sets it; optional so a fixture written before s013 still type-checks."
+                },
+                "review": {
+                    "$ref": "#/definitions/ReviewFields",
+                    "description": "The review facts (s015): set for a review session, and for an ordinary session once its swarm ran. Absent otherwise."
                 }
             },
             "required": [
@@ -81,6 +89,10 @@
                 "version": {
                     "type": "number",
                     "const": 1
+                },
+                "kind": {
+                    "$ref": "#/definitions/SessionKind",
+                    "description": "`review` for a review session (s015); absent means an ordinary session."
                 },
                 "id": {
                     "type": "string",
@@ -142,6 +154,10 @@
                 "diff": {
                     "$ref": "#/definitions/DiffState",
                     "description": "The diff viewers the daemon runs for this session (s012). Absent before the first start."
+                },
+                "review": {
+                    "$ref": "#/definitions/ReviewState",
+                    "description": "The review swarm (s015). Absent until the first `review`."
                 }
             },
             "required": [
@@ -160,6 +176,14 @@
             ],
             "additionalProperties": false,
             "description": "The whole of `session.yaml`."
+        },
+        "SessionKind": {
+            "type": "string",
+            "enum": [
+                "session",
+                "review"
+            ],
+            "description": "What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action."
         },
         "Stage": {
             "type": "string",
@@ -267,6 +291,13 @@
                 "title": {
                     "type": "string",
                     "description": "PR title, as `gh pr create` set it or GitHub reports it. Absent before s005."
+                },
+                "checks_failing": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Names of the checks that are red, for the CI pill's tooltip (s015). Absent before s015."
                 }
             },
             "required": [
@@ -718,6 +749,55 @@
             "additionalProperties": false,
             "description": "One unresolved thread, as much of it as `needs_human` and the tab's badge need."
         },
+        "ReviewState": {
+            "type": "object",
+            "properties": {
+                "swarm": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/SwarmRecord"
+                    },
+                    "description": "By agent name, `review-<model-slug>`."
+                }
+            },
+            "required": [
+                "swarm"
+            ],
+            "additionalProperties": false,
+            "description": "The review swarm of a session (s015): the daemon writes it, `SessionView.review` reads it."
+        },
+        "SwarmRecord": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": "`provider/model` the reviewer runs with."
+                },
+                "state": {
+                    "$ref": "#/definitions/SwarmState"
+                },
+                "pr": {
+                    "type": "string",
+                    "description": "Repo key of `repos` whose PR the reviewer reads."
+                }
+            },
+            "required": [
+                "model",
+                "state",
+                "pr"
+            ],
+            "additionalProperties": false,
+            "description": "One reviewer of the swarm (s015), as `session.yaml` records it under `review.swarm`."
+        },
+        "SwarmState": {
+            "type": "string",
+            "enum": [
+                "queued",
+                "reading",
+                "posted",
+                "failed"
+            ]
+        },
         "BoardView": {
             "type": "object",
             "properties": {
@@ -812,6 +892,13 @@
                 "title": {
                     "type": "string",
                     "description": "PR title, as `gh pr create` set it or GitHub reports it. Absent before s005."
+                },
+                "checks_failing": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Names of the checks that are red, for the CI pill's tooltip (s015). Absent before s015."
                 },
                 "repo": {
                     "type": "string"
@@ -1225,6 +1312,75 @@
                 "usd"
             ],
             "additionalProperties": false
+        },
+        "ReviewFields": {
+            "type": "object",
+            "properties": {
+                "checks": {
+                    "$ref": "#/definitions/CheckState",
+                    "description": "The PR's checks, rolled up, and the names of the failing ones."
+                },
+                "failing": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "review_decision": {
+                    "$ref": "#/definitions/ReviewDecision"
+                },
+                "threads": {
+                    "type": "number",
+                    "description": "The PR's review threads, open and resolved."
+                },
+                "swarm": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SwarmMember"
+                    }
+                }
+            },
+            "required": [
+                "checks",
+                "failing",
+                "review_decision",
+                "threads",
+                "swarm"
+            ],
+            "additionalProperties": false,
+            "description": "The review fields of a `SessionView` (s015); the `review.updated` payload."
+        },
+        "SwarmMember": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The agent name, `review-<model-slug>`."
+                },
+                "model": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/SwarmState"
+                },
+                "usd": {
+                    "type": "number",
+                    "description": "What the reviewer spent, from `SessionView.cost.agents[name]`."
+                },
+                "pr": {
+                    "type": "string",
+                    "description": "Repo key of the PR the reviewer reads."
+                }
+            },
+            "required": [
+                "name",
+                "model",
+                "state",
+                "usd",
+                "pr"
+            ],
+            "additionalProperties": false,
+            "description": "One reviewer of the swarm, as the chips show it: a tty agent of the session."
         }
     },
     "$id": "https://spinner.dev/schema/session-view.json",

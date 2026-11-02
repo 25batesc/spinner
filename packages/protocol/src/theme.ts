@@ -148,16 +148,19 @@ export interface Settings {
         harness?: "tty" | "rpc";
     };
     /**
-     * The `review` pipeline step (s014, Plan item 10): the operator's `review-blast` script.
-     * Absent means the script on PATH, `REVIEW_MODELS_DEFAULT` and `REVIEW_N_DEFAULT`.
+     * The review swarm (s015): one tty agent per model, each with the review brief. Absent
+     * means `REVIEW_MODELS_DEFAULT`, `REVIEW_N_DEFAULT` and the operator's review skill.
      */
     review?: {
-        /** The script to run; else `SPINNER_REVIEW_BLAST`, else `review-blast` on PATH. */
-        command?: string;
-        /** `--models`, as `provider/model` ids. */
+        /** The models of the swarm, as `provider/model` ids. */
         models?: string[];
-        /** `--n`: reviews per PR. */
+        /** How many of `models` run, from the first. */
         n?: number;
+        /**
+         * The review skill's directory, passed to every reviewer with `--skill`. The default
+         * is `~/.pi/agent/skills/review-pr` when it exists; none otherwise.
+         */
+        skill?: string;
     };
     /** The operator agent (MISSION.md s013). Absent means off since s014, the default model. */
     operator?: {

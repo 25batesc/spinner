@@ -125,10 +125,10 @@ function adopted(): Promise<SessionSummary> {
 }
 
 describe("review helpers", () => {
-    it("resolves the script from the environment, then the settings, then PATH", () => {
-        const settings: Settings = { theme: "system", review: { command: "/opt/rb" } };
+    it("resolves the script from the environment, then PATH", () => {
+        const settings: Settings = { theme: "system", review: { skill: "/opt/skill" } };
         expect(resolve_review_blast({ SPINNER_REVIEW_BLAST: "/x/rb" }, settings)).toBe("/x/rb");
-        expect(resolve_review_blast({}, settings)).toBe("/opt/rb");
+        expect(resolve_review_blast({}, settings)).toBe("review-blast");
         expect(resolve_review_blast({}, { theme: "system" })).toBe("review-blast");
         expect(review_args(PR_URL, ["a/b", "c/d"], 2)).toEqual([
             PR_URL,
@@ -247,10 +247,10 @@ describe("POST /sessions/:dir/review", () => {
         expect(unknown_text).toContain("review.x");
         const ok = await call("PUT", "/settings", {
             theme: "system",
-            review: { command: "/opt/rb", models: ["a/b"], n: 1 },
+            review: { skill: "/opt/skill", models: ["a/b"], n: 1 },
         });
         expect(ok.status).toBe(200);
         const read = (await (await call("GET", "/settings")).json()) as { settings: Settings };
-        expect(read.settings.review).toEqual({ command: "/opt/rb", models: ["a/b"], n: 1 });
+        expect(read.settings.review).toEqual({ skill: "/opt/skill", models: ["a/b"], n: 1 });
     });
 });

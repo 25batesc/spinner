@@ -9,6 +9,7 @@ import type {
     MachineUsage,
     MissionView,
     OperatorView,
+    ReviewFields,
     SessionUsage,
     SessionView,
 } from "./api.js";
@@ -250,6 +251,16 @@ export interface CostsEvent {
     changed: Record<string, SessionCost>;
 }
 
+/**
+ * The review facts of a session changed (s015): a reviewer was queued, started, posted or
+ * failed, or the poller moved the PR's checks, decision or thread count. The whole
+ * `ReviewFields` follows, as `session.updated` carries the view.
+ */
+export interface ReviewUpdatedEvent extends EventBase {
+    type: "review.updated";
+    data: ReviewFields;
+}
+
 export type SpinnerEvent =
     | JobStartedEvent
     | JobLogEvent
@@ -275,7 +286,8 @@ export type SpinnerEvent =
     | UsageEvent
     | SettingsEvent
     | OperatorUpdatedEvent
-    | CostsEvent;
+    | CostsEvent
+    | ReviewUpdatedEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
 
@@ -306,4 +318,5 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "settings",
     "operator.updated",
     "costs",
+    "review.updated",
 ];

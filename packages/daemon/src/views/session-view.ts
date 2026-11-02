@@ -56,6 +56,7 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
     const spec = session_spec_or_null(summary);
     return {
         summary,
+        kind: summary.session.kind ?? "session",
         board: build_board(ctx, summary),
         stack: build_stack(
             summary,

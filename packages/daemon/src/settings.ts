@@ -35,7 +35,7 @@ const THEME_FILE_BYTES_MAX = 256 * 1024;
 const SETTINGS_KEYS = ["theme", "default_model", "agents", "operator", "review"];
 const AGENTS_KEYS = ["harness"];
 const OPERATOR_KEYS = ["enabled", "model"];
-const REVIEW_KEYS = ["command", "models", "n"];
+const REVIEW_KEYS = ["models", "n", "skill"];
 
 /** Upper bound on `review.n`; more reviews than this is a mistake, not a preference. */
 const REVIEW_N_MAX = 20;
@@ -165,7 +165,7 @@ export function validate_settings(input: unknown, home: SpinnerHome): Settings |
     return settings;
 }
 
-/** `settings.review` (s014, Plan item 10): the script, its models and the count. */
+/** `settings.review` (s015): the swarm's models, how many run, and the skill directory. */
 function validate_review(review: unknown): NonNullable<Settings["review"]> | string {
     if (typeof review !== "object" || review === null || Array.isArray(review)) {
         return "`review` must be a mapping";
@@ -177,12 +177,12 @@ function validate_review(review: unknown): NonNullable<Settings["review"]> | str
         }
     }
     const out: NonNullable<Settings["review"]> = {};
-    const command = block["command"];
-    if (command !== undefined) {
-        if (typeof command !== "string" || command.length === 0) {
-            return "`review.command` must be a non-empty string when given";
+    const skill = block["skill"];
+    if (skill !== undefined) {
+        if (typeof skill !== "string" || skill.length === 0) {
+            return "`review.skill` must be a non-empty string when given";
         }
-        out.command = command;
+        out.skill = skill;
     }
     const models = block["models"];
     if (models !== undefined) {

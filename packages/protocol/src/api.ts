@@ -8,11 +8,15 @@ import type { PrFacts, StageResult } from "./pipeline.js";
 import type { PiEvent } from "./agent-event.js";
 import type {
     AgentProcessState,
+    CheckState,
     HostProcess,
     PrState,
+    ReviewDecision,
+    SessionKind,
     SessionSummary,
     StackLastJob,
     StackStateName,
+    SwarmState,
 } from "./session.js";
 import type { DiffView } from "./diff.js";
 import type { OperatorCost, SessionCost } from "./costs.js";
@@ -52,6 +56,13 @@ export const ROUTES = {
     "GET /sessions/:dir/mission/view": "MissionViewResponse",
     /** Adopt PRs opened outside Spinner. Body: AdoptRequest. The job creates the session. */
     "POST /sessions/adopt": "JobResponse",
+    /**
+     * Reviews (s015): one session of `kind: review` per PR reference in `text`, any repository
+     * the operator's `gh` can read. Body: ReviewsRequest. The job clones or fetches each
+     * repository under `<home>/reviews/` and checks the PR head out detached under the
+     * session. 409 when no reference resolves.
+     */
+    "POST /reviews": "JobResponse",
     /** Attach a project to an adopted session: worktrees on the PR branches. Body: AttachRequest */
     "POST /sessions/:dir/attach": "JobResponse",
     /** Bring the stack up. Body: UpRequest (optional). */
@@ -69,8 +80,10 @@ export const ROUTES = {
     /** Render `threads/` from GitHub, then start or steer the fixer agent. Body: FixRequest. */
     "POST /sessions/:dir/fix": "JobResponse",
     /**
-     * Run the operator's `review-blast` on each open PR (or the one `pr` names), one job per
-     * PR, then poll once. Body: ReviewRequest. 409 without an open PR or while one runs.
+     * Start the review swarm (s015) on each open PR, or the one `pr` names: one tty agent per
+     * model in `settings.review.models`, each with the review brief, bounded by the
+     * running-agents cap. Body: ReviewRequest. 409 without an open PR, while a reviewer of
+     * the PR still reads, or when the PR's repo has no worktree.
      */
     "POST /sessions/:dir/review": "JobResponse",
     /** The review threads of every PR, from the last render. 404 without a session. */
@@ -397,6 +410,11 @@ export interface BoardView extends StageResult {
  */
 export interface SessionView {
     summary: SessionSummary;
+    /**
+     * `review` for a review session (s015), `session` otherwise. The daemon always sets it;
+     * optional so a fixture written before s015 still type-checks.
+     */
+    kind?: SessionKind;
     /** Null when the session has no PR yet; the stage is then in `summary.session.stage`. */
     board: BoardView | null;
     stack: StackView;
@@ -414,6 +432,34 @@ export interface SessionView {
      * sets it; optional so a fixture written before s013 still type-checks.
      */
     cost?: SessionCost;
+    /**
+     * The review facts (s015): set for a review session, and for an ordinary session once
+     * its swarm ran. Absent otherwise.
+     */
+    review?: ReviewFields;
+}
+
+/** One reviewer of the swarm, as the chips show it: a tty agent of the session. */
+export interface SwarmMember {
+    /** The agent name, `review-<model-slug>`. */
+    name: string;
+    model: string;
+    state: SwarmState;
+    /** What the reviewer spent, from `SessionView.cost.agents[name]`. */
+    usd: number;
+    /** Repo key of the PR the reviewer reads. */
+    pr: string;
+}
+
+/** The review fields of a `SessionView` (s015); the `review.updated` payload. */
+export interface ReviewFields {
+    /** The PR's checks, rolled up, and the names of the failing ones. */
+    checks: CheckState;
+    failing: string[];
+    review_decision: ReviewDecision;
+    /** The PR's review threads, open and resolved. */
+    threads: number;
+    swarm: SwarmMember[];
 }
 
 export interface SessionsResponse {
@@ -436,6 +482,7 @@ export type JobAction =
     | "pr"
     | "fix"
     | "review"
+    | "reviews"
     | "post"
     | "approve"
     | "land"
@@ -453,6 +500,7 @@ export const JOB_ACTIONS: readonly JobAction[] = [
     "pr",
     "fix",
     "review",
+    "reviews",
     "post",
     "approve",
     "land",
@@ -594,13 +642,18 @@ export interface FixRequest {
     pr?: string;
 }
 
-/** `POST /sessions/:dir/review`: one `review-blast` job per open PR (s014, Plan item 10). */
+/** `POST /sessions/:dir/review`: the review swarm on the open PRs (s015). */
 export interface ReviewRequest {
     /** Repo key of one PR. Every open PR when absent. */
     pr?: string;
 }
 
-/** `settings.review` when absent: the models `review-blast` runs and how many reviews. */
+/** `POST /reviews`: PR references in any form `POST /sessions/extract` takes. */
+export interface ReviewsRequest {
+    text: string;
+}
+
+/** `settings.review` when absent: the models of the swarm and how many of them run. */
 export const REVIEW_MODELS_DEFAULT: readonly string[] = [
     "x-ai/grok-4.6",
     "anthropic/claude-opus-5-5",
@@ -608,8 +661,19 @@ export const REVIEW_MODELS_DEFAULT: readonly string[] = [
 ];
 export const REVIEW_N_DEFAULT = 3;
 
-/** The time one `review-blast` run gets before the job fails. */
-export const REVIEW_TIMEOUT_MS = 20 * 60_000;
+/** The agent name of a reviewer: `review-` and the model id as a name. */
+export const REVIEW_AGENT_PREFIX = "review-";
+
+/** `x-ai/grok-4.6` becomes `x-ai-grok-4-6`: lower case, one dash per run of other characters. */
+export function model_slug(model: string): string {
+    return model
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
+/** The line a reviewer prints last; the daemon reads `posted` from it. */
+export const REVIEW_POSTED_PREFIX = "POSTED model=";
 
 export interface ThreadsResponse {
     threads: ThreadsView;

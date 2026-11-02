@@ -66,6 +66,8 @@ export interface PullRequest {
     last_activity: string;
     /** PR title, as `gh pr create` set it or GitHub reports it. Absent before s005. */
     title?: string;
+    /** Names of the checks that are red, for the CI pill's tooltip (s015). Absent before s015. */
+    checks_failing?: string[];
 }
 
 export interface SessionRepo {
@@ -181,9 +183,34 @@ export interface AgentSpec {
     repo?: string;
 }
 
+/**
+ * What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the
+ * PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action.
+ */
+export type SessionKind = "session" | "review";
+
+export type SwarmState = "queued" | "reading" | "posted" | "failed";
+
+/** One reviewer of the swarm (s015), as `session.yaml` records it under `review.swarm`. */
+export interface SwarmRecord {
+    /** `provider/model` the reviewer runs with. */
+    model: string;
+    state: SwarmState;
+    /** Repo key of `repos` whose PR the reviewer reads. */
+    pr: string;
+}
+
+/** The review swarm of a session (s015): the daemon writes it, `SessionView.review` reads it. */
+export interface ReviewState {
+    /** By agent name, `review-<model-slug>`. */
+    swarm: Record<string, SwarmRecord>;
+}
+
 /** The whole of `session.yaml`. */
 export interface Session {
     version: typeof SESSION_VERSION;
+    /** `review` for a review session (s015); absent means an ordinary session. */
+    kind?: SessionKind;
     /** Short id, for example `s17`. */
     id: string;
     /** URL-safe slug; the directory is `<id>-<slug>`. */
@@ -206,6 +233,8 @@ export interface Session {
     agents: Record<string, AgentSpec>;
     /** The diff viewers the daemon runs for this session (s012). Absent before the first start. */
     diff?: DiffState;
+    /** The review swarm (s015). Absent until the first `review`. */
+    review?: ReviewState;
 }
 
 /** One `diffview` process per repo, by repo key, while it runs. Reattached by pid identity. */

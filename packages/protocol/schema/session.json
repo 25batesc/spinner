@@ -9,6 +9,10 @@
                     "type": "number",
                     "const": 1
                 },
+                "kind": {
+                    "$ref": "#/definitions/SessionKind",
+                    "description": "`review` for a review session (s015); absent means an ordinary session."
+                },
                 "id": {
                     "type": "string",
                     "description": "Short id, for example `s17`."
@@ -69,6 +73,10 @@
                 "diff": {
                     "$ref": "#/definitions/DiffState",
                     "description": "The diff viewers the daemon runs for this session (s012). Absent before the first start."
+                },
+                "review": {
+                    "$ref": "#/definitions/ReviewState",
+                    "description": "The review swarm (s015). Absent until the first `review`."
                 }
             },
             "required": [
@@ -87,6 +95,14 @@
             ],
             "additionalProperties": false,
             "description": "The whole of `session.yaml`."
+        },
+        "SessionKind": {
+            "type": "string",
+            "enum": [
+                "session",
+                "review"
+            ],
+            "description": "What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action."
         },
         "Stage": {
             "type": "string",
@@ -194,6 +210,13 @@
                 "title": {
                     "type": "string",
                     "description": "PR title, as `gh pr create` set it or GitHub reports it. Absent before s005."
+                },
+                "checks_failing": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Names of the checks that are red, for the CI pill's tooltip (s015). Absent before s015."
                 }
             },
             "required": [
@@ -644,6 +667,55 @@
             ],
             "additionalProperties": false,
             "description": "One unresolved thread, as much of it as `needs_human` and the tab's badge need."
+        },
+        "ReviewState": {
+            "type": "object",
+            "properties": {
+                "swarm": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/SwarmRecord"
+                    },
+                    "description": "By agent name, `review-<model-slug>`."
+                }
+            },
+            "required": [
+                "swarm"
+            ],
+            "additionalProperties": false,
+            "description": "The review swarm of a session (s015): the daemon writes it, `SessionView.review` reads it."
+        },
+        "SwarmRecord": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": "`provider/model` the reviewer runs with."
+                },
+                "state": {
+                    "$ref": "#/definitions/SwarmState"
+                },
+                "pr": {
+                    "type": "string",
+                    "description": "Repo key of `repos` whose PR the reviewer reads."
+                }
+            },
+            "required": [
+                "model",
+                "state",
+                "pr"
+            ],
+            "additionalProperties": false,
+            "description": "One reviewer of the swarm (s015), as `session.yaml` records it under `review.swarm`."
+        },
+        "SwarmState": {
+            "type": "string",
+            "enum": [
+                "queued",
+                "reading",
+                "posted",
+                "failed"
+            ]
         }
     },
     "$id": "https://spinner.dev/schema/session.json",

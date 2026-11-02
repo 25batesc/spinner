@@ -9,7 +9,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import type { ReviewRequest, SessionSummary, Settings } from "@spinner/protocol";
-import { REVIEW_MODELS_DEFAULT, REVIEW_N_DEFAULT, REVIEW_TIMEOUT_MS } from "@spinner/protocol";
+import { REVIEW_MODELS_DEFAULT, REVIEW_N_DEFAULT } from "@spinner/protocol";
+
+/** The time one `review-blast` run gets before the job fails. */
+const REVIEW_TIMEOUT_MS = 20 * 60_000;
 import type { Log } from "../stack/runner.js";
 
 /** The environment variable that names the script, before the settings and PATH. */
@@ -21,15 +24,12 @@ export const REVIEW_BLAST_DEFAULT = "review-blast";
 /** Upper bound on bytes kept from one stream's partial last line. */
 const LINE_BYTES_MAX = 64 * 1024;
 
-/** The script to run: the environment, then the settings, then PATH. */
+/** The script to run: the environment, then PATH. */
 export function resolve_review_blast(env: NodeJS.ProcessEnv, settings: Settings): string {
+    assert.ok(settings.theme.length > 0, "settings");
     const from_env = env[REVIEW_BLAST_ENV];
     if (from_env !== undefined && from_env.length > 0) {
         return from_env;
-    }
-    const from_settings = settings.review?.command;
-    if (from_settings !== undefined && from_settings.length > 0) {
-        return from_settings;
     }
     return REVIEW_BLAST_DEFAULT;
 }
