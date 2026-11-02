@@ -3,7 +3,7 @@
 // of the whole document; the daemon answers with the `settings` event, which every window
 // follows, so nothing here keeps a draft. Custom themes come from `GET /themes`; the invalid
 // ones are listed greyed with their missing keys, and a button downloads `dark` as a start.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
     BUILTIN_THEMES,
@@ -18,6 +18,7 @@ import {
 import { fetchModels, fetchSettingsPath } from "./events-client.ts";
 import { PaneHead, type IconButtonProps } from "./PaneHead.tsx";
 import { useLoaded } from "./remote.ts";
+import { reviewModelsText, reviewN, withReview } from "./review-settings.ts";
 import type { CostFigures } from "./state.ts";
 import { paletteFor } from "./theme.ts";
 import { UsageSection } from "./UsageSection.tsx";
@@ -61,6 +62,62 @@ export function downloadDark(): void {
     link.download = "my-theme.json";
     link.click();
     URL.revokeObjectURL(url);
+}
+
+/**
+ * The `review` step's models (one per line) and count. A textarea needs a draft, so this
+ * block saves on its button, not per keystroke; the `settings` event resets the draft.
+ */
+function ReviewBlock(props: { settings: Settings; onSave: (next: Settings) => void }) {
+    const { settings } = props;
+    const stored = reviewModelsText(settings);
+    const storedN = reviewN(settings);
+    const [models, setModels] = useState(stored);
+    const [n, setN] = useState(storedN);
+    useEffect(() => {
+        setModels(stored);
+        setN(storedN);
+    }, [stored, storedN]);
+    const dirty = models !== stored || n !== storedN;
+    return (
+        <fieldset className="setting review-setting">
+            <legend>Review</legend>
+            <label className="setting">
+                <span>Models, one per line</span>
+                <textarea
+                    aria-label="Review models"
+                    rows={4}
+                    value={models}
+                    onChange={(event) => setModels(event.target.value)}
+                />
+            </label>
+            <label className="setting">
+                <span>Reviews per PR</span>
+                <input
+                    type="number"
+                    aria-label="Reviews per PR"
+                    min={1}
+                    max={20}
+                    value={n}
+                    onChange={(event) => setN(Number(event.target.value))}
+                />
+            </label>
+            <p className="muted settings-hint">
+                <code>review</code> runs <code>review-blast</code> with these models and this
+                count on each open PR; the reviews post as you.
+            </p>
+            <span className="review-actions">
+                <button
+                    type="button"
+                    className="primary"
+                    disabled={!dirty}
+                    onClick={() => props.onSave(withReview(settings, models, n))}
+                >
+                    save review settings
+                </button>
+            </span>
+        </fieldset>
+    );
 }
 
 export function SettingsPane(props: SettingsPaneProps) {
@@ -168,6 +225,7 @@ export function SettingsPane(props: SettingsPaneProps) {
                         <option value="rpc">rpc (headless chat)</option>
                     </select>
                 </label>
+                <ReviewBlock settings={settings} onSave={change} />
                 {error !== null && <p className="needs-human">{error}</p>}
             </form>
         </section>

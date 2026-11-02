@@ -8,6 +8,8 @@ import type { RunAction } from "./SessionsPane.tsx";
 export interface PipelineActionsProps {
     dir: string | undefined;
     busy: boolean;
+    /** True when the session has an open PR: what `review` needs. */
+    openPr: boolean;
     run: RunAction;
     /** Moves on pipeline events; the confirm dialogs read the daemon's preview again. */
     revision: number;
@@ -93,6 +95,7 @@ function ApproveDialog(props: DialogProps) {
 /** One sentence per button, as its tooltip. */
 export const PIPELINE_TIPS = {
     pr: "Open a pull request from this session's branch, one per changed repo.",
+    review: "Post independent reviews from several models on the PR; they post as you.",
     fix: "Have the fixer answer the open review threads.",
     post: "Post the review request to Slack as you, after a preview.",
     approve: "Approve the pull request as you, after a preview.",
@@ -103,7 +106,7 @@ export const PIPELINE_TIPS = {
  * The pipeline group of the toolbar: `post` and `approve` open a dialog that shows what they
  * will send; `land` is the irreversible one and looks it.
  */
-export function PipelineActions({ dir, busy, run, revision }: PipelineActionsProps) {
+export function PipelineActions({ dir, busy, openPr, run, revision }: PipelineActionsProps) {
     const [confirm, setConfirm] = useState<Confirm>(null);
     const off = dir === undefined || busy;
     const job = (action: string) => () => void run(`/sessions/${dir}/${action}`);
@@ -111,6 +114,9 @@ export function PipelineActions({ dir, busy, run, revision }: PipelineActionsPro
     return (
         <>
             <button disabled={off} title={PIPELINE_TIPS.pr} onClick={job("pr")}>create PR</button>
+            <button disabled={off || !openPr} title={PIPELINE_TIPS.review} onClick={job("review")}>
+                review
+            </button>
             <button disabled={off} title={PIPELINE_TIPS.fix} onClick={job("fix")}>fix</button>
             <button disabled={off} title={PIPELINE_TIPS.post} onClick={() => setConfirm("post")}>
                 post

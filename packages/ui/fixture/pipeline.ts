@@ -319,16 +319,28 @@ export class PipelineFixture {
         dir: string, rest: string, body: Record<string, unknown>, response: ServerResponse,
         accepted: (job: Job) => true,
     ): boolean {
-        const pipeline = /^(pr|fix|post|approve|land|reset)$/.exec(rest);
+        const pipeline = /^(pr|review|fix|post|approve|land|reset)$/.exec(rest);
         if (pipeline === null) {
             return false;
         }
-        const action = pipeline[1] as "pr" | "fix" | "post" | "approve" | "land" | "reset";
+        const action = pipeline[1] as
+            "pr" | "review" | "fix" | "post" | "approve" | "land" | "reset";
         if ((action === "post" || action === "approve") && body["confirm"] !== true) {
             return sendJson(response, { error: `${action} needs confirm: true` }, 400);
         }
+        if (action === "review") {
+            // As the daemon: one job per open PR; 409 without one.
+            const prs = this.host.sessions.get(dir)?.board?.prs ?? [];
+            if (!prs.some((pr) => pr.state === "open" || pr.state === "draft")) {
+                return sendJson(response, { error: "no open PR to review" }, 409);
+            }
+        }
         const lines: Record<typeof action, string[]> = {
             pr: ["pushing web", "opened web#412"],
+            review: [
+                "review-blast https://github.com/example/web/pull/412 --n 3",
+                "posted 3 reviews as you",
+            ],
             fix: ["rendering threads", "fixer steered"],
             post: ["posting through the fixture"],
             approve: ["submitting the approving review"],

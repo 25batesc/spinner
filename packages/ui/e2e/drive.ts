@@ -1048,9 +1048,12 @@ if (flow === "pipeline") {
     await click(".thread-actions button", "flag");
     await until("flag shown", `${text(".threads")}.includes("Flag:")`);
     await shot("15-thread-replied-flagged");
-    for (const action of ["create PR", "fix"]) {
+    for (const action of ["create PR", "review", "fix"]) {
         await click(".actions button", action);
         await until(`${action} finished`, `${text(".drawer")}.includes("ok")`);
+        if (action === "review") {
+            await until("review log", `${text(".drawer")}.includes("posted 3 reviews")`);
+        }
         await click(".drawer button", "close");
     }
     await shot("16-pr-and-fix");
@@ -1361,6 +1364,21 @@ if (flow === "settings") {
     await until("system terminal back", `${xtermBg} === ${JSON.stringify(systemXterm)}`);
     await until("system terminal text back", `${xtermFg} === ${JSON.stringify(systemFg)}`);
     await until("no scheme override", `document.documentElement.dataset.scheme === undefined`);
+    // The Review block: the defaults show, a change enables save, the save goes through
+    // PUT /settings and the `settings` event brings the stored values back into the fields.
+    const modelsField = `document.querySelector("textarea[aria-label='Review models']")`;
+    const nField = `document.querySelector("input[aria-label='Reviews per PR']")`;
+    const saveReview = `[...document.querySelectorAll(".review-setting button")]
+        .find((b) => b.textContent === "save review settings")`;
+    await until("review defaults", `${modelsField}.value.split("\\n").length === 3`);
+    await until("save off while clean", `${saveReview}.disabled === true`);
+    await fill("textarea[aria-label='Review models']", "a/one\nb/two\n");
+    await fill("input[aria-label='Reviews per PR']", "2");
+    await until("save on", `${saveReview}.disabled === false`);
+    await click(".review-setting button", "save review settings");
+    await until("review stored", `${saveReview}.disabled === true && ${nField}.value === "2"`);
+    await until("models stored", `${modelsField}.value === "a/one\\nb/two"`);
+    await shot("79-settings-review");
     // The gear again hides the panel; the sessions icon brings the sessions view back.
     await click("button[aria-label='Hide settings']");
     await until("panel hidden", `document.querySelector(".sessions-pane") === null`);
@@ -1764,8 +1782,8 @@ if (flow === "terminal") {
             title: 0,
             views: ["agents", "mission", "threads", "services"],
             viewSelected: "agents",
-            groups: [["run local", "stop local"], ["create PR", "fix", "post", "approve", "land"],
-                ["", "reset", "close"]],
+            groups: [["run local", "stop local"],
+                ["create PR", "review", "fix", "post", "approve", "land"], ["", "reset", "close"]],
             seps: 2,
             untitled: [],
             danger: ["land", "reset", "close"],

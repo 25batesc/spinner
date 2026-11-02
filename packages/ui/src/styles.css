@@ -826,6 +826,17 @@ html, body, #root { height: 100%; margin: 0; }
 .setting { display: flex; flex-direction: column; gap: 6px; }
 .setting > span { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .setting select { width: 100%; }
+/* The Review block: a fieldset with its own label row, the fields, the hint, one save. */
+.review-setting {
+    margin: 0; padding: var(--space-3); border: 1px solid var(--line-soft);
+    border-radius: var(--radius-box); gap: var(--space-3);
+}
+.review-setting legend {
+    padding: 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted);
+}
+.review-setting textarea { font-family: var(--font-mono); font-size: var(--text-dense); }
+.review-setting input[type="number"] { width: 80px; }
+.review-actions { display: flex; }
 .swatches { display: flex; gap: 2px; }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line-soft); }
 .invalid-themes {

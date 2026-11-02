@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
+import type { SessionView } from "@spinner/protocol";
+
 import { AgentsPane } from "./AgentsPane.tsx";
 import { fetchThemes, postAction, putSettings } from "./events-client.ts";
 import { ActivityDrawer } from "./ActivityDrawer.tsx";
@@ -41,6 +43,12 @@ function transcriptsFor(dir: string | undefined, all: Record<string, Transcript>
         }
     }
     return result;
+}
+
+/** True when a PR of the session is open or a draft: what the `review` step needs. */
+function hasOpenPr(view: SessionView | undefined): boolean {
+    const prs = view?.board?.prs ?? [];
+    return prs.some((pr) => pr.state === "open" || pr.state === "draft");
 }
 
 export interface PaneRoute {
@@ -355,6 +363,7 @@ export function App() {
                 toolbar={
                     <SessionToolbar
                         dir={selected}
+                        openPr={hasOpenPr(view)}
                         busy={busy}
                         run={run}
                         revision={revisionsOf(state, selected).pipeline}

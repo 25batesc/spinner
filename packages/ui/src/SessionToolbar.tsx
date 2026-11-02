@@ -10,6 +10,8 @@ import type { RunAction } from "./SessionForms.tsx";
 
 export interface SessionToolbarProps {
     dir: string | undefined;
+    /** True when the session has an open PR, which `review` needs. */
+    openPr: boolean;
     /** True while a job runs on this session; the buttons wait. */
     busy: boolean;
     run: RunAction;
@@ -41,7 +43,7 @@ function useCompact(): boolean {
 }
 
 export function SessionToolbar(props: SessionToolbarProps) {
-    const { dir, busy, run } = props;
+    const { dir, busy, openPr, run } = props;
     const compact = useCompact();
     const [open, setOpen] = useState(false);
     const off = dir === undefined || busy;
@@ -67,7 +69,13 @@ export function SessionToolbar(props: SessionToolbarProps) {
     );
     const pipeline = (
         <span className="toolbar-group">
-            <PipelineActions dir={dir} busy={busy} run={run} revision={props.revision} />
+            <PipelineActions
+                dir={dir}
+                busy={busy}
+                openPr={openPr}
+                run={run}
+                revision={props.revision}
+            />
         </span>
     );
     const end = (
