@@ -91,6 +91,10 @@ export class DiffWatcher {
                 await this.refresh();
                 await this.wait();
             } catch (error) {
+                // A viewer stopped under a parked `wait` ends the CLI badly; that is expected.
+                if (this.stopped || !this.input.alive()) {
+                    return;
+                }
                 const reason = error instanceof Error ? error.message : String(error);
                 this.input.log(`diff watcher of ${this.input.repo}: ${reason}`);
                 await sleep(this.input.backoff_ms ?? BACKOFF_MS);
@@ -126,7 +130,8 @@ export class DiffWatcher {
             return;
         }
         if (result.code !== 0) {
-            throw new Error(`wait exited ${result.code}: ${result.stderr.trim()}`);
+            const output = `${result.stderr.trim()}\n${result.stdout.trim()}`.trim();
+            throw new Error(`wait exited ${result.code}: ${output}`);
         }
         const threads = parse_threads(result.stdout);
         const notices = notices_from(this.input.repo, threads, cursor);
