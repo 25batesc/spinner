@@ -1,11 +1,11 @@
 // The Reviews panel (s015): a view of the left panel for the operator's peers' PRs. The paste
 // box at the top takes PR links in any form; `Start review` posts them and the daemon makes
-// one review session per PR. Below it, one card per review, the latest activity first.
+// one review session per PR. Below it, one card per review, the latest activity first, with
+// the review's pills (s018: the state and the draft's count among them).
 import { useState, type FormEvent } from "react";
 
-import { formatUsd } from "./costs.ts";
-import { PaneHead, StatePill, type IconButtonProps } from "./PaneHead.tsx";
-import { ciPill, decisionPill, swarmLine, type ReviewFacts } from "./review.ts";
+import { PaneHead, ReviewPills, type IconButtonProps } from "./PaneHead.tsx";
+import { swarmLine, type ReviewFacts } from "./review.ts";
 import { useExtraction, type RunAction } from "./SessionForms.tsx";
 
 export interface ReviewsPaneProps {
@@ -73,15 +73,6 @@ function ReviewComposeBox({ run }: { run: RunAction }) {
     );
 }
 
-/** `⑂ 4` with the open and resolved threads in the tooltip. */
-function ThreadCount({ facts }: { facts: ReviewFacts }) {
-    return (
-        <span className="pill rv-threads" title={`${facts.threads} review threads`}>
-            ⑂ {facts.threads}
-        </span>
-    );
-}
-
 /** One review: the facts, the pills, and `review` and `open on GitHub`. */
 function ReviewCard(props: {
     facts: ReviewFacts;
@@ -107,14 +98,7 @@ function ReviewCard(props: {
                         {facts.branch} → {facts.base}
                     </code>
                 </span>
-                <span className="badges rv-pills">
-                    <StatePill pill={ciPill(facts.checks, facts.failing)} className="rv-ci" />
-                    <StatePill pill={decisionPill(facts.decision)} className="rv-decision" />
-                    <ThreadCount facts={facts} />
-                    {facts.usd !== null && (
-                        <span className="muted usage-cost rv-cost">{formatUsd(facts.usd)}</span>
-                    )}
-                </span>
+                <ReviewPills facts={facts} />
             </button>
             <span className="rv-card-actions">
                 <button

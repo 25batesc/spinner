@@ -17,6 +17,7 @@ import {
     type SessionView,
     type StackUsage,
     type StackView,
+    type SwarmMember,
 } from "@spinner/protocol";
 
 import { sessionCost } from "./costs.ts";
@@ -235,6 +236,28 @@ export const BRIEFING_MD = [
     "A 5xx from a full disk retries three times and takes 3 seconds longer to fail. Low.",
 ].join("\n");
 
+/** The briefing of the fixture's second review, the one with nothing to fix. */
+export const DARK_BRIEFING_MD = [
+    "# Dark mode for the settings page",
+    "",
+    "Sam adds a theme toggle to the settings page and stores the choice in `localStorage`.",
+    "",
+    "## What to look at",
+    "",
+    "- `src/settings/theme.ts`: the toggle and the stored preference.",
+    "- `src/settings/theme.css`: the dark palette; every pair passes 4.5:1.",
+    "",
+    "## Risk",
+    "",
+    "None found. The reviewers agree.",
+].join("\n");
+
+/** The canned briefings by session directory, for the fixture's seed. */
+export const BRIEFINGS: Record<string, string> = {
+    "r51-peanut-51": BRIEFING_MD,
+    "r77-web-77": DARK_BRIEFING_MD,
+};
+
 /** The lead's draft (s016), `artifacts/review-draft.json`: one review in one voice. */
 export const DRAFT: ReviewDraft = {
     event: "COMMENT",
@@ -261,33 +284,58 @@ export function reviewerName(model: string): string {
     return `review-${model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 }
 
-/** The two reviews at the fixture's start: one swarm mid-flight, one not started. */
+/** The lead's draft for a PR with nothing to fix (s018): `APPROVE`, no line comment. */
+export const APPROVE_DRAFT: ReviewDraft = {
+    event: "APPROVE",
+    body: "The toggle, the stored preference and the contrast pass all read right. Nothing to fix.",
+    comments: [],
+};
+
+/** The verdict a failed reviewer leaves (s018): the daemon's reason, for the chip's tooltip. */
+export const REVIEWER_ERROR =
+    "pi exited with code 1 before a VERDICT: model x-ai/grok-4.6 is not configured";
+
+/**
+ * The two reviews at the fixture's start (s018): one with a COMMENT draft of two comments
+ * and one failed reviewer, one with an APPROVE draft of no comments. The agents are headless
+ * (`harness: rpc`), so the pane has no terminal for them.
+ */
 export function initialReviews(): SessionView[] {
+    const reviewerAgents = () => Object.fromEntries(REVIEW_MODELS.map((model) => [
+        reviewerName(model), { harness: "rpc" as const, model, process: "idle" as const },
+    ]));
     const upload = session({
         id: "r51", slug: "peanut-51", title: "Retry the upload on 5xx", kind: "review",
         created: "2026-11-02T09:30:00Z", stage: "peer-review",
         branch: "fix/retry-upload", base: "main",
-        agents: Object.fromEntries(REVIEW_MODELS.map((model) => [
-            reviewerName(model), { harness: "tty" as const, model, process: "running" as const },
-        ])),
+        agents: reviewerAgents(),
     });
     const uploadPr = pr(51, "peanut", {
         author: "casey", checks: "red", review: "changes_requested",
         threads: { bots_open: 3, humans_open: 1, resolved: 0 },
         last_activity: "2026-11-02T10:05:00Z", title: "Retry the upload on 5xx",
     });
-    // Three verdicts in, the briefing written, the draft waiting for the operator (s016).
-    const swarm = REVIEW_MODELS.map((model, index) => ({
-        name: reviewerName(model), model, state: "done" as const, usd: 0.3 + index * 0.1,
-        pr: "peanut",
+    // Two verdicts in and one reviewer failed, the briefing written, the draft waiting.
+    const swarm: SwarmMember[] = REVIEW_MODELS.map((model, index) => ({
+        name: reviewerName(model), model, state: "done", usd: 0.3 + index * 0.1,
+        pr: "peanut", error: null,
     }));
-    upload.agents["lead"] = { harness: "tty", model: "anthropic/claude-opus-5-5", process: "idle" };
+    swarm[2] = { ...swarm[2]!, state: "failed", usd: 0, error: REVIEWER_ERROR };
+    const lead = {
+        harness: "rpc" as const, model: "anthropic/claude-opus-5-5", process: "idle" as const,
+    };
+    upload.agents["lead"] = lead;
     upload.needs_human = REVIEW_DRAFT_NEEDS_HUMAN;
     const dark = session({
         id: "r77", slug: "web-77", title: "Dark mode for the settings page", kind: "review",
         created: "2026-11-01T16:00:00Z", stage: "peer-review",
         branch: "feat/dark-settings", base: "main",
+        agents: { ...reviewerAgents(), lead },
+        needs_human: REVIEW_DRAFT_NEEDS_HUMAN,
     });
+    const darkSwarm: SwarmMember[] = REVIEW_MODELS.map((model) => ({
+        name: reviewerName(model), model, state: "done", usd: 0.2, pr: "web", error: null,
+    }));
     const darkPr = pr(77, "web", {
         author: "sam", checks: "green", review: "none",
         threads: { bots_open: 0, humans_open: 0, resolved: 0 },
@@ -298,11 +346,13 @@ export function initialReviews(): SessionView[] {
             checks: "red", failing: ["lint", "e2e (chromium)"],
             review_decision: "changes_requested", threads: 4, swarm,
             briefing: true, draft: DRAFT, posted_url: null,
-        }, ["lead", ...swarm.map((member) => member.name)]),
+            state: "drafted", comment_count: DRAFT.comments.length, event: DRAFT.event,
+        }, ["lead"]),
         reviewView("r77-web-77", dark, darkPr, {
-            checks: "green", failing: [], review_decision: "none", threads: 0, swarm: [],
-            briefing: false, draft: null, posted_url: null,
-        }),
+            checks: "green", failing: [], review_decision: "none", threads: 0, swarm: darkSwarm,
+            briefing: true, draft: APPROVE_DRAFT, posted_url: null,
+            state: "drafted", comment_count: 0, event: "APPROVE",
+        }, ["lead"]),
     ];
 }
 

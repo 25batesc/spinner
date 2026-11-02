@@ -9,10 +9,12 @@ import type { PrFacts, ReviewFields, SessionView } from "@spinner/protocol";
 import {
     ciPill,
     decisionPill,
+    draftPill,
     leadChip,
     leadDot,
     ordinarySessions,
     reviewFacts,
+    reviewStatePill,
     reviewsByActivity,
     swarmDot,
     swarmLine,
@@ -99,12 +101,39 @@ it("reads the review fields over the PR facts, and falls back to the PR facts", 
     expect(full).toMatchObject({
         briefing: true, posted_url: null, lead: null,
         draft: { event: "COMMENT", comments: [{ path: "src/a.ts", line: 3 }] },
+        // The s018 progress fields, derived when the daemon leaves them out.
+        state: "drafted", comment_count: 1, event: "COMMENT",
     });
     const bare = reviewFacts(view("r2", "review", [pr({ review: "approved" })]));
     expect(bare).toMatchObject({
         checks: "green", decision: "approved", threads: 6, swarm: [],
         briefing: false, draft: null, posted_url: null,
+        state: "idle", comment_count: 0, event: null,
     });
+    const sent = reviewFacts(view("r3", "review", [pr()], {
+        ...fields, draft: null, state: "reviewing", comment_count: 0, event: null,
+    }));
+    expect(sent).toMatchObject({ state: "reviewing", comment_count: 0, event: null });
+    const posted = reviewFacts(view("r4", "review", [pr()], {
+        ...fields, draft: null, posted_url: "https://github.com/x/y/pull/1#r1",
+    }));
+    expect(posted).toMatchObject({ state: "posted", comment_count: 0, event: null });
+});
+
+it("pills the review state and the draft: a count, or approve with no comment", () => {
+    expect(reviewStatePill("idle")).toBeNull();
+    expect(reviewStatePill("reviewing")?.tone).toBe("pill-accent");
+    expect(reviewStatePill("drafted")?.tone).toBe("pill-warn");
+    expect(reviewStatePill("posted")).toMatchObject({ text: "posted", tone: "pill-ok" });
+    expect(draftPill({ state: "reviewing", comment_count: 0, event: null })).toBeNull();
+    expect(draftPill({ state: "drafted", comment_count: 2, event: "COMMENT" }))
+        .toMatchObject({ text: "2 comments", tone: "" });
+    expect(draftPill({ state: "drafted", comment_count: 1, event: "APPROVE" }))
+        .toMatchObject({ text: "1 comment", tone: "" });
+    expect(draftPill({ state: "drafted", comment_count: 0, event: "APPROVE" }))
+        .toMatchObject({ text: "approve", tone: "pill-ok" });
+    // After `post` the draft is gone and so is its pill; `posted` says it all.
+    expect(draftPill({ state: "posted", comment_count: 0, event: null })).toBeNull();
 });
 
 it("reads the lead's chip from the `lead` agent: running, idle between turns, or stopped", () => {

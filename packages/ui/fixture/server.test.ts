@@ -87,18 +87,25 @@ it("POST /reviews makes a review per PR and runs the lead's process to the draft
     });
     expect(updates().length).toBeGreaterThan(3);
     const states = updates().map((fields) => fields.swarm.map((m) => m.state).join(","));
-    expect(states).toContain("reading,queued");
-    expect(states.at(-1)).toBe("done,done");
+    expect(states).toContain("reading,queued,queued");
+    expect(states.at(-1)).toBe("done,done,failed");
     const drafted = updates().at(-1) as ReviewFields;
+    expect(drafted.swarm[2]?.error).toContain("not configured");
     expect(drafted.briefing).toBe(true);
     expect(drafted.draft?.comments).toHaveLength(2);
     expect(drafted.posted_url).toBeNull();
+    // The s018 progress fields follow the others; the briefing came while reviewing.
+    expect(drafted).toMatchObject({ state: "drafted", comment_count: 2, event: "COMMENT" });
+    const whileReviewing = updates().find((fields) => fields.briefing && fields.draft === null);
+    expect(whileReviewing).toMatchObject({ state: "reviewing", comment_count: 0, event: null });
     const views = events.filter((e) => e.type === "session.updated");
     const view = views.at(-1)?.data as SessionView;
     expect(Object.keys(view.summary.session.agents).sort())
         .toEqual(["lead", ...drafted.swarm.map((m) => m.name)].sort());
     expect(view.summary.session.needs_human).toBe("post or drop the review draft");
     expect(view.agents_running).toContain("lead");
+    const agents = Object.values(view.summary.session.agents);
+    expect(agents.every((agent) => agent.harness === "rpc")).toBe(true);
     const base = `http://127.0.0.1:${port}/sessions/${dir}/review`;
     const briefing = await fetch(`${base}/briefing`);
     expect(briefing.status).toBe(200);
@@ -120,6 +127,7 @@ it("POST /reviews makes a review per PR and runs the lead's process to the draft
     expect(last.posted_url).toBe(answer.url);
     expect(last.draft).toBeNull();
     expect(last.threads).toBe(2);
+    expect(last).toMatchObject({ state: "posted", comment_count: 0, event: null });
     expect((await fetch(`${base}/post`, { method: "POST" })).status).toBe(409);
     // A second round on the session is the swarm alone, as a job.
     const again = await fetch(base, { method: "POST" });

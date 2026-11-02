@@ -8,7 +8,9 @@ import type { CostTotals, PrFacts, SessionView } from "@spinner/protocol";
 
 import { formatTokens, formatUsd } from "./costs.ts";
 import type { PaneName } from "./layout.ts";
-import { ciPill, decisionPill, reviewFacts, type Pill } from "./review.ts";
+import {
+    ciPill, decisionPill, draftPill, reviewFacts, reviewStatePill, type Pill, type ReviewFacts,
+} from "./review.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import {
     machineLine,
@@ -321,6 +323,47 @@ function MachineLine({ usage }: { usage: UsageSample | null }) {
     );
 }
 
+/**
+ * The review state pill and the draft's count or `approve` (s018), the same on the card,
+ * the PR header and the context bar. `reviewing` carries a working dot.
+ */
+export function ReviewStatePills({ facts }: { facts: ReviewFacts }) {
+    const state = reviewStatePill(facts.state);
+    const draft = draftPill(facts);
+    return (
+        <>
+            {state !== null && (
+                <span
+                    className={`pill ${state.tone} rv-state rv-state-${facts.state}`}
+                    title={state.title}
+                    data-state={facts.state}
+                >
+                    {facts.state === "reviewing" && <span className="dot rv-state-dot" />}
+                    {state.text}
+                </span>
+            )}
+            {draft !== null && <StatePill pill={draft} className="rv-draft-pill" />}
+        </>
+    );
+}
+
+/** The pills of a review card and PR header: CI, the decision, the threads, the state, the cost. */
+export function ReviewPills({ facts }: { facts: ReviewFacts }) {
+    return (
+        <span className="badges rv-pills">
+            <StatePill pill={ciPill(facts.checks, facts.failing)} className="rv-ci" />
+            <StatePill pill={decisionPill(facts.decision)} className="rv-decision" />
+            <span className="pill rv-threads" title={`${facts.threads} review threads`}>
+                ⑂ {facts.threads}
+            </span>
+            <ReviewStatePills facts={facts} />
+            {facts.usd !== null && (
+                <span className="muted usage-cost rv-cost">{formatUsd(facts.usd)}</span>
+            )}
+        </span>
+    );
+}
+
 export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) {
     if (view === undefined) {
         return (
@@ -348,6 +391,7 @@ export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) 
                 <span className="pill rv-threads" title={`${review.threads} review threads`}>
                     ⑂ {review.threads}
                 </span>
+                <ReviewStatePills facts={review} />
                 <CostFigure cost={view.cost} />
                 <MachineLine usage={usage} />
                 {needs !== null && (

@@ -2187,10 +2187,11 @@ if (flow === "reviews") {
     // the review sessions are not in the Sessions panel; the cards come latest activity
     // first with the CI pill (the failing checks in its tooltip), the decision pill and the
     // thread count; a card opens the review's middle pane with the PR header and the swarm
-    // chips; a chip opens the reviewer's terminal; the right pane opens on `diff`. A paste
-    // in the box makes a review, which starts the lead and the swarm (s016): the chips go
-    // queued, reading, done as `review.updated` arrives; `review` in the context bar runs a
-    // second round. The lead's blocks are the `review-lead` flow.
+    // chips (s018: facts, not controls; the agents are headless, so no terminal view and
+    // nothing happens on a click); the right pane opens on `diff`. A paste in the box makes
+    // a review, which starts the lead and the swarm (s016): the chips go queued, reading,
+    // done or failed as `review.updated` arrives, and the state pill follows; `review` in
+    // the context bar runs a second round. The lead's blocks are the `review-lead` flow.
     const sessionsText = text(".sessions-pane");
     if ((await evaluate(`${sessionsText}.includes("Retry the upload")`)) === true) {
         throw new Error("a review session shows in the Sessions panel");
@@ -2227,12 +2228,22 @@ if (flow === "reviews") {
     await until("review button in the bar",
         `[...document.querySelectorAll(".context-bar .rv-toolbar button")]
             .some((b) => b.textContent === "review")`);
-    const chips = `[...document.querySelectorAll(".rv-swarm .chip-name")]`;
+    const chips = `[...document.querySelectorAll(".rv-swarm .rv-chip")]`;
     await until("the lead and three chips", `${chips}.length === 4`);
     const states = (await evaluate(`${chips}.map((c) => c.dataset.state)`)) as string[];
     console.log("chip states:", JSON.stringify(states));
-    if (JSON.stringify(states) !== JSON.stringify(["idle", "done", "done", "done"])) {
+    if (JSON.stringify(states) !== JSON.stringify(["idle", "done", "done", "failed"])) {
         throw new Error("the chips do not show the lead and the swarm's states");
+    }
+    const reviewPane = `document.querySelector(".rv-pane")`;
+    const controls = await evaluate(`({
+        buttons: ${chips}.filter((c) => c.querySelector("button") !== null).length,
+        tabs: document.querySelectorAll(".rv-pane .tabs-sub").length,
+        terminals: document.querySelectorAll(".rv-pane .agent-terminal").length,
+    })`);
+    console.log("pane controls:", JSON.stringify(controls));
+    if (JSON.stringify(controls) !== JSON.stringify({ buttons: 0, tabs: 0, terminals: 0 })) {
+        throw new Error("a review pane must have no chip button, sub tab or terminal");
     }
     await until("diff tab shown",
         `document.querySelector(".preview-pane .view-tab.tab-selected")?.textContent === "diff"`);
@@ -2241,13 +2252,13 @@ if (flow === "reviews") {
         throw new Error("the threads view of a review offers fix");
     }
     await shot("71-review-pane");
-    await click(".rv-swarm .chip-name", "opus");
-    await until("reviewer terminal",
-        `document.querySelector(".rv-pane .agent-terminal:not([hidden])") !== null`);
-    await until("terminal banner", `${text(".rv-pane .agent-terminal:not([hidden])")}.length > 0`);
-    await shot("72-reviewer-terminal");
-    await click(".rv-pane .tabs-sub .tab", "threads");
-    await until("threads back", `document.querySelector(".rv-pane .threads") !== null`);
+    // A chip click does nothing: the threads stay, no terminal appears.
+    await click(".rv-swarm .rv-chip", "opus");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await until("threads still shown", `${reviewPane}.querySelector(".threads") !== null`);
+    if ((await evaluate(`${reviewPane}.querySelector(".agent-terminal") !== null`)) === true) {
+        throw new Error("a chip click opened a terminal");
+    }
     // A paste makes a review; the job's session is selected when it finishes.
     await fill("textarea[aria-label='Pull requests to review']",
         "please look at https://github.com/acme/peanut/pull/9");
@@ -2263,46 +2274,81 @@ if (flow === "reviews") {
     // The job started the lead and the swarm: the chips move on their own.
     const reviewers = `${chips}.filter((c) => c.dataset.name !== "lead")`;
     await until("chips queued", `${reviewers}.some((c) => c.dataset.state === "queued")`);
+    const stateOf = (where: string) =>
+        `document.querySelector("${where} .rv-state")?.dataset.state`;
+    await until("card reviewing", `${stateOf(".rv-card-selected")} === "reviewing"`);
+    await until("header reviewing", `${stateOf(".rv-head")} === "reviewing"`);
+    await until("reviewing dot",
+        `document.querySelector(".rv-head .rv-state .rv-state-dot") !== null`);
     await shot("74-swarm-queued");
     await until("a chip reads", `${reviewers}.some((c) => c.dataset.state === "reading")`);
-    await until("all done",
-        `${reviewers}.length === 2 && ${reviewers}.every((c) => c.dataset.state === "done")`);
+    const settled = `${reviewers}.length === 3
+        && ${reviewers}.every((c) => c.dataset.state === "done" || c.dataset.state === "failed")`;
+    await until("all settled", settled);
     await until("draft shown", `document.querySelector(".rv-draft") !== null`);
+    await until("card drafted", `${stateOf(".rv-card-selected")} === "drafted"`);
+    await until("card counts the comments",
+        `${text(".rv-card-selected .rv-draft-pill")} === "2 comments"`);
     await shot("75-swarm-done");
     // A second round from the context bar: the chips go back to queued.
     await click(".context-bar .rv-toolbar button", "review");
     await until("queued again", `${reviewers}.some((c) => c.dataset.state === "queued")`);
-    await until("all done again",
-        `${reviewers}.length === 2 && ${reviewers}.every((c) => c.dataset.state === "done")`);
+    await until("all settled again", settled);
     console.log("reviews ok");
     await finish();
 }
 
 if (flow === "review-lead") {
-    // The review lead (s016), against the fixture. The canned review r51 shows the briefing
-    // as markdown and the draft: the event pill, the summary, two `path:line` rows, `post`
-    // and `drop`; the lead's chip is first with its state. An edit of a comment saves on
-    // blur and comes back through `review.updated`; the pill click swaps the event; `post`
-    // asks once in place, `cancel` keeps the draft; `post` again and the confirm posts: the
-    // URL replaces the draft, the thread count follows, `needs_human` clears. On a fresh
-    // paste the briefing shows before the verdicts land, the draft once they have; `drop`
-    // removes it.
+    // The review lead (s016, s018), against the fixture. The canned review r51 shows the
+    // briefing as markdown and the draft: the event pill, the summary, two `path:line` rows,
+    // `post` and `drop`; the lead's chip is first with its state; the failed reviewer's chip
+    // carries the reason in its tooltip; the card and the header pill `drafted` and
+    // `2 comments`. An edit of a comment saves on blur and comes back through
+    // `review.updated`; the pill click swaps the event; `post` asks once in place, `cancel`
+    // keeps the draft; `post` again and the confirm posts: the URL replaces the draft, the
+    // thread count follows, `needs_human` clears, the pills read `posted`. The canned r77 is
+    // an APPROVE with no comment: `approve` as a green pill, no comment row, and it posts.
+    // On a fresh paste the briefing shows before the verdicts land, the draft once they
+    // have; `drop` removes it.
     await click(".activity-bar button[aria-label='Show reviews']");
     await until("reviews pane", `document.querySelector(".reviews-pane") !== null`);
+    const cardPills = (title: string) => `(() => {
+        const card = [...document.querySelectorAll(".rv-card")]
+            .find((c) => c.querySelector(".rv-title").textContent === ${JSON.stringify(title)});
+        return [...card.querySelectorAll(".rv-state, .rv-draft-pill")]
+            .map((p) => p.textContent.trim());
+    })()`;
+    const cardsBefore = await evaluate(`[${cardPills("Retry the upload on 5xx")},
+        ${cardPills("Dark mode for the settings page")}]`);
+    console.log("card pills:", JSON.stringify(cardsBefore));
+    if (JSON.stringify(cardsBefore) !== '[["drafted","2 comments"],["drafted","approve"]]') {
+        throw new Error("the cards do not pill the review state and the draft");
+    }
     await click(".rv-card-body", "Retry the upload on 5xx");
     await until("review pane", `document.querySelector(".rv-pane .rv-head") !== null`);
     await until("briefing rendered",
         `${text(".rv-briefing .md")}.includes("What to look at")`);
     await until("briefing heading", `document.querySelector(".rv-briefing .md h1") !== null`);
     await until("draft shown", `document.querySelector(".rv-draft") !== null`);
-    const chips = `[...document.querySelectorAll(".rv-swarm .chip-name")]`;
-    const first = (await evaluate(
-        `${chips}[0].dataset.name + ":" + ${chips}[0].dataset.state`,
-    )) as string;
-    console.log("first chip:", first);
-    if (first !== "lead:idle") {
-        throw new Error("the lead's chip is not first, idle");
+    const chips = `[...document.querySelectorAll(".rv-swarm .rv-chip")]`;
+    const chipShape = await evaluate(`${chips}.map((c) => [c.dataset.name, c.dataset.state,
+        c.title.split("\\n")[1] ?? ""])`);
+    console.log("chips:", JSON.stringify(chipShape));
+    const chipsWanted = [
+        ["lead", "idle", ""],
+        ["review-anthropic-claude-opus-5-5", "done", ""],
+        ["review-openai-gpt-6-luna", "done", ""],
+        ["review-x-ai-grok-4-6", "failed",
+            "pi exited with code 1 before a VERDICT: model x-ai/grok-4.6 is not configured"],
+    ];
+    if (JSON.stringify(chipShape) !== JSON.stringify(chipsWanted)) {
+        throw new Error("the chips do not show the lead, the verdicts and the failed reason");
     }
+    const headPills = `[...document.querySelectorAll(".rv-head .rv-state, .rv-head .rv-draft-pill")]
+        .map((p) => p.textContent.trim())`;
+    await until("header pills", `JSON.stringify(${headPills}) === '["drafted","2 comments"]'`);
+    const bar = text(".context-bar");
+    await until("context bar pills", `${bar}.includes("drafted") && ${bar}.includes("2 comments")`);
     const rows = `[...document.querySelectorAll(".rv-comment")]`;
     const shape = await evaluate(`({
         event: document.querySelector(".rv-event").dataset.event,
@@ -2366,7 +2412,27 @@ if (flow === "review-lead") {
     await until("thread count follows", `${text(".context-bar .rv-threads")} === "\u2442 6"`);
     await until("needs_human cleared",
         `!${text(".context-bar")}.includes("post or drop the review draft")`);
+    await until("header posted", `JSON.stringify(${headPills}) === '["posted"]'`);
+    await until("card posted",
+        `JSON.stringify(${cardPills("Retry the upload on 5xx")}) === '["posted"]'`);
     await shot("78-review-lead-posted");
+    // The APPROVE review: no comment row, `approve` on the header, and it posts as APPROVE.
+    await click(".rv-card-body", "Dark mode for the settings page");
+    await until("approve draft shown",
+        `document.querySelector(".rv-event")?.dataset.event === "APPROVE"`);
+    await until("no comment row", `document.querySelectorAll(".rv-comment").length === 0`);
+    await until("approve pill", `JSON.stringify(${headPills}) === '["drafted","approve"]'`);
+    await until("approve pill green",
+        `document.querySelector(".rv-head .rv-draft-pill").classList.contains("pill-ok")`);
+    await shot("78b-review-lead-approve");
+    await click(".rv-draft-actions .primary", "post");
+    await until("asked for approve", `document.querySelector(".rv-confirm") !== null`);
+    await click(".rv-confirm .primary", "post");
+    await until("approve posted",
+        `${text(".rv-posted-url")}.includes("pull/77#pullrequestreview-9001")`);
+    await until("decision approved", `${text(".rv-head .rv-decision")} === "approved"`);
+    await until("approve card posted",
+        `JSON.stringify(${cardPills("Dark mode for the settings page")}) === '["posted"]'`);
     // A fresh review: the briefing shows before the verdicts land; the draft once they have.
     await fill("textarea[aria-label='Pull requests to review']",
         "https://github.com/acme/peanut/pull/12");
@@ -2381,10 +2447,13 @@ if (flow === "review-lead") {
     if ((await evaluate(`document.querySelector(".rv-draft") !== null`)) === true) {
         throw new Error("the draft showed before the verdicts landed");
     }
+    await until("reviewing while the briefing shows",
+        `JSON.stringify(${headPills}) === '["reviewing"]'`);
     await shot("79-review-lead-briefing-first");
     await until("draft after the verdicts",
         `document.querySelector(".rv-draft") !== null
-            && ${reviewers}.every((c) => c.dataset.state === "done")`);
+            && ${reviewers}.filter((c) => c.dataset.state === "done").length === 2
+            && ${reviewers}.filter((c) => c.dataset.state === "failed").length === 1`);
     await until("lead idle", `${chips}[0].dataset.state === "idle"`);
     await click(".rv-draft-actions .danger", "drop");
     await until("draft dropped", `document.querySelector(".rv-draft") === null`);

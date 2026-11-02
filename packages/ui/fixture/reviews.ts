@@ -1,7 +1,8 @@
 // The review routes of the fixture daemon (s015, s016): `POST /reviews` makes one review
 // session per PR of the paste, and `POST /sessions/:dir/review` on a session with an open PR
 // runs the lead's process: the lead agent starts and writes the briefing, one tty reviewer per
-// model moves from `queued` to `reading` to `done` (a verdict file, never a post), and the
+// model moves from `queued` to `reading` to `done` (a verdict file, never a post; the
+// `FAILING_MODEL` ends `failed` with its reason), and the
 // lead writes the draft, which sets `needs_human`. `GET /sessions/:dir/review/briefing` serves
 // the briefing; `PUT` and `DELETE /sessions/:dir/review/draft` edit and drop the draft;
 // `POST /sessions/:dir/review/post` answers a URL and sets `posted_url`. Every change emits
@@ -11,10 +12,12 @@ import type { ServerResponse } from "node:http";
 import {
     LEAD_NAME, REVIEW_DRAFT_NEEDS_HUMAN,
     type Job, type JobAction, type PrFacts, type ReviewDraft, type ReviewFields,
-    type SessionView, type SpinnerEvent, type SwarmMember,
+    type ReviewProgress, type SessionView, type SpinnerEvent, type SwarmMember,
 } from "@spinner/protocol";
 
-import { BRIEFING_MD, DRAFT, pr, reviewerName, reviewView, session } from "./data.ts";
+import {
+    BRIEFING_MD, BRIEFINGS, DRAFT, REVIEWER_ERROR, pr, reviewerName, reviewView, session,
+} from "./data.ts";
 import { extract } from "./extract.ts";
 
 /** The part of the fixture daemon these routes use. */
@@ -33,7 +36,10 @@ const STEP_MS = 300;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The models the fixture's swarm runs; the daemon reads `settings.review.models`. */
-export const SWARM_MODELS = ["anthropic/claude-opus-5-5", "openai/gpt-6-luna"];
+export const SWARM_MODELS = ["anthropic/claude-opus-5-5", "openai/gpt-6-luna", "x-ai/grok-4.6"];
+
+/** The model of `SWARM_MODELS` whose reviewer fails (s018): its chip carries the reason. */
+export const FAILING_MODEL = "x-ai/grok-4.6";
 
 /** The lead's model; the daemon reads `settings.default_model`. */
 const LEAD_MODEL = "anthropic/claude-opus-5-5";
@@ -55,7 +61,22 @@ function sendJson(response: ServerResponse, body: unknown, status = 200): void {
 const EMPTY_FIELDS: ReviewFields = {
     checks: "pending", failing: [], review_decision: "none", threads: 0, swarm: [],
     briefing: false, draft: null, posted_url: null,
+    state: "idle", comment_count: 0, event: null,
 };
+
+/** `state`, `comment_count` and `event` from the other fields, as the daemon derives them. */
+function progress(review: ReviewFields, leadRunning: boolean): ReviewFields {
+    const working = leadRunning
+        || review.swarm.some((m) => m.state === "queued" || m.state === "reading");
+    const state: ReviewProgress = review.draft !== null
+        ? "drafted"
+        : working ? "reviewing" : review.posted_url !== null ? "posted" : "idle";
+    return {
+        ...review, state,
+        comment_count: review.draft?.comments.length ?? 0,
+        event: review.draft?.event ?? null,
+    };
+}
 
 export class ReviewFixture {
     private readonly host: ReviewHost;
@@ -67,9 +88,9 @@ export class ReviewFixture {
         this.host = host;
     }
 
-    /** The briefing of a session made before the fixture started (the canned r51). */
+    /** The briefing of a session made before the fixture started (the canned reviews). */
     seedBriefing(dir: string): void {
-        this.files.set(`${dir}/artifacts/briefing.md`, BRIEFING_MD);
+        this.files.set(`${dir}/artifacts/briefing.md`, BRIEFINGS[dir] ?? BRIEFING_MD);
     }
 
     /**
@@ -141,7 +162,7 @@ export class ReviewFixture {
         }
         const repo = current.board?.prs[0]?.repo ?? "repo";
         const members: SwarmMember[] = SWARM_MODELS.map((model) => ({
-            name: reviewerName(model), model, state: "queued", usd: 0, pr: repo,
+            name: reviewerName(model), model, state: "queued", usd: 0, pr: repo, error: null,
         }));
         this.put(dir, { swarm: members, briefing: false, draft: null, posted_url: null },
             log, "lead started; swarm queued", { lead: "running" });
@@ -155,6 +176,11 @@ export class ReviewFixture {
         }
         for (const [index, member] of members.entries()) {
             await sleep(STEP_MS * 2);
+            if (member.model === FAILING_MODEL) {
+                members[index] = { ...member, state: "failed", usd: 0, error: REVIEWER_ERROR };
+                this.put(dir, { swarm: members }, log, `${member.name} FAILED: ${REVIEWER_ERROR}`);
+                continue;
+            }
             members[index] = { ...member, state: "done", usd: 0.3 + index * 0.1 };
             const slug = member.name.slice("review-".length);
             this.put(dir, { swarm: members }, log,
@@ -241,18 +267,21 @@ export class ReviewFixture {
         }
         const base = current.summary.session;
         const agents = { ...base.agents };
-        const review: ReviewFields = { ...this.fieldsOf(current), ...change };
-        for (const member of review.swarm) {
+        // Headless agents (s018): `rpc`, no pty, so the pane offers no terminal for them.
+        const merged: ReviewFields = { ...this.fieldsOf(current), ...change };
+        for (const member of merged.swarm) {
             agents[member.name] = {
-                harness: "tty", model: member.model,
+                harness: "rpc", model: member.model,
                 process: member.state === "reading" ? "running" : "idle",
             };
         }
         if (extra.lead !== undefined) {
-            agents[LEAD_NAME] = { harness: "tty", model: LEAD_MODEL, process: extra.lead };
+            agents[LEAD_NAME] = { harness: "rpc", model: LEAD_MODEL, process: extra.lead };
         }
+        const leadRunning = agents[LEAD_NAME]?.process === "running";
+        const review = progress(merged, leadRunning);
         const running = review.swarm
-            .filter((member) => member.state !== "queued")
+            .filter((member) => member.state === "reading")
             .map((member) => member.name);
         if (agents[LEAD_NAME] !== undefined) {
             running.unshift(LEAD_NAME);

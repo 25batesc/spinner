@@ -4,11 +4,11 @@
 // place that reads them (`SessionView.kind`, `SessionView.review`, the contracts of 12:49
 // and 14:07). s016 adds the lead's fields (`briefing`, `draft`, `posted_url`), the lead's
 // chip, and the swarm state `done` in place of `posted`: the reviewers write verdicts and
-// never post.
+// never post. The follow-up of s018 adds the review state and the draft's count as pills.
 import {
     LEAD_NAME,
-    type AgentSpec, type CheckState, type ReviewDecision, type ReviewDraft, type SessionView,
-    type SwarmMember, type SwarmState,
+    type AgentSpec, type CheckState, type ReviewDecision, type ReviewDraft, type ReviewEvent,
+    type ReviewProgress, type SessionView, type SwarmMember, type SwarmState,
 } from "@spinner/protocol";
 
 /** The lead's chip: the agent `lead`, its state from the agent record and the running list. */
@@ -37,6 +37,12 @@ export interface ReviewFacts {
     briefing: boolean;
     draft: ReviewDraft | null;
     posted_url: string | null;
+    /** The 14:40 contract's `state`; derived from the s016 fields for a daemon without it. */
+    state: ReviewProgress;
+    /** Line comments in the draft; 0 without one. */
+    comment_count: number;
+    /** The draft's event; null without a draft. */
+    event: ReviewEvent | null;
     usd: number | null;
     /** ISO 8601: the PR's last activity, else the session's creation. */
     last_activity: string;
@@ -92,8 +98,69 @@ export function reviewFacts(view: SessionView): ReviewFacts | null {
         briefing: fields?.briefing ?? false,
         draft: fields?.draft ?? null,
         posted_url: fields?.posted_url ?? null,
+        state: fields?.state ?? derivedState(fields),
+        comment_count: fields?.comment_count ?? fields?.draft?.comments.length ?? 0,
+        event: fields?.event ?? fields?.draft?.event ?? null,
         usd: view.cost?.usd ?? null,
         last_activity: pr?.last_activity ?? session.created,
+    };
+}
+
+/** The review state from the s016 fields, for a daemon that does not send `state`. */
+function derivedState(fields: SessionView["review"] | undefined): ReviewProgress {
+    if (fields === undefined) {
+        return "idle";
+    }
+    if (fields.posted_url !== null) {
+        return "posted";
+    }
+    if (fields.draft !== null) {
+        return "drafted";
+    }
+    const working = fields.swarm.some((m) => m.state === "queued" || m.state === "reading");
+    return working || fields.swarm.some((m) => m.state === "done") ? "reviewing" : "idle";
+}
+
+/**
+ * The review state pill: `reviewing` with a working dot, `drafted` while the operator's
+ * answer waits, `posted` green. Null while idle: no swarm has run.
+ */
+export function reviewStatePill(state: ReviewProgress): Pill | null {
+    switch (state) {
+        case "idle":
+            return null;
+        case "reviewing":
+            return {
+                text: "reviewing", tone: "pill-accent",
+                title: "The reviewers and the lead are at work",
+            };
+        case "drafted":
+            return {
+                text: "drafted", tone: "pill-warn", title: "The draft waits: post it or drop it",
+            };
+        case "posted":
+            return { text: "posted", tone: "pill-ok", title: "The review is on the PR" };
+    }
+}
+
+/**
+ * The draft's pill, while a draft exists: `approve` green when the event is `APPROVE` with
+ * no line comment, else the count of comments. Null without a draft (`event` is null then,
+ * before the lead writes one and after `post` removes it).
+ */
+export function draftPill(
+    facts: Pick<ReviewFacts, "state" | "comment_count" | "event">,
+): Pill | null {
+    if (facts.event === null || facts.state === "idle" || facts.state === "reviewing") {
+        return null;
+    }
+    if (facts.event === "APPROVE" && facts.comment_count === 0) {
+        return { text: "approve", tone: "pill-ok", title: "APPROVE with no line comment" };
+    }
+    const noun = facts.comment_count === 1 ? "comment" : "comments";
+    return {
+        text: `${facts.comment_count} ${noun}`, tone: "",
+        title: `${facts.event} with ${facts.comment_count} line ${noun}`,
     };
 }
 

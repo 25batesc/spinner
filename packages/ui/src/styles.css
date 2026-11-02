@@ -966,13 +966,24 @@ html, body, #root { height: 100%; margin: 0; }
 a.rv-head-title { text-decoration: none; }
 a.rv-head-title:hover { text-decoration: underline; }
 .rv-swarm { min-height: var(--control-row); font-size: var(--text-dense); }
+/* A review chip is a fact, not a control (s018): the agents are headless, so there is no
+   pointer and no hover; the dot, the model and the cost sit in one padded row. */
+.rv-chip { gap: 6px; padding: 0 10px; cursor: default; }
+.rv-chip:hover { border-color: var(--border); }
+.rv-chip-name { font-weight: 500; }
 .rv-chip-cost { font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
 .rv-chip-done .chip-dot { background: var(--ok); border-color: var(--ok); }
 .rv-chip-reading .chip-dot, .rv-chip-running .chip-dot {
     animation: rv-pulse 1.2s ease-in-out infinite;
 }
-.rv-chip-failed .chip-name { color: var(--fail); }
-.rv-chip-stopped .chip-name { color: var(--muted); }
+.rv-chip-failed .rv-chip-name { color: var(--fail); }
+.rv-chip-stopped .rv-chip-name { color: var(--muted); }
+/* The review state pill (s018): `reviewing` carries a working dot that pulses. */
+.rv-state { display: inline-flex; align-items: center; gap: 4px; }
+.rv-state-dot {
+    width: 6px; height: 6px; background: var(--accent); border-color: var(--accent);
+    animation: rv-pulse 1.2s ease-in-out infinite;
+}
 @keyframes rv-pulse { 50% { opacity: 0.35; } }
 /* The lead's blocks (s016), above the threads: the briefing as markdown, the draft with its
    event pill, the summary and one row per line comment, each a textarea that saves on blur;

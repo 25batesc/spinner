@@ -1,23 +1,18 @@
-// The middle pane for a review session (s015): the PR header with the card's facts, the
-// swarm as chips (a state dot, the model, `$`; a click opens the reviewer's terminal), and
-// the threads view live. There is no pipeline toolbar; `review` lives in the context bar.
-// s016 adds the lead's chip and, above the threads, the briefing and the draft
-// (`ReviewDraft.tsx`): the swarm's chips read `done`, the reviewers no longer post.
-import { useState, type ReactNode } from "react";
+// The middle pane for a review session (s015, s016, s018): the PR header with the card's
+// facts and pills, the chips (the lead first, then one per reviewer: a state dot, the model,
+// `$`; nothing to click, the agents are headless), the lead's briefing and draft
+// (`ReviewDraft.tsx`), and the threads view live. There is no pipeline toolbar and no
+// terminal view; `review` lives in the context bar.
+import type { ReactNode } from "react";
 
-import { tty_path, type SessionView, type SwarmMember } from "@spinner/protocol";
+import type { SessionView, SwarmMember } from "@spinner/protocol";
 
-import { AgentTerminal } from "./AgentTerminal.tsx";
 import { formatUsd } from "./costs.ts";
-import { postAgent } from "./events-client.ts";
-import { StatePill, type IconButtonProps } from "./PaneHead.tsx";
-import {
-    ciPill, decisionPill, leadDot, swarmDot, swarmLine, type LeadChip, type ReviewFacts,
-} from "./review.ts";
+import { ReviewPills, type IconButtonProps } from "./PaneHead.tsx";
+import { leadDot, swarmDot, swarmLine, type LeadChip, type ReviewFacts } from "./review.ts";
 import { ReviewBriefing, ReviewDraftBlock, ReviewPosted } from "./ReviewDraft.tsx";
 import type { RunAction } from "./SessionForms.tsx";
 import type { Revisions } from "./state.ts";
-import { Tabs } from "./Tabs.tsx";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ViewTabs } from "./ViewTabs.tsx";
 
@@ -55,63 +50,40 @@ function ReviewHeader({ facts }: { facts: ReviewFacts }) {
                 <span className="rv-author">{facts.author}</span>
                 <code className="rv-branches">{facts.branch} → {facts.base}</code>
             </span>
-            <span className="badges rv-pills">
-                <StatePill pill={ciPill(facts.checks, facts.failing)} className="rv-ci" />
-                <StatePill pill={decisionPill(facts.decision)} className="rv-decision" />
-                <span className="pill rv-threads" title={`${facts.threads} review threads`}>
-                    ⑂ {facts.threads}
-                </span>
-                {facts.usd !== null && (
-                    <span className="muted usage-cost rv-cost">{formatUsd(facts.usd)}</span>
-                )}
-            </span>
+            <ReviewPills facts={facts} />
         </header>
     );
 }
 
-/** One chip: a dot, a name, the cost; the picked one is filled. */
-function Chip(props: {
-    name: string;
-    label: string;
-    title: string;
-    state: string;
-    dot: string;
-    usd: number;
-    current: boolean;
-    onPick: (name: string) => void;
-}) {
-    const { name, label, title, state, dot, usd, current, onPick } = props;
-    const classes = ["chip", "rv-chip", `rv-chip-${state}`, current ? "chip-selected" : ""];
+/** One chip: a dot, a name, the cost. The tooltip has the model, the state and the error. */
+function Chip(props: { name: string; label: string; title: string; state: string; dot: string;
+    usd: number }) {
+    const { name, label, title, state, dot, usd } = props;
     return (
-        <span className={classes.join(" ").trim()}>
-            <button
-                type="button"
-                role="tab"
-                aria-selected={current}
-                className={current ? "tab chip-name tab-selected" : "tab chip-name"}
-                title={title}
-                data-name={name}
-                data-state={state}
-                onClick={() => onPick(name)}
-            >
-                <span className={`dot chip-dot ${dot}`} />
-                {label}
-                <span className="muted rv-chip-cost">{formatUsd(usd)}</span>
-            </button>
+        <span
+            className={`chip rv-chip rv-chip-${state}`}
+            title={title}
+            data-name={name}
+            data-state={state}
+        >
+            <span className={`dot chip-dot ${dot}`} />
+            <span className="chip-name rv-chip-name">{label}</span>
+            <span className="muted rv-chip-cost">{formatUsd(usd)}</span>
         </span>
     );
 }
 
+/** A failed reviewer's tooltip ends with the daemon's reason, when it has one. */
+function memberTitle(member: SwarmMember): string {
+    const base = `${member.model} · ${member.state} · ${formatUsd(member.usd)}`;
+    const error = member.error ?? null;
+    return member.state === "failed" && error !== null ? `${base}\n${error}` : base;
+}
+
 /** The chip row: the lead first, then one chip per reviewer. */
-function SwarmChips(props: {
-    lead: LeadChip | null;
-    swarm: SwarmMember[];
-    picked: string | undefined;
-    onPick: (name: string) => void;
-}) {
-    const { lead, swarm, picked, onPick } = props;
+function SwarmChips({ lead, swarm }: { lead: LeadChip | null; swarm: SwarmMember[] }) {
     return (
-        <div className="chips rv-swarm" role="tablist" aria-label="Reviewers">
+        <div className="chips rv-swarm" aria-label="Reviewers">
             {lead !== null && (
                 <Chip
                     name={lead.name}
@@ -120,8 +92,6 @@ function SwarmChips(props: {
                     state={lead.state}
                     dot={leadDot(lead.state)}
                     usd={lead.usd}
-                    current={lead.name === picked}
-                    onPick={onPick}
                 />
             )}
             {swarm.map((member) => (
@@ -129,12 +99,10 @@ function SwarmChips(props: {
                     key={member.name}
                     name={member.name}
                     label={modelShort(member.model)}
-                    title={`${member.model} · ${member.state} · ${formatUsd(member.usd)}`}
+                    title={memberTitle(member)}
                     state={member.state}
                     dot={swarmDot(member.state)}
                     usd={member.usd}
-                    current={member.name === picked}
-                    onPick={onPick}
                 />
             ))}
             {swarm.length === 0 && <span className="muted">{swarmLine(swarm)}</span>}
@@ -157,28 +125,7 @@ function LeadBlocks({ dir, facts }: { dir: string; facts: ReviewFacts }) {
 
 export function ReviewPane(props: ReviewPaneProps) {
     const { view, facts, busy, run, revisions, children, controls, leading } = props;
-    // The sub view under the chips: the threads, or the picked reviewer's terminal.
-    const [picked, setPicked] = useState<string | undefined>(undefined);
-    const [shown, setShown] = useState<"threads" | "terminal">("threads");
     const dir = view.summary.dir;
-    const names = facts.swarm.map((member) => member.name);
-    if (facts.lead !== null) {
-        names.unshift(facts.lead.name);
-    }
-    const reviewer = picked !== undefined && names.includes(picked) ? picked : undefined;
-    const terminalShown = shown === "terminal" && reviewer !== undefined;
-    // Every reviewer's terminal stays mounted; only the picked one shows, as in AgentsPane.
-    const terminals = names
-        .filter((name) => view.summary.session.agents[name] !== undefined)
-        .map((name) => (
-            <AgentTerminal
-                key={`${dir}/${name}`}
-                path={tty_path(dir, name)}
-                running={view.agents_running.includes(name)}
-                onResume={() => postAgent(`/sessions/${dir}/agents`, { name })}
-                visible={terminalShown && name === reviewer}
-            />
-        ));
     return (
         <section className="pane agents-pane rv-pane" aria-label="Review">
             <ViewTabs
@@ -190,32 +137,15 @@ export function ReviewPane(props: ReviewPaneProps) {
             />
             <div className="chat">
                 <ReviewHeader facts={facts} />
-                <SwarmChips
-                    lead={facts.lead}
-                    swarm={facts.swarm}
-                    picked={terminalShown ? reviewer : undefined}
-                    onPick={(name) => {
-                        setPicked(name);
-                        setShown("terminal");
-                    }}
+                <SwarmChips lead={facts.lead} swarm={facts.swarm} />
+                <LeadBlocks dir={dir} facts={facts} />
+                <ThreadsPanel
+                    dir={dir}
+                    revision={revisions.threads}
+                    busy={busy}
+                    run={run}
+                    fixable={false}
                 />
-                <Tabs
-                    variant="sub"
-                    labels={reviewer === undefined ? ["threads"] : ["threads", "terminal"]}
-                    selected={terminalShown ? "terminal" : "threads"}
-                    onSelect={(tab) => setShown(tab === "terminal" ? "terminal" : "threads")}
-                />
-                {!terminalShown && <LeadBlocks dir={dir} facts={facts} />}
-                {!terminalShown && (
-                    <ThreadsPanel
-                        dir={dir}
-                        revision={revisions.threads}
-                        busy={busy}
-                        run={run}
-                        fixable={false}
-                    />
-                )}
-                {terminals}
                 {children}
             </div>
         </section>
