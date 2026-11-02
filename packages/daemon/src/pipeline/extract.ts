@@ -262,8 +262,21 @@ async function lookup(ref: ExtractRef, gh: GhRunner): Promise<Lookup> {
         });
         return { ok: true, node: response.data.repository.pullRequest };
     } catch (error) {
-        return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+        return { ok: false, reason: lookup_reason(ref, error) };
     }
+}
+
+/** The one line a person needs; `gh` prints the whole query before its own message. */
+function lookup_reason(ref: ExtractRef, error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Could not resolve to a PullRequest")) {
+        return `no PR #${ref.number} in ${ref.owner}/${ref.name}`;
+    }
+    if (message.includes("Could not resolve to a Repository")) {
+        return `no repository ${ref.owner}/${ref.name}, or no access to it`;
+    }
+    const last = message.trim().split("\n").filter((line) => line.trim() !== "").at(-1);
+    return last === undefined ? message : last.replace(/^gh: /, "");
 }
 
 /** The lookup's answer, or a timeout reason once `timeout_ms` passed. */

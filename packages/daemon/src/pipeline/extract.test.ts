@@ -145,7 +145,7 @@ describe("extract_prs", () => {
             [98, false, null],
             [1, true, "feat: example feature from a real PR, title scrubbed"],
         ]);
-        expect(response.prs[0]?.reason).toContain("Could not resolve");
+        expect(response.prs[0]?.reason).toBe("no PR #99 in acme/web");
         expect(response.prs[1]?.reason).toContain("did not answer");
         expect(response.prs[0]?.url).toBe("https://github.com/acme/web/pull/99");
     });
