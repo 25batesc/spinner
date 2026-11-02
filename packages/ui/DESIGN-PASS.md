@@ -182,11 +182,11 @@ sessions panel; middle pane; terminal and drawer; mission, threads, services and
 forms; previews; settings and operator. Each commit runs `pnpm --filter ui test`, root
 `pnpm lint`, and the fixture driver flows.
 
-## Open questions for the operator
+## Decisions and result
 
-1. Move `reset` and `close` to the right end of the toolbar? I recommend it: it separates the
-   destructive group.
-2. Pane titles and tabs: plain lower case as the DOM has it ("agents", "mission"), or CSS
-   `capitalize` where no check reads `innerText`? I recommend plain lower case: no risk to the
-   drivers, and it matches the button labels.
-3. Visible labels over form fields add DOM text; the `aria-label`s stay. Accept?
+The operator accepted all three proposals: `reset` and `close` at the right end, plain case as
+the DOM has it (no `text-transform`), and visible labels over the form fields. Differences from
+the plan: the activity bar stays 40 px wide, because `layout.ts` and the `narrow` driver assume
+it; the sessions head shows no count, because `PaneHead` has no slot for one; at 1000 px the
+toolbar takes three lines, not two, because the agents pane is about 270 px wide there. The
+after-shots carry the same names as the before-shots, plus `14-rainbow.png`.
