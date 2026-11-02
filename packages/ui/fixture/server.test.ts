@@ -10,12 +10,15 @@ import {
     type OperatorView,
     type SessionResponse,
     type SessionsResponse,
+    type SessionView,
     type SpinnerEvent,
 } from "@spinner/protocol";
 import { afterEach, expect, it } from "vitest";
 import { WebSocket } from "ws";
 
-import { initialSessions } from "./data.ts";
+import type { ReviewSessionView } from "../src/review.ts";
+import { initialReviews, initialSessions } from "./data.ts";
+import { isReviewSession } from "./reviews.ts";
 import { startFixture } from "./server.ts";
 
 const servers: ReturnType<typeof startFixture>[] = [];
@@ -39,7 +42,50 @@ it("serves GET /sessions as SessionViews", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/sessions`);
     const body = (await response.json()) as SessionsResponse;
     expect(body.sessions.map((s) => s.summary.dir)).toEqual(
-        initialSessions().map((s) => s.summary.dir),
+        [...initialSessions(), ...initialReviews()].map((s) => s.summary.dir),
+    );
+});
+
+it("POST /reviews makes a review per PR; review on it runs the swarm with review.updated",
+    async () => {
+    const port = await start();
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${EVENTS_PATH}`);
+    await new Promise((resolve) => socket.on("open", resolve));
+    const events: { type: string; session: string | null; data?: unknown }[] = [];
+    socket.on("message", (data) => events.push(JSON.parse(data.toString())));
+    const finished = () => new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+            if (events.some((e) => e.type === "job.finished")) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, 50);
+    });
+    const created = await fetch(`http://127.0.0.1:${port}/reviews`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "please look at https://github.com/acme/peanut/pull/9" }),
+    });
+    expect(created.status).toBe(202);
+    await finished();
+    const made = events.find((e) => e.type === "session.created");
+    expect(isReviewSession(made?.data as SessionView)).toBe(true);
+    const dir = made?.session ?? "";
+    expect(dir).toMatch(/^r9-peanut-9/);
+    events.splice(0);
+
+    const review = await fetch(`http://127.0.0.1:${port}/sessions/${dir}/review`, {
+        method: "POST",
+    });
+    expect(review.status).toBe(202);
+    await finished();
+    socket.close();
+    const updates = events.filter((e) => e.type === "review.updated");
+    expect(updates.length).toBeGreaterThan(2);
+    const last = updates.at(-1)?.data as ReviewSessionView;
+    expect(last.review?.swarm.map((m) => m.state)).toEqual(["posted", "posted"]);
+    expect(last.review?.threads).toBe(4);
+    expect(Object.keys(last.summary.session.agents)).toEqual(
+        last.review?.swarm.map((m) => m.name),
     );
 });
 

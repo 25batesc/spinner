@@ -36,9 +36,10 @@ import { costsReport, OPERATOR_COST } from "./costs.ts";
 import { extract } from "./extract.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
-    FIXTURE_PORT, diffRepoStopped, diffViewerUrl, initialSessions, machineUsage, PROJECTS, pr,
-    session, stackView, view,
+    FIXTURE_PORT, diffRepoStopped, diffViewerUrl, initialReviews, initialSessions, machineUsage,
+    PROJECTS, pr, session, stackView, view,
 } from "./data.ts";
+import { ReviewFixture } from "./reviews.ts";
 import type { DiffRepoView, DiffView } from "@spinner/protocol";
 import { EchoPty } from "./tty.ts";
 
@@ -199,13 +200,15 @@ class FixtureDaemon {
     operatorPty: EchoPty | null = null;
 
     pipeline = new PipelineFixture(this);
+    /** The review routes (s015): `POST /reviews` and the swarm on a review session. */
+    reviews = new ReviewFixture(this);
     /** The keys each fake viewer page received, per repo (`DIFF_VIEWER_ROUTE`). */
     diffKeys = new Map<string, string[]>();
     /** The port the server listens on, set once it does: the fake viewer URLs name it. */
     port = FIXTURE_PORT;
 
     constructor() {
-        for (const item of initialSessions()) {
+        for (const item of [...initialSessions(), ...initialReviews()]) {
             this.sessions.set(item.summary.dir, item);
         }
     }
@@ -404,6 +407,14 @@ class FixtureDaemon {
             const repos = this.projectRepos(body["project"]);
             sendJson(response, extract(String(body["text"] ?? ""), repos));
             return true;
+        }
+        if (path === "/reviews") {
+            const text = String(body["text"] ?? "");
+            if (text.trim() === "") {
+                sendJson(response, { error: "text is empty" }, 400);
+                return true;
+            }
+            return this.accepted(response, this.reviews.create(text));
         }
         if (path === "/sessions" && typeof body["text"] === "string") {
             // Chat first (s014): the paste, the ticked PRs, and a lead agent on its terminal.
@@ -712,9 +723,25 @@ class FixtureDaemon {
         return this.pipeline.handle(method, path, body, response);
     }
 
+    /** `POST /sessions/:dir/review` on a review session: the swarm, not the pipeline step. */
+    swarmRoute(response: ServerResponse, method: string, path: string): boolean {
+        const match = /^\/sessions\/([^/]+)\/review$/.exec(path);
+        if (method !== "POST" || match === null) {
+            return false;
+        }
+        const job = this.reviews.swarm(match[1] ?? "");
+        if (job === null) {
+            return false;
+        }
+        return this.accepted(response, job);
+    }
+
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const [path = "/", search = ""] = (request.url ?? "/").split("?");
         const method = request.method ?? "GET";
+        if (this.swarmRoute(response, method, path)) {
+            return;
+        }
         if (await this.m2(request, response, method, path)) {
             return;
         }

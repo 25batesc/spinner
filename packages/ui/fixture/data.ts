@@ -16,6 +16,7 @@ import type {
     StackView,
 } from "@spinner/protocol";
 
+import type { ReviewFields, ReviewSessionView } from "../src/review.ts";
 import { sessionCost } from "./costs.ts";
 import { fixturePort } from "./port.ts";
 
@@ -187,6 +188,73 @@ export function view(
         diff,
         cost: sessionCost(base),
     };
+}
+
+/**
+ * A review session (s015): `kind: review`, one PR, no stack, the branch and base of the PR,
+ * and the review fields. The swarm's reviewers are tty agents of the session, so a chip
+ * click opens a terminal on the fixture's echo pty.
+ */
+export function reviewView(
+    dir: string,
+    base: Session,
+    prFacts: PrFacts,
+    review: ReviewFields,
+    agentsRunning: string[] = [],
+): ReviewSessionView {
+    const plain = view(dir, base, stackView(base.id, "none"), [prFacts], agentsRunning);
+    return { ...plain, kind: "review", review };
+}
+
+const REVIEW_MODELS = ["anthropic/claude-opus-5-5", "openai/gpt-6-luna", "x-ai/grok-4.6"];
+
+/** `review-<model-slug>`, as the daemon names a reviewer. */
+export function reviewerName(model: string): string {
+    return `review-${model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
+/** The two reviews at the fixture's start: one swarm mid-flight, one not started. */
+export function initialReviews(): ReviewSessionView[] {
+    const upload = session({
+        id: "r51", slug: "peanut-51", title: "Retry the upload on 5xx",
+        created: "2026-11-02T09:30:00Z", stage: "peer-review",
+        branch: "fix/retry-upload", base: "main",
+        agents: Object.fromEntries(REVIEW_MODELS.map((model) => [
+            reviewerName(model), { harness: "tty" as const, model, process: "running" as const },
+        ])),
+    });
+    const uploadPr = pr(51, "peanut", {
+        author: "casey", checks: "red", review: "changes_requested",
+        threads: { bots_open: 3, humans_open: 1, resolved: 0 },
+        last_activity: "2026-11-02T10:05:00Z", title: "Retry the upload on 5xx",
+    });
+    const swarm = [
+        { name: reviewerName(REVIEW_MODELS[0] ?? ""), model: REVIEW_MODELS[0] ?? "",
+          state: "posted" as const, usd: 0.42 },
+        { name: reviewerName(REVIEW_MODELS[1] ?? ""), model: REVIEW_MODELS[1] ?? "",
+          state: "reading" as const, usd: 0.11 },
+        { name: reviewerName(REVIEW_MODELS[2] ?? ""), model: REVIEW_MODELS[2] ?? "",
+          state: "queued" as const, usd: 0 },
+    ];
+    const dark = session({
+        id: "r77", slug: "web-77", title: "Dark mode for the settings page",
+        created: "2026-11-01T16:00:00Z", stage: "peer-review",
+        branch: "feat/dark-settings", base: "main",
+    });
+    const darkPr = pr(77, "web", {
+        author: "sam", checks: "green", review: "none",
+        threads: { bots_open: 0, humans_open: 0, resolved: 0 },
+        last_activity: "2026-11-01T16:20:00Z", title: "Dark mode for the settings page",
+    });
+    return [
+        reviewView("r51-peanut-51", upload, uploadPr, {
+            checks: "red", failing: ["lint", "e2e (chromium)"],
+            review_decision: "changes_requested", threads: 4, swarm,
+        }, swarm.filter((member) => member.state !== "queued").map((member) => member.name)),
+        reviewView("r77-web-77", dark, darkPr, {
+            checks: "green", failing: [], review_decision: "none", threads: 0, swarm: [],
+        }),
+    ];
 }
 
 export function initialSessions(): SessionView[] {
