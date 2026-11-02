@@ -97,8 +97,10 @@ function FileRow({ base, file, section }: {
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
                     />
-                    <button onClick={() => void save()}>save</button>
-                    <button onClick={() => setDraft(null)}>cancel</button>
+                    <span className="section-edit-actions">
+                        <button className="primary" onClick={() => void save()}>save</button>
+                        <button onClick={() => setDraft(null)}>cancel</button>
+                    </span>
                 </div>
             )}
             {note !== null && <p className="muted">{note}</p>}

@@ -304,7 +304,11 @@ export function App() {
     const sidePanel = panelView === "settings" ? settingsPane : sessionsPane;
     const middlePane = middle === "operator" ? operatorPane : agentsPane;
     const panes = { sessions: sidePanel, agents: middlePane, previews: previewsPane };
-    const status = <footer className="status">daemon: {state.connection}</footer>;
+    const status = (
+        <footer className="status" data-connection={state.connection}>
+            daemon: {state.connection}
+        </footer>
+    );
 
     if (route !== undefined) {
         return (

@@ -69,6 +69,7 @@ export function OperatorPane({ view, controls }: OperatorPaneProps) {
             >
                 {running ? (
                     <button
+                        className="danger"
                         disabled={busy}
                         title="Stop the operator agent's process; its transcript stays"
                         onClick={click("stop")}
@@ -77,6 +78,7 @@ export function OperatorPane({ view, controls }: OperatorPaneProps) {
                     </button>
                 ) : (
                     <button
+                        className="primary"
                         disabled={busy || view === null}
                         title="Start the operator agent again on its transcript"
                         onClick={click("start")}

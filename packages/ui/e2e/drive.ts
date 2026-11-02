@@ -1150,8 +1150,9 @@ if (flow === "usage") {
     await click(".agents-pane .tab", "services");
     await until("table shown", `document.querySelector(".services") !== null`);
     const table = await evaluate(`({
-        head: [...document.querySelectorAll(".services th")].map((h) => h.textContent),
-        rows: [...document.querySelectorAll(".services tbody tr")].map((r) =>
+        head: [...document.querySelectorAll("table[aria-label=Services] th")]
+            .map((h) => h.textContent),
+        rows: [...document.querySelectorAll("table[aria-label=Services] tbody tr")].map((r) =>
             [...r.querySelectorAll("td")].slice(2).map((d) => d.textContent)),
         share: document.querySelector(".usage-share")?.textContent,
     })`);
@@ -1488,8 +1489,10 @@ if (flow === "terminal") {
         // a state dot and a tooltip, the × only on the selected hosted chip, and the sub-tabs.
         const chrome = await evaluate(`({
             title: document.querySelectorAll(".agents-pane .pane-head").length,
-            views: [...document.querySelectorAll(".view-tabs .view-tab")].map((t) => t.textContent),
-            viewSelected: document.querySelector(".view-tabs .tab-selected")?.textContent,
+            views: [...document.querySelectorAll(".agents-pane .view-tabs .view-tab")]
+                .map((t) => t.textContent),
+            viewSelected: document.querySelector(".agents-pane .view-tabs .tab-selected")
+                ?.textContent,
             groups: [...document.querySelectorAll(".toolbar .toolbar-group")]
                 .map((g) => [...g.querySelectorAll("button")].map((b) => b.textContent)),
             seps: document.querySelectorAll(".toolbar .toolbar-sep").length,
@@ -1520,9 +1523,12 @@ if (flow === "terminal") {
             danger: ["land", "reset", "close"],
             chips: [
                 { name: "backend", state: "working",
-                  tip: "tty · anthropic/claude-fable-5-1 · working",
+                  tip: "tty · anthropic/claude-fable-5-1 · working · $1.23 · " +
+                      "anthropic/claude-fable-5-1",
                   selected: true, stop: "Stop backend" },
-                { name: "frontend", state: "off", tip: "rpc · anthropic/claude-sonnet-5-5 · off",
+                { name: "frontend", state: "off",
+                  tip: "rpc · anthropic/claude-sonnet-5-5 · off · $2.04 · " +
+                      "anthropic/claude-sonnet-5-5",
                   selected: false, stop: null },
                 { name: "scout", state: "idle", tip: "tty · fixture/default · idle",
                   selected: false, stop: null },

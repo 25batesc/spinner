@@ -59,8 +59,10 @@ function Editor(props: { dir: string; section: MissionSection; body: string; don
                 onChange={(event) => setDraft(event.target.value)}
             />
             {error !== null && <p className="needs-human">{error}</p>}
-            <button onClick={() => void save()}>save</button>
-            <button onClick={props.done}>cancel</button>
+            <span className="section-edit-actions">
+                <button className="primary" onClick={() => void save()}>save</button>
+                <button onClick={props.done}>cancel</button>
+            </span>
         </div>
     );
 }

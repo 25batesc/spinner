@@ -19,6 +19,15 @@ export interface ThreadsPanelProps {
     run: RunAction;
 }
 
+/** `05:08` in the operator's time zone; the full timestamp stays in the tooltip. */
+function clockOf(timestamp: string): string {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+        return timestamp;
+    }
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function Thread({ pr, thread, dir }: { pr: PrThreadsView; thread: ThreadView; dir: string }) {
     const [error, setError] = useState<string | null>(null);
     const [reply, setReply] = useState("");
@@ -33,12 +42,14 @@ function Thread({ pr, thread, dir }: { pr: PrThreadsView; thread: ThreadView; di
         <li className={`thread thread-${thread.state}`} data-thread={thread.label}>
             <div className="thread-head">
                 <strong>{thread.label}</strong>
-                <span className="badge">{thread.state}</span>
+                <span className={thread.state === "open" ? "badge pill-accent" : "badge"}>
+                    {thread.state}
+                </span>
                 <span className="badge">{thread.author_kind}</span>
                 {thread.outdated && <span className="badge">outdated</span>}
                 {thread.flagged !== null && <span className="badge flagged">flagged</span>}
                 <span className="muted">{thread.author}</span>
-                <code>{location}</code>
+                <code className="thread-location">{location}</code>
             </div>
             <p className="thread-body">{thread.body}</p>
             {thread.flagged !== null && <p className="needs-human">Flag: {thread.flagged}</p>}
@@ -56,6 +67,7 @@ function Thread({ pr, thread, dir }: { pr: PrThreadsView; thread: ThreadView; di
                         onChange={(event) => setReply(event.target.value)}
                     />
                     <button
+                        className="primary"
                         disabled={reply.trim() === ""}
                         onClick={() =>
                             void act("reply", { text: reply.trim() }).then(() => setReply(""))
@@ -135,8 +147,10 @@ export function ThreadsPanel({ dir, revision, busy, run }: ThreadsPanelProps) {
                 >
                     refresh from GitHub
                 </button>
-                <span className="muted">
-                    {view?.rendered == null ? "not rendered yet" : `rendered ${view.rendered}`}
+                <span className="muted" title={view?.rendered ?? undefined}>
+                    {view?.rendered == null
+                        ? "not rendered yet"
+                        : `rendered ${clockOf(view.rendered)}`}
                 </span>
             </div>
             {shownError !== null && <p className="needs-human">{shownError}</p>}

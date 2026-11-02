@@ -127,7 +127,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                     placeholder={transcript.running ? "Steer the agent" : "Prompt"}
                     aria-label="Prompt"
                 />
-                <button type="submit" disabled={!running}>
+                <button type="submit" className="primary" disabled={!running}>
                     {transcript.running ? "steer" : "send"}
                 </button>
                 <button type="button" disabled={!transcript.running} onClick={() => send("abort")}>
@@ -158,7 +158,7 @@ function AttachProject({ dir, run }: { dir: string; run: RunAction }) {
     }, []);
 
     return (
-        <div className="add-agent" aria-label="Attach project">
+        <div className="add-agent attach-banner" aria-label="Attach project">
             <span className="muted">No worktree yet: attach the project the PRs belong to.</span>
             <select
                 value={project}
@@ -245,39 +245,64 @@ export function AddAgent({ view, run, onDone, onCancel }: AddAgentProps) {
             {!hasWorktree(view) && <AttachProject dir={dir} run={run} />}
             <form className="add-agent compose-form" onSubmit={submit} aria-label="Add agent">
                 <h3>New agent</h3>
-                <input
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder="Agent name"
-                    aria-label="Agent name"
-                />
-                <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
-                    <option value="">default model</option>
-                    {models.map((m) => (
-                        <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
-                            {m.provider}/{m.id}
-                        </option>
-                    ))}
-                </select>
-                <select value={repo} onChange={(e) => setRepo(e.target.value)} aria-label="Repo">
-                    <option value="">session dir</option>
-                    {repos.map((key) => (
-                        <option key={key} value={key}>
-                            worktree: {key}
-                        </option>
-                    ))}
-                </select>
-                <textarea
-                    className="brief"
-                    value={brief}
-                    onChange={(event) => {
-                        setBrief(event.target.value);
-                        setBriefEdited(true);
-                    }}
-                    rows={6}
-                    aria-label="Brief"
-                    placeholder="Brief (the daemon's default when left as is)"
-                />
+                <label className="field">
+                    <span className="field-label">Name</span>
+                    <input
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder="Agent name"
+                        aria-label="Agent name"
+                    />
+                </label>
+                <span className="field-row">
+                    <label className="field">
+                        <span className="field-label">Model</span>
+                        <select
+                            value={model}
+                            onChange={(e) => setModel(e.target.value)}
+                            aria-label="Model"
+                        >
+                            <option value="">default model</option>
+                            {models.map((m) => (
+                                <option
+                                    key={`${m.provider}/${m.id}`}
+                                    value={`${m.provider}/${m.id}`}
+                                >
+                                    {m.provider}/{m.id}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="field">
+                        <span className="field-label">Working directory</span>
+                        <select
+                            value={repo}
+                            onChange={(e) => setRepo(e.target.value)}
+                            aria-label="Repo"
+                        >
+                            <option value="">session dir</option>
+                            {repos.map((key) => (
+                                <option key={key} value={key}>
+                                    worktree: {key}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </span>
+                <label className="field">
+                    <span className="field-label">Brief</span>
+                    <textarea
+                        className="brief"
+                        value={brief}
+                        onChange={(event) => {
+                            setBrief(event.target.value);
+                            setBriefEdited(true);
+                        }}
+                        rows={6}
+                        aria-label="Brief"
+                        placeholder="Brief (the daemon's default when left as is)"
+                    />
+                </label>
                 <div className="compose-actions">
                     <button type="submit" className="primary" disabled={name.trim() === ""}>
                         add agent

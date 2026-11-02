@@ -158,16 +158,18 @@ export function PreviewPane(props: PreviewPaneProps) {
                 controls={head}
                 label="Preview views"
             />
-            {view !== undefined && (
-                <Verified view={view} busy={busy} run={run} unverify={unverify} />
-            )}
-            <Tabs
-                labels={names}
-                selected={selected}
-                onSelect={setPicked}
-                grey={grey}
-                dots={Object.fromEntries(services.map((s) => [s.name, s.status]))}
-            />
+            <div className="preview-tabs">
+                <Tabs
+                    labels={names}
+                    selected={selected}
+                    onSelect={setPicked}
+                    grey={grey}
+                    dots={Object.fromEntries(services.map((s) => [s.name, s.status]))}
+                />
+                {view !== undefined && (
+                    <Verified view={view} busy={busy} run={run} unverify={unverify} />
+                )}
+            </div>
             {view !== undefined && service?.url != null && isLive(service) ? (
                 <>
                     <Preview
