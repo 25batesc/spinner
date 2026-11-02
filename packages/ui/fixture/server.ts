@@ -10,6 +10,8 @@ import {
     BUILTIN_THEMES,
     DAEMON_HOST,
     EVENTS_PATH,
+    type ExtractResponse,
+    SESSION_TITLE_MAX,
     SETTINGS_DEFAULT,
     THEME_SYSTEM,
     validate_palette,
@@ -32,7 +34,6 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { costsReport, OPERATOR_COST } from "./costs.ts";
 import { extract } from "./extract.ts";
-import { provisionalTitle } from "../src/compose.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
     FIXTURE_PORT, diffRepoStopped, diffViewerUrl, initialSessions, machineUsage, PROJECTS, pr,
@@ -139,6 +140,20 @@ export function replyScript(prompt: string): PiEvent[] {
         { type: "message_end", message: answer },
         { type: "agent_settled", aborted: false },
     ];
+}
+
+/**
+ * The title of a session started from a paste, as the daemon derives it: the first non-empty
+ * line of the text without its PR references, cut to `SESSION_TITLE_MAX`; else the first
+ * adopted PR's title; else `New session`.
+ */
+export function provisionalTitle(found: ExtractResponse, adopt: readonly string[]): string {
+    const line = found.rest.split("\n").map((item) => item.trim()).find((item) => item !== "");
+    if (line !== undefined) {
+        return line.slice(0, SESSION_TITLE_MAX);
+    }
+    const first = found.prs.find((pr) => pr.url !== null && adopt.includes(pr.url));
+    return first?.title ?? "New session";
 }
 
 const bodies = new WeakMap<IncomingMessage, Record<string, unknown>>();
@@ -387,7 +402,8 @@ class FixtureDaemon {
             // Chat first (s014): the paste, the ticked PRs, and a lead agent on its terminal.
             const text = body["text"];
             const adopt = (body["adopt"] as string[] | undefined) ?? [];
-            const title = provisionalTitle(text) === "" ? "untitled" : provisionalTitle(text);
+            const found = extract(text, this.projectRepos(body["project"]));
+            const title = provisionalTitle(found, adopt);
             return this.accepted(response, this.create("new", title, adopt, body["project"], text));
         }
         if (path === "/sessions") {

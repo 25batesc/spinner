@@ -1,7 +1,7 @@
 // The fixture's `POST /sessions/extract`: the PR references of a paste, resolved against a
 // project's repos, in the shape the daemon answers. No GitHub: the title and the branch are
 // made from the number. The daemon's own extraction lives in `packages/daemon`.
-import type { ExtractedPr, ExtractResponse } from "../src/compose.ts";
+import type { ExtractedPr, ExtractResponse } from "@spinner/protocol";
 
 const OWNER = "example";
 
@@ -43,11 +43,17 @@ function references(text: string): Reference[] {
 
 function resolve(reference: Reference, repos: readonly string[]): ExtractedPr {
     const number = reference.number;
-    const make = (repo: string, adoptable: boolean, reason?: string): ExtractedPr => {
-        const owner = reference.owner ?? OWNER;
+    const owner = reference.owner ?? OWNER;
+    const make = (repo: string | null, adoptable: boolean, reason?: string): ExtractedPr => {
         const made: ExtractedPr = {
-            url: `https://github.com/${owner}/${repo}/pull/${number}`, repo, number,
-            title: `PR ${number} of ${repo}`, branch: `feature/${repo}-${number}`, base: "main",
+            ref: reference.match,
+            url: repo === null ? null : `https://github.com/${owner}/${repo}/pull/${number}`,
+            repo: repo === null ? null : `${owner}/${repo}`,
+            key: adoptable ? repo : null,
+            number,
+            title: repo === null ? null : `PR ${number} of ${repo}`,
+            branch: repo === null ? null : `feature/${repo}-${number}`,
+            base: repo === null ? null : "main",
             adoptable,
         };
         if (reason !== undefined) {
@@ -59,13 +65,13 @@ function resolve(reference: Reference, repos: readonly string[]): ExtractedPr {
         if (repos.length === 1) {
             return make(repos[0] ?? "", true);
         }
-        const names = repos.length === 0 ? "no project" : repos.join(", ");
-        return make("?", false, `#${number} is ambiguous: ${names}`);
+        const names = repos.join(" or ");
+        return make(null, false, `#${number} could be ${names}; write repo#N`);
     }
     if (repos.includes(reference.repo)) {
         return make(reference.repo, true);
     }
-    return make(reference.repo, false, `the project does not list ${reference.repo}`);
+    return make(reference.repo, false, `${reference.repo} is not a repo of the project`);
 }
 
 /** The PRs of `text`, duplicates folded by URL, and the text without them. */
@@ -74,9 +80,11 @@ export function extract(text: string, repos: readonly string[]): ExtractResponse
     let rest = text;
     for (const reference of references(text)) {
         const pr = resolve(reference, repos);
-        seen.set(pr.url, seen.get(pr.url) ?? pr);
+        const key = `${pr.repo ?? "?"}#${pr.number}`;
+        seen.set(key, seen.get(key) ?? pr);
         rest = rest.split(reference.match).join(" ");
     }
     const tidy = rest.split("\n").map((line) => line.replace(/[ \t]+/g, " ").trim());
-    return { prs: [...seen.values()], rest: tidy.join("\n").trim() };
+    const collapsed = tidy.join("\n").replace(/\n{2,}/g, "\n\n").trim();
+    return { prs: [...seen.values()], rest: collapsed };
 }

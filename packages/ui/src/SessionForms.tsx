@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ProjectView } from "@spinner/protocol";
 
 import {
-    EXTRACT_PAUSE_MS, nextTicks, startBody, toggleTick, type ExtractedPr,
+    EXTRACT_PAUSE_MS, nextTicks, prKey, startBody, toggleTick, type ExtractedPr,
 } from "./compose.ts";
 import { fetchProjects } from "./events-client.ts";
 import { extractPrs } from "./remote.ts";
@@ -103,6 +103,12 @@ function useExtraction(text: string, project: string): [Extraction, (url: string
     return [state, toggle];
 }
 
+/** `repo#N` as the row names it: the project's key, else the GitHub repo, else the reference. */
+function prLabel(pr: ExtractedPr): string {
+    const repo = pr.key ?? pr.repo;
+    return repo === null ? pr.ref : `${repo}#${pr.number}`;
+}
+
 /** One checkbox per PR: the title, `repo#N`, the branch; unticked with the reason when refused. */
 function PrChecklist(props: { extraction: Extraction; onToggle: (url: string) => void }) {
     const { extraction, onToggle } = props;
@@ -113,20 +119,22 @@ function PrChecklist(props: { extraction: Extraction; onToggle: (url: string) =>
         <ul className="compose-prs" aria-label="Pull requests found">
             {extraction.prs.map((pr) => (
                 <li
-                    key={pr.url}
+                    key={prKey(pr)}
                     className={pr.adoptable ? "compose-pr" : "compose-pr compose-pr-off"}
                 >
                     <label>
                         <input
                             type="checkbox"
-                            checked={extraction.ticked.has(pr.url)}
+                            checked={extraction.ticked.has(prKey(pr))}
                             disabled={!pr.adoptable}
-                            onChange={() => onToggle(pr.url)}
-                            aria-label={`Adopt ${pr.repo}#${pr.number}`}
+                            onChange={() => onToggle(prKey(pr))}
+                            aria-label={`Adopt ${prLabel(pr)}`}
                         />
-                        <span className="compose-pr-title">{pr.title}</span>
-                        <code className="compose-pr-ref">{`${pr.repo}#${pr.number}`}</code>
-                        <span className="muted compose-pr-branch">{pr.branch}</span>
+                        <span className="compose-pr-title">{pr.title ?? pr.ref}</span>
+                        <code className="compose-pr-ref">{prLabel(pr)}</code>
+                        {pr.branch !== null && (
+                            <span className="muted compose-pr-branch">{pr.branch}</span>
+                        )}
                     </label>
                     {pr.reason !== undefined && (
                         <span className="compose-pr-reason">{pr.reason}</span>

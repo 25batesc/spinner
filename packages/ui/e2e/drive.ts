@@ -729,7 +729,7 @@ if (flow === "compose") {
         throw new Error("the adoptable PRs are not ticked and the foreign one is not refused");
     }
     const reason = text(".compose-pr-reason");
-    await until("reason shown", `${reason}.includes("does not list billing")`);
+    await until("reason shown", `${reason}.includes("billing is not a repo")`);
     await shot("56-compose-extracted");
     await click("input[aria-label='Adopt api#87']");
     await until("api unticked", `${boxes}[1].checked === false`);

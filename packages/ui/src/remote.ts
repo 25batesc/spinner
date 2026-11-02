@@ -12,14 +12,14 @@ import type {
     CostsResponse,
     DefaultBriefResponse,
     DiffRepoRequest,
+    ExtractRequest,
+    ExtractResponse,
     MissionSectionRequest,
     PostResponse,
     PostView,
     SessionResponse,
     ThreadsView,
 } from "@spinner/protocol";
-
-import type { ExtractRequest, ExtractResponse } from "./compose.ts";
 
 async function failure(method: string, path: string, response: Response): Promise<Error> {
     return new Error(`${method} ${path} failed (${response.status}): ${await response.text()}`);
