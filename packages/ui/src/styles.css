@@ -329,67 +329,103 @@ html, body, #root { height: 100%; margin: 0; }
 .pill-fail { background: var(--fail-tint); color: var(--fail); }
 .pill-accent { background: var(--accent-tint); color: var(--accent); }
 .needs-human { color: var(--warn); font-size: 12px; }
-.agents-pane { display: flex; flex-direction: column; gap: 6px; }
-.chat { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow: auto; }
+.agents-pane { display: flex; flex-direction: column; gap: var(--space-2); }
+.chat {
+    flex: 1; display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+    overflow: auto;
+}
 /* The view tabs across the top of the agents pane: underlined, no borders, the pane's icons at
-   the right. The agent chips under them read as a selection, not as a second tab row. */
+   the right. The agent chips under them read as a selection, not as a second tab row. In a
+   narrow pane the row scrolls sideways instead of cutting a tab. */
 .view-tabs {
-    display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line-soft);
-    margin: -8px -8px 0; padding: 0 8px;
+    display: flex; align-items: stretch; gap: 2px; min-height: 36px; flex: none;
+    border-bottom: 1px solid var(--line-soft);
+    margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-3)) 0; padding: 0 var(--space-2);
+    overflow-x: auto; scrollbar-width: none;
 }
 .view-tabs .view-tab {
-    padding: 6px 10px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
-    background: transparent; font: inherit; font-size: 13px; text-transform: uppercase;
-    letter-spacing: 0.04em; opacity: 0.7; cursor: pointer;
+    flex: none; padding: 0 10px; border: 0; border-bottom: 2px solid transparent;
+    background: transparent; color: var(--muted); font: inherit; font-size: var(--text-body);
+    font-weight: 500; cursor: pointer; transition: color 0.1s, border-color 0.1s;
 }
-.view-tabs .view-tab:hover { opacity: 1; }
-.view-tabs .view-tab.tab-selected { opacity: 1; font-weight: 600; border-bottom-color: var(--accent); }
+.view-tabs .view-tab:hover { color: var(--text); }
+.view-tabs .view-tab.tab-selected {
+    color: var(--text); font-weight: 600; border-bottom-color: var(--accent);
+}
+.view-tabs .pane-controls, .view-tabs > .icon-button { align-self: center; }
 .view-tabs .pane-controls { margin-left: auto; }
-/* The toolbar under the view tabs: three groups, a separator between two. */
-.actions.toolbar { display: flex; flex-direction: row; align-items: center; gap: 4px; flex-wrap: wrap; }
-.toolbar-group { display: flex; gap: 4px; }
-.toolbar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
-.toolbar button { font: inherit; font-size: 12px; }
-.toolbar .danger { background: transparent; border: 1px solid var(--border); color: inherit; }
-.toolbar .danger:hover:not(:disabled) { border-color: var(--fail); background: var(--fail-fill); color: var(--fail); }
+/* The toolbar under the view tabs: the local stack, the pipeline, and the group that ends a
+   round or the session, apart at the right end. Each group is one joined control that wraps
+   as a unit; the gap between groups replaces the separators. */
+.actions.toolbar {
+    display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; flex: none;
+    gap: var(--space-2) var(--space-3);
+}
+.toolbar-group { display: flex; flex-wrap: nowrap; }
+.toolbar-group:last-child { margin-left: auto; }
+.toolbar-sep { display: none; }
+.toolbar-group > button { position: relative; border-radius: 0; margin-left: -1px; }
+.toolbar-group > button:first-child {
+    margin-left: 0; border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+.toolbar-group > button:last-of-type {
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+.toolbar-group > button:first-child:last-of-type { border-radius: var(--radius-control); }
+.toolbar-group > button:hover, .toolbar-group > button:focus-visible { z-index: 1; }
 .prompt { margin-top: auto; padding: 6px; }
 .transcript { margin: 0; padding-left: 18px; font-size: 12px; overflow-wrap: anywhere; }
 .tabs { display: flex; gap: 2px; }
 .tab { padding: 2px 10px; border: 1px solid var(--border); background: transparent; color: inherit; }
 .tab-selected { border-color: var(--accent); font-weight: 600; }
 /* The small underlined tabs under the agent chips: terminal (or chat) and context. */
-.tabs-sub { gap: 0; border-bottom: 1px solid var(--line-soft); }
+.tabs-sub { gap: 2px; flex: none; border-bottom: 1px solid var(--line-soft); }
 .tabs-sub .tab {
-    padding: 2px 8px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
-    font-size: 12px; opacity: 0.7; cursor: pointer;
+    height: 28px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; background: transparent; color: var(--muted); font: inherit;
+    font-size: var(--text-dense); font-weight: 500; cursor: pointer;
 }
-.tabs-sub .tab:hover { opacity: 1; }
-.tabs-sub .tab.tab-selected { opacity: 1; border-bottom-color: var(--accent); }
+.tabs-sub .tab:hover { color: var(--text); }
+.tabs-sub .tab.tab-selected { color: var(--text); border-bottom-color: var(--accent); }
 /* The agent chips: a dot for the state, the name, an × on the selected one that stops it, the
-   dashed `+` at the end. */
-.chips { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-.chip { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 12px; }
+   round `+` at the end. The dot follows the dot rules: green while in a turn, a hollow ring
+   while idle, a dotted ring and a muted name while the agent is not hosted. */
+.chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex: none; }
+.chip {
+    display: inline-flex; align-items: center; height: 24px; box-sizing: border-box;
+    border: 1px solid var(--border); border-radius: 999px; transition: border-color 0.1s;
+}
+.chip:hover { border-color: var(--muted); }
 .chip .chip-name {
-    display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border: 0;
-    border-radius: 12px; font: inherit; font-size: 12px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 10px;
+    border: 0; border-radius: 999px; background: transparent; color: var(--text); font: inherit;
+    font-size: var(--text-dense); font-weight: 500; cursor: pointer;
 }
-.chip-off .chip-name { opacity: 0.55; }
-.chip-selected { border-color: var(--accent); background: var(--accent-fill); }
+.chip-off .chip-name { color: var(--muted); }
+.chip.chip-selected {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--accent-tint);
+}
 .chip .chip-name.tab-selected { font-weight: 600; }
+.chip-selected .chip-name { padding-right: 4px; }
 .chip-dot { width: 7px; height: 7px; }
-.chip-dot.dot-working { background: var(--ok); }
-.chip-dot.dot-idle { background: var(--border); }
-.chip-dot.dot-off { background: var(--line-soft); }
+.chip-dot.dot-working { background: var(--ok); border-color: var(--ok); }
+.chip-dot.dot-off { border-style: dotted; opacity: 0.8; }
 .chip-stop {
-    border: 0; background: transparent; color: inherit; padding: 0 7px 0 0; font-size: 14px;
-    line-height: 1; cursor: pointer; opacity: 0.6;
+    display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+    margin-right: 3px; padding: 0; border: 0; border-radius: 50%; background: transparent;
+    color: var(--muted); font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
 }
-.chip-stop:hover { opacity: 1; color: var(--fail); }
+.chip-stop:hover { color: var(--fail); background: var(--fail-fill); }
 .tab-add {
-    border: 1px dashed var(--border); border-radius: 12px; opacity: 0.75; padding: 2px 8px;
-    background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; width: 24px;
+    height: 24px; padding: 0; box-sizing: border-box; border: 1px dashed var(--border);
+    border-radius: 50%; background: transparent; color: var(--muted); font: inherit;
+    font-size: 14px; line-height: 1; cursor: pointer;
 }
-.tab-add:hover, .tab-add.tab-selected { opacity: 1; border-color: var(--accent); }
+.tab-add:hover, .tab-add.tab-selected {
+    color: var(--accent); border-color: var(--accent); border-style: solid;
+    background: var(--accent-tint);
+}
 .preview-pane { display: flex; flex-direction: column; gap: 6px; }
 .preview-frame { flex: 1; width: 100%; border: 1px solid var(--border); background: white; }
 /* The native view covers the box; a transparent box keeps the view's own background visible. */
