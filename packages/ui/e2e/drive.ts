@@ -2188,8 +2188,9 @@ if (flow === "reviews") {
     // first with the CI pill (the failing checks in its tooltip), the decision pill and the
     // thread count; a card opens the review's middle pane with the PR header and the swarm
     // chips; a chip opens the reviewer's terminal; the right pane opens on `diff`. A paste
-    // in the box makes a review; `review` in the context bar starts the swarm, whose chips
-    // go queued, reading, posted as `review.updated` arrives, and the thread count follows.
+    // in the box makes a review, which starts the lead and the swarm (s016): the chips go
+    // queued, reading, done as `review.updated` arrives; `review` in the context bar runs a
+    // second round. The lead's blocks are the `review-lead` flow.
     const sessionsText = text(".sessions-pane");
     if ((await evaluate(`${sessionsText}.includes("Retry the upload")`)) === true) {
         throw new Error("a review session shows in the Sessions panel");
@@ -2227,11 +2228,11 @@ if (flow === "reviews") {
         `[...document.querySelectorAll(".context-bar .rv-toolbar button")]
             .some((b) => b.textContent === "review")`);
     const chips = `[...document.querySelectorAll(".rv-swarm .chip-name")]`;
-    await until("three chips", `${chips}.length === 3`);
+    await until("the lead and three chips", `${chips}.length === 4`);
     const states = (await evaluate(`${chips}.map((c) => c.dataset.state)`)) as string[];
     console.log("chip states:", JSON.stringify(states));
-    if (JSON.stringify(states) !== JSON.stringify(["posted", "reading", "queued"])) {
-        throw new Error("the chips do not show the swarm's states");
+    if (JSON.stringify(states) !== JSON.stringify(["idle", "done", "done", "done"])) {
+        throw new Error("the chips do not show the lead and the swarm's states");
     }
     await until("diff tab shown",
         `document.querySelector(".preview-pane .view-tab.tab-selected")?.textContent === "diff"`);
@@ -2258,19 +2259,138 @@ if (flow === "reviews") {
         `${text(".rv-card-selected")}.includes("PR 9 of peanut")`);
     await until("box cleared",
         `document.querySelector("textarea[aria-label='Pull requests to review']").value === ""`);
-    await until("no reviewers yet", `${text(".rv-swarm")}.includes("no reviewers yet")`);
     await until("job finished", `${text(".drawer")}.includes("ok")`);
-    await click(".context-bar .rv-toolbar button", "review");
-    await until("chips queued", `${chips}.some((c) => c.dataset.state === "queued")`);
+    // The job started the lead and the swarm: the chips move on their own.
+    const reviewers = `${chips}.filter((c) => c.dataset.name !== "lead")`;
+    await until("chips queued", `${reviewers}.some((c) => c.dataset.state === "queued")`);
     await shot("74-swarm-queued");
-    await until("a chip reads", `${chips}.some((c) => c.dataset.state === "reading")`);
-    await until("all posted",
-        `${chips}.length === 2 && ${chips}.every((c) => c.dataset.state === "posted")`);
-    await until("thread count follows", `${text(".context-bar .rv-threads")} === "\u2442 4"`);
-    await until("card count follows",
-        `${text(".rv-card-selected .rv-threads")} === "\u2442 4"`);
-    await shot("75-swarm-posted");
+    await until("a chip reads", `${reviewers}.some((c) => c.dataset.state === "reading")`);
+    await until("all done",
+        `${reviewers}.length === 2 && ${reviewers}.every((c) => c.dataset.state === "done")`);
+    await until("draft shown", `document.querySelector(".rv-draft") !== null`);
+    await shot("75-swarm-done");
+    // A second round from the context bar: the chips go back to queued.
+    await click(".context-bar .rv-toolbar button", "review");
+    await until("queued again", `${reviewers}.some((c) => c.dataset.state === "queued")`);
+    await until("all done again",
+        `${reviewers}.length === 2 && ${reviewers}.every((c) => c.dataset.state === "done")`);
     console.log("reviews ok");
+    await finish();
+}
+
+if (flow === "review-lead") {
+    // The review lead (s016), against the fixture. The canned review r51 shows the briefing
+    // as markdown and the draft: the event pill, the summary, two `path:line` rows, `post`
+    // and `drop`; the lead's chip is first with its state. An edit of a comment saves on
+    // blur and comes back through `review.updated`; the pill click swaps the event; `post`
+    // asks once in place, `cancel` keeps the draft; `post` again and the confirm posts: the
+    // URL replaces the draft, the thread count follows, `needs_human` clears. On a fresh
+    // paste the briefing shows before the verdicts land, the draft once they have; `drop`
+    // removes it.
+    await click(".activity-bar button[aria-label='Show reviews']");
+    await until("reviews pane", `document.querySelector(".reviews-pane") !== null`);
+    await click(".rv-card-body", "Retry the upload on 5xx");
+    await until("review pane", `document.querySelector(".rv-pane .rv-head") !== null`);
+    await until("briefing rendered",
+        `${text(".rv-briefing .md")}.includes("What to look at")`);
+    await until("briefing heading", `document.querySelector(".rv-briefing .md h1") !== null`);
+    await until("draft shown", `document.querySelector(".rv-draft") !== null`);
+    const chips = `[...document.querySelectorAll(".rv-swarm .chip-name")]`;
+    const first = (await evaluate(
+        `${chips}[0].dataset.name + ":" + ${chips}[0].dataset.state`,
+    )) as string;
+    console.log("first chip:", first);
+    if (first !== "lead:idle") {
+        throw new Error("the lead's chip is not first, idle");
+    }
+    const rows = `[...document.querySelectorAll(".rv-comment")]`;
+    const shape = await evaluate(`({
+        event: document.querySelector(".rv-event").dataset.event,
+        summary: document.querySelector(".rv-draft-body").value.slice(0, 30),
+        rows: ${rows}.map((r) => r.querySelector(".rv-comment-at").textContent),
+        labels: ${rows}.map((r) => r.querySelector("textarea").value.split(" ")[0]),
+        post: document.querySelector(".rv-draft-actions .primary")?.textContent,
+        drop: document.querySelector(".rv-draft-actions .danger")?.textContent,
+        needs: ${text(".context-bar")}.includes("post or drop the review draft"),
+    })`);
+    console.log("draft:", JSON.stringify(shape));
+    const wanted = {
+        event: "COMMENT", summary: "Thanks, the retry is the right",
+        rows: ["src/upload.ts:42", "src/upload.test.ts:88"], labels: ["BUG:", "NIT:"],
+        post: "post", drop: "drop", needs: true,
+    };
+    if (JSON.stringify(shape) !== JSON.stringify(wanted)) {
+        throw new Error("the draft block does not show the fixture's draft");
+    }
+    await shot("76-review-lead-draft");
+    // An edit of the second comment saves on blur; the fixture's `review.updated` brings it
+    // back and the row shows the new text.
+    // A headless page has no focus, so `blur()` is silent: the `focusout` React listens to
+    // is dispatched by hand.
+    const second = ".rv-comment:nth-child(2) textarea";
+    await fill(second, "NIT: This asserts the wrong error class.");
+    await evaluate(`document.querySelector(${JSON.stringify(second)})
+        .dispatchEvent(new FocusEvent("focusout", { bubbles: true })), true`);
+    await until("edit saved",
+        `document.querySelector(${JSON.stringify(second)}).value.endsWith("error class.")`);
+    await until("no error", `document.querySelector(".rv-draft-error") === null`);
+    await until("save finished", `document.querySelector(".rv-saving") === null`);
+    const savedBody = (await (await fetch(`${process.env["E2E_DAEMON"] ?? uiUrl}` +
+        "/sessions/r51-peanut-51")).json()) as {
+        session: { review: { draft: { comments: { body: string }[] } } };
+    };
+    const stored = savedBody.session.review.draft.comments[1]?.body;
+    console.log("stored comment:", JSON.stringify(stored));
+    if (stored !== "NIT: This asserts the wrong error class.") {
+        throw new Error("the edit did not reach the draft route");
+    }
+    // The pill swaps the event and saves at once.
+    await click(".rv-event");
+    await until("event APPROVE", `document.querySelector(".rv-event").dataset.event === "APPROVE"`);
+    await click(".rv-event");
+    await until("event COMMENT", `document.querySelector(".rv-event").dataset.event === "COMMENT"`);
+    // `post` asks once in place; `cancel` keeps the draft.
+    // The buttons wait while a save runs; so does the operator.
+    await until("pill save finished", `document.querySelector(".rv-saving") === null`);
+    await click(".rv-draft-actions .primary", "post");
+    await until("asked", `${text(".rv-confirm")}.includes("Post this review as you?")`);
+    await shot("77-review-lead-confirm");
+    await click(".rv-confirm button", "cancel");
+    await until("draft kept", `document.querySelector(".rv-confirm") === null`);
+    await click(".rv-draft-actions .primary", "post");
+    await until("asked again", `document.querySelector(".rv-confirm") !== null`);
+    await click(".rv-confirm .primary", "post");
+    await until("posted URL shown",
+        `${text(".rv-posted-url")}.includes("pullrequestreview-9001")`);
+    await until("draft gone", `document.querySelector(".rv-draft") === null`);
+    await until("thread count follows", `${text(".context-bar .rv-threads")} === "\u2442 6"`);
+    await until("needs_human cleared",
+        `!${text(".context-bar")}.includes("post or drop the review draft")`);
+    await shot("78-review-lead-posted");
+    // A fresh review: the briefing shows before the verdicts land; the draft once they have.
+    await fill("textarea[aria-label='Pull requests to review']",
+        "https://github.com/acme/peanut/pull/12");
+    await until("PR found", `${text(".rv-found")}.includes("acme/peanut#12")`);
+    await click(".rv-compose-actions .primary", "Start review");
+    await until("new review selected",
+        `${text(".rv-card-selected")}.includes("PR 12 of peanut")`);
+    const reviewers = `${chips}.filter((c) => c.dataset.name !== "lead")`;
+    await until("briefing before the verdicts",
+        `document.querySelector(".rv-briefing .md h1") !== null
+            && ${reviewers}.every((c) => c.dataset.state !== "done")`);
+    if ((await evaluate(`document.querySelector(".rv-draft") !== null`)) === true) {
+        throw new Error("the draft showed before the verdicts landed");
+    }
+    await shot("79-review-lead-briefing-first");
+    await until("draft after the verdicts",
+        `document.querySelector(".rv-draft") !== null
+            && ${reviewers}.every((c) => c.dataset.state === "done")`);
+    await until("lead idle", `${chips}[0].dataset.state === "idle"`);
+    await click(".rv-draft-actions .danger", "drop");
+    await until("draft dropped", `document.querySelector(".rv-draft") === null`);
+    await until("briefing stays", `document.querySelector(".rv-briefing") !== null`);
+    await shot("79b-review-lead-dropped");
+    console.log("review lead ok");
     await finish();
 }
 

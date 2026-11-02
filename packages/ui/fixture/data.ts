@@ -246,7 +246,8 @@ export const DRAFT: ReviewDraft = {
     comments: [
         {
             path: "src/upload.ts", line: 42,
-            body: "BUG: `attempt * 500` grows linearly; the description says the pause doubles. `500 * 2 ** attempt`?",
+            body: "BUG: `attempt * 500` grows linearly; the description says the pause doubles. "
+                + "`500 * 2 ** attempt`?",
         },
         {
             path: "src/upload.test.ts", line: 88,

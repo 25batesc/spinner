@@ -4,7 +4,7 @@
 // and `drop`. An edit saves on blur through the draft route; `post` asks once in place, then
 // the posted URL takes the block's place. Nothing here applies a result itself:
 // `review.updated` moves the facts (the contract of 14:07).
-import { useState, type FocusEvent } from "react";
+import { useState } from "react";
 
 import type { ReviewDraft, ReviewDraftComment, ReviewEvent } from "@spinner/protocol";
 
@@ -32,7 +32,8 @@ export function ReviewBriefing({ dir }: { dir: string }) {
 }
 
 /** The event pill; a click swaps `APPROVE` and `COMMENT`, which saves at once. */
-function EventPill({ event, onChange }: { event: ReviewEvent; onChange: (e: ReviewEvent) => void }) {
+function EventPill(props: { event: ReviewEvent; onChange: (event: ReviewEvent) => void }) {
+    const { event, onChange } = props;
     const other: ReviewEvent = event === "APPROVE" ? "COMMENT" : "APPROVE";
     const tone = event === "APPROVE" ? "pill-ok" : "pill-accent";
     return (
@@ -52,19 +53,20 @@ function EventPill({ event, onChange }: { event: ReviewEvent; onChange: (e: Revi
 function CommentRow(props: {
     comment: ReviewDraftComment;
     index: number;
-    onBlur: (index: number, body: string) => void;
+    onChange: (index: number, body: string) => void;
+    onBlur: () => void;
 }) {
-    const { comment, index, onBlur } = props;
-    const blur = (event: FocusEvent<HTMLTextAreaElement>) => onBlur(index, event.target.value);
+    const { comment, index, onChange, onBlur } = props;
     return (
         <li className="rv-comment" data-path={comment.path} data-line={comment.line}>
             <code className="rv-comment-at">{comment.path}:{comment.line}</code>
             <textarea
                 className="rv-comment-body"
                 aria-label={`Comment on ${comment.path} line ${comment.line}`}
-                defaultValue={comment.body}
+                value={comment.body}
                 rows={Math.max(2, comment.body.split("\n").length)}
-                onBlur={blur}
+                onChange={(event) => onChange(index, event.target.value)}
+                onBlur={onBlur}
             />
         </li>
     );
@@ -75,19 +77,30 @@ export interface ReviewDraftProps {
     draft: ReviewDraft;
 }
 
+const same = (a: ReviewDraft, b: ReviewDraft) => JSON.stringify(a) === JSON.stringify(b);
+
 /**
- * The draft block. The textareas are uncontrolled: the draft from the facts seeds them, a
- * blur saves the changed text through the route, and the `review.updated` that follows is
- * what the next render reads. The `key` on the block in `ReviewPane` remounts it when the
- * daemon's draft changes under the operator.
+ * The draft block. The fields hold the operator's text in `edited`; a blur saves it through
+ * the route when it differs from the last save. The `review.updated` that follows echoes the
+ * save and is ignored; a draft that differs from the last save (the lead wrote a new one)
+ * replaces the fields. The block's own state (`asking`, an error) survives either way.
  */
 export function ReviewDraftBlock({ dir, draft }: ReviewDraftProps) {
     const [asking, setAsking] = useState(false);
     const [pending, setPending] = useState<"post" | "drop" | "save" | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [posted, setPosted] = useState<{ url: string; fell_back: boolean } | null>(null);
-    // The latest text per field, so a save after an edit of another field keeps both.
     const [edited, setEdited] = useState<ReviewDraft>(draft);
+    const [saved, setSaved] = useState<ReviewDraft>(draft);
+    // A new draft from the daemon, not the echo of a save: the fields take it.
+    const [seen, setSeen] = useState<ReviewDraft>(draft);
+    if (draft !== seen) {
+        setSeen(draft);
+        if (!same(draft, saved)) {
+            setEdited(draft);
+            setSaved(draft);
+        }
+    }
 
     const run = (what: "post" | "drop" | "save", action: () => Promise<void>) => {
         setPending(what);
@@ -101,24 +114,22 @@ export function ReviewDraftBlock({ dir, draft }: ReviewDraftProps) {
         );
     };
     const save = (next: ReviewDraft) => {
-        setEdited(next);
+        if (same(next, saved)) {
+            return;
+        }
+        setSaved(next);
         run("save", async () => {
             await putReviewDraft(dir, next);
         });
     };
-    const onBody = (event: FocusEvent<HTMLTextAreaElement>) => {
-        const body = event.target.value;
-        if (body !== edited.body) {
-            save({ ...edited, body });
-        }
+    const onEvent = (event: ReviewEvent) => {
+        const next = { ...edited, event };
+        setEdited(next);
+        save(next);
     };
     const onComment = (index: number, body: string) => {
-        const current = edited.comments[index];
-        if (current === undefined || current.body === body) {
-            return;
-        }
         const comments = edited.comments.map((c, i) => (i === index ? { ...c, body } : c));
-        save({ ...edited, comments });
+        setEdited({ ...edited, comments });
     };
     const onPost = () => run("post", async () => {
         const result = await postReview(dir);
@@ -135,15 +146,16 @@ export function ReviewDraftBlock({ dir, draft }: ReviewDraftProps) {
         <section className="rv-draft" aria-label="Review draft">
             <div className="rv-draft-head">
                 <h3 className="rv-block-title">Draft</h3>
-                <EventPill event={edited.event} onChange={(event) => save({ ...edited, event })} />
+                <EventPill event={edited.event} onChange={onEvent} />
                 {pending === "save" && <span className="muted rv-saving">saving…</span>}
             </div>
             <textarea
                 className="rv-draft-body"
                 aria-label="Review summary"
-                defaultValue={draft.body}
-                rows={Math.max(4, draft.body.split("\n").length)}
-                onBlur={onBody}
+                value={edited.body}
+                rows={Math.max(4, edited.body.split("\n").length)}
+                onChange={(event) => setEdited({ ...edited, body: event.target.value })}
+                onBlur={() => save(edited)}
             />
             {edited.comments.length > 0 && (
                 <ul className="rv-comments" aria-label="Line comments">
@@ -152,7 +164,8 @@ export function ReviewDraftBlock({ dir, draft }: ReviewDraftProps) {
                             key={`${comment.path}:${comment.line}:${index}`}
                             comment={comment}
                             index={index}
-                            onBlur={onComment}
+                            onChange={onComment}
+                            onBlur={() => save(edited)}
                         />
                     ))}
                 </ul>

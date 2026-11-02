@@ -144,13 +144,12 @@ function SwarmChips(props: {
 
 /** The lead's blocks: the briefing once it exists; the posted URL, else the draft. */
 function LeadBlocks({ dir, facts }: { dir: string; facts: ReviewFacts }) {
-    const draftKey = facts.draft === null ? "" : JSON.stringify(facts.draft);
     return (
         <>
             {facts.briefing && <ReviewBriefing dir={dir} />}
             {facts.posted_url !== null && <ReviewPosted url={facts.posted_url} />}
             {facts.posted_url === null && facts.draft !== null && (
-                <ReviewDraftBlock key={draftKey} dir={dir} draft={facts.draft} />
+                <ReviewDraftBlock dir={dir} draft={facts.draft} />
             )}
         </>
     );

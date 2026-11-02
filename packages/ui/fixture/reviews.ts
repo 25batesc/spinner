@@ -258,9 +258,12 @@ export class ReviewFixture {
             running.unshift(LEAD_NAME);
         }
         const needs_human = extra.needs_human === undefined ? base.needs_human : extra.needs_human;
+        // The board carries `needs_human` too; the daemon derives it, the fixture copies it.
+        const board = current.board === null ? null : { ...current.board, needs_human };
         const next: SessionView = {
             ...current,
             summary: { ...current.summary, session: { ...base, agents, needs_human } },
+            board,
             agents_running: running,
             review,
         };

@@ -332,8 +332,10 @@ export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) 
         );
     }
     const review = reviewFacts(view);
+    const needs = needsHuman(view);
     if (review !== null) {
         // A review: the PR's facts in place of the stage and the stack; `review` as the toolbar.
+        // `needs_human` is the lead's draft waiting for `post` or `drop` (s016).
         return (
             <div className="context-bar rv-context" aria-label="Review">
                 <span className="context-title" title={review.title}>
@@ -348,12 +350,16 @@ export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) 
                 </span>
                 <CostFigure cost={view.cost} />
                 <MachineLine usage={usage} />
+                {needs !== null && (
+                    <span className="needs-human pill pill-warn context-needs" title={needs}>
+                        {needs}
+                    </span>
+                )}
                 <OperatorNotice operator={operator} />
                 {toolbar}
             </div>
         );
     }
-    const needs = needsHuman(view);
     const stack = stackUsageOf(view, usage);
     return (
         <div className="context-bar" aria-label="Session">

@@ -46,7 +46,7 @@ it("serves GET /sessions as SessionViews", async () => {
     );
 });
 
-it("POST /reviews makes a review per PR and runs the lead's process: briefing, verdicts, draft, post",
+it("POST /reviews makes a review per PR and runs the lead's process to the draft, then post",
     async () => {
     const port = await start();
     const socket = new WebSocket(`ws://127.0.0.1:${port}${EVENTS_PATH}`);
