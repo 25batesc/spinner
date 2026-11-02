@@ -4,7 +4,14 @@
 // fixture server and the UI can agree on the shape before the daemon fills it in.
 
 import type { PiEvent } from "./agent-event.js";
-import type { Job, MachineUsage, OperatorView, SessionUsage, SessionView } from "./api.js";
+import type {
+    Job,
+    MachineUsage,
+    MissionView,
+    OperatorView,
+    SessionUsage,
+    SessionView,
+} from "./api.js";
 import type { CostTotals, SessionCost } from "./costs.js";
 import type { Settings } from "./theme.js";
 import type { AgentProcessState, PullRequest, Stage, StackStateName } from "./session.js";
@@ -134,6 +141,8 @@ export interface MissionChangedEvent extends EventBase {
     /** Who made the change, when known; `unknown` when the file changed on disk without a tool. */
     author: string;
     sections: MissionSection[];
+    /** The structured mission after the change (s014). Optional for fixtures written before. */
+    view?: MissionView;
 }
 
 export interface InboxMessageEvent extends EventBase {

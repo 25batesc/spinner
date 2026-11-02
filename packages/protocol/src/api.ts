@@ -36,8 +36,20 @@ export const ROUTES = {
     "GET /sessions/:dir": "SessionResponse",
     /** The raw MISSION.md of a session. Content-Type text/markdown. */
     "GET /sessions/:dir/mission": "text/markdown",
-    /** Create a session. Body: NewSessionRequest. The job creates it and attaches the project. */
+    /**
+     * Create a session. Body: NewSessionRequest. With `title`, the job attaches the project.
+     * With `text` (s014, chat first), the job attaches the project, adopts the `adopt` PRs,
+     * starts the agent `lead` and prompts it with the text.
+     */
     "POST /sessions": "JobResponse",
+    /** The PR references in a paste, looked up on GitHub. Body: ExtractRequest. Synchronous. */
+    "POST /sessions/extract": "ExtractResponse",
+    /** Adopt PR references into an existing session. Body: SessionAdoptRequest. */
+    "POST /sessions/:dir/adopt": "JobResponse",
+    /** Set the session title in `session.yaml` and the mission heading. Body: SessionTitleRequest. */
+    "PUT /sessions/:dir/title": "SessionResponse",
+    /** The structured mission (s014): the sections of MISSION.md parsed, derived on each read. */
+    "GET /sessions/:dir/mission/view": "MissionViewResponse",
     /** Adopt PRs opened outside Spinner. Body: AdoptRequest. The job creates the session. */
     "POST /sessions/adopt": "JobResponse",
     /** Attach a project to an adopted session: worktrees on the PR branches. Body: AttachRequest */
@@ -473,13 +485,73 @@ export interface JobsResponse {
 
 export const JOBS_RECENT_MAX = 10;
 
+/**
+ * `POST /sessions`. One of `title` and `text` is required. With `text` (s014, chat first)
+ * the title is provisional: the first non-empty line of the text without its PR references,
+ * else the first adopted PR's title, else `New session`. The lead agent sets the real one.
+ */
 export interface NewSessionRequest {
-    title: string;
+    title?: string;
+    /** What the session is about, as pasted. Becomes the lead agent's first message. */
+    text?: string;
     /** Optional slug. Derived from the title when absent. */
     slug?: string;
     /** Project name or spec path (`ProjectView.path`). Without it, the session has no stack. */
     project?: string;
+    /** PR URLs from `ExtractResponse.prs` to adopt: a worktree on each PR's head branch. */
+    adopt?: string[];
 }
+
+/** `POST /sessions/extract`: the PR references in `text`, resolved against `project`'s repos. */
+export interface ExtractRequest {
+    text: string;
+    /** Project name or spec path; without it only full URLs resolve and none is adoptable. */
+    project?: string;
+}
+
+/** Upper bound on references one extract resolves; the rest are ignored. */
+export const EXTRACT_REFS_MAX = 20;
+
+/**
+ * One PR reference found in a paste. `ref` is the text as written (`owner/repo#12`, a URL,
+ * `#12`). The GitHub fields are null when the reference did not resolve to a repo (an
+ * ambiguous bare `#N`) or the lookup failed; `reason` then says why.
+ */
+export interface ExtractedPr {
+    ref: string;
+    url: string | null;
+    /** GitHub `owner/name`. */
+    repo: string | null;
+    /** The project's repo key when the repo is one of the project's; null otherwise. */
+    key: string | null;
+    number: number;
+    title: string | null;
+    /** The PR's head branch. */
+    branch: string | null;
+    base: string | null;
+    /** True when `POST /sessions` can make a worktree for it: the repo is in the project. */
+    adoptable: boolean;
+    reason?: string;
+}
+
+export interface ExtractResponse {
+    prs: ExtractedPr[];
+    /** The text with every reference removed, lines trimmed, blank runs collapsed to one. */
+    rest: string;
+}
+
+/** `POST /sessions/:dir/adopt`: PR references, in any form `POST /sessions/extract` takes. */
+export interface SessionAdoptRequest {
+    refs: string[];
+}
+
+/** `PUT /sessions/:dir/title`. */
+export interface SessionTitleRequest {
+    title: string;
+}
+
+/** Upper bound on a session title; the provisional one from a paste is cut to this. */
+export const SESSION_TITLE_MAX = 80;
 
 export interface AdoptRequest {
     /** GitHub pull request URLs, at least one. */
@@ -795,6 +867,82 @@ export interface ModelView {
 
 export interface ModelsResponse {
     models: ModelView[];
+}
+
+/** A Plan item, from `- [ ] 3. text (owner)` or `- [x] 3. text (owner, 14:02)`. */
+export interface PlanItem {
+    id: number;
+    text: string;
+    owner: string | null;
+    /**
+     * `done` when ticked. `doing` when unticked and the owner's Roster `Doing` names `#id` or
+     * `item id`, or is active (not `—`, empty or `done`) and this is that owner's lowest
+     * unticked id. `next` otherwise.
+     */
+    state: "next" | "doing" | "done";
+    /** `HH:MM` from the tick, or null. */
+    ticked_at: string | null;
+}
+
+/** A Done when item, from `- [ ] text` or `- [x] text (owner, 14:02)`. `id` is its position. */
+export interface DoneWhenItem {
+    id: number;
+    text: string;
+    owner: string | null;
+    state: "open" | "done";
+    ticked_at: string | null;
+}
+
+/** One Roster row; the cells as written. */
+export interface RosterRow {
+    agent: string;
+    owns: string;
+    doing: string;
+    blocked: string;
+    updated: string;
+}
+
+/** A Contracts line: `- HH:MM author: text` or `- YYYY-MM-DD author: text`; `id` is its position. */
+export interface MissionLine {
+    id: number;
+    ts: string | null;
+    author: string | null;
+    text: string;
+}
+
+/** An Open questions line `- author: text`; `answer` is the indented lines under it, if any. */
+export interface QuestionItem {
+    id: number;
+    author: string | null;
+    text: string;
+    answer: string | null;
+}
+
+/** A Log line `- HH:MM author: text`. */
+export interface LogLine {
+    ts: string;
+    author: string;
+    text: string;
+}
+
+/**
+ * The structured mission (s014): MISSION.md parsed, derived on every read and never stored.
+ * `log` is in file order, oldest first. The markdown file stays the source of truth; the
+ * workspace writes through `PUT /sessions/:dir/mission/section`.
+ */
+export interface MissionView {
+    title: string;
+    goal: string;
+    done_when: DoneWhenItem[];
+    plan: PlanItem[];
+    roster: RosterRow[];
+    contracts: MissionLine[];
+    questions: QuestionItem[];
+    log: LogLine[];
+}
+
+export interface MissionViewResponse {
+    view: MissionView;
 }
 
 export interface ErrorResponse {

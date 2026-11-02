@@ -4,7 +4,12 @@
 // every required parameter is declared.
 import { describe, expect, it } from "vitest";
 import { ROUTES } from "./api.js";
-import { EXTENSION_MANIFEST, EXTENSION_TOOLS, type ExtensionToolArgs } from "./extension.js";
+import {
+    EXTENSION_MANIFEST,
+    EXTENSION_TOOLS,
+    role_of_agent,
+    type ExtensionToolArgs,
+} from "./extension.js";
 
 describe("extension manifest", () => {
     it("lists every tool once, in order", () => {
@@ -60,5 +65,37 @@ describe("extension manifest", () => {
         for (const tool of EXTENSION_MANIFEST.tools) {
             expect(tool.roles.length).toBeGreaterThan(0);
         }
+    });
+
+    it("gives the lead role the mission tools, agent_add, adopt, and no thread or operator tool", () => {
+        const lead_tools = EXTENSION_MANIFEST.tools
+            .filter((tool) => tool.roles.includes("lead"))
+            .map((tool) => tool.name);
+        expect(lead_tools).toEqual([
+            "mission_roster",
+            "mission_log",
+            "mission_contract",
+            "mission_question",
+            "message",
+            "stack",
+            "pr",
+            "agent_add",
+            "agent_steer",
+            "diff_comments",
+            "diff_reply",
+            "session_title",
+            "mission_goal",
+            "mission_done_when",
+            "mission_plan",
+            "adopt",
+        ]);
+        // `session` is optional for the two shared tools: the lead acts on its own session.
+        for (const name of ["agent_add", "agent_steer"]) {
+            const tool = EXTENSION_MANIFEST.tools.find((entry) => entry.name === name);
+            expect(tool?.required).not.toContain("session");
+        }
+        expect(role_of_agent("lead")).toBe("lead");
+        expect(role_of_agent("fixer")).toBe("fixer");
+        expect(role_of_agent("backend")).toBe("worker");
     });
 });

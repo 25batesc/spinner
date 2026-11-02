@@ -20,10 +20,12 @@ export const EXTENSION_ENV = {
     /** Base URL of the daemon, for example `http://localhost:7777`. */
     daemon_url: "SPINNER_DAEMON_URL",
     /**
-     * The agent's role: `worker`, `fixer` or `operator`. The `thread_*` tools register for
-     * `fixer`; the `session_*`, `mission_write`, `brief_write`, `agent_*` and `inbox_send`
-     * tools for `operator`, whose session directory is `<home>/operator` and whose routes
-     * are `/operator/*` (MISSION.md s013).
+     * The agent's role: `worker`, `fixer`, `lead` or `operator`. The `thread_*` tools
+     * register for `fixer`; the `session_*`, `mission_write`, `brief_write`, `agent_*` and
+     * `inbox_send` tools for `operator`, whose session directory is `<home>/operator` and
+     * whose routes are `/operator/*` (MISSION.md s013). `lead` (s014) owns its session's
+     * mission: `session_title`, `mission_goal`, `mission_done_when`, `mission_plan`,
+     * `agent_add`, `agent_steer` and `adopt`, on its own session.
      */
     role: "SPINNER_ROLE",
     /**
@@ -33,9 +35,17 @@ export const EXTENSION_ENV = {
     harness: "SPINNER_HARNESS",
 } as const;
 
-export type ExtensionRole = "worker" | "fixer" | "operator";
+export type ExtensionRole = "worker" | "fixer" | "lead" | "operator";
 
-export const EXTENSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer", "operator"];
+export const EXTENSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer", "lead", "operator"];
+
+/** The agent named `fixer` is the fixer and the one named `lead` the lead; the rest work. */
+export function role_of_agent(name: string): ExtensionRole {
+    if (name === "fixer") {
+        return "fixer";
+    }
+    return name === "lead" ? "lead" : "worker";
+}
 
 export const EXTENSION_TOOLS = [
     "mission_roster",
@@ -61,7 +71,28 @@ export const EXTENSION_TOOLS = [
     "inbox_send",
     "diff_comments",
     "diff_reply",
+    "session_title",
+    "mission_goal",
+    "mission_done_when",
+    "mission_plan",
+    "adopt",
 ] as const;
+
+/** What `mission_plan` does; `mission_done_when` takes the first four. */
+export const MISSION_ITEM_COMMANDS = [
+    "add",
+    "tick",
+    "untick",
+    "edit",
+    "assign",
+    "reorder",
+] as const;
+
+export type MissionItemCommand = (typeof MISSION_ITEM_COMMANDS)[number];
+
+export const DONE_WHEN_COMMANDS = ["set", "tick", "untick", "edit"] as const;
+
+export type DoneWhenCommand = (typeof DONE_WHEN_COMMANDS)[number];
 
 /** The sections `mission_write` takes; the Roster belongs to the agents and the writer. */
 export const OPERATOR_MISSION_SECTIONS = [
@@ -76,9 +107,9 @@ export const OPERATOR_MISSION_SECTIONS = [
 export type OperatorMissionSection = (typeof OPERATOR_MISSION_SECTIONS)[number];
 
 /**
- * The actions the operator agent must leave to a person (MISSION.md s013, Contracts). In the
- * operator role the extension blocks a `bash` call that runs one of them through `spinner`,
- * `git push` or `gh`, with a message that says the operator must do it.
+ * The actions the operator agent and the lead must leave to a person (MISSION.md s013 and
+ * s014, Contracts). In those roles the extension blocks a `bash` call that runs one of them
+ * through `spinner`, `git push` or `gh`, with a message that says the operator must do it.
  */
 export const OPERATOR_REFUSED_ACTIONS = [
     "pr",
@@ -154,6 +185,33 @@ export interface ExtensionToolArgs {
     diff_comments: { command: "list" | "show"; threads?: string };
     /** Reply in a diff comment thread, or suggest that it is resolved; the operator resolves. */
     diff_reply: { command: "reply" | "suggest-resolve"; thread: number; text: string };
+    /** The lead (s014) sets the session title in `session.yaml` and the mission heading. */
+    session_title: { title: string };
+    /** Replaces the Goal paragraph. */
+    mission_goal: { text: string };
+    /**
+     * The Done when list: `set` replaces it with `items` (one per line); `tick`, `untick`
+     * and `edit` take `id`, the item's 1-based position, and `edit` takes `text`.
+     */
+    mission_done_when: { command: DoneWhenCommand; items?: string; id?: number; text?: string };
+    /**
+     * The Plan: `add` takes `text` and `owner` (the caller when absent); `tick`, `untick`,
+     * `edit` (with `text`) and `assign` (with `owner`) take `id`; `reorder` takes `order`,
+     * ids separated by spaces (unlisted items follow in their old order).
+     */
+    mission_plan: {
+        command: MissionItemCommand;
+        text?: string;
+        owner?: string;
+        id?: number;
+        order?: string;
+    };
+    /**
+     * Adopts PR references into the lead's session: URLs, `owner/repo#N`, `repo#N` or `#N`,
+     * separated by spaces or commas. A reference whose repo the project does not list is
+     * refused with the reason; the rest get worktrees on their head branches.
+     */
+    adopt: { refs: string };
 }
 
 /** A tool's JSON-schema parameters, in the subset pi's `Type.Object` can express. */
@@ -190,11 +248,17 @@ const SESSION_PARAM = {
     session: { type: "string", description: "Session directory, as session_list shows it" },
 } as const satisfies Record<string, ToolParameterSpec>;
 
-const SESSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer"];
-const EVERY_ROLE: readonly ExtensionRole[] = ["worker", "fixer", "operator"];
+const SESSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer", "lead"];
+const EVERY_ROLE: readonly ExtensionRole[] = ["worker", "fixer", "lead", "operator"];
 const FIXER: readonly ExtensionRole[] = ["fixer"];
 const OPERATOR: readonly ExtensionRole[] = ["operator"];
-const WORKER: readonly ExtensionRole[] = ["worker"];
+const OPERATOR_OR_LEAD: readonly ExtensionRole[] = ["operator", "lead"];
+const WORKER_OR_LEAD: readonly ExtensionRole[] = ["worker", "lead"];
+const LEAD: readonly ExtensionRole[] = ["lead"];
+
+const ITEM_ID_PARAM = {
+    id: { type: "number", description: "The item's id, as the mission shows it" },
+} as const satisfies Record<string, ToolParameterSpec>;
 
 export const EXTENSION_MANIFEST: ExtensionManifest = {
     version: EXTENSION_VERSION,
@@ -411,29 +475,35 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         {
             name: "agent_add",
             description:
-                "Add an agent to a session and start it. Pass brief when the session has no " +
+                "Add an agent to the session and start it. Pass brief when the session has no " +
                 "brief for it yet; an existing brief is kept.",
             parameters: {
-                ...SESSION_PARAM,
+                session: {
+                    type: "string",
+                    description: "Session directory; needed in the operator role, ignored else",
+                },
                 name: { type: "string", description: "Agent name: lower-case, digits, dashes" },
                 brief: { type: "string", description: "BRIEF.md text when none exists" },
                 repo: { type: "string", description: "Repo key; the agent runs in its worktree" },
                 model: { type: "string", description: "provider/model; the default when absent" },
             },
-            required: ["session", "name"],
-            roles: OPERATOR,
+            required: ["name"],
+            roles: OPERATOR_OR_LEAD,
             route: "POST /sessions/:dir/agents",
         },
         {
             name: "agent_steer",
             description: "Steer a running agent; it starts a turn when the agent is idle.",
             parameters: {
-                ...SESSION_PARAM,
+                session: {
+                    type: "string",
+                    description: "Session directory; needed in the operator role, ignored else",
+                },
                 agent: { type: "string", description: "Agent name" },
                 text: { type: "string", description: "The message" },
             },
-            required: ["session", "agent", "text"],
-            roles: OPERATOR,
+            required: ["agent", "text"],
+            roles: OPERATOR_OR_LEAD,
             route: "POST /sessions/:dir/agents/:name/steer",
         },
         {
@@ -459,7 +529,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 threads: { type: "string", description: "Thread ids, space-separated, for show" },
             },
             required: ["command"],
-            roles: WORKER,
+            roles: WORKER_OR_LEAD,
             route: "POST /sessions/:dir/agents/:name/diff/comments",
         },
         {
@@ -477,8 +547,70 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 text: { type: "string", description: "The message" },
             },
             required: ["command", "thread", "text"],
-            roles: WORKER,
+            roles: WORKER_OR_LEAD,
             route: "POST /sessions/:dir/agents/:name/diff/comments",
+        },
+        {
+            name: "session_title",
+            description: "Set the session's title, a few words, once you know what the work is.",
+            parameters: { title: { type: "string", description: "The title" } },
+            required: ["title"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/title",
+        },
+        {
+            name: "mission_goal",
+            description: "Replace the Goal paragraph of MISSION.md.",
+            parameters: { text: { type: "string", description: "One paragraph" } },
+            required: ["text"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/mission/section",
+        },
+        {
+            name: "mission_done_when",
+            description:
+                "The Done when list: set it (items, one per line), or tick, untick or edit one " +
+                "item by its id (its position).",
+            parameters: {
+                command: { type: "string", description: "What to do", enum: DONE_WHEN_COMMANDS },
+                items: { type: "string", description: "For set: the items, one per line" },
+                ...ITEM_ID_PARAM,
+                text: { type: "string", description: "For edit: the new text" },
+            },
+            required: ["command"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/mission/section",
+        },
+        {
+            name: "mission_plan",
+            description:
+                "The Plan: add an item (text, owner), tick or untick one the moment it is done, " +
+                "edit its text, assign an owner, or reorder by ids. Ids never change.",
+            parameters: {
+                command: { type: "string", description: "What to do", enum: MISSION_ITEM_COMMANDS },
+                text: { type: "string", description: "For add and edit: the item text" },
+                owner: { type: "string", description: "For add and assign: the agent name" },
+                ...ITEM_ID_PARAM,
+                order: { type: "string", description: "For reorder: ids, space-separated" },
+            },
+            required: ["command"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/mission/section",
+        },
+        {
+            name: "adopt",
+            description:
+                "Adopt pull requests into this session: a worktree on each PR's head branch. " +
+                "A PR of a repo the project does not list is refused with the reason.",
+            parameters: {
+                refs: {
+                    type: "string",
+                    description: "PR URLs, owner/repo#N, repo#N or #N, separated by spaces",
+                },
+            },
+            required: ["refs"],
+            roles: LEAD,
+            route: "POST /sessions/:dir/adopt",
         },
     ],
 };
@@ -490,7 +622,25 @@ export type MissionWriteMode =
     /** Replace the section body (Goal, Done when; the operator's sections). */
     | "replace"
     /** Overwrite the row of `author` in the Roster table. */
-    | "roster_row";
+    | "roster_row"
+    /** One item of the Plan or the Done when list (s014); `item` says which and what. */
+    | "item";
+
+/**
+ * The `item` mode of `PUT /sessions/:dir/mission/section`, on `plan` and `done_when`.
+ * `add` on `plan` writes `- [ ] N. text (owner)` with N = max id + 1 and `owner` defaulting to
+ * the author; on `done_when` it writes `- [ ] text`. `tick` writes `[x]` and `(owner, HH:MM)`;
+ * `untick` drops the time; `edit` replaces the text; `assign` sets the owner; `reorder` takes
+ * the ids in their new order (unlisted ones follow in their old order). A done_when item's id
+ * is its 1-based position; Plan ids are the numbers in the file and never change.
+ */
+export interface MissionItemRequest {
+    command: MissionItemCommand;
+    id?: number;
+    text?: string;
+    owner?: string;
+    order?: number[];
+}
 
 /** Body of `PUT /sessions/:dir/mission/section`. The daemon serializes these writes. */
 export interface MissionSectionRequest {
@@ -502,6 +652,8 @@ export interface MissionSectionRequest {
     author: string;
     /** For `roster_row`: the Blocked? cell. */
     blocked?: string;
+    /** For `item`: the command and its arguments. `text` is then unused. */
+    item?: MissionItemRequest;
 }
 
 export interface MissionSectionResponse {

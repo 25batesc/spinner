@@ -120,11 +120,11 @@ export function resolve_project(ctx: ActionContext, project: string): string {
  * fails before anything is written.
  */
 export function new_session(ctx: ActionContext, input: NewSessionRequest): SessionSummary {
-    assert.ok(input.title.trim().length > 0, "title must not be empty");
+    const title = input.title;
+    assert.ok(title !== undefined && title.trim().length > 0, "title must not be empty");
     if (input.project !== undefined) {
         load_spec(resolve_project(ctx, input.project));
     }
-    const title = input.title;
     const slug = input.slug;
     return create_session(ctx.home, slug === undefined ? { title } : { title, slug });
 }
