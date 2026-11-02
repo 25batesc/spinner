@@ -10,10 +10,12 @@
 // and 440 px and checks the fold order with the terminal open; `operator` opens the operator
 // tab from the activity bar, types into its terminal, stops and resumes it. The flow `diff`
 // opens the right pane's `diff` view, starts the viewers, checks the keys reach the frame,
-// switches repo, expands the pane, and stops and restarts a viewer from the services view. It
-// works against the fixture server or the real daemon.
+// switches repo, expands the pane, and stops and restarts a viewer from the services view. The
+// flow `about-egm` reads the About EGM block in settings and watches it reload after a
+// refetch. It works against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
+import { EGM_LICENSE, EGM_NOTICE, EGM_SOURCE_URL } from "@spinner/protocol";
 import { WebSocket } from "ws";
 
 const [uiUrl, outDir, flow = "lifecycle"] = process.argv.slice(2);
@@ -2460,6 +2462,65 @@ if (flow === "review-lead") {
     await until("briefing stays", `document.querySelector(".rv-briefing") !== null`);
     await shot("79b-review-lead-dropped");
     console.log("review lead ok");
+    await finish();
+}
+
+if (flow === "about-egm") {
+    // About EGM (docs/designs/egm-adoption.md, entries 1.35 to 1.39) against the fixture or a
+    // scratch daemon: the block is the last one in settings, its notice is `EGM_NOTICE` of the
+    // protocol, it names the source, the 12-character pin, the license and the state line, and
+    // it has no `fetch` button while EGM is ready. A `POST /egm/fetch` runs a job `egm`; its
+    // `job.finished` event moves the block's load key, so the state line reloads with the new
+    // fetch date without a page reload.
+    const block = `document.querySelector(".settings > .about-egm:last-child")`;
+    const state = `(${block}?.querySelector(".pill")?.textContent ?? "")`;
+    await click("button[aria-label='Show settings']");
+    await until("about EGM last in settings", `${block} !== null`);
+    await until("EGM state loaded", `${state}.startsWith("ready")`);
+    const shape = await evaluate(`({
+        legend: ${block}.querySelector("legend")?.textContent,
+        notice: ${block}.querySelector(".about-egm-notice")?.textContent,
+        source: ${block}.querySelector("a")?.getAttribute("href"),
+        facts: [...${block}.querySelectorAll("dd")].map((dd) => dd.textContent),
+        fetch: [...${block}.querySelectorAll("button")].map((b) => b.textContent),
+    })`);
+    console.log("about EGM:", JSON.stringify(shape));
+    // The driver reads the route itself (through the UI's origin), so the check does not
+    // depend on the fixture's canned values and also runs against a scratch daemon.
+    const status = (await (await fetch(new URL("/egm", uiUrl))).json()) as {
+        egm: { fetched_at: string | null; subagents: boolean };
+    };
+    const fetchedDay = status.egm.fetched_at?.slice(0, 10) ?? "";
+    const missing = status.egm.subagents ? "" : " \u00b7 pi-subagents missing";
+    const wantedShape = {
+        legend: "About EGM",
+        notice: EGM_NOTICE,
+        source: EGM_SOURCE_URL,
+        facts: [
+            EGM_SOURCE_URL, "pinned a119668d7dc5", EGM_LICENSE,
+            `ready \u00b7 fetched ${fetchedDay}${missing}`,
+        ],
+        fetch: [],
+    };
+    if (JSON.stringify(shape) !== JSON.stringify(wantedShape)) {
+        await shot("failure");
+        await closeTarget();
+        throw new Error(`About EGM is not the block expected: ${JSON.stringify(wantedShape)}`);
+    }
+    await evaluate(`${block}.scrollIntoView({ block: "end" })`);
+    await shot("80-about-egm");
+    const posted = await fetch(new URL("/egm/fetch", uiUrl), { method: "POST" });
+    const job = (await posted.json()) as { job: { id: string; action: string } };
+    console.log("egm job:", JSON.stringify(job.job));
+    await until("fetching shows", `${state}.startsWith("fetching")`);
+    await shot("81-about-egm-fetching");
+    // After `fetching`, `ready` can only come from the reload that `job.finished` keys.
+    await until("ready again after job.finished", `${state}.startsWith("ready")`);
+    const after = (await (await fetch(new URL("/egm", uiUrl))).json()) as typeof status;
+    const wanted = `ready \u00b7 fetched ${after.egm.fetched_at?.slice(0, 10) ?? ""}${missing}`;
+    await until("the new fetch date", `${state} === ${JSON.stringify(wanted)}`);
+    await shot("82-about-egm-refetched");
+    console.log("about-egm ok");
     await finish();
 }
 

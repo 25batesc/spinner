@@ -54,8 +54,8 @@ export function AboutEgm(props: { jobs: readonly Job[] }) {
                     </dd>
                     <dt>License</dt>
                     <dd>{status.license}</dd>
-                    <dt>State</dt>
-                    <dd>
+                    <dt className="about-egm-state">State</dt>
+                    <dd className="about-egm-state">
                         <span className={STATE_PILL[status.state]}>{egmLine(status)}</span>
                     </dd>
                 </dl>

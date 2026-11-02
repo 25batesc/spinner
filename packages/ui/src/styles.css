@@ -846,7 +846,9 @@ html, body, #root { height: 100%; margin: 0; }
 .about-egm-facts dt { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .about-egm-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .about-egm-facts code { font-family: var(--font-mono); font-size: var(--text-meta); }
-/* A failed fetch's error can be long: the state pill wraps instead of clipping. */
+/* The state line takes the full width under its label: a failed fetch's error or the
+   pi-subagents note is long, so the pill wraps instead of clipping. */
+.about-egm-facts .about-egm-state { grid-column: 1 / -1; }
 .about-egm-facts .pill {
     height: auto; min-height: 18px; padding: 2px 7px; line-height: 1.4; white-space: normal;
     border-radius: 9px;
