@@ -242,7 +242,7 @@ html, body, #root { height: 100%; margin: 0; }
 .strip-popped { color: var(--accent); }
 /* The `?pane=` route: one pane fills the window. */
 .layout-single { grid-template-columns: 1fr; }
-.drawer-row { grid-column: 1 / -1; padding: 4px 8px; }
+.drawer-row { grid-column: 1 / -1; padding: var(--space-2) var(--space-3); }
 /* The footer: one muted line with a dot for the events socket, green when it is open. */
 .status {
     grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; height: 22px;
@@ -451,49 +451,66 @@ html, body, #root { height: 100%; margin: 0; }
 .services td:nth-child(5) { white-space: normal; }
 .service-url { font-size: 11px; display: block; }
 /* The activity drawer: a fixed height from the layout record, the divider on its top edge,
-   the job log then the events inside. The terminal above refits as the drawer changes. */
+   the job log then the events inside. The terminal above refits as the drawer changes. The
+   head carries the title, the job's state as a pill and the minimize icon. */
 .drawer {
     position: relative; display: flex; flex-direction: column; flex: none; box-sizing: border-box;
-    border: 1px solid var(--border); border-radius: 4px; padding: 6px; margin-top: auto;
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box); margin-top: auto;
+    background: var(--surface);
 }
 .drawer-handle {
     position: absolute; top: -5px; left: 0; right: 0; height: 10px; cursor: row-resize;
-    touch-action: none;
+    touch-action: none; z-index: 1;
 }
 .drawer-handle::after {
     content: ""; position: absolute; left: 50%; top: 3px; width: 32px; height: 3px;
     margin-left: -16px; border-radius: 2px; background: var(--border);
 }
-.drawer-handle:hover, .drawer-handle:hover::after { background: var(--border); }
+.drawer-handle:hover::after { background: var(--accent); }
 .drawer-head {
-    display: flex; justify-content: space-between; align-items: center; cursor: row-resize;
-    touch-action: none; user-select: none;
+    display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);
+    height: 32px; flex: none; padding: 0 var(--space-2) 0 var(--space-3);
+    border-bottom: 1px solid var(--line-soft); cursor: row-resize; touch-action: none;
+    user-select: none;
 }
-.drawer-head h2 { margin: 0; }
-.drawer-controls { display: flex; gap: 8px; align-items: center; }
-.drawer-job-line { font-size: 12px; }
-.drawer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+/* The drawer sits outside a `.pane` in the operator view and the pane route, so its title
+   sets its own size instead of taking the browser's `h2`. */
+.drawer .drawer-head h2 { margin: 0; font-size: var(--text-dense); font-weight: 600; }
+.drawer-controls { display: flex; gap: var(--space-2); align-items: center; }
+.drawer-body {
+    flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--space-2);
+    overflow: auto; padding: var(--space-2) var(--space-3);
+}
 .drawer-section { flex: none; }
 .drawer-section.feed { flex: 1; min-height: 0; overflow: auto; }
 .drawer-section-head {
-    display: flex; justify-content: space-between; align-items: center; font-size: 11px;
-    text-transform: uppercase; letter-spacing: 0.04em;
+    display: flex; justify-content: space-between; align-items: center; min-height: 24px;
+    font-size: var(--text-meta); font-weight: 600; color: var(--muted);
 }
-.drawer-job { max-height: 50%; display: flex; flex-direction: column; }
-.drawer-log { margin: 4px 0 0; flex: 1; min-height: 0; overflow: auto; font-size: 11px; }
-.feed ul { margin: 0; padding-left: 16px; font-size: 12px; }
-.drawer-bar span { margin-right: 8px; }
+.drawer-job { max-height: 60%; display: flex; flex-direction: column; }
+.drawer-log {
+    margin: var(--space-1) 0 0; flex: 1; min-height: 0; overflow: auto; padding: 6px var(--space-2);
+    font-size: var(--text-meta); line-height: 1.5; background: var(--bg);
+    border-radius: var(--radius-control);
+}
+.feed ul { margin: 0; padding: 0; list-style: none; font-size: var(--text-dense); }
+.feed li {
+    min-height: 20px; line-height: 20px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.feed li .muted { margin-right: 6px; }
+.drawer-empty { margin: var(--space-1) 0; font-size: var(--text-dense); }
+.drawer-bar span { margin-right: var(--space-2); }
 .drawer-bar {
-    flex: none; margin-top: auto; padding: 3px 8px; text-align: left; font: inherit;
-    font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--fill-soft);
-    color: inherit; cursor: pointer; white-space: nowrap; overflow: hidden;
-    text-overflow: ellipsis;
+    display: flex; align-items: center; flex: none; margin-top: auto; height: 28px;
+    padding: 0 var(--space-3); text-align: left; font: inherit; font-size: var(--text-dense);
+    font-weight: 600; border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+    background: var(--surface); color: inherit; cursor: pointer; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
 }
-.drawer-bar:hover { background: var(--fill); }
-.drawer-failed, .drawer-bar.drawer-failed { border-color: var(--fail); }
-.drawer-bar.drawer-failed strong, .drawer-failed .drawer-job-line { color: var(--fail); }
-.drawer-error, .drawer-bar.drawer-error { border-color: var(--warn); }
-.drawer-bar.drawer-error strong, .drawer-error .drawer-job-line { color: var(--warn); }
+.drawer-bar:hover { background: var(--fill-soft); }
+.drawer-failed, .drawer-bar.drawer-failed { border-color: color-mix(in srgb, var(--fail) 50%, transparent); }
+.drawer-error, .drawer-bar.drawer-error { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
 .verified { display: flex; align-items: center; gap: 4px; }
 /* The browser bar above the preview content. */
 .browser-bar { display: flex; gap: 2px; align-items: center; position: relative; }
@@ -586,8 +603,11 @@ html, body, #root { height: 100%; margin: 0; }
     display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 240px; position: relative;
 }
 .agent-terminal[hidden] { display: none; }
-.tty-status { margin: 0; font-size: 12px; }
-.terminal-host { flex: 1; min-height: 0; background: var(--terminal-background); padding: 4px; border-radius: 4px; }
+.tty-status { margin: 0; font-size: var(--text-dense); color: var(--muted); }
+.terminal-host {
+    flex: 1; min-height: 0; background: var(--terminal-background); padding: var(--space-2);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
+}
 .terminal-host .xterm { height: 100%; }
 /* xterm.css paints the viewport black by default; keep it the theme's background. */
 .terminal-host .xterm-viewport { background-color: var(--terminal-background) !important; }

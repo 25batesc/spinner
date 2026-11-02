@@ -45,6 +45,17 @@ export function drawerTitle(job: Job | undefined, error: string | null): string 
     return error === null ? null : "action failed";
 }
 
+/** The pill's colour for the job line: the job's state, or amber for an action that failed. */
+function pillTone(job: Job | undefined): "accent" | "ok" | "fail" | "warn" {
+    if (job === undefined) {
+        return "warn";
+    }
+    if (job.state === "running") {
+        return "accent";
+    }
+    return job.state === "ok" ? "ok" : "fail";
+}
+
 /** The ceiling for a drag: the enclosing pane's height minus the terminal's reserve. */
 function maxHeightOf(element: HTMLElement): number {
     const pane = element.closest(".pane");
@@ -75,7 +86,10 @@ export function ActivityDrawer(props: ActivityDrawerProps) {
     const tone = drawerTone(job, error);
     const toneClass = tone === null ? "" : ` drawer-${tone}`;
     const title = drawerTitle(job, error);
-    const jobLine = title === null ? null : <strong className="drawer-job-line">{title}</strong>;
+    const jobLine =
+        title === null ? null : (
+            <strong className={`pill pill-${pillTone(job)} drawer-job-line`}>{title}</strong>
+        );
     if (drawer.collapsed) {
         return (
             <button
@@ -149,6 +163,11 @@ export function ActivityDrawer(props: ActivityDrawerProps) {
                 {title !== null && <JobLog job={job} error={error} onDismiss={onDismiss} />}
                 <section className="drawer-section feed" aria-label="Events">
                     {title !== null && <div className="drawer-section-head muted">events</div>}
+                    {title === null && feed.length === 0 && (
+                        <p className="muted drawer-empty">
+                            No job yet. The log of the next action shows here.
+                        </p>
+                    )}
                     <ul>
                         {[...feed].reverse().map((line, index) => (
                             <li key={index}>
