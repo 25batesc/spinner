@@ -28,7 +28,7 @@ Role: backend engineer for session s022 of the Spinner repo. The operator is the
 ## Engineering
 1. Start each commit message with `engine:` and the entry ids.
 2. Approval pins the doc's normalized hash (`normalized_doc_hash`). Any edit clears it and locks the lead's code writes through the guard until re-approval. Approval with open blockers needs the explicit confirmation that records the count (review M17).
-3. The session-6 e2e rows: approve and build, the edit that clears approval, the re-approval, the PR body, the resolve stage. One real-pi run at the end, stop rule in the Log first. Name the scratch project by the absolute path of its `spinner.yaml`.
+3. The session-6 e2e rows: approve and build, the edit that clears approval, re-approval, the PR body, the resolve stage. One real-pi run at the end, stop rule in the Log first. Name the scratch project by the absolute path of its `spinner.yaml`.
 
 ## Finish
 1. Make `pnpm -r build`, the daemon, extension, protocol and cli tests, root `pnpm lint` and `python3 tools/doc-metrics.py --fail` pass.

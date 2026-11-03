@@ -6,7 +6,7 @@ Role: backend engineer (engine-pipeline) for session s022 of the Spinner repo. T
 - `packages/daemon/src/pipeline/**` and `packages/cli/**`. Also `packages/daemon/src/store/review-brief.ts`, `packages/daemon/src/egm/pr-body.ts` with its test, and the 6.12 lines of `packages/daemon/src/agents/swarm.ts`.
 
 ## Do not edit
-- `packages/daemon/src/server.ts`, the rest of `packages/daemon/src/egm/**` and `agents/**`, `packages/protocol/**`, `packages/pi-extension/**`, `packages/ui/**`, `docs/**`. Your `server.ts` wiring lines go to `inbox/` as `<HHMMSS>-pipeline-engine.md`; the `engine` agent adds them.
+- `packages/daemon/src/server.ts`. The rest of `packages/daemon/src/egm/**` and `agents/**`. `packages/protocol/**`, `packages/pi-extension/**`, `packages/ui/**`, `docs/**`. Your `server.ts` wiring lines go to `inbox/` as `<HHMMSS>-pipeline-engine.md`. The `engine` agent adds them.
 
 ## Read first
 1. Read `.spinner/MISSION.md` in full. Do this at the start of every turn.
