@@ -7,6 +7,8 @@ import {
     EGM_SOURCE_URL,
     REVIEW_DRAFT_NEEDS_HUMAN,
     type BoardView,
+    type DesignStage,
+    type DesignView,
     type DiffRepoView,
     type DiffView,
     type EgmStatus,
@@ -15,6 +17,7 @@ import {
     type ProjectView,
     type ReviewDraft,
     type ReviewFields,
+    type RoundView,
     type ServiceStatus,
     type ServiceUsage,
     type ServiceView,
@@ -411,4 +414,139 @@ export function initialSessions(): SessionView[] {
             "backend",
         ]),
     ];
+}
+
+/** The doc every fixture design session names once it is drafted. */
+export const DESIGN_DOC = "docs/designs/csv-export.md";
+
+/** A file of `<session>/design/`, as `DesignView.files` lists it. */
+function designFile(name: string, mtime: string) {
+    return { name, bytes: 4096, mtime };
+}
+
+/**
+ * `SessionView.design` of a design-track session at a stage (entry 2.37), with the files and
+ * the report flags that the daemon's rule table would read for it (Technical Plan T7).
+ */
+export function designView(
+    stage: DesignStage | null,
+    partial: Partial<DesignView> = {},
+): DesignView {
+    const at = "2026-10-20T10:00:00Z";
+    const order: (DesignStage | null)[] = [
+        "intake", "brainstorm", "drafting", "drafted", "design-review", "resolving",
+        "design-ready", "approved",
+    ];
+    const reached = (from: DesignStage) =>
+        stage !== null && order.indexOf(stage) >= order.indexOf(from);
+    const reviewed = reached("design-review");
+    const files = [
+        ...(reached("brainstorm") ? [designFile("concepts_brief.md", at)] : []),
+        ...(reached("drafting") ? [designFile("design_draft.md", at)] : []),
+        ...(reviewed ? [
+            designFile("zoom_out_report.md", at), designFile("comprehension_report.md", at),
+            designFile("critic_report.md", at),
+        ] : []),
+        ...(reached("resolving") ? [designFile("consolidated_review_report.md", at),
+            designFile("goldfish_review_report.md", at)] : []),
+    ];
+    const approval = {
+        path: DESIGN_DOC, repo: "web", sha256: "9f2c4be1d0a7", at: "2026-10-20T11:40:00Z",
+        blockers: 0, round: 1,
+    };
+    return {
+        track: "design", stage, files,
+        reviews: { "5": reviewed, "6": reviewed, "7": reviewed, "8": false, "9": false },
+        consolidated: reached("resolving"),
+        resolve: stage === "resolving" ? "open" : reached("design-ready") ? "resolved" : "none",
+        review_run: reviewed ? { id: "r1", preset: "uninterrupted", started: at } : null,
+        doc: reached("drafted") ? DESIGN_DOC : null, doc_missing: false,
+        approved: stage === "approved" ? approval : null,
+        approvals: stage === "approved" ? [approval] : [],
+        changed_after_approval: false, gate: null, goldfish: [], goldfish_live: 0,
+        cost_by_stage: reviewed ? { brainstorm: 0.42, draft: 0.18, review: 1.2 } : {},
+        ...partial,
+    };
+}
+
+/** The `needs_human` the daemon derives per design stage (Technical Plan T7, lines 2 to 7). */
+const DESIGN_NEEDS: Partial<Record<DesignStage, string>> = {
+    drafted: "review the design",
+    resolving: "resolve the review findings",
+    "design-ready": "approve the design",
+};
+
+/** The two earlier rounds of the round-3 session: one merged PR, then one closed and one open. */
+export const ROUNDS_OF_R3: RoundView[] = [
+    {
+        round: 1, branch: "feat/csv-export", source: "record",
+        started: "2026-10-12T09:30:00Z", ended: "2026-10-14T17:10:00Z",
+        prs: [{
+            repo: "web", number: 41, url: "https://github.com/example/web/pull/41",
+            state: "merged", merged_at: "2026-10-14T16:02:00Z",
+        }],
+    },
+    {
+        round: 2, branch: "feat/csv-export-r2", source: "record",
+        started: "2026-10-14T17:10:00Z", ended: "2026-10-18T12:00:00Z",
+        prs: [
+            {
+                repo: "web", number: 57, url: "https://github.com/example/web/pull/57",
+                state: "merged", merged_at: "2026-10-18T11:20:00Z",
+            },
+            {
+                repo: "api", number: 9, url: "https://github.com/example/api/pull/9",
+                state: "closed", merged_at: null,
+            },
+        ],
+    },
+];
+
+/**
+ * The EGM sessions of the fixture (entries 2.37 and 2.47): one design-track session per
+ * design stage, one direct-track session, and one session at round 3 with two round records.
+ * They were created before the Refund flow, so the cards that the older flows read first stay
+ * first.
+ */
+export function initialDesignSessions(): SessionView[] {
+    const stages: DesignStage[] = [
+        "intake", "brainstorm", "drafting", "drafted", "design-review", "resolving",
+        "design-ready", "approved",
+    ];
+    const lead = {
+        lead: {
+            harness: "tty" as const, model: "anthropic/claude-opus-5-5", process: "idle" as const,
+        },
+    };
+    const designs = stages.map((stage, index) => {
+        const id = `s${201 + index}`;
+        const slug = `csv-${stage}`;
+        const base = session({
+            id, slug, title: `CSV export · ${stage}`,
+            created: `2026-10-20T10:0${index}:00Z`,
+            stage: stage === "approved" ? "building" : "planned",
+            needs_human: DESIGN_NEEDS[stage] ?? null,
+            agents: lead,
+        });
+        const plain = view(`${id}-${slug}`, base, stackView(id, "none"), [], ["lead"]);
+        return { ...plain, design: designView(stage), round: 1, rounds: [] };
+    });
+    const direct = session({
+        id: "s209", slug: "csv-direct", title: "CSV export · direct track",
+        created: "2026-10-19T10:00:00Z", stage: "planned",
+    });
+    const directView = {
+        ...view("s209-csv-direct", direct, stackView("s209", "none")),
+        design: designView(null, { track: "direct" }), round: 1, rounds: [],
+    };
+    const third = session({
+        id: "s210", slug: "csv-round-3", title: "CSV export · round 3",
+        created: "2026-10-18T12:00:00Z", stage: "planned", round: 3,
+        branch: "feat/csv-export-r3",
+    });
+    const thirdView = {
+        ...view("s210-csv-round-3", third, stackView("s210", "none")),
+        round: 3, rounds: ROUNDS_OF_R3,
+    };
+    return [...designs, directView, thirdView];
 }

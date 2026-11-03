@@ -11,6 +11,8 @@ import type {
     CostGroup,
     CostsResponse,
     DefaultBriefResponse,
+    DesignTrack,
+    DesignTrackRequest,
     DiffRepoRequest,
     EgmResponse,
     ExtractRequest,
@@ -262,6 +264,15 @@ export function useLoaded<T>(
  */
 export async function fetchEgm(signal: AbortSignal): Promise<EgmResponse> {
     return getJson<EgmResponse>("/egm", signal);
+}
+
+/**
+ * `PUT /sessions/:dir/design/track` (entry 2.35): the track chip's pick. 409 once a repo has
+ * commits, and for `design` while EGM is not available; the error text names the reason.
+ */
+export async function putDesignTrack(dir: string, track: DesignTrack): Promise<SessionResponse> {
+    const body: DesignTrackRequest = { track };
+    return send("PUT", `/sessions/${dir}/design/track`, body);
 }
 
 /** `GET /costs` over a span of local-zone days, grouped. The Usage section's report. */

@@ -19,7 +19,7 @@ import {
 import { afterEach, expect, it } from "vitest";
 import { WebSocket } from "ws";
 
-import { initialReviews, initialSessions } from "./data.ts";
+import { initialDesignSessions, initialReviews, initialSessions } from "./data.ts";
 import { isReviewSession } from "./reviews.ts";
 import { startFixture } from "./server.ts";
 
@@ -44,7 +44,8 @@ it("serves GET /sessions as SessionViews", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/sessions`);
     const body = (await response.json()) as SessionsResponse;
     expect(body.sessions.map((s) => s.summary.dir)).toEqual(
-        [...initialSessions(), ...initialReviews()].map((s) => s.summary.dir),
+        [...initialSessions(), ...initialDesignSessions(), ...initialReviews()]
+            .map((s) => s.summary.dir),
     );
 });
 
@@ -402,4 +403,23 @@ it("GET /egm is ready at the pin; POST /egm/fetch is an `egm` job that ends read
     const after = (await (await fetch(`${base}/egm`)).json()) as EgmResponse;
     expect(after.egm.state).toBe("ready");
     expect(after.egm.fetched_at).not.toBe(before.egm.fetched_at);
+});
+
+it("PUT design/track switches the track, answers the view and refuses as the daemon", async () => {
+    const base = `http://127.0.0.1:${await start()}`;
+    const put = (dir: string, track: string) => fetch(`${base}/sessions/${dir}/design/track`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ track }),
+    });
+    const toDesign = await put("s209-csv-direct", "design");
+    expect(toDesign.status).toBe(200);
+    const designed = (await toDesign.json()) as { session: SessionView };
+    expect(designed.session.design?.track).toBe("design");
+    expect(designed.session.design?.stage).toBe("intake");
+    const toDirect = await put("s205-csv-design-review", "direct");
+    const direct = (await toDirect.json()) as { session: SessionView };
+    expect(direct.session.design?.track).toBe("direct");
+    expect(direct.session.design?.stage).toBeNull();
+    expect((await put("s209-csv-direct", "sideways")).status).toBe(400);
+    expect((await put("no-such-session", "direct")).status).toBe(404);
 });

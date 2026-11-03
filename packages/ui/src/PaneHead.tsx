@@ -2,15 +2,19 @@
 // pane header, the strip of a collapsed or popped-out pane, the activity bar at the far left
 // and the context bar that names the active session. Chrome shows icons with tooltips, never
 // link text.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-import type { CostTotals, PrFacts, SessionView } from "@spinner/protocol";
+import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
 import { formatTokens, formatUsd } from "./costs.ts";
+import { trackChoices } from "./design.ts";
+import { DesignStepper } from "./DesignStepper.tsx";
 import type { PaneName } from "./layout.ts";
 import {
     ciPill, decisionPill, draftPill, reviewFacts, reviewStatePill, type Pill, type ReviewFacts,
 } from "./review.ts";
+import { fetchEgm, putDesignTrack, useLoaded } from "./remote.ts";
+import { roundBadge, roundTooltip } from "./rounds.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import {
     machineLine,
@@ -290,6 +294,74 @@ export interface ContextBarProps {
     operator?: { notice: string; onResume: () => void } | undefined;
     /** The session's actions (`SessionToolbar`), after the needs-you pill. */
     toolbar?: ReactNode;
+    /** Where a failed track switch goes: the drawer, as a failed job's error does. */
+    onError?: ((message: string) => void) | undefined;
+}
+
+/**
+ * `r3` after the title from round 2 on (entry 2.47), on every session; the tooltip lists the
+ * PRs of each earlier round.
+ */
+export function RoundBadge({ view }: { view: SessionView }) {
+    const badge = roundBadge(view);
+    if (badge === null) {
+        return null;
+    }
+    return (
+        <span className="badge round-badge" title={roundTooltip(view.rounds ?? [])}>
+            {badge}
+        </span>
+    );
+}
+
+/**
+ * The track chip (entry 2.33): the session's track and, behind the chevron, the other tracks
+ * that `GET /egm` allows. `design` is offered only while EGM is ready with pi-subagents. An
+ * empty menu shows no chevron. A pick sends `PUT .../design/track`; the daemon's
+ * `session.updated` moves the chip, and a refusal goes to the drawer.
+ */
+function TrackChip(props: {
+    dir: string;
+    track: DesignTrack;
+    onError: ((message: string) => void) | undefined;
+}) {
+    const { dir, track, onError } = props;
+    const egm = useLoaded(`egm#${dir}`, fetchEgm).value?.egm ?? null;
+    const [open, setOpen] = useState(false);
+    const others = trackChoices(egm).filter((choice) => choice !== track);
+    const pick = (choice: DesignTrack) => {
+        setOpen(false);
+        putDesignTrack(dir, choice).catch((failure: unknown) => onError?.(String(failure)));
+    };
+    if (others.length === 0) {
+        return (
+            <span className="pill track-chip" title="The session's track">
+                {track}
+            </span>
+        );
+    }
+    return (
+        <span className="track-menu">
+            <button
+                type="button"
+                className="pill track-chip"
+                title="The session's track; click to switch"
+                aria-expanded={open}
+                onClick={() => setOpen(!open)}
+            >
+                {track} {"\u25be"}
+            </button>
+            {open && (
+                <div className="menu" role="menu" aria-label="Track">
+                    {others.map((choice) => (
+                        <button key={choice} type="button" onClick={() => pick(choice)}>
+                            {choice}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </span>
+    );
 }
 
 /** `operator agent not running · resume`: the only control the context bar has. */
@@ -364,7 +436,7 @@ export function ReviewPills({ facts }: { facts: ReviewFacts }) {
     );
 }
 
-export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) {
+export function ContextBar({ view, usage, operator, toolbar, onError }: ContextBarProps) {
     if (view === undefined) {
         return (
             <div className="context-bar muted">
@@ -384,6 +456,7 @@ export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) 
                 <span className="context-title" title={review.title}>
                     {review.title}
                 </span>
+                <RoundBadge view={view} />
                 <span className="badge">review</span>
                 <code className="muted rv-branches">{review.branch} → {review.base}</code>
                 <StatePill pill={ciPill(review.checks, review.failing)} className="rv-ci" />
@@ -410,7 +483,12 @@ export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) 
             <span className="context-title" title={view.summary.session.title}>
                 {view.summary.session.title}
             </span>
-            <span className="badge">{stageOf(view)}</span>
+            <RoundBadge view={view} />
+            {view.design?.track === "design" ? (
+                <DesignStepper design={view.design} stage={stageOf(view)} needs={needs} />
+            ) : (
+                <span className="badge">{stageOf(view)}</span>
+            )}
             <span className="pill context-stack">
                 <span className={`dot dot-${view.stack.state}`} />
                 stack {view.stack.state}
@@ -425,6 +503,9 @@ export function ContextBar({ view, usage, operator, toolbar }: ContextBarProps) 
                 </span>
             )}
             <OperatorNotice operator={operator} />
+            {view.design !== undefined && (
+                <TrackChip dir={view.summary.dir} track={view.design.track} onError={onError} />
+            )}
             {toolbar}
         </div>
     );

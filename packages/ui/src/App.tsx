@@ -423,6 +423,7 @@ export function App() {
                 view={view}
                 usage={state.usage}
                 operator={operatorBar}
+                onError={app.setActionError}
                 toolbar={
                     review !== null && selected !== undefined ? (
                         <ReviewToolbar dir={selected} busy={busy} run={run} />

@@ -1,6 +1,9 @@
 import type { SessionView } from "@spinner/protocol";
 
-import { CostFigure, PaneHead, PrBadge, type IconButtonProps } from "./PaneHead.tsx";
+import { designSteps, stepperText } from "./design.ts";
+import {
+    CostFigure, PaneHead, PrBadge, RoundBadge, type IconButtonProps,
+} from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import type { RunAction } from "./SessionForms.tsx";
@@ -25,6 +28,24 @@ export interface SessionsPaneProps {
 
 function stackDot(view: SessionView): string {
     return `dot dot-${view.stack.state}`;
+}
+
+/**
+ * The five EGM steps as dots without labels (entry 2.34), for a design-track session only;
+ * the steps in words are the tooltip.
+ */
+function CardDots({ view, needs }: { view: SessionView; needs: string | null }) {
+    if (view.design?.track !== "design") {
+        return null;
+    }
+    const steps = designSteps(view.design, needs);
+    return (
+        <span className="card-dots" title={`EGM: ${stepperText(steps)}`}>
+            {steps.map((step) => (
+                <span key={step.id} className="card-dot" data-state={step.state} />
+            ))}
+        </span>
+    );
 }
 
 /**
@@ -71,6 +92,8 @@ function SessionCard(props: {
                 <strong className="session-title">{view.summary.session.title}</strong>
                 <span className="badges">
                     <span className="badge">{stageOf(view)}</span>
+                    <CardDots view={view} needs={needs} />
+                    <RoundBadge view={view} />
                     <span className={stackDot(view)} />
                     <span className="muted">stack {view.stack.state}</span>
                     {stack !== null && (

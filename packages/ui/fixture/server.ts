@@ -36,8 +36,8 @@ import { costsReport, OPERATOR_COST } from "./costs.ts";
 import { extract } from "./extract.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
-    FIXTURE_PORT, diffRepoStopped, diffViewerUrl, egmStatus, initialReviews, initialSessions,
-    machineUsage, PROJECTS, pr, session, stackView, view,
+    FIXTURE_PORT, designView, diffRepoStopped, diffViewerUrl, egmStatus, initialDesignSessions,
+    initialReviews, initialSessions, machineUsage, PROJECTS, pr, session, stackView, view,
 } from "./data.ts";
 import { ReviewFixture } from "./reviews.ts";
 import type { DiffRepoView, DiffView } from "@spinner/protocol";
@@ -210,7 +210,8 @@ class FixtureDaemon {
     port = FIXTURE_PORT;
 
     constructor() {
-        for (const item of [...initialSessions(), ...initialReviews()]) {
+        const seeds = [...initialSessions(), ...initialDesignSessions(), ...initialReviews()];
+        for (const item of seeds) {
             this.sessions.set(item.summary.dir, item);
             if (item.review !== undefined && "briefing" in item.review) {
                 this.reviews.seedBriefing(item.summary.dir);
@@ -623,6 +624,42 @@ class FixtureDaemon {
         return this.accepted(response, job);
     }
 
+    /**
+     * `PUT /sessions/:dir/design/track` (entry 2.37), as the daemon: 400 for an unknown track,
+     * 409 once a repo has commits, 409 for `design` while EGM is not ready with pi-subagents;
+     * else the updated view answers and `session.updated` follows. A switch to `design` starts
+     * at `intake`; a switch to `direct` keeps the files with a null stage.
+     */
+    designTrack(response: ServerResponse, dir: string, body: Record<string, unknown>): void {
+        const current = this.sessions.get(dir);
+        const track = body["track"];
+        if (current === undefined) {
+            sendJson(response, { error: `no session ${dir}` }, 404);
+            return;
+        }
+        if (track !== "design" && track !== "direct") {
+            sendJson(response, { error: `unknown track ${String(track)}` }, 400);
+            return;
+        }
+        const repos = Object.values(current.summary.session.repos);
+        if (current.design !== undefined && repos.some((repo) => repo.changed)) {
+            sendJson(response, { error: "the build has started; the track is fixed" }, 409);
+            return;
+        }
+        if (track === "design" && (this.egm.state !== "ready" || !this.egm.subagents)) {
+            const reason = this.egm.subagents ? this.egm.state : "pi-subagents is not installed";
+            sendJson(response, { error: `EGM is not available: ${reason}` }, 409);
+            return;
+        }
+        const known = current.design ?? designView(null);
+        const design = track === "design"
+            ? { ...known, track: "design" as const, stage: known.stage ?? "intake" }
+            : { ...known, track: "direct" as const, stage: null };
+        const next = { ...current, design };
+        this.update(next);
+        sendJson(response, { session: next });
+    }
+
     accepted(response: ServerResponse, job: Job): true {
         sendJson(response, { job }, 202);
         return true;
@@ -773,6 +810,11 @@ class FixtureDaemon {
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const [path = "/", search = ""] = (request.url ?? "/").split("?");
         const method = request.method ?? "GET";
+        const track = /^\/sessions\/([^/]+)\/design\/track$/.exec(path);
+        if (method === "PUT" && track !== null) {
+            this.designTrack(response, track[1] ?? "", await readBody(request));
+            return;
+        }
         if (await this.reviewRoute(request, response, method, path)) {
             return;
         }

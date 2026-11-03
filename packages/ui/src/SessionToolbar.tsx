@@ -32,7 +32,8 @@ const SESSION_TIPS = {
 
 type SessionAction = keyof typeof SESSION_TIPS;
 
-function useCompact(): boolean {
+/** True under `TOOLBAR_COMPACT_PX`; the toolbar and the EGM stepper fold on it. */
+export function useCompact(): boolean {
     const [compact, setCompact] = useState(window.innerWidth < TOOLBAR_COMPACT_PX);
     useEffect(() => {
         const onResize = () => setCompact(window.innerWidth < TOOLBAR_COMPACT_PX);

@@ -12,7 +12,10 @@
 // opens the right pane's `diff` view, starts the viewers, checks the keys reach the frame,
 // switches repo, expands the pane, and stops and restarts a viewer from the services view. The
 // flow `about-egm` reads the About EGM block in settings and watches it reload after a
-// refetch. It works against the fixture server or the real daemon.
+// refetch. The flow `design-stepper` reads the EGM stepper, the card's dots and the track
+// chip, folds the stepper at 1100 px and checks one line at 1000 px; `rounds` reads the round
+// badge and its tooltip. Both read the fixture's EGM sessions. It works against the fixture
+// server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { EGM_LICENSE, EGM_NOTICE, EGM_SOURCE_URL } from "@spinner/protocol";
@@ -2521,6 +2524,144 @@ if (flow === "about-egm") {
     await until("the new fetch date", `${state} === ${JSON.stringify(wanted)}`);
     await shot("82-about-egm-refetched");
     console.log("about-egm ok");
+    await finish();
+}
+
+if (flow === "design-stepper") {
+    // The EGM stepper (docs/designs/egm-adoption.md, entries 2.30 to 2.38) against the
+    // fixture: the design-review session shows five steps in the context bar, Brainstorm and
+    // Draft done, Review active with three of five dots, then the pipeline stage; its card
+    // shows the five steps as dots. The direct session switches to `design` on the track
+    // chip and back. At 1100 px (`TOOLBAR_COMPACT_PX - 100`) the stepper folds to
+    // `EGM 3/5 Review`; at 1000 px the context bar keeps one 36 px line. An active step
+    // waits (warn) while the session needs the operator.
+    const bar = `document.querySelector(".context-bar")`;
+    const steps = `[...document.querySelectorAll(".context-bar .egm-step")]`;
+    const fail = async (message: string): Promise<never> => {
+        await shot("failure");
+        await closeTarget();
+        throw new Error(message);
+    };
+    await click(".session", "CSV export \u00b7 design-review");
+    await until("stepper shown", `document.querySelector(".context-bar .egm-stepper") !== null`);
+    const shape = await evaluate(`({
+        steps: ${steps}.map((s) => [s.dataset.step, s.dataset.state, s.textContent]),
+        dots: [...document.querySelectorAll(".context-bar .egm-dot")]
+            .map((d) => d.classList.contains("egm-dot-on")),
+        label: document.querySelector(".context-bar .egm-label")?.title,
+        pipeline: document.querySelector(".context-bar .egm-pipeline")?.textContent,
+        stageBadge: ${bar}.querySelectorAll(":scope > .badge:not(.round-badge)").length,
+        track: document.querySelector(".context-bar .track-chip")?.textContent,
+        card: [...document.querySelectorAll(".session-selected .card-dot")]
+            .map((d) => d.dataset.state),
+    })`);
+    console.log("stepper:", JSON.stringify(shape));
+    const wanted = {
+        steps: [
+            ["brainstorm", "done", "\u2713Brainstorm"], ["draft", "done", "\u2713Draft"],
+            ["review", "active", "3Review"], ["approve", "todo", "4Approve"],
+            ["build", "todo", "5Build"],
+        ],
+        dots: [true, true, true, false, false],
+        label: EGM_NOTICE,
+        pipeline: "planned",
+        stageBadge: 0,
+        track: "design \u25be",
+        card: ["done", "done", "active", "todo", "todo"],
+    };
+    if (JSON.stringify(shape) !== JSON.stringify(wanted)) {
+        await fail(`the stepper is not the one expected: ${JSON.stringify(wanted)}`);
+    }
+    await shot("83-design-stepper");
+
+    // The track chip on the direct session: `design` while EGM is ready, and back.
+    await click(".session", "CSV export \u00b7 direct track");
+    const chip = `(document.querySelector(".context-bar .track-chip")?.textContent ?? "")`;
+    await until("direct chip", `${chip} === "direct \u25be"`);
+    await until("no stepper on direct",
+        `document.querySelector(".context-bar .egm-stepper") === null`);
+    await click(".context-bar .track-chip");
+    await until("track menu", `document.querySelector(".track-menu .menu") !== null`);
+    await shot("84-track-menu");
+    await click(".track-menu .menu button", "design");
+    await until("switched to design", `${chip} === "design \u25be"`);
+    await until("intake stepper", `${steps}.length === 5
+        && ${steps}.every((s) => s.dataset.state === "todo")`);
+    await shot("85-track-design");
+    await click(".context-bar .track-chip");
+    await until("track menu again", `document.querySelector(".track-menu .menu") !== null`);
+    await click(".track-menu .menu button", "direct");
+    await until("back to direct", `${chip} === "direct \u25be"`);
+    await until("no error", `document.querySelector(".drawer .needs-human") === null`);
+
+    // Waiting: the design-ready session needs the operator, so Approve is warn.
+    await click(".session", "CSV export \u00b7 design-ready");
+    await until("approve waits",
+        `document.querySelector(".context-bar .egm-step[data-step=approve]")
+            ?.dataset.state === "waiting"`);
+    await shot("86-design-waiting");
+
+    // Folded under `TOOLBAR_COMPACT_PX`: one pill with the whole stepper in its tooltip.
+    await click(".session", "CSV export \u00b7 design-review");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1100, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    const compact = `(document.querySelector(".context-bar .egm-compact")?.textContent ?? "")`;
+    await until("compact label", `${compact} === "EGM 3/5 Review"`);
+    const tip = await evaluate(`document.querySelector(".context-bar .egm-compact").title`);
+    if (typeof tip !== "string" || !tip.includes("3 Review active")) {
+        await fail(`the folded stepper's tooltip lacks the steps: ${JSON.stringify(tip)}`);
+    }
+    await shot("87-design-stepper-compact");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1000, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await until("one line at 1000 px", `${bar}.getBoundingClientRect().height === 36`);
+    await shot("88-design-stepper-1000");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("design-stepper ok");
+    await finish();
+}
+
+if (flow === "rounds") {
+    // The round badge (entry 2.47) against the fixture: the round-3 session shows `r3` after
+    // the title in the context bar and after the stage badge on its card, with the PRs of
+    // rounds 1 and 2 in the tooltip; a round-1 session shows no badge.
+    const firstLine = "r1: web#41 merged 2026-10-14";
+    await click(".session", "Bootstrap");
+    await until("bootstrap selected", `${text(".context-title")}.startsWith("Bootstrap")`);
+    if ((await evaluate(`document.querySelector(".context-bar .round-badge") !== null`))) {
+        await shot("failure");
+        await closeTarget();
+        throw new Error("a round-1 session shows a round badge");
+    }
+    await click(".session", "CSV export \u00b7 round 3");
+    const badge = `document.querySelector(".context-bar .round-badge")`;
+    await until("round badge", `${badge}?.textContent === "r3"`);
+    const shape = await evaluate(`({
+        bar: ${badge}.textContent,
+        barTip: ${badge}.title.split("\\n"),
+        afterTitle: ${badge}.previousElementSibling?.classList.contains("context-title"),
+        card: document.querySelector(".session-selected .round-badge")?.textContent,
+        cardTip: document.querySelector(".session-selected .round-badge")?.title.split("\\n"),
+    })`) as { barTip: string[]; cardTip: string[] };
+    console.log("rounds:", JSON.stringify(shape));
+    const wanted = {
+        bar: "r3",
+        barTip: [firstLine, "r2: web#57 merged 2026-10-18, api#9 closed"],
+        afterTitle: true,
+        card: "r3",
+        cardTip: [firstLine, "r2: web#57 merged 2026-10-18, api#9 closed"],
+    };
+    if (JSON.stringify(shape) !== JSON.stringify(wanted)) {
+        await shot("failure");
+        await closeTarget();
+        throw new Error(`the round badge is not the one expected: ${JSON.stringify(wanted)}`);
+    }
+    await shot("89-rounds");
+    console.log("rounds ok");
     await finish();
 }
 

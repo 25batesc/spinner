@@ -227,6 +227,60 @@ html, body, #root { height: 100%; margin: 0; }
 .context-bar .operator-notice { margin-left: auto; }
 .context-bar .context-needs ~ .operator-notice { margin-left: 0; }
 .context-stack { color: var(--text); }
+/* The EGM stepper (docs/designs/egm-adoption.md, T13): five step pills joined by hairlines,
+   in place of the stage pill. A step is a hollow ring to do, accent while active, warn while
+   it waits on the operator, a green check once done. The Review step carries five dots for
+   the review stages 5 to 9. It never wraps the bar; under 1200 px it folds to one pill. */
+.egm-stepper { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.egm-label {
+    margin-right: var(--space-1); font-size: var(--text-meta); font-weight: 600;
+    color: var(--muted); cursor: help;
+}
+.egm-step {
+    display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px 0 2px;
+    box-sizing: border-box; border: 0; border-radius: 999px; background: transparent;
+    color: var(--muted); font: inherit; font-size: var(--text-meta); font-weight: 500;
+    line-height: 1; white-space: nowrap;
+}
+button.egm-step { cursor: pointer; }
+button.egm-step:hover { background: var(--fill-soft); }
+.egm-step-mark {
+    display: inline-flex; align-items: center; justify-content: center; width: 14px;
+    height: 14px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 50%;
+    font-size: 9px; font-variant-numeric: tabular-nums;
+}
+.egm-step[data-state="active"] { background: var(--accent-tint); color: var(--accent); }
+.egm-step[data-state="waiting"] { background: var(--warn-tint); color: var(--warn); }
+.egm-step[data-state="active"] .egm-step-mark { background: var(--accent); color: #fff; }
+.egm-step[data-state="waiting"] .egm-step-mark { background: var(--warn); color: #fff; }
+.egm-step[data-state="done"] { color: var(--text); }
+.egm-step[data-state="done"] .egm-step-mark { border-color: transparent; color: var(--ok); }
+.egm-sep { width: 8px; height: 1px; flex: none; background: var(--border); }
+.egm-dots { display: inline-flex; gap: 2px; margin-left: 2px; }
+.egm-dot {
+    width: 5px; height: 5px; box-sizing: border-box; border: 1px solid currentColor;
+    border-radius: 50%;
+}
+.egm-dot-on { background: currentColor; }
+.egm-compact { padding: 0 7px; }
+.egm-compact[data-state="todo"] { background: var(--fill-soft); }
+.egm-pipeline { margin-left: var(--space-1); }
+/* The session's track, after the needs-you pill; its menu opens under it to the right. */
+.track-menu { position: relative; display: flex; flex: none; }
+.track-menu .menu { left: 0; right: auto; top: 24px; min-width: 100px; }
+button.track-chip { border: 0; font: inherit; font-size: var(--text-meta); cursor: pointer; }
+button.track-chip:hover { background: var(--fill); color: var(--text); }
+/* The round badge from round 2 on: accent, so a long-lived session stands out. */
+.badge.round-badge { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
+/* The card's five EGM dots, without labels. */
+.card-dots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.card-dot {
+    width: 6px; height: 6px; box-sizing: border-box; border: 1px solid var(--muted);
+    border-radius: 50%;
+}
+.card-dot[data-state="done"] { background: var(--ok); border-color: var(--ok); }
+.card-dot[data-state="active"] { background: var(--accent); border-color: var(--accent); }
+.card-dot[data-state="waiting"] { background: var(--warn); border-color: var(--warn); }
 .activity-bar {
     display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: 40px;
     padding: var(--space-2) 0; border-right: 1px solid var(--line-soft); flex: none;
