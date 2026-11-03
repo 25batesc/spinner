@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import type { ModelView, ProjectView, SessionView } from "@spinner/protocol";
+import type {
+    AgentMessageRequest, ModelView, ProjectView, SessionView,
+} from "@spinner/protocol";
 
 import { fetchAgentHistory, fetchModels, fetchProjects, postAgent } from "./events-client.ts";
 import { fetchDefaultBrief } from "./remote.ts";
@@ -93,7 +95,14 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     const running = view.agents_running.includes(agent);
 
     const send = (action: "prompt" | "steer" | "abort") => {
-        const body = action === "abort" ? {} : { text };
+        // Only the operator's steer is marked, for the daemon's `operator_steers` counter
+        // (entry 6.20); a prompt and an abort are not counted.
+        let body: AgentMessageRequest | Record<string, never> = {};
+        if (action === "steer") {
+            body = { text, source: "operator" };
+        } else if (action === "prompt") {
+            body = { text };
+        }
         postAgent(`${base}/${action}`, body).then(
             () => {
                 setError(null);
