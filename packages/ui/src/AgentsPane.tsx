@@ -7,6 +7,8 @@ import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
 import { gateCard } from "./design.ts";
 import { DesignGate } from "./DesignGate.tsx";
+import { DesignWorkspace } from "./DesignWorkspace.tsx";
+import { shownView, viewTabs, type WorkspaceTab } from "./design-workspace.ts";
 import { GoldfishChips, type GoldfishPick } from "./GoldfishChips.tsx";
 import { GoldfishTranscript } from "./GoldfishTranscript.tsx";
 import { capLine } from "./goldfish.ts";
@@ -53,6 +55,12 @@ export interface AgentsPaneProps {
     onShown: (view: string) => void;
     picked: string | undefined;
     onPicked: (name: string | undefined) => void;
+    /**
+     * The design workspace's tab, held by the App (entry 5.11): a stepper step or the round
+     * badge opens the `design` view on a tab. Null opens the track's default tab.
+     */
+    designTab: WorkspaceTab | null;
+    onDesignTab: (tab: WorkspaceTab) => void;
     /** Where a refused gate answer goes: the drawer, as a failed job's error does. */
     onError: (message: string) => void;
 }
@@ -156,11 +164,11 @@ function agentBase(dir: string, agent: string): string {
     return `/sessions/${dir}/agents/${agent}`;
 }
 
-const VIEWS = ["agents", "mission", "threads", "services"];
-
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
-    const { controls, leading, shown, picked } = props;
+    const { controls, leading, picked } = props;
+    // A session without a `design` block has no `design` view; its pick falls back to agents.
+    const shown = shownView(view, props.shown);
     const setShown = props.onShown;
     const setPicked = props.onPicked;
     const [agentTab, setAgentTab] = useState("chat");
@@ -202,13 +210,22 @@ export function AgentsPane(props: AgentsPaneProps) {
     return (
         <section className="pane agents-pane" aria-label="Agents">
             <ViewTabs
-                labels={VIEWS}
+                labels={viewTabs(view)}
                 shown={shown}
                 onSelect={setShown}
                 controls={controls}
                 leading={leading}
             />
             <div className="chat">
+                {view !== undefined && shown === "design" && (
+                    <DesignWorkspace
+                        key={view.summary.dir}
+                        view={view}
+                        tab={props.designTab}
+                        onTab={props.onDesignTab}
+                        onError={props.onError}
+                    />
+                )}
                 {view !== undefined && shown === "mission" && (
                     <MissionWorkspace
                         dir={view.summary.dir}

@@ -18,12 +18,13 @@
 // runs the toolbar's design group: the primary button per stage, its dialogs, the `EGM ▾`
 // menu, a refusal in the drawer and the compact menu; `design-gate` answers the gate card from
 // the `needs you` pill, the resolve card, and a gate the lead asks while the page is open.
-// Both read the fixture's `GET …/design/received`, so they run against the fixture only. The
-// flow `sidebar` opens each view from the rail, collapses the panel from the lit icon, reads
-// the needs-you badges, walks the three width levels and snaps the panel shut with the rail
-// in place; `reload` reloads a session
-// view and a review view and checks each comes back (s020). Both read the fixture's
-// sessions. The flow `goldfish` reads the Goldfish chips of the fixture's design-review
+// Both read the fixture's `GET …/design/received`, so they run against the fixture only, as
+// does `design-workspace`: the five tabs of the design view, the stepper and the round badge
+// that open them, and a revision request (build session 5). The flow `sidebar` opens each
+// view from the rail, collapses the panel from the lit icon, reads the needs-you badges,
+// walks the three width levels and snaps the panel shut with the rail in place; `reload`
+// reloads a session view and a review view and checks each comes back (s020). Both read the
+// fixture's sessions. The flow `goldfish` reads the Goldfish chips of the fixture's design-review
 // session, opens a transcript and watches it reload, returns to the lead, and reads the cap
 // line and the stepper's running count and cost tooltip; it runs against the fixture only.
 // The other flows work against the fixture server or the real daemon.
@@ -2911,6 +2912,176 @@ if (flow === "rounds") {
     }
     await shot("89-rounds");
     console.log("rounds ok");
+    await finish();
+}
+
+if (flow === "design-workspace") {
+    // The design workspace (entries 5.6 to 5.14) against the fixture. A session with a `design`
+    // block has the view tabs agents · design · mission · threads · services; one without
+    // keeps four. A stepper step opens its tab. Brief: the brief, or the empty line at intake.
+    // Design: the 6-section outline (a `## ` line in a fence is no section), the source toggle,
+    // and a revision request that reaches the lead as `POST …/design/answer`. Review: the
+    // resolve card, the stage rows, the review Goldfish, a report, and the archived run `r1`.
+    // Files: the direct track opens there, with its drift report. History: the round badge
+    // opens it; round 1 expands to its Log; two approval rows, the round-2 one `current`.
+    const workspace = `document.querySelector(".agents-pane .dw")`;
+    const tabOf = `(${workspace}?.dataset.tab ?? "")`;
+    const body = (selector: string) =>
+        `(${workspace}?.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
+    const viewTabsNow = `[...document.querySelectorAll(".agents-pane .view-tab")]
+        .map((tab) => tab.textContent)`;
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 1000, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".session", "Bootstrap");
+    await until("bootstrap selected", `${text(".context-title")}.startsWith("Bootstrap")`);
+    await expectSame("plain view tabs", await evaluate(viewTabsNow),
+        ["agents", "mission", "threads", "services"]);
+
+    // Brief at intake: the empty line; History in round 1: its empty line.
+    await click(".session", "CSV export \u00b7 intake");
+    await until("intake selected", `${text(".context-title")} === "CSV export \u00b7 intake"`);
+    await expectSame("design view tabs", await evaluate(viewTabsNow),
+        ["agents", "design", "mission", "threads", "services"]);
+    await click(".agents-pane .view-tab", "design");
+    await until("brief empty", `${tabOf} === "brief"
+        && ${body(".dw-empty")} === "No brief yet. Start with brainstorm."`);
+    await click(".agents-pane .dw .tab", "History");
+    await until("history empty", `${body(".dw-empty")} === "Round 1, no approval yet."`);
+
+    // The resolving session: the Brainstorm step opens Brief with the brief.
+    await click(".session", "CSV export \u00b7 resolving");
+    await until("resolving selected",
+        `${text(".context-title")} === "CSV export \u00b7 resolving"`);
+    await until("full stepper", `document.querySelector(".context-bar button.egm-step") !== null`);
+    await click(".agents-pane .view-tab", "agents");
+    await click(".context-bar .egm-step[data-step=brainstorm]");
+    await until("brief tab",
+        `${tabOf} === "brief" && ${body(".md h1")} === "Concepts brief: CSV export"`);
+    await shot("90-workspace-brief");
+
+    // Review: the resolve card above, the rows, the Goldfish, the consolidated report first.
+    await click(".context-bar .egm-step[data-step=review]");
+    await until("review tab", `${tabOf} === "review"
+        && ${body(".dw-body .md h1")} === "Consolidated review report"`);
+    await expectSame("review", await evaluate(`({
+        resolveCard: ${workspace}.querySelector(".design-gate")?.dataset.kind,
+        rows: [...${workspace}.querySelectorAll(".dw-list .dw-row")]
+            .map((row) => [row.dataset.stage, row.querySelector(".pill").textContent]),
+        goldfish: [...${workspace}.querySelectorAll(".dw-goldfish-row")]
+            .map((row) => row.innerText.replace(/\\s+/g, " ").trim()),
+        runs: [...${workspace}.querySelectorAll("select option")].map((o) => o.textContent),
+    })`), {
+        resolveCard: "resolve",
+        rows: [
+            ["5", "written"], ["6", "written"], ["7", "written"], ["8", "not yet"],
+            ["9", "not yet"], ["consolidated", "written"], ["resolve", "written"],
+        ],
+        goldfish: ["zoom_out done $0.31", "comprehension done $0.27", "critic done $0.40"],
+        runs: ["r2 (current)", "r1"],
+    });
+    await click(".agents-pane .dw .dw-row[data-stage='5']");
+    await until("stage 5 report", `${body(".dw-body .md h1")} === "Zoom out report"`);
+    await shot("91-workspace-review");
+    await evaluate(`(() => {
+        const select = ${workspace}.querySelector("select");
+        const proto = Object.getPrototypeOf(select);
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(select, "r1");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+    await until("archived run", `${body(".dw-body .md h1")}
+        === "Consolidated review report (run r1)"
+        && [...${workspace}.querySelectorAll(".dw-list .pill")]
+            .every((pill) => pill.textContent === "archived")`);
+    await shot("92-workspace-review-r1");
+
+    // Design on the design-ready session: the doc, its outline, source, a revision request.
+    await click(".session", "CSV export \u00b7 design-ready");
+    await until("design-ready selected",
+        `${text(".context-title")} === "CSV export \u00b7 design-ready"`);
+    await until("full stepper again",
+        `document.querySelector(".context-bar button.egm-step") !== null`);
+    await click(".context-bar .egm-step[data-step=draft]");
+    const outlineNow = `[...${workspace}.querySelectorAll(".dw-outline-item")]
+        .map((item) => item.textContent)`;
+    await until("design tab", `${tabOf} === "design" && ${outlineNow}.length === 6`);
+    await expectSame("doc", await evaluate(`({
+        outline: ${outlineNow},
+        name: ${body(".dw-doc-name")},
+        revise: ${workspace}.querySelectorAll(".dw-revise").length,
+    })`), {
+        outline: [
+            "Overview", "Goals", "Non-Goals", "Decisions", "Technical Plan",
+            "Verification Plan",
+        ],
+        name: "docs/designs/csv-export.md",
+        revise: 6,
+    });
+    // A short window, so the doc overflows the pane and the outline has to scroll it.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 600, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".agents-pane .dw-outline-item", "Decisions");
+    await until("scrolled to the section", `(() => {
+        const pane = document.querySelector(".agents-pane .chat");
+        const section = ${workspace}.querySelector("[data-heading-index='3']");
+        const top = section.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+        return pane.scrollTop > 0 && top >= 0 && top < 120;
+    })()`);
+    await shot("93-workspace-design");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 1000, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".agents-pane .dw-section[aria-label=Overview] .dw-revise");
+    await until("revision box", `${workspace}.querySelector(".dw-revision textarea") !== null`);
+    await fill(".agents-pane .dw-revision textarea", "Name the source of the row cap.");
+    await click(".agents-pane .dw-revision button", "send");
+    await until("revision sent", `${workspace}.querySelector(".dw-revision") === null`);
+    const answers = (await received("s207-csv-design-ready")).answers;
+    await expectSame("revision request", answers.slice(-1), [
+        'Revision request for "Overview" in csv-export.md: Name the source of the row cap.',
+    ]);
+    await click(".agents-pane .dw-doc-head .link", "source");
+    await until("source shown", `${body(".dw-source")}.includes("## Overview")`);
+
+    // Files on the direct track: the workspace opens there; the drift report renders.
+    await click(".session", "CSV export \u00b7 direct track");
+    await until("direct selected",
+        `${text(".context-title")} === "CSV export \u00b7 direct track"`);
+    await until("files tab",
+        `${tabOf} === "files" && ${body(".dw-list")}.includes("drift report")`);
+    await click(".agents-pane .dw-row", "CSV_EXPORT_DRIFT_REPORT.md");
+    await until("drift report", `${body(".dw-body .md h1")} === "Drift report: CSV export"`);
+    await shot("94-workspace-files");
+
+    // History from the round badge: three rounds, round 1's Log, two approvals.
+    await click(".agents-pane .view-tab", "agents");
+    await click(".session", "CSV export \u00b7 round 3");
+    await until("round badge button",
+        `document.querySelector(".context-bar button.round-badge")?.textContent === "r3"`);
+    await click(".context-bar button.round-badge");
+    await until("history tab", `${tabOf} === "history"`);
+    await click(".agents-pane .dw-round-toggle", "r1");
+    await until("round 1 log", `${body(".dw-round-log")}.includes("web#41 merged")`);
+    await expectSame("history", await evaluate(`({
+        rounds: [...${workspace}.querySelectorAll(".dw-round-name")]
+            .filter((name) => name.closest(".dw-round") !== null)
+            .map((name) => name.textContent.replace(/^[\u25b8\u25be] /, "")),
+        approvals: [...${workspace}.querySelectorAll(".dw-approval")].map((row) => [
+            row.querySelector(".dw-round-name").textContent,
+            row.querySelector("code").textContent,
+            row.dataset.mark ?? null,
+        ]),
+    })`), {
+        rounds: ["r3 (current)", "r2", "r1"],
+        approvals: [["r2", "9f2c4be1d0a7", "current"], ["r1", "4d1e9a07c3b2", null]],
+    });
+    await shot("95-workspace-history");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await until("no error", `document.querySelector(".drawer .needs-human") === null`);
+    console.log("design-workspace ok");
     await finish();
 }
 

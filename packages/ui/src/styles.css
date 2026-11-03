@@ -1203,3 +1203,102 @@ a.rv-head-title:hover { text-decoration: underline; }
 }
 .rv-context .rv-branches { max-width: 220px; }
 .rv-toolbar button { height: var(--control-row); }
+/* The design workspace (docs/designs/egm-adoption.md, build session 5): the `design` view of
+   the agents pane. A list on the left (files, review stages, the doc's outline) and the
+   rendered file on the right; under 560 px of pane width the list stacks above the file. */
+button.badge.round-badge-button {
+    border: 0; font: inherit; font-size: var(--text-meta); cursor: pointer;
+}
+button.badge.round-badge-button:hover { background: var(--accent-fill); }
+.dw {
+    container-type: inline-size; container-name: dw;
+    display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+    padding-bottom: var(--space-4);
+}
+.dw-tab-body { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.dw-empty { margin: var(--space-2) 0; font-size: var(--text-body); }
+.dw-error { margin: var(--space-2) 0; }
+.dw-split {
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); align-items: start;
+}
+@container dw (min-width: 560px) {
+    .dw-split { grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); }
+    .dw-outline, .dw-side { position: sticky; top: 0; }
+}
+.dw-side { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.dw-body { min-width: 0; }
+.dw-list, .dw-goldfish, .dw-rounds, .dw-approvals {
+    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
+}
+.dw-row {
+    display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 26px;
+    box-sizing: border-box; padding: 2px var(--space-2); border: 0;
+    border-radius: var(--radius-control); background: transparent; color: var(--text);
+    font: inherit; font-size: var(--text-dense); text-align: left; cursor: pointer;
+}
+.dw-row:hover:not(:disabled) { background: var(--fill-soft); }
+.dw-row[aria-pressed="true"] { background: var(--accent-tint); }
+.dw-row:disabled { color: var(--muted); cursor: default; }
+.dw-row-name {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dw-row-meta { flex: none; color: var(--muted); font-size: var(--text-meta); }
+.dw-label {
+    margin: 0 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+}
+.dw-review-head {
+    display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-dense);
+}
+.dw-run { display: inline-flex; align-items: center; gap: var(--space-2); }
+.dw-run select { min-height: var(--control-row); font-size: var(--text-dense); }
+.dw-goldfish-row {
+    display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2);
+    font-size: var(--text-dense);
+}
+.dw-goldfish .dot-done { background: var(--muted); border-color: var(--muted); }
+.dw-goldfish .dot-queued { border-style: dashed; }
+.dw-goldfish .dot-stopped { border-color: var(--warn); }
+.dw-doc { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.dw-doc-head { display: flex; align-items: center; gap: var(--space-2); }
+.dw-doc-head .link { margin-left: auto; }
+.dw-doc-name {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: var(--text-dense); color: var(--muted);
+}
+.dw-outline { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dw-outline-item {
+    min-height: 24px; padding: 2px var(--space-2); border: 0; border-radius: var(--radius-control);
+    background: transparent; color: var(--text); font: inherit; font-size: var(--text-dense);
+    text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dw-outline-item:hover { background: var(--fill-soft); }
+.dw-section { scroll-margin-top: var(--space-2); }
+.dw-section-md > :first-child { margin-top: 0; }
+.dw-revise { margin-left: 0; }
+.dw-revision {
+    display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0;
+}
+.dw-revision textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+.dw-revision-actions { display: flex; gap: var(--space-2); }
+.dw-source { font-family: var(--font-mono); font-size: var(--text-dense); }
+.dw-history { gap: var(--space-4); }
+.dw-round { display: flex; flex-direction: column; gap: var(--space-1); }
+.dw-round-head, .dw-approval {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+    min-height: 26px; padding: 0 var(--space-2); font-size: var(--text-dense);
+}
+.dw-round-name { font-weight: 600; }
+.dw-round-toggle {
+    border: 0; padding: 0 var(--space-1); background: transparent; color: var(--text);
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: var(--radius-control);
+}
+.dw-round-toggle:hover { background: var(--fill-soft); }
+.dw-round-log {
+    margin-left: var(--space-4); padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--line-soft);
+}
+.dw-approval[data-mark="invalidated"] {
+    background: var(--warn-tint); border-radius: var(--radius-control);
+}
