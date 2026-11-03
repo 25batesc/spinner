@@ -43,7 +43,12 @@ import { SESSION_SPEC, read_session_spec } from "../stack/runner.js";
 import { SPEC_AUTHOR, type MissionWriter } from "../store/mission-writer.js";
 import { read_session, write_session } from "../store/session-store.js";
 import { check_design_doc } from "./design-doc.js";
-import { derive_design, normalized_doc_hash, type DesignResult } from "./derive-design.js";
+import {
+    derive_design,
+    normalized_doc_hash,
+    RESOLVED_LINE,
+    type DesignResult,
+} from "./derive-design.js";
 import { clear_gate } from "./gate.js";
 
 /** At most this many sessions get a doc watcher; past it a session refreshes on settle only. */
@@ -333,7 +338,9 @@ export class DesignTracker {
                 : normalized_doc_hash(readFileSync(doc_path, "utf8"));
         const result = derive_design({
             files: files.map((file) => file.name),
-            resolve_first_line: first_line(join(summary.path, EGM_ARTIFACT_DIR, RESOLVE_REPORT)),
+            resolve_first_line: resolve_status_line(
+                join(summary.path, EGM_ARTIFACT_DIR, RESOLVE_REPORT),
+            ),
             doc: design.doc ?? null,
             doc_hash,
             doc_missing,
@@ -440,12 +447,29 @@ function design_fields_differ(before: Session, after: Session): boolean {
 }
 
 /** The first non-empty line of a file, trimmed; null when the file is absent. */
-function first_line(path: string): string | null {
+/**
+ * The resolve report's status line. `egm-resolve` Step 5 says "add a `Status: resolved` line at
+ * the top"; a lead writes it as the first line, or in bold a few lines down under the title
+ * (session 3, run F). Any of the first lines that reads `Status: resolved` once the markdown
+ * emphasis is stripped counts; otherwise the first non-empty line, so the caller sees why.
+ */
+function resolve_status_line(path: string): string | null {
     if (!existsSync(path)) {
         return null;
     }
-    const line = readFileSync(path, "utf8")
+    const lines = readFileSync(path, "utf8")
         .split(/\r?\n/)
-        .find((text) => text.trim().length > 0);
-    return line === undefined ? null : line.trim();
+        .filter((text) => text.trim().length > 0)
+        .slice(0, RESOLVE_STATUS_LINES_MAX);
+    for (const line of lines) {
+        const plain = line.replace(/[*_#`]/g, "").trim();
+        if (plain.toLowerCase().startsWith(RESOLVED_LINE.toLowerCase())) {
+            return RESOLVED_LINE;
+        }
+    }
+    const first = lines[0];
+    return first === undefined ? null : first.trim();
 }
+
+/** How far down a resolve report the status line may sit. */
+const RESOLVE_STATUS_LINES_MAX = 10;

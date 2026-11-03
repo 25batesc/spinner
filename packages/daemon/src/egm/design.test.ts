@@ -141,6 +141,21 @@ describe("DesignTracker: the stage from files", () => {
         await tracker.refresh(summary.dir);
         expect(refreshed).toHaveLength(count);
     });
+
+    it("reads the resolve status in bold under the title, as a lead writes it", async () => {
+        design_file("concepts_brief.md");
+        design_file("design_draft.md");
+        design_file("consolidated_review_report.md");
+        design_file(
+            "goldfish_review_report.md",
+            "# Goldfish Annotated Review Report\n\n**Status: resolved** (22 accepted)\n",
+        );
+        await tracker.refresh(summary.dir);
+        expect(session().design?.stage).not.toBe("resolving");
+        design_file("goldfish_review_report.md", "# Goldfish Annotated Review Report\n\nopen\n");
+        await tracker.refresh(summary.dir);
+        expect(session().design?.stage).toBe("resolving");
+    });
 });
 
 describe("DesignTracker: set_doc", () => {
