@@ -177,6 +177,86 @@ describe("CostLedger cache", () => {
     });
 });
 
+// Goal (entry 4.7): a Goldfish transcript that a run's `status.json` names adds to the
+// session's total and to `children`, not to `agents.lead`; a `sessionFile` outside
+// `<session>/agents/` is skipped; past the child bound, the oldest child is skipped with one
+// log line and no throw. Method: a scratch home with real status files and transcripts.
+describe("CostLedger Goldfish transcripts (4.6)", () => {
+    let root: string | null = null;
+
+    afterEach(() => {
+        if (root !== null) {
+            rmSync(root, { recursive: true, force: true });
+            root = null;
+        }
+    });
+
+    /** A child transcript at `path` with one $`usd` message, named by run `run`'s status. */
+    function child(session: string, run: string, path: string, usd: number, mtime_s: number): void {
+        mkdirSync(join(path, ".."), { recursive: true });
+        writeFileSync(
+            path,
+            assistant("2026-11-02T10:00:00.000Z", "claude-fable-5-1", usd, [1, 2, 0, 0]),
+        );
+        utimesSync(path, mtime_s, mtime_s);
+        const dir = join(session, "egm-runs", "async-subagent-runs", run);
+        mkdirSync(dir, { recursive: true });
+        const steps = [{ agent: "egm-design", status: "complete", sessionFile: path }];
+        writeFileSync(
+            join(dir, "status.json"),
+            JSON.stringify({ runId: run, state: "complete", steps }),
+        );
+    }
+
+    it("sums a child into the total and children, skips a path outside agents/", () => {
+        root = mkdtempSync(join(tmpdir(), "spinner-costs-"));
+        const home = resolve_home({ SPINNER_HOME: root });
+        const session = join(home.sessions, "s017-x");
+        const lead = join(session, "agents", "lead", "pi");
+        mkdirSync(lead, { recursive: true });
+        writeFileSync(
+            join(lead, "a.jsonl"),
+            assistant("2026-11-02T09:00:00.000Z", "m", 1, [1, 1, 0, 0]),
+        );
+        child(
+            session,
+            "r-1",
+            join(lead, "lead-session", "r-1", "run-0", "session.jsonl"),
+            0.5,
+            1000,
+        );
+        child(session, "r-2", join(root, "elsewhere", "session.jsonl"), 7, 1000);
+        const ledger = new CostLedger(home);
+        ledger.refold();
+        const cost = ledger.session_cost("s017-x");
+        expect(cost.usd).toBeCloseTo(1.5, 6);
+        expect(cost.agents["lead"]?.usd).toBe(1);
+        expect(Object.keys(cost.children ?? {})).toEqual(["r-1/0"]);
+        expect(cost.children?.["r-1/0"]?.usd).toBe(0.5);
+        expect(ledger.rows().filter((row) => row.child === "r-1/0")).toHaveLength(1);
+    });
+
+    it("past the child bound keeps the newest children and logs once per refold", () => {
+        root = mkdtempSync(join(tmpdir(), "spinner-costs-"));
+        const home = resolve_home({ SPINNER_HOME: root });
+        const session = join(home.sessions, "s017-x");
+        const lead = join(session, "agents", "lead", "pi", "lead-session");
+        child(session, "r-1", join(lead, "r-1", "run-0", "session.jsonl"), 1, 1000);
+        child(session, "r-2", join(lead, "r-2", "run-0", "session.jsonl"), 2, 2000);
+        child(session, "r-3", join(lead, "r-3", "run-0", "session.jsonl"), 4, 3000);
+        const lines: string[] = [];
+        const ledger = new CostLedger(home, {
+            log: (line) => lines.push(line),
+            child_files_max: 2,
+        });
+        expect(() => ledger.refold()).not.toThrow();
+        expect(lines).toEqual(["cost ledger: 1 child transcripts past 2 skipped"]);
+        const cost = ledger.session_cost("s017-x");
+        expect(Object.keys(cost.children ?? {}).sort()).toEqual(["r-2/0", "r-3/0"]);
+        expect(cost.usd).toBe(6);
+    });
+});
+
 describe("periods in the local zone", () => {
     const rows: CostRow[] = fold_transcript(TRANSCRIPT, REF);
 

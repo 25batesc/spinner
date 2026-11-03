@@ -1,12 +1,16 @@
 // The EGM routes (docs/designs/egm-adoption.md, 1.12, 2.24, 3.9): the fetch state and a
 // refetch job, the design track, the lead's design doc, the lead's gate, the operator's
-// answer and the skill runs. Build sessions 3 to 6 widen `EgmRouteDeps`; each entry that
-// does names the new fields. Mounted by one line in `server.ts`.
-import { existsSync, readFileSync, rmSync } from "node:fs";
+// answer and the skill runs; the Goldfish transcripts and the live cap (4.9); the design
+// workspace's files, archived reports and doc (5.3). Build sessions 3 to 6 widen
+// `EgmRouteDeps`; each entry that does names the new fields. Mounted by one line in
+// `server.ts`.
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Context, Hono } from "hono";
 import type {
     AgentCommandResponse,
+    AgentEventsResponse,
+    DesignFilesResponse,
     DesignTrack,
     EgmResponse,
     EgmSkill,
@@ -20,14 +24,19 @@ import type {
 import {
     BRIEF_FILE,
     DESIGN_ANSWER_MAX,
+    DESIGN_FILE_NAME_PATTERN,
     DESIGN_RUN_ARGS_MAX,
     DESIGN_TRACKS,
     EGM_ARTIFACT_DIR,
+    EGM_RUNS_DIR,
     EGM_SKILLS,
+    GOLDFISH_LIVE_MAX,
     LEAD_NAME,
+    REVIEW_ARCHIVE_DIR,
     REVIEW_PRESETS,
 } from "@spinner/protocol";
 import { set_design_track, type ActionContext } from "../actions.js";
+import { events_of_transcript } from "../agents/history.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { SpinnerHome } from "../home.js";
 import { rounds_of } from "../pipeline/rounds.js";
@@ -38,6 +47,7 @@ import type { ViewBuilder } from "../watcher.js";
 import { DesignDocConflict, DesignDocRefused, type DesignTracker } from "./design.js";
 import { type EgmFetcher, marker_path } from "./fetch.js";
 import { clear_gate, set_gate } from "./gate.js";
+import { inside_agents, read_runs, type GoldfishWatcher } from "./goldfish.js";
 import { archive_review_run } from "./review-runs.js";
 
 /** The 409 of `answer` and `run` while the lead has no process. */
@@ -58,6 +68,8 @@ export interface EgmRouteDeps {
     /** The lead that `answer` and `run` prompt (3.9). */
     agents: AgentManager;
     home: SpinnerHome;
+    /** The live Goldfish count for the cap of `run` (4.9). */
+    goldfish: GoldfishWatcher;
 }
 
 export function mount_egm_routes(app: Hono, deps: EgmRouteDeps): void {
@@ -133,6 +145,112 @@ export function mount_egm_routes(app: Hono, deps: EgmRouteDeps): void {
     });
 
     mount_gate_routes(app, deps);
+    mount_workspace_routes(app, deps);
+}
+
+/** The Goldfish transcripts (4.9) and the design workspace's reads (5.3). */
+function mount_workspace_routes(app: Hono, deps: EgmRouteDeps): void {
+    app.get("/sessions/:dir/egm/goldfish/:run/:step/events", (c) => {
+        const read = read_session(deps.home, c.req.param("dir"));
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        const run_id = c.req.param("run");
+        const index = Number(c.req.param("step"));
+        const run = read_runs(join(read.summary.path, EGM_RUNS_DIR)).find(
+            (entry) => entry.run === run_id,
+        );
+        const step = run?.steps.find((entry) => entry.index === index);
+        const file = step?.session_file ?? null;
+        if (file === null || !inside_agents(read.summary.path, file)) {
+            return c.json(error_body(`no transcript for Goldfish ${run_id}/${index}`), 404);
+        }
+        const body: AgentEventsResponse = {
+            events: events_of_transcript(readFileSync(file, "utf8")),
+        };
+        return c.json(body);
+    });
+
+    app.get("/sessions/:dir/design/files", (c) => {
+        const read = read_session(deps.home, c.req.param("dir"));
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        const body: DesignFilesResponse = {
+            files: deps.design.files(read.summary),
+            review_runs: review_runs_of(read.summary.path),
+        };
+        return c.json(body);
+    });
+
+    app.get("/sessions/:dir/design/files/:name", (c) => {
+        const name = c.req.param("name");
+        if (!design_file_name(name)) {
+            return c.json(error_body(`not a design file name: ${name}`), 400);
+        }
+        const read = read_session(deps.home, c.req.param("dir"));
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        return markdown(c, join(read.summary.path, EGM_ARTIFACT_DIR, name));
+    });
+
+    app.get("/sessions/:dir/design/reviews/:run/:name", (c) => {
+        const name = c.req.param("name");
+        const run = c.req.param("run");
+        if (!REVIEW_RUN_ID.test(run)) {
+            return c.json(error_body(`not a review run id: ${run}`), 400);
+        }
+        if (!design_file_name(name)) {
+            return c.json(error_body(`not a design file name: ${name}`), 400);
+        }
+        const read = read_session(deps.home, c.req.param("dir"));
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        const path = join(read.summary.path, EGM_ARTIFACT_DIR, REVIEW_ARCHIVE_DIR, run, name);
+        return markdown(c, path);
+    });
+
+    app.get("/sessions/:dir/design/doc", (c) => {
+        const read = read_session(deps.home, c.req.param("dir"));
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        const path = deps.design.doc_path(read.summary);
+        if (path === null) {
+            return c.json(error_body("this session has no design doc yet"), 404);
+        }
+        return markdown(c, path);
+    });
+}
+
+/** The archive route's run ids (5.3). */
+const REVIEW_RUN_ID = /^r\d{1,2}$/;
+
+/** True for a name the workspace serves: the pattern, and no leading `.` (5.3). */
+function design_file_name(name: string): boolean {
+    return DESIGN_FILE_NAME_PATTERN.test(name) && !name.startsWith(".");
+}
+
+/** The `r<n>` directories of `<session>/design/reviews/`, newest (highest) first. */
+function review_runs_of(session_path: string): string[] {
+    const root = join(session_path, EGM_ARTIFACT_DIR, REVIEW_ARCHIVE_DIR);
+    if (!existsSync(root)) {
+        return [];
+    }
+    return readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && REVIEW_RUN_ID.test(entry.name))
+        .map((entry) => entry.name)
+        .sort((a, b) => Number(b.slice(1)) - Number(a.slice(1)));
+}
+
+/** The file as `text/markdown`, or 404 when it is absent. */
+function markdown(c: Context, path: string): Response {
+    if (!existsSync(path)) {
+        return c.json(error_body("not found"), 404);
+    }
+    return c.body(readFileSync(path, "utf8"), 200, { "content-type": "text/markdown" });
 }
 
 /** `PUT …/design/gate`, `POST …/design/answer` and `POST …/design/run` (3.9). */
@@ -184,6 +302,10 @@ function mount_gate_routes(app: Hono, deps: EgmRouteDeps): void {
         if (typeof request === "string") {
             return c.json(error_body(request), 400);
         }
+        const live = deps.goldfish.live_count();
+        if (live >= GOLDFISH_LIVE_MAX) {
+            return c.json(error_body(goldfish_cap_text(live)), 409);
+        }
         const read = read_session(deps.home, dir);
         if (!read.ok) {
             return c.json(error_body(read.error), 404);
@@ -212,6 +334,14 @@ function mount_gate_routes(app: Hono, deps: EgmRouteDeps): void {
         const answer: AgentCommandResponse = { ok: true, disposition };
         return c.json(answer);
     });
+}
+
+/** The 409 of `run` at the global Goldfish cap (D8, 4.9). */
+export function goldfish_cap_text(live: number): string {
+    return (
+        `${live} Goldfish are running across sessions (cap ${GOLDFISH_LIVE_MAX}); ` +
+        "start this skill when they finish"
+    );
 }
 
 interface RunRequest {

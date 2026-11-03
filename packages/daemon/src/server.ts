@@ -76,6 +76,7 @@ import { mount_diff_routes } from "./diff/routes.js";
 import { DesignTracker } from "./egm/design.js";
 import { EgmFetcher } from "./egm/fetch.js";
 import { clear_gate } from "./egm/gate.js";
+import { GoldfishWatcher } from "./egm/goldfish.js";
 import { mount_egm_routes } from "./egm/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
@@ -229,6 +230,8 @@ export interface AppDeps {
     egm?: EgmFetcher;
     /** The design tracker (EGM, 2.26); the EGM routes mount with `egm` and `writer`. */
     design?: DesignTracker;
+    /** The Goldfish watcher (EGM, 4.10); the EGM routes mount only with it. */
+    goldfish?: GoldfishWatcher;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -677,7 +680,12 @@ export function create_app(deps: AppDeps): Hono {
     if (deps.diff !== undefined) {
         mount_diff_routes(app, { ...deps, diff: deps.diff });
     }
-    if (deps.egm !== undefined && deps.design !== undefined && deps.writer !== undefined) {
+    if (
+        deps.egm !== undefined &&
+        deps.design !== undefined &&
+        deps.writer !== undefined &&
+        deps.goldfish !== undefined
+    ) {
         mount_egm_routes(app, {
             fetcher: deps.egm,
             jobs: deps.jobs,
@@ -687,6 +695,7 @@ export function create_app(deps: AppDeps): Hono {
             writer: deps.writer,
             agents: deps.agents,
             home: deps.home,
+            goldfish: deps.goldfish,
         });
     }
     if (deps.writer !== undefined && deps.deliverer !== undefined) {
@@ -912,7 +921,29 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         sampler.wake();
         publish_view(dir);
     };
-    design = new DesignTracker({ home, cwd, agents, bus, writer, refresh, log });
+    // The watcher comes before the tracker: the tracker reads the watcher, and the watcher's
+    // `on_change` reads the late-bound `design` (4.10).
+    const goldfish = new GoldfishWatcher({
+        home,
+        agents,
+        bus,
+        log,
+        on_change: async (dir) => {
+            await design?.refresh(dir);
+            publish_view(dir);
+        },
+    });
+    design = new DesignTracker({
+        home,
+        cwd,
+        agents,
+        bus,
+        writer,
+        refresh,
+        log,
+        goldfish,
+        cost: (dir) => view_ctx.cost?.(dir) ?? { usd: 0, tokens_in: 0, tokens_out: 0, agents: {} },
+    });
     const designs = design;
 
     const build = options.build ?? { version: "0.0.0", commit: null, built: null };
@@ -966,6 +997,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         poll,
         egm: new EgmFetcher(home, process.env),
         design: designs,
+        goldfish,
         ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.
@@ -1020,6 +1052,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             await designs.close();
             diff.close();
             await operator.close();
+            goldfish.close();
             await agents.stop_all();
             poller?.stop();
             observer?.stop();

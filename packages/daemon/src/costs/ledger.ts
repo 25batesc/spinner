@@ -6,6 +6,8 @@
 // rows per file by size and mtime, so a refold reads only the files that changed. The views
 // read `session_cost` and `operator_cost`; the `/costs` route reads `rows`. `start_cost_ledger`
 // wires the refold to `agent.settled` and a 60 s timer and publishes `costs` when a total moved.
+// Build session 4 (T6, entry 4.6) adds the Goldfish: each session's run files name the child
+// transcripts (`read_runs`), and their rows carry `child` and sum into `SessionCost.children`.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -16,13 +18,17 @@ import type {
     SessionCost,
     SpinnerEvent,
 } from "@spinner/protocol";
-import { COSTS_REFOLD_INTERVAL_MS } from "@spinner/protocol";
+import { COSTS_REFOLD_INTERVAL_MS, EGM_RUNS_DIR } from "@spinner/protocol";
+import { child_key, inside_agents, read_runs } from "../egm/goldfish.js";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { period_totals, totals_of, type LocalClock } from "./periods.js";
 
 /** Upper bound on transcript files one home is expected to hold. */
 const FILES_MAX = 20_000;
+
+/** Upper bound on Goldfish transcripts across the home; past it the newest are kept. */
+export const CHILD_FILES_MAX = 20_000;
 
 /** Upper bound on entries one transcript is read for; pi compacts long before this. */
 const ENTRIES_MAX = 200_000;
@@ -42,13 +48,30 @@ export interface TranscriptRef {
     path: string;
     session: string | null;
     agent: string;
+    /** `"<runId>/<step index>"` for a Goldfish transcript; its rows carry it. */
+    child?: string;
+}
+
+export interface CostLedgerOptions {
+    log?: (line: string) => void;
+    /** `CHILD_FILES_MAX` unless a test lowers it. */
+    child_files_max?: number;
 }
 
 export class CostLedger {
     private readonly cache = new Map<string, CachedFile>();
     private readonly listeners = new Set<(changed: Set<string | null>) => void>();
+    private readonly log: (line: string) => void;
+    private readonly child_files_max: number;
 
-    constructor(private readonly home: SpinnerHome) {}
+    constructor(
+        private readonly home: SpinnerHome,
+        options: CostLedgerOptions = {},
+    ) {
+        this.log = options.log ?? (() => undefined);
+        this.child_files_max = options.child_files_max ?? CHILD_FILES_MAX;
+        assert.ok(this.child_files_max > 0, "the child transcript bound must be positive");
+    }
 
     /** Every row, in file order; the route filters and groups. */
     rows(): CostRow[] {
@@ -116,9 +139,13 @@ export class CostLedger {
         };
     }
 
-    /** The transcript files of live sessions, archived sessions and the operator agent. */
+    /**
+     * The transcript files of live sessions, archived sessions and the operator agent, then
+     * the Goldfish transcripts that the sessions' run files name.
+     */
     transcripts(): TranscriptRef[] {
         const refs: TranscriptRef[] = [];
+        const children: TranscriptRef[] = [];
         for (const root of [this.home.sessions, this.home.archive]) {
             for (const dir of subdirectories(root)) {
                 const agents = join(root, dir, "agents");
@@ -127,18 +154,56 @@ export class CostLedger {
                         refs.push({ path: file, session: dir, agent });
                     }
                 }
+                children.push(...child_transcripts(join(root, dir), dir));
             }
         }
         for (const file of jsonl_files(join(this.home.root, OPERATOR_DIR, "pi"))) {
             refs.push({ path: file, session: null, agent: OPERATOR_AGENT });
         }
         assert.ok(refs.length <= FILES_MAX, `more than ${FILES_MAX} transcripts in the home`);
-        return refs;
+        return [...refs, ...this.bounded(children)];
+    }
+
+    /** The newest `child_files_max` child refs by mtime; one log line when it drops some. */
+    private bounded(children: TranscriptRef[]): TranscriptRef[] {
+        if (children.length <= this.child_files_max) {
+            return children;
+        }
+        const dated = children.map((ref) => ({ ref, mtime: statSync(ref.path).mtimeMs }));
+        dated.sort((a, b) => b.mtime - a.mtime);
+        const skipped = children.length - this.child_files_max;
+        this.log(`cost ledger: ${skipped} child transcripts past ${this.child_files_max} skipped`);
+        return dated.slice(0, this.child_files_max).map((entry) => entry.ref);
     }
 
     private rows_of(session: string | null): CostRow[] {
         return this.rows().filter((row) => row.session === session);
     }
+}
+
+/**
+ * The Goldfish transcripts of one session: each step's `session_file` inside the session's
+ * `agents/`, as a ref of the lead with its child key. Other paths are skipped (T6).
+ */
+function child_transcripts(session_path: string, dir: string): TranscriptRef[] {
+    const refs: TranscriptRef[] = [];
+    const seen = new Set<string>();
+    for (const run of read_runs(join(session_path, EGM_RUNS_DIR))) {
+        for (const step of run.steps) {
+            const file = step.session_file;
+            if (file === null || seen.has(file) || !inside_agents(session_path, file)) {
+                continue;
+            }
+            seen.add(file);
+            refs.push({
+                path: file,
+                session: dir,
+                agent: "lead",
+                child: child_key(run.run, step.index),
+            });
+        }
+    }
+    return refs;
 }
 
 /**
@@ -187,7 +252,7 @@ function row_of(entry: unknown, ref: TranscriptRef): CostRow | null {
     }
     const provider = typeof message["provider"] === "string" ? message["provider"] : "";
     const model = typeof message["model"] === "string" ? message["model"] : "unknown";
-    return {
+    const row: CostRow = {
         ts,
         session: ref.session,
         agent: ref.agent,
@@ -198,6 +263,10 @@ function row_of(entry: unknown, ref: TranscriptRef): CostRow | null {
         cache_read: number_of(usage["cacheRead"]),
         cache_write: number_of(usage["cacheWrite"]),
     };
+    if (ref.child !== undefined) {
+        row.child = ref.child;
+    }
+    return row;
 }
 
 /** The entry's ISO `timestamp`, else the message's epoch-millisecond one, else null. */
@@ -211,23 +280,34 @@ function timestamp_of(entry_ts: unknown, message_ts: unknown): string | null {
     return null;
 }
 
-/** Pure: rows of one session to its cost; each agent's model is that of its latest row. */
+/**
+ * Pure: rows of one session to its cost; each agent's model is that of its latest row. A row
+ * with `child` sums into `children[child]`, not into its agent; the totals include all rows.
+ */
 export function session_cost_of(rows: CostRow[]): SessionCost {
     const agents: Record<string, AgentCost> = {};
+    const children: Record<string, AgentCost> = {};
     const latest = new Map<string, string>();
     for (const row of rows) {
-        const current = agents[row.agent] ?? { usd: 0, tokens_in: 0, tokens_out: 0, model: null };
+        const group = row.child === undefined ? agents : children;
+        const key = row.child ?? row.agent;
+        const current = group[key] ?? { usd: 0, tokens_in: 0, tokens_out: 0, model: null };
         current.usd += row.usd;
         current.tokens_in += row.tokens_in;
         current.tokens_out += row.tokens_out;
-        const seen = latest.get(row.agent);
+        const slot = row.child === undefined ? `agent:${key}` : `child:${key}`;
+        const seen = latest.get(slot);
         if (seen === undefined || row.ts >= seen) {
-            latest.set(row.agent, row.ts);
+            latest.set(slot, row.ts);
             current.model = row.model;
         }
-        agents[row.agent] = current;
+        group[key] = current;
     }
-    return { ...totals_of(rows), agents };
+    const cost: SessionCost = { ...totals_of(rows), agents };
+    if (Object.keys(children).length > 0) {
+        cost.children = children;
+    }
+    return cost;
 }
 
 export interface LedgerLoopInput {
@@ -255,8 +335,8 @@ export function start_cost_ledger(
     interval_ms = COSTS_REFOLD_INTERVAL_MS,
 ): LedgerLoop {
     assert.ok(interval_ms >= 100, "refold interval must be at least 100 ms");
-    const ledger = new CostLedger(input.home);
     const log = input.log ?? (() => undefined);
+    const ledger = new CostLedger(input.home, { log });
     const clock: LocalClock = input.clock ?? { now: () => new Date() };
     let stopped = false;
     let in_flight = false;

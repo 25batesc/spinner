@@ -20,7 +20,9 @@ import type {
     DesignFileView,
     DesignState,
     DesignView,
+    GoldfishView,
     Session,
+    SessionCost,
     SessionSummary,
 } from "@spinner/protocol";
 import {
@@ -50,6 +52,15 @@ import {
     type DesignResult,
 } from "./derive-design.js";
 import { clear_gate } from "./gate.js";
+import {
+    chip_state,
+    child_key,
+    read_attributions,
+    running_steps,
+    session_runs,
+    type GoldfishRun,
+    type GoldfishWatcher,
+} from "./goldfish.js";
 
 /** At most this many sessions get a doc watcher; past it a session refreshes on settle only. */
 export const DOC_WATCHERS_MAX = 100;
@@ -66,6 +77,10 @@ export interface DesignTrackerDeps {
     refresh: (dir: string) => Promise<void>;
     log: (line: string) => void;
     runner?: Runner;
+    /** The Goldfish watcher (4.8); without it the view shows no Goldfish. */
+    goldfish?: GoldfishWatcher;
+    /** The session's cost (4.8); without it every Goldfish `usd` is 0. */
+    cost?: (dir: string) => SessionCost;
 }
 
 /** Where a session's design doc lives: the designs repo, its worktree and the directory. */
@@ -97,6 +112,8 @@ interface DesignReads {
     files: DesignFileView[];
     result: DesignResult;
     doc_missing: boolean;
+    /** The session's Goldfish runs; `[]` without the watcher. */
+    runs: GoldfishRun[];
 }
 
 export class DesignTracker {
@@ -320,16 +337,55 @@ export class DesignTracker {
             approvals: design.approvals ?? [],
             changed_after_approval: reads.result.changed_after_approval,
             gate: design.gate ?? null,
-            goldfish: [],
-            goldfish_live: 0,
-            cost_by_stage: {},
+            ...this.goldfish_fields(summary, reads.runs),
         };
+    }
+
+    /** `goldfish`, `goldfish_live` and `cost_by_stage` of the view (4.8). */
+    private goldfish_fields(
+        summary: SessionSummary,
+        runs: GoldfishRun[],
+    ): Pick<DesignView, "goldfish" | "goldfish_live" | "cost_by_stage"> {
+        if (this.deps.goldfish === undefined) {
+            return { goldfish: [], goldfish_live: 0, cost_by_stage: {} };
+        }
+        const children = this.deps.cost?.(summary.dir).children ?? {};
+        const steps = read_attributions(summary.path);
+        const goldfish: GoldfishView[] = [];
+        const cost_by_stage: DesignView["cost_by_stage"] = {};
+        for (const run of runs) {
+            const design_step = steps[run.run] ?? null;
+            for (const step of run.steps) {
+                const usd = children[child_key(run.run, step.index)]?.usd ?? 0;
+                goldfish.push({
+                    run: run.run,
+                    step: step.index,
+                    agent: step.agent,
+                    persona: step.agent.startsWith("egm-") ? step.agent.slice(4) : null,
+                    state: chip_state(step.status, run.state),
+                    model: step.model,
+                    tokens: step.tokens,
+                    usd,
+                    started: iso_or_null(step.started ?? run.started),
+                    last_activity: iso_or_null(step.last_activity),
+                    design_step,
+                    transcript: step.session_file !== null && existsSync(step.session_file),
+                });
+                if (design_step !== null) {
+                    cost_by_stage[design_step] = (cost_by_stage[design_step] ?? 0) + usd;
+                }
+            }
+        }
+        return { goldfish, goldfish_live: this.deps.goldfish.live_count(), cost_by_stage };
     }
 
     /** Lists the design files, reads the resolve report and the doc, and derives. */
     private reads(summary: SessionSummary, log_cap: boolean, waiting: boolean): DesignReads {
         const design = summary.session.design as DesignState;
         const files = this.design_files(summary, log_cap);
+        const lead_busy = this.deps.agents.is_busy(summary.dir, LEAD_NAME);
+        const runs =
+            this.deps.goldfish === undefined ? [] : session_runs(summary.path, lead_busy);
         const doc_path = this.doc_path(summary);
         const doc_missing = doc_path !== null && !existsSync(doc_path);
         const doc_hash =
@@ -349,11 +405,11 @@ export class DesignTracker {
             gate: design.gate ?? null,
             waiting,
             // The manager's busy flag runs from the lead's `agent_start` to `agent_settled`.
-            lead_busy: this.deps.agents.is_busy(summary.dir, LEAD_NAME),
-            // Build session 4 fills this from the Goldfish.
-            goldfish_running: 0,
+            lead_busy,
+            // A running Goldfish keeps the "lead waits" line off (T5).
+            goldfish_running: running_steps(runs),
         });
-        return { files, result, doc_missing };
+        return { files, result, doc_missing, runs };
     }
 
     /** `<session>/design/*.md` without dotfiles; past the cap the newest by mtime. */
@@ -381,8 +437,13 @@ export class DesignTracker {
         return files.slice(0, DESIGN_FILES_MAX);
     }
 
+    /** The files of `<session>/design/`, as the view lists them (5.3). */
+    files(summary: SessionSummary): DesignFileView[] {
+        return this.design_files(summary, false);
+    }
+
     /** The doc's absolute path in the worktree of `design.repo`, or null before `design_doc`. */
-    private doc_path(summary: SessionSummary): string | null {
+    doc_path(summary: SessionSummary): string | null {
         const design = summary.session.design;
         if (design?.doc === undefined || design.repo === undefined) {
             return null;
@@ -429,6 +490,10 @@ export class DesignTracker {
         this.watchers.delete(dir);
         await current?.watcher.close();
     }
+}
+
+function iso_or_null(ms: number | null): string | null {
+    return ms === null ? null : new Date(ms).toISOString();
 }
 
 /** True when a field the tracker derives differs between the read and the refreshed copy. */

@@ -8,7 +8,10 @@
 // `create_session` whose `web` worktree is a real clone of a bare origin, and an
 // `EgmFetcher` over a scratch pi agent dir. The lead's pi process is the one seam: an
 // `AgentManager` whose `get` answers a recording handle for `lead` while the test says it
-// runs, so a test reads the exact text that would reach pi.
+// runs, so a test reads the exact text that would reach pi. Build sessions 4 and 5 (4.9,
+// 5.3, 5.4): the Goldfish events route and the live cap read real `status.json` files
+// through a real `GoldfishWatcher` and `CostLedger`; the workspace routes read real files
+// under `<session>/design/` and the doc in the worktree.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -20,7 +23,9 @@ import type {
     SessionResponse,
     SessionSummary,
 } from "@spinner/protocol";
-import { EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES } from "@spinner/protocol";
+import type { AgentEventsResponse, DesignFilesResponse } from "@spinner/protocol";
+import { EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES, GOLDFISH_LIVE_MAX } from "@spinner/protocol";
+import { CostLedger } from "../costs/ledger.js";
 import type { AgentHandle } from "../agents/harness.js";
 import { AgentManager } from "../agents/manager.js";
 import { PiRpcHarness } from "../agents/harness.js";
@@ -35,6 +40,7 @@ import { build_session_view } from "../views/session-view.js";
 import { DesignTracker } from "./design.js";
 import { normalized_doc_hash } from "./derive-design.js";
 import { EgmFetcher, egm_source_dir, marker_path } from "./fetch.js";
+import { GoldfishWatcher } from "./goldfish.js";
 import { EGM_PIN } from "./pins.js";
 
 const DOC_TEXT = "# CSV\n\n## Overview\n\nRows.\n\n## Detailed Implementation Plan\n\n1. A.\n";
@@ -45,6 +51,8 @@ let summary: SessionSummary;
 let designs: string;
 let tracker: DesignTracker;
 let agents: RecordingAgents;
+let goldfish: GoldfishWatcher;
+let ledger: CostLedger;
 
 /** The lead's pi, recorded: every prompt and steer, in order, while `running` is true. */
 class RecordingAgents extends AgentManager {
@@ -95,6 +103,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+    goldfish.close();
     await tracker.close();
     rmSync(root, { recursive: true, force: true });
 });
@@ -119,7 +128,19 @@ function app_with(egm_ready: boolean): Hono {
     const writer = new MissionWriter(home, bus);
     const log = (): void => undefined;
     const refresh = async (): Promise<void> => undefined;
-    tracker = new DesignTracker({ home, cwd: root, agents, bus, writer, refresh, log });
+    goldfish = new GoldfishWatcher({ home, agents, bus, log, on_change: refresh });
+    ledger = new CostLedger(home);
+    tracker = new DesignTracker({
+        home,
+        cwd: root,
+        agents,
+        bus,
+        writer,
+        refresh,
+        log,
+        goldfish,
+        cost: (dir) => ledger.session_cost(dir),
+    });
     const design = tracker;
     const ctx = { home, cwd: root, gh: async () => "" };
     const view_ctx = {
@@ -148,6 +169,7 @@ function app_with(egm_ready: boolean): Hono {
         writer,
         egm: new EgmFetcher(home, { PI_CODING_AGENT_DIR: pi_dir }),
         design,
+        goldfish,
     });
 }
 
@@ -524,5 +546,187 @@ describe("POST /sessions/:dir/design/run (3.9)", () => {
         // A review loop records a run without a preset.
         expect((await post(app, "run", { skill: "egm-review-loop" })).status).toBe(200);
         expect(stored().design?.review_run).toMatchObject({ id: "r3", preset: null });
+    });
+});
+
+/** Writes one async run of the lead; each step's transcript holds one $`usd` message. */
+function goldfish_run(
+    run: string,
+    state: string,
+    steps: { agent: string; status: string }[],
+    usd = 0.25,
+): string[] {
+    const files: string[] = [];
+    const dir = join(summary.path, "egm-runs", "async-subagent-runs", run);
+    mkdirSync(dir, { recursive: true });
+    const entries = steps.map((step, index) => {
+        const file = join(
+            summary.path,
+            "agents",
+            "lead",
+            "pi",
+            "lead-session",
+            run,
+            `run-${index}`,
+            "session.jsonl",
+        );
+        mkdirSync(dirname(file), { recursive: true });
+        const message = {
+            role: "assistant",
+            content: [{ type: "text", text: `report of ${step.agent}` }],
+            provider: "anthropic",
+            model: "claude-fable-5-1",
+            usage: { input: 1, output: 2, cost: { total: usd } },
+            timestamp: 1,
+        };
+        writeFileSync(
+            file,
+            `${JSON.stringify({ type: "message", timestamp: "2026-11-02T10:00:00Z", message })}\n`,
+        );
+        files.push(file);
+        return { ...step, sessionFile: file, tokens: { total: 3 } };
+    });
+    writeFileSync(
+        join(dir, "status.json"),
+        JSON.stringify({ runId: run, state, startedAt: 1000, steps: entries }),
+    );
+    return files;
+}
+
+describe("Goldfish routes and view (4.8, 4.9)", () => {
+    it("shows each Goldfish in the view with cost by step, and serves its transcript", async () => {
+        const app = await named_app();
+        goldfish_run("r-a", "complete", [
+            { agent: "egm-zoom-out", status: "complete" },
+            { agent: "egm-design", status: "complete" },
+        ]);
+        writeFileSync(
+            join(summary.path, "egm-runs", "runs.json"),
+            JSON.stringify({ "r-a": "brainstorm" }),
+        );
+        ledger.refold();
+        const response = await app.request(`/sessions/${summary.dir}`);
+        const view = ((await response.json()) as SessionResponse).session;
+        const fish = view.design?.goldfish ?? [];
+        expect(
+            fish.map((entry) => [entry.persona, entry.state, entry.usd, entry.design_step]),
+        ).toEqual([
+            ["zoom-out", "done", 0.25, "brainstorm"],
+            ["design", "done", 0.25, "brainstorm"],
+        ]);
+        expect(fish.every((entry) => entry.transcript)).toBe(true);
+        expect(view.design?.cost_by_stage).toEqual({ brainstorm: 0.5 });
+        expect(view.cost).toBeUndefined();
+        const events = await app.request(`/sessions/${summary.dir}/egm/goldfish/r-a/1/events`);
+        expect(events.status).toBe(200);
+        const body = (await events.json()) as AgentEventsResponse;
+        expect(JSON.stringify(body.events)).toContain("report of egm-design");
+        for (const route of ["r-a/2", "r-x/0", "r-a/x"]) {
+            const missing = await app.request(
+                `/sessions/${summary.dir}/egm/goldfish/${route}/events`,
+            );
+            expect(missing.status, route).toBe(404);
+        }
+    });
+
+    it("answers 404 for a transcript outside the session's agents/", async () => {
+        const app = await named_app();
+        const dir = join(summary.path, "egm-runs", "async-subagent-runs", "r-out");
+        mkdirSync(dir, { recursive: true });
+        const outside = join(root, "outside.jsonl");
+        writeFileSync(outside, "{}\n");
+        const steps = [{ agent: "egm-design", status: "complete", sessionFile: outside }];
+        writeFileSync(
+            join(dir, "status.json"),
+            JSON.stringify({ runId: "r-out", state: "complete", steps }),
+        );
+        const response = await app.request(`/sessions/${summary.dir}/egm/goldfish/r-out/0/events`);
+        expect(response.status).toBe(404);
+    });
+
+    it("answers 409 for a skill start while 12 Goldfish run across sessions", async () => {
+        const app = await named_app();
+        const running = Array.from({ length: GOLDFISH_LIVE_MAX }, () => ({
+            agent: "egm-style",
+            status: "running",
+        }));
+        goldfish_run("r-live", "running", running);
+        goldfish.wake(summary.dir);
+        await goldfish.tick(summary.dir);
+        expect(goldfish.live_count()).toBe(GOLDFISH_LIVE_MAX);
+        const refused = await post(app, "run", { skill: "egm-brainstorm" });
+        expect(refused.status).toBe(409);
+        expect(await error_of(refused)).toBe(
+            "12 Goldfish are running across sessions (cap 12); start this skill when they finish",
+        );
+        // The 400 checks come first.
+        expect((await post(app, "run", { skill: "egm-nothing" })).status).toBe(400);
+        expect(agents.sent).toEqual([]);
+    });
+});
+
+describe("design workspace routes (5.3, 5.4)", () => {
+    function get(app: Hono, route: string): Promise<Response> {
+        return app.request(`/sessions/${summary.dir}/design/${route}`);
+    }
+
+    it("lists the files and the archived runs, newest first", async () => {
+        const app = await named_app();
+        const design = join(summary.path, "design");
+        writeFileSync(join(design, "concepts_brief.md"), "# Brief\n");
+        for (const run of ["r1", "r10", "r2", "notarun"]) {
+            mkdirSync(join(design, "reviews", run), { recursive: true });
+        }
+        const response = await get(app, "files");
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as DesignFilesResponse;
+        expect(body.files.map((file) => file.name)).toContain("concepts_brief.md");
+        expect(body.files.some((file) => file.name.startsWith("."))).toBe(false);
+        expect(body.review_runs).toEqual(["r10", "r2", "r1"]);
+        expect((await app.request("/sessions/s999-none/design/files")).status).toBe(404);
+    });
+
+    it("serves a design file and an archived report as markdown; 400 and 404", async () => {
+        const app = await named_app();
+        const design = join(summary.path, "design");
+        writeFileSync(join(design, "concepts_brief.md"), "# Brief\n");
+        writeFileSync(join(design, ".hidden.md"), "secret\n");
+        mkdirSync(join(design, "reviews", "r1"), { recursive: true });
+        writeFileSync(join(design, "reviews", "r1", "critic_report.md"), "# Critic\n");
+        const file = await get(app, "files/concepts_brief.md");
+        expect(file.status).toBe(200);
+        expect(file.headers.get("content-type")).toContain("text/markdown");
+        expect(await file.text()).toBe("# Brief\n");
+        const report = await get(app, "reviews/r1/critic_report.md");
+        expect(report.status).toBe(200);
+        expect(await report.text()).toBe("# Critic\n");
+        const bad = [
+            "files/.hidden.md",
+            "files/..%2Fsession.yaml",
+            "files/notes.txt",
+            "reviews/r123/critic_report.md",
+            "reviews/x1/critic_report.md",
+            "reviews/r1/..%2F..%2Fconcepts_brief.md",
+        ];
+        for (const route of bad) {
+            expect((await get(app, route)).status, route).toBe(400);
+        }
+        expect((await get(app, "files/absent.md")).status).toBe(404);
+        expect((await get(app, "reviews/r2/critic_report.md")).status).toBe(404);
+    });
+
+    it("serves the design doc from the worktree; 404 before design_doc", async () => {
+        const before = app_with(true);
+        expect((await put(before, "track", { track: "design" })).status).toBe(200);
+        expect((await get(before, "doc")).status).toBe(404);
+        goldfish.close();
+        await tracker.close();
+        const app = await named_app();
+        const doc = await get(app, "doc");
+        expect(doc.status).toBe(200);
+        expect(doc.headers.get("content-type")).toContain("text/markdown");
+        expect(await doc.text()).toBe(DOC_TEXT);
+        rmSync(join(designs, "csv.md"));
+        expect((await get(app, "doc")).status).toBe(404);
     });
 });
