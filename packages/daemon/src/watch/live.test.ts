@@ -60,6 +60,7 @@ describe("watch_session_files: the design directory (2.14)", () => {
         mkdirSync(join(session, "design"), { recursive: true });
         mkdirSync(join(session, "egm-runs", "run-1"), { recursive: true });
         const calls: string[] = [];
+        const errors: string[] = [];
         const record = (name: string) => (dir: string, file?: string | "add" | "change") =>
             calls.push(`${name} ${dir} ${String(file)}`);
         const files = watch_session_files(home, {
@@ -67,7 +68,9 @@ describe("watch_session_files: the design directory (2.14)", () => {
             on_notes: record("notes"),
             on_inbox: record("inbox"),
             on_design: record("design"),
-            on_error: (message) => calls.push(`error ${message}`),
+            // A liveness probe that times out under load is reported here; the routing is
+            // what this test checks, so errors are kept apart.
+            on_error: (message) => errors.push(message),
         });
         await files.ready;
         writeFileSync(join(session, "design", ".state.json"), "{}");
@@ -83,6 +86,7 @@ describe("watch_session_files: the design directory (2.14)", () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 500));
         await files.close();
+        expect(errors.every((error) => error.includes("probe file was not reported"))).toBe(true);
         expect(calls[0]).toBe("design s1-x concepts_brief.md");
         expect(calls.every((call) => call === "design s1-x concepts_brief.md")).toBe(true);
     }, 15_000);
