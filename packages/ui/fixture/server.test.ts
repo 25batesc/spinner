@@ -522,7 +522,12 @@ it("the approve routes confirm the listed blockers, approve, show changes and re
     expect(cleared?.approved).toBeNull();
     expect(cleared?.changed_after_approval).toBe(false);
     expect(cleared?.approvals).toHaveLength(1);
-    expect((await call("DELETE", changed, "approve")).status).toBe(409);
+    expect((await call("DELETE", changed, "approve")).status).toBe(200);
+    // The round-3 session has no lead running: the build is refused, the approval alone not.
+    const idle = await call("POST", "s210-csv-round-3", "approve", { build: true });
+    expect(((await idle.json()) as DesignApproveRefusal).error).toContain("approve without");
+    expect((await call("POST", "s210-csv-round-3", "approve", { build: false })).status)
+        .toBe(200);
 });
 
 it("serves six Goldfish, one transcript and a session at the cap (entry 4.18)", async () => {

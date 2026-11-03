@@ -87,9 +87,12 @@ const DOC = DRAFT.replace("**Status:** Draft", "**Status:** Reviewed");
 /** `approved.md` of the changed session: the doc before its Technical Plan changed. */
 const APPROVED_DOC = DOC.replace(PLAN_NOW, PLAN_APPROVED);
 
-/** The changed session's one changed section. */
+/**
+ * The changed session's one changed section. As the daemon's `changed_sections`, a body
+ * starts after the heading line, so with the blank line under it, and ends trimmed.
+ */
 const CHANGES: DesignChange[] = [
-    { heading: "Technical Plan", approved: PLAN_APPROVED, current: PLAN_NOW },
+    { heading: "Technical Plan", approved: `\n${PLAN_APPROVED}`, current: `\n${PLAN_NOW}` },
 ];
 
 function report(title: string, line: string): string {

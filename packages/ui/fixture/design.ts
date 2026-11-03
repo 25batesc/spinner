@@ -240,9 +240,10 @@ export class DesignFixture {
     }
 
     /**
-     * T10 steps 1, 2 and 5: 409 without a doc, while resolving, with an open gate, and while
-     * `blockers_confirmed` does not confirm the listed blockers; else the approval stands and
-     * the stage is `approved`. The fixture runs no lead, so `build` is only recorded.
+     * T10 steps 1, 2 and 5: 409 without a doc, while resolving, with an open gate, while
+     * `blockers_confirmed` does not confirm the listed blockers, and with `build` while the
+     * lead is not running; else the approval stands and the stage is `approved`. The fixture
+     * runs no lead, so `build` is only recorded. The texts are the daemon's (`approve.ts`).
      */
     approve(response: ServerResponse, current: SessionView, body: Record<string, unknown>): void {
         const fault = approveFault(body);
@@ -264,9 +265,12 @@ export class DesignFixture {
         } else if (design.stage === "resolving") {
             refuse("the review findings are not resolved yet", null);
         } else if (design.gate !== null) {
-            refuse("the lead waits on a gate; answer it first", null);
+            refuse("the lead asked a question; answer it first", null);
         } else if (listed > 0 && request.blockers_confirmed !== listed) {
-            refuse(`the newest review report lists ${listed} blockers; confirm them`, listed);
+            refuse(`The newest review report lists ${listed} blockers.`, listed);
+        } else if (request.build && !current.agents_running.includes("lead")) {
+            refuse("the lead is not running; resume it from its tab, or approve without the build",
+                null);
         } else {
             const approval: DesignApproval = {
                 path: design.doc, repo: design.repo ?? "web", sha256: APPROVED_SHA, at: now(),
@@ -281,11 +285,11 @@ export class DesignFixture {
         }
     }
 
-    /** `DELETE …/design/approve`: the approval goes, `approvals` keeps it; 409 without one. */
+    /** `DELETE …/design/approve`: the approval goes, `approvals` keeps it; else a no-op. */
     unapprove(response: ServerResponse, current: SessionView): void {
         const design = current.design as DesignView;
         if (design.approved === null) {
-            sendJson(response, { error: "the design is not approved" }, 409);
+            sendJson(response, { session: current });
             return;
         }
         const change: Partial<DesignView> = {

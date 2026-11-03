@@ -113,7 +113,10 @@ function ChangeRow({ change }: { change: DesignChange }) {
     );
 }
 
-/** One side of a change; null means the section is absent on that side. */
+/**
+ * One side of a change; null means the section is absent on that side. A body starts with the
+ * blank line under its heading, which a `<pre>` would show, so the leading newlines go.
+ */
 function ChangeSide({ label, text }: { label: string; text: string | null }) {
     return (
         <div className="approve-side" data-side={label}>
@@ -121,7 +124,7 @@ function ChangeSide({ label, text }: { label: string; text: string | null }) {
             {text === null ? (
                 <p className="muted">absent</p>
             ) : (
-                <pre className="confirm-text">{text}</pre>
+                <pre className="confirm-text">{text.replace(/^\n+/, "")}</pre>
             )}
         </div>
     );
