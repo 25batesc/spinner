@@ -20,11 +20,21 @@ interface Loaded {
     error: string | null;
 }
 
-/** Loads the step's events once, and again every poll interval while `running`. */
-function useGoldfishTranscript(dir: string, run: string, step: number, running: boolean) {
+/**
+ * Loads the step's events once, and again every poll interval while `running`. A step whose
+ * view says it has no transcript file is not requested; the `session.updated` that flips
+ * `transcript` loads it.
+ */
+function useGoldfishTranscript(view: GoldfishView, dir: string) {
+    const { run, step, transcript: exists } = view;
+    const running = view.state === "running";
     const key = `${dir}/${run}/${step}`;
     const [loaded, setLoaded] = useState<Loaded | null>(null);
     useEffect(() => {
+        if (!exists) {
+            setLoaded({ key, transcript: null, error: null });
+            return;
+        }
         const abort = new AbortController();
         const load = () => {
             fetchGoldfishEvents(dir, run, step, abort.signal).then(
@@ -47,12 +57,12 @@ function useGoldfishTranscript(dir: string, run: string, step: number, running: 
             abort.abort();
             clearInterval(timer);
         };
-    }, [dir, run, step, running, key]);
+    }, [dir, run, step, running, exists, key]);
     return loaded?.key === key ? loaded : null;
 }
 
 export function GoldfishTranscript({ dir, view }: { dir: string; view: GoldfishView }) {
-    const loaded = useGoldfishTranscript(dir, view.run, view.step, view.state === "running");
+    const loaded = useGoldfishTranscript(view, dir);
     const facts = [
         view.state, view.model ?? "model unknown", `${tokensLabel(view.tokens)} tokens`,
         formatUsd(view.usd),

@@ -3233,10 +3233,13 @@ if (flow === "goldfish") {
         throw new Error(`the running transcript did not reload: ${first} then ${later}`);
     }
 
-    // A step without a transcript says so; a done one does not reload.
+    // A step without a transcript file says so and is not requested.
     await pickChip("security");
     await until("no transcript line", `${transcript}?.innerText
         .includes("This Goldfish has no transcript yet.") === true`);
+    await expectSame("no request without a transcript", await evaluate(`performance
+        .getEntriesByType("resource")
+        .filter((e) => e.name.includes("/egm/goldfish/e5f6a7b8/2/events")).length`), 0);
     await shot("A2-goldfish-no-transcript");
 
     // The lead chip returns to its tabs.
