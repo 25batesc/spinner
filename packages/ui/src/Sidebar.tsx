@@ -51,6 +51,24 @@ function TitleRow({ view, facts }: { view: SidebarView; facts: ViewFacts | undef
 }
 
 /**
+ * The pinned "+ New …" button of a section that opens the composer in the working area
+ * (s038). It is pressed while the composer it opens shows.
+ */
+export function NewButton(props: { label: string; active: boolean; onClick: () => void }) {
+    return (
+        <button
+            type="button"
+            className="side-add"
+            onClick={props.onClick}
+            aria-label={props.label}
+            aria-pressed={props.active}
+        >
+            + {props.label}
+        </button>
+    );
+}
+
+/**
  * The pinned "+ New …" button of a section. A click opens the form in its place with a
  * cancel at its head; the form closes itself after a start through `close`, and a cancel
  * keeps whatever draft the caller holds.

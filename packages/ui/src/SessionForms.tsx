@@ -1,7 +1,8 @@
-// The form that starts a session: one box for the paste, the project, the PRs the daemon
-// pulled out of the paste as checkboxes, and `Start`. It is pinned at the top of the sidebar's
-// sessions section (s020); the App clears the draft once the job that creates the session
-// finishes and selects the session, which opens on the lead's terminal.
+// The form that starts a session: one large box for the paste, the PRs the daemon pulled out
+// of the paste as checkboxes, the project, and `Start`. It fills the working area (s038) as
+// the composer: `+ New session` opens it, and the middle pane shows it while no session is
+// selected. The App clears the draft once the job that creates the session finishes and
+// selects the session.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { ProjectView } from "@spinner/protocol";
@@ -149,11 +150,9 @@ function PrChecklist(props: { extraction: Extraction; onToggle: (url: string) =>
 
 export interface ComposeFormProps {
     run: RunAction;
-    /** The draft lives with the caller, so a fold of the section keeps what was typed. */
+    /** The draft lives with the caller, so a switch to a session and back keeps the text. */
     draft: ComposeDraft;
     onDraft: (draft: ComposeDraft) => void;
-    /** Called once the start request is accepted; the sidebar folds the form on it. */
-    onStarted?: () => void;
 }
 
 export interface ComposeDraft {
@@ -164,7 +163,7 @@ export interface ComposeDraft {
 export const EMPTY_DRAFT: ComposeDraft = { text: "", project: "" };
 
 /** The compose box. `Start` posts the job; the drawer below shows it run. */
-export function ComposeForm({ run, draft, onDraft, onStarted }: ComposeFormProps) {
+export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
     const projects = useProjects();
     const { text, project } = draft;
     const setText = (next: string) => onDraft({ ...draft, text: next });
@@ -176,32 +175,28 @@ export function ComposeForm({ run, draft, onDraft, onStarted }: ComposeFormProps
         if (text.trim() === "") {
             return;
         }
-        void run("/sessions", startBody(text, project, extraction.ticked, extraction.prs)).then(
-            () => onStarted?.(),
-        );
+        void run("/sessions", startBody(text, project, extraction.ticked, extraction.prs));
     };
 
     return (
         <form className="compose-form" onSubmit={submit} aria-label="New session">
             <h3>New session</h3>
-            <label className="field">
-                <span className="field-label">What this is about</span>
-                <textarea
-                    value={text}
-                    onChange={(event) => setText(event.target.value)}
-                    placeholder="Paste what this is about: a sentence, a ticket, PR links."
-                    aria-label="What this is about"
-                    rows={6}
-                />
-            </label>
+            <textarea
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                placeholder={SESSION_PLACEHOLDER}
+                aria-label="What this is about"
+                rows={8}
+                autoFocus
+            />
             <PrChecklist extraction={extraction} onToggle={toggle} />
             {extraction.pending && <p className="muted compose-extracting">Looking for PRs…</p>}
             {extraction.error !== null && <p className="needs-human">{extraction.error}</p>}
-            <label className="field">
-                <span className="field-label">Project</span>
-                <ProjectSelect projects={projects} value={project} onChange={setProject} />
-            </label>
             <div className="compose-actions">
+                <label className="compose-project">
+                    <span className="field-label">Project</span>
+                    <ProjectSelect projects={projects} value={project} onChange={setProject} />
+                </label>
                 <button type="submit" className="primary" disabled={text.trim() === ""}>
                     Start
                 </button>
@@ -209,3 +204,6 @@ export function ComposeForm({ run, draft, onDraft, onStarted }: ComposeFormProps
         </form>
     );
 }
+
+const SESSION_PLACEHOLDER =
+    "What should this session be about? Paste a ticket, a PR link, or a sentence.";

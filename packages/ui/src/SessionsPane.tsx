@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 import type { SessionView } from "@spinner/protocol";
 
 import { designSteps, stepperText } from "./design.ts";
@@ -7,7 +5,7 @@ import { CostFigure, PrBadge, RoundBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import type { RunAction } from "./SessionForms.tsx";
-import { AddNew } from "./Sidebar.tsx";
+import { NewButton } from "./Sidebar.tsx";
 import { stackLine, stackUsageOf, type UsageSample } from "./usage.ts";
 
 export type { RunAction } from "./SessionForms.tsx";
@@ -17,8 +15,10 @@ export interface SessionsPaneProps {
     selected: string | undefined;
     onSelect: (dir: string) => void;
     run: RunAction;
-    /** The compose form, behind the pinned `+ New session` button; `close` folds it. */
-    compose: (close: () => void) => ReactNode;
+    /** The pinned `+ New session` button opens the composer in the working area. */
+    onNew: () => void;
+    /** True while the composer shows; the button reads as pressed. */
+    composing: boolean;
     /** The last usage sample, for the line beside each up stack. */
     usage: UsageSample | null;
 }
@@ -86,11 +86,11 @@ function SessionCard(props: {
 }
 
 export function SessionsPane(props: SessionsPaneProps) {
-    const { sessions, selected, onSelect, compose, usage } = props;
+    const { sessions, selected, onSelect, usage } = props;
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
             <div className="side-compose">
-                <AddNew label="New session">{compose}</AddNew>
+                <NewButton label="New session" active={props.composing} onClick={props.onNew} />
             </div>
             <ul className="session-list">
                 {sessions.map(([dir, view]) => (

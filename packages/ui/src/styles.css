@@ -402,14 +402,11 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     padding: 0 var(--space-3) var(--space-2); overflow: auto;
 }
 .sidebar[data-view="settings"] .side-body > .pane > .pane-head { display: none; }
-/* The new-session box in the column matches the new-review box: a small card whose header
-   names it, so the heading and the field labels hide; every `aria-label` stays. */
-.side-compose .compose-form { max-width: none; gap: var(--space-2); padding: var(--space-2); }
-.side-compose .compose-form h3, .side-compose .compose-form .field-label { display: none; }
-.side-compose .compose-form textarea {
-    min-height: 56px; height: 56px; resize: vertical; font-size: var(--text-dense);
+/* The `+ New …` button reads as pressed while the composer it opens shows. */
+.side-add[aria-pressed="true"] {
+    background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    color: var(--accent);
 }
-.side-compose .compose-actions { justify-content: flex-end; padding-top: 0; }
 .side-compose .rv-compose { margin-bottom: 0; }
 /* The three detail levels follow the column's width (`widthLevel` sets `data-level`): `full`
    is the whole card; `pills` keeps the title and the pills and drops the meta, the needs-you
@@ -490,6 +487,22 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 16px;
     line-height: 16px;
 }
+/* The composer (s038): the middle pane holds one large box in its centre and nothing else, as
+   in Devin. Under the box: the PRs found, then the project at the left and the one primary
+   button at the right. The drawer keeps its place at the bottom of the pane. */
+.composer-pane { display: flex; flex-direction: column; gap: var(--space-2); }
+.composer {
+    flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;
+    min-height: 0; padding: var(--space-5) var(--space-3);
+}
+.composer .compose-form {
+    width: 100%; max-width: 680px; padding: 0; background: none; border: 0;
+}
+.composer .compose-form textarea {
+    min-height: 168px; padding: var(--space-3); font-size: var(--text-body);
+    background: var(--surface); border-radius: var(--radius-box);
+}
+.composer .compose-actions { justify-content: space-between; padding-top: 0; }
 /* A form card: a heading, a visible label over each field, the filled primary button first. */
 .compose-form {
     display: flex; flex-direction: column; gap: var(--space-3); max-width: 520px;
@@ -520,7 +533,10 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     display: block; padding-left: 26px; font-size: var(--text-meta); color: var(--warn);
 }
 .compose-extracting { margin: 0; font-size: var(--text-meta); }
-.compose-actions { display: flex; gap: var(--space-2); padding-top: var(--space-1); }
+.compose-actions {
+    display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-1);
+}
+.compose-project { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .compose-actions button { height: var(--control-form); padding: 0 14px; }
 .session.session-selected {
     border-color: color-mix(in srgb, var(--accent) 50%, transparent);
