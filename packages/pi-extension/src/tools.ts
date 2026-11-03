@@ -313,6 +313,11 @@ export async function run_tool(
                 "review pane; do not post."
             );
         }
+        case "design_doc": {
+            const path = text("path").trim();
+            await client.send<SessionResponse>("PUT", `${session}/design/doc`, { path });
+            return `Spinner tracks ${path} as the design doc.`;
+        }
         default:
             throw new Error(`${spec.name} is not implemented in this role`);
     }

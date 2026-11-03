@@ -90,6 +90,14 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 answer(200, { ok: true, disposition: "queued" });
             } else if (path === `/sessions/${DIR}`) {
                 answer(200, { session: { stack: { services: [] } } });
+            } else if (path === `/sessions/${DIR}/design/doc`) {
+                const doc = (body as { path: string }).path;
+                if (doc.endsWith("brief.md")) {
+                    const lacks = "this file lacks ## Overview, ## Detailed Implementation Plan";
+                    answer(400, { error: `a design doc has ... headings; ${lacks}` });
+                } else {
+                    answer(200, { session: { summary: { session: { title: "x" } } } });
+                }
             } else if (path === `/sessions/${DIR}/review/briefing`) {
                 answer(200, { ok: true });
             } else if (path === `/sessions/${DIR}/review/draft`) {
@@ -156,6 +164,7 @@ describe("the lead role", () => {
         expect(names).toContain("agent_steer");
         expect(names).not.toContain("session_new");
         expect(names).not.toContain("thread_reply");
+        expect(names).toContain("design_doc");
         const handler = pi.handlers.get("before_agent_start")?.[0];
         const event: BeforeAgentStartEvent = { systemPromptOptions: { sections: {} } };
         await handler?.(event as never, {} as never);
@@ -285,9 +294,29 @@ describe("the lead role", () => {
             await expect(
                 run(pi, "review_draft", { event: "COMMENT", body: "x", comments: "not json" }),
             ).rejects.toThrow(/JSON array/);
+            // The design doc (EGM, build session 2, 2.7).
+            const doc = "/w/web/docs/designs/csv-export.md";
+            expect(await run(pi, "design_doc", { path: doc })).toBe(
+                `Spinner tracks ${doc} as the design doc.`,
+            );
+            expect(daemon.requests.at(-1)).toEqual({
+                method: "PUT",
+                path: `/sessions/${DIR}/design/doc`,
+                body: { path: doc },
+            });
+            await expect(
+                run(pi, "design_doc", { path: "/w/web/docs/designs/brief.md" }),
+            ).rejects.toThrow(/400: a design doc has .* this file lacks ## Overview/);
         } finally {
             daemon.close();
         }
+    });
+
+    it("gives design_doc to the lead only, not to a worker (2.8)", () => {
+        const worker = fake_pi();
+        register(worker, { env: { ...env_for(""), SPINNER_AGENT: "web", SPINNER_ROLE: "worker" } });
+        expect(worker.tools.has("design_doc")).toBe(false);
+        expect(worker.tools.has("mission_log")).toBe(true);
     });
 
     it("blocks the bash calls the operator keeps", () => {
