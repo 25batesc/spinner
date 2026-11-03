@@ -222,26 +222,27 @@ export interface DesignPaths {
 }
 
 /**
- * The prefills of the menu's dialogs. `SessionView.design` names the doc repo-relative and
- * carries neither its repo nor the designs directory, so this takes the approval's repo, else
- * the first repo with a worktree, and `DESIGN_DEFAULT_DIR`. The operator confirms or edits
- * each value before the run; the daemon composes the arguments of `draft` and `review` itself.
+ * The prefills of the menu's dialogs. The doc's repo is `design.repo` (the doc's repo, else
+ * the designs repo), and the designs directory is `design.designs_dir`, both from the daemon.
+ * A daemon before 0df3a92 sends neither: then this takes the approval's repo, else the first
+ * repo with a worktree, and `DESIGN_DEFAULT_DIR` in it. The operator confirms or edits each
+ * value before the run; the daemon composes the arguments of `draft` and `review` itself.
  */
 export function designPaths(view: SessionView): DesignPaths {
     const repos = view.summary.session.repos;
-    const named = view.design?.approved?.repo;
-    const key = named !== undefined && repos[named]?.worktree !== undefined
-        ? named
-        : Object.keys(repos).find((name) => repos[name]?.worktree !== undefined);
+    const hasWorktree = (name: string | null | undefined): name is string =>
+        typeof name === "string" && repos[name]?.worktree !== undefined;
+    const named = [view.design?.repo, view.design?.approved?.repo].find(hasWorktree);
+    const key = named ?? Object.keys(repos).find(hasWorktree);
     const worktree = key === undefined ? undefined : repos[key]?.worktree;
     if (worktree === undefined) {
-        return { doc: null, designs: null, root: null };
+        return { doc: null, designs: view.design?.designs_dir ?? null, root: null };
     }
     const root = joinPath(view.summary.path, worktree);
     const doc = view.design?.doc ?? null;
     return {
         doc: doc === null ? null : joinPath(root, doc),
-        designs: joinPath(root, DESIGN_DEFAULT_DIR),
+        designs: view.design?.designs_dir ?? joinPath(root, DESIGN_DEFAULT_DIR),
         root,
     };
 }

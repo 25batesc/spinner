@@ -283,6 +283,26 @@ describe("designPaths", () => {
         expect(designPaths(view).root).toBe("/home/op/.spinner/sessions/s1-csv/api");
     });
 
+    it("takes the daemon's repo and designs directory over the fallback", () => {
+        const designs = "/home/op/.spinner/sessions/s1-csv/api/docs/rfcs";
+        const view = sessionView({ repo: "api", designs_dir: designs }, {
+            web: { path: "~/src/web", worktree: "web", changed: false },
+            api: { path: "~/src/api", worktree: "api", changed: false },
+        });
+        expect(designPaths(view)).toEqual({
+            doc: "/home/op/.spinner/sessions/s1-csv/api/docs/designs/csv-export.md",
+            designs,
+            root: "/home/op/.spinner/sessions/s1-csv/api",
+        });
+    });
+
+    it("falls back to the first worktree when the daemon's repo has none", () => {
+        const view = sessionView({ repo: "docs" }, {
+            web: { path: "~/src/web", worktree: "web", changed: false },
+        });
+        expect(designPaths(view).root).toBe("/home/op/.spinner/sessions/s1-csv/web");
+    });
+
     it("gives no doc before design_doc and nothing without a worktree", () => {
         const before = sessionView({ doc: null }, {
             web: { path: "~/src/web", worktree: "web", changed: false },

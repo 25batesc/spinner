@@ -494,6 +494,11 @@ export function gateNeeds(question: string): string {
     return `answer the lead: ${question.slice(0, 80)}`;
 }
 
+/** `DesignView.repo` and `designs_dir` as the daemon sets them for a `web` worktree. */
+function designsOf(dir: string): Pick<DesignView, "repo" | "designs_dir"> {
+    return { repo: "web", designs_dir: `/home/fixture/.spinner/sessions/${dir}/web/docs/designs` };
+}
+
 /** The two earlier rounds of the round-3 session: one merged PR, then one closed and one open. */
 export const ROUNDS_OF_R3: RoundView[] = [
     {
@@ -549,8 +554,9 @@ export function initialDesignSessions(): SessionView[] {
             agents: lead,
             repos: { web: { path: "~/src/web", worktree: "web", changed: false } },
         });
-        const plain = view(`${id}-${slug}`, base, stackView(id, "none"), [], ["lead"]);
-        return { ...plain, design: designView(stage), round: 1, rounds: [] };
+        const dir = `${id}-${slug}`;
+        const plain = view(dir, base, stackView(id, "none"), [], ["lead"]);
+        return { ...plain, design: designView(stage, designsOf(dir)), round: 1, rounds: [] };
     });
     const direct = session({
         id: "s209", slug: "csv-direct", title: "CSV export · direct track",
@@ -577,7 +583,8 @@ export function initialDesignSessions(): SessionView[] {
     });
     const gatedView = {
         ...view("s211-csv-gate", gated, stackView("s211", "none"), [], ["lead"]),
-        design: designView("brainstorm", { gate: FIXTURE_GATE }), round: 1, rounds: [],
+        design: designView("brainstorm", { gate: FIXTURE_GATE, ...designsOf("s211-csv-gate") }),
+        round: 1, rounds: [],
     };
     return [...designs, directView, thirdView, gatedView];
 }

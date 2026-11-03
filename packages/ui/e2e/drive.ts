@@ -2785,6 +2785,15 @@ if (flow === "design-actions") {
     await shot("94-design-resolve-dialog");
     await click(".design-dialog button", "run");
     await until("resolve dialog closed", `${dialog} === null`);
+    await click(".context-bar .design-menu > button", "EGM");
+    await until("EGM menu again", `document.querySelector(".design-menu .menu") !== null`);
+    await click(".design-menu .menu button", "drift report");
+    await until("drift dialog", `${dialog}?.getAttribute("aria-label") === "Drift report"`);
+    await expectSame("designs prefill", await evaluate(
+        `document.querySelector(".design-dialog input").value`),
+        "/home/fixture/.spinner/sessions/s204-csv-drafted/web/docs/designs");
+    await click(".design-dialog button", "cancel");
+    await until("drift dialog closed", `${dialog} === null`);
     await expectSame("drafted runs", await received("s204-csv-drafted"), {
         answers: [], runs: [
             { skill: "egm-review", preset: "uninterrupted" },
