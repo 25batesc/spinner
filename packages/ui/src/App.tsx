@@ -22,6 +22,9 @@ import {
 } from "./Preview.tsx";
 import { gateCard } from "./design.ts";
 import { diffJob } from "./diff-view.ts";
+import {
+    focusedDir, loadFocus, NO_FOCUS, pickFocus, saveFocus, type Focus, type FocusPanel,
+} from "./focus.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
 import { ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
@@ -89,10 +92,30 @@ export function paneRouteOf(search: string): PaneRoute | undefined {
     return { pane: pane as PaneName, session: params.get("session") ?? undefined };
 }
 
+function windowStorage(): Storage | undefined {
+    try {
+        return window.sessionStorage;
+    } catch {
+        return undefined;
+    }
+}
+
 /** View state and the action runner, shared by the main layout and a pane route. */
-function useAppState(state: UiState, initial: string | undefined) {
-    // The daemon never sends which session or job the operator looks at.
-    const [picked, setPicked] = useState<string | undefined>(initial);
+function useAppState(state: UiState, route: PaneRoute | undefined) {
+    // The daemon never sends which session or job the operator looks at. The main window
+    // remembers it across a reload (`focus.ts`); a pane route takes it from its URL.
+    const inRoute = route !== undefined;
+    const [focus, setFocus] = useState<Focus>(() =>
+        route === undefined
+            ? loadFocus(windowStorage())
+            : { ...NO_FOCUS, session: route.session },
+    );
+    useEffect(() => {
+        if (!inRoute) {
+            saveFocus(windowStorage(), focus);
+        }
+    }, [focus, inRoute]);
+    const pick = (panel: FocusPanel, dir: string) => setFocus((old) => pickFocus(old, panel, dir));
     const [watched, setWatched] = useState<string | undefined>(undefined);
     const [actionError, setActionError] = useState<string | null>(null);
     // True while the middle pane shows the compose box; it closes when the session exists or
@@ -101,7 +124,7 @@ function useAppState(state: UiState, initial: string | undefined) {
     const [draft, setDraft] = useState<ComposeDraft>(EMPTY_DRAFT);
 
     const sessions = sortedSessions(state);
-    const selected = picked !== undefined && picked in state.sessions ? picked : sessions[0]?.[0];
+    const selected = focusedDir(focus, sessions);
     const view = selected === undefined ? undefined : state.sessions[selected];
     const feed = selected === undefined ? [] : state.feed.filter((l) => l.session === selected);
     const busy = selected !== undefined && runningJob(state, selected) !== undefined;
@@ -113,7 +136,7 @@ function useAppState(state: UiState, initial: string | undefined) {
             job?.action === "reviews";
         const created = job?.state === "ok" && creates;
         if (created && job.session !== null) {
-            setPicked(job.session);
+            pick(job.action === "reviews" ? "reviews" : "sessions", job.session);
             setCompose(false);
         }
     }, [job?.state, job?.action, job?.session]);
@@ -140,18 +163,19 @@ function useAppState(state: UiState, initial: string | undefined) {
     };
     return {
         sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
-        setPicked, setActionError, compose, setCompose, draft, setDraft,
+        focus, pick, setActionError, compose, setCompose, draft, setDraft,
     };
 }
 
 export function App() {
     const route = paneRouteOf(window.location.search);
     const state = useSpinner();
-    const app = useAppState(state, route?.session);
-    const { sessions, selected, view, feed, busy, run, setPicked } = app;
+    const app = useAppState(state, route);
+    const { sessions, selected, view, feed, busy, run } = app;
     const layout = useLayout();
     // The side panel shows the sessions or, from the gear at the bottom of the bar, settings.
-    const [panelView, setPanelView] = useState<PanelView["id"]>("sessions");
+    // A reload opens it on the list whose selection the middle pane shows.
+    const [panelView, setPanelView] = useState<PanelView["id"]>(app.focus.panel);
     // The middle pane shows the selected session or, from the headset icon, the operator agent.
     const [middle, setMiddle] = useState<"agents" | "operator">("agents");
     // The agents pane's view and picked agent live here (entry 3.22), so the `needs you` pill
@@ -295,7 +319,7 @@ export function App() {
             busy={busy}
             onSelect={(dir) => {
                 app.setCompose(false);
-                setPicked(dir);
+                app.pick("reviews", dir);
             }}
             run={run}
             controls={inRoute ? undefined : []}
@@ -308,7 +332,7 @@ export function App() {
             selected={selected}
             onSelect={(dir) => {
                 app.setCompose(false);
-                setPicked(dir);
+                app.pick("sessions", dir);
             }}
             run={run}
             onCompose={() => app.setCompose(true)}
