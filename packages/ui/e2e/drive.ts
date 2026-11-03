@@ -14,8 +14,12 @@
 // flow `about-egm` reads the About EGM block in settings and watches it reload after a
 // refetch. The flow `design-stepper` reads the EGM stepper, the card's dots and the track
 // chip, folds the stepper at 1100 px and checks one line at 1000 px; `rounds` reads the round
-// badge and its tooltip. Both read the fixture's EGM sessions. It works against the fixture
-// server or the real daemon.
+// badge and its tooltip. Both read the fixture's EGM sessions. The flow `design-actions`
+// runs the toolbar's design group: the primary button per stage, its dialogs, the `EGM ▾`
+// menu, a refusal in the drawer and the compact menu; `design-gate` answers the gate card from
+// the `needs you` pill, the resolve card, and a gate the lead asks while the page is open.
+// Both read the fixture's `GET …/design/received`, so they run against the fixture only. The
+// other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import { EGM_LICENSE, EGM_NOTICE, EGM_SOURCE_URL } from "@spinner/protocol";
@@ -2534,9 +2538,16 @@ if (flow === "design-stepper") {
     // shows the five steps as dots. The direct session switches to `design` on the track
     // chip and back. At 1100 px (`TOOLBAR_COMPACT_PX - 100`) the stepper folds to
     // `EGM 3/5 Review`; at 1000 px the context bar keeps one 36 px line. An active step
-    // waits (warn) while the session needs the operator.
+    // waits (warn) while the session needs the operator. The full stepper is read at 1920 px:
+    // with the design group of build session 3 it does not fit a 1500 px bar, so there it
+    // folds too, and the bar keeps its width and a 120 px title (`TITLE_MIN_PX`).
     const bar = `document.querySelector(".context-bar")`;
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
     const steps = `[...document.querySelectorAll(".context-bar .egm-step")]`;
+    const compactText =
+        `(document.querySelector(".context-bar .egm-compact")?.textContent ?? "")`;
     const fail = async (message: string): Promise<never> => {
         await shot("failure");
         await closeTarget();
@@ -2601,13 +2612,26 @@ if (flow === "design-stepper") {
             ?.dataset.state === "waiting"`);
     await shot("86-design-waiting");
 
-    // Folded under `TOOLBAR_COMPACT_PX`: one pill with the whole stepper in its tooltip.
+    // Folded where the full stepper does not fit: 1500 px, the bar without overflow.
     await click(".session", "CSV export \u00b7 design-review");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await until("folded at 1500 px", `${compactText} === "EGM 3/5 Review"`);
+    const fit = await evaluate(`({
+        overflow: ${bar}.scrollWidth - ${bar}.clientWidth,
+        title: document.querySelector(".context-bar .context-title").clientWidth >= 120,
+    })`);
+    if (JSON.stringify(fit) !== JSON.stringify({ overflow: 0, title: true })) {
+        await fail(`the 1500 px bar does not fit: ${JSON.stringify(fit)}`);
+    }
+    await shot("87a-design-stepper-1500");
+
+    // Folded under `TOOLBAR_COMPACT_PX`: one pill with the whole stepper in its tooltip.
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1100, height: 900, deviceScaleFactor: 1, mobile: false,
     });
-    const compact = `(document.querySelector(".context-bar .egm-compact")?.textContent ?? "")`;
-    await until("compact label", `${compact} === "EGM 3/5 Review"`);
+    await until("compact label", `${compactText} === "EGM 3/5 Review"`);
     const tip = await evaluate(`document.querySelector(".context-bar .egm-compact").title`);
     if (typeof tip !== "string" || !tip.includes("3 Review active")) {
         await fail(`the folded stepper's tooltip lacks the steps: ${JSON.stringify(tip)}`);
@@ -2662,6 +2686,236 @@ if (flow === "rounds") {
     }
     await shot("89-rounds");
     console.log("rounds ok");
+    await finish();
+}
+
+/** What the fixture received on a session's design routes (`fixture/design.ts`). */
+async function received(dir: string): Promise<{ answers: string[]; runs: unknown[] }> {
+    const url = new URL(`/sessions/${dir}/design/received`, uiUrl);
+    return (await (await fetch(url)).json()) as { answers: string[]; runs: unknown[] };
+}
+
+/** Throws after a shot and a closed tab when `got` is not `wanted`. */
+async function expectSame(label: string, got: unknown, wanted: unknown): Promise<void> {
+    console.log(`${label}:`, JSON.stringify(got));
+    if (JSON.stringify(got) !== JSON.stringify(wanted)) {
+        await shot("failure");
+        await closeTarget();
+        throw new Error(`${label} is not the one expected: ${JSON.stringify(wanted)}`);
+    }
+}
+
+if (flow === "design-actions") {
+    // The toolbar's design group (docs/designs/egm-adoption.md, entries 3.18 to 3.20, 3.24)
+    // against the fixture. One filled primary per stage, left of the stack group; brainstorm
+    // asks an optional concept, review design a preset with `consolidated report` checked,
+    // draft runs at once; drafting has no primary. The `EGM ▾` menu lists 7 skills with
+    // bootstrap disabled before approval, 2 on the direct track; resolve prefills the doc's
+    // absolute path. A refused run lands in the drawer. At 1100 px the group opens the `⋯` menu.
+    const primary = `document.querySelector(".context-bar .design-group > .primary")`;
+    const dialog = `document.querySelector(".design-dialog")`;
+    const pick = async (title: string) => {
+        await click(".session", title);
+        await until(`${title} selected`, `${text(".context-title")} === ${JSON.stringify(title)}`);
+    };
+    await pick("CSV export \u00b7 intake");
+    await until("brainstorm primary", `${primary}?.textContent === "brainstorm"`);
+    await expectSame("toolbar order", await evaluate(`[...document.querySelector(
+        ".context-bar .toolbar").children].map((c) => c.className)`), [
+        "toolbar-group design-group", "toolbar-sep", "toolbar-group", "toolbar-sep",
+        "toolbar-group", "toolbar-sep", "toolbar-group toolbar-menu",
+    ]);
+    await shot("90-design-intake");
+    await click(".context-bar .design-group > .primary", "brainstorm");
+    await until("concept dialog", `${dialog}?.getAttribute("aria-label") === "Brainstorm"`);
+    await fill("textarea[aria-label=Concept]", "CSV export of the orders list");
+    await shot("91-design-brainstorm-dialog");
+    await click(".design-dialog button", "run");
+    await until("concept dialog closed", `${dialog} === null`);
+    await expectSame("brainstorm run", await received("s201-csv-intake"), {
+        answers: [], runs: [{ skill: "egm-brainstorm", args: "CSV export of the orders list" }],
+    });
+
+    await pick("CSV export \u00b7 brainstorm");
+    await until("draft primary", `${primary}?.textContent === "draft"`);
+    await click(".context-bar .design-group > .primary", "draft");
+    await until("draft posted", `${dialog} === null`);
+    await expectSame("draft run", await received("s202-csv-brainstorm"), {
+        answers: [], runs: [{ skill: "egm-draft" }],
+    });
+
+    await pick("CSV export \u00b7 drafting");
+    await until("no primary while drafting", `${primary} === null`);
+
+    await pick("CSV export \u00b7 drafted");
+    await until("review primary", `${primary}?.textContent === "review design"`);
+    await click(".context-bar .design-group > .primary", "review design");
+    await until("preset dialog", `${dialog}?.getAttribute("aria-label") === "Review the design"`);
+    await expectSame("presets", await evaluate(`[...document.querySelectorAll(
+        ".design-preset")].map((l) => [l.querySelector("input").value,
+        l.querySelector("input").checked, l.childNodes[1].textContent.trim()])`), [
+        ["interactive", false, "interactive, a gate after each stage"],
+        ["uninterrupted", true, "consolidated report"],
+        ["feature_spec", false, "feature spec first"],
+        ["implementation", false, "implementation plan"],
+    ]);
+    await shot("92-design-review-dialog");
+    await click(".design-dialog button", "run");
+    await until("preset dialog closed", `${dialog} === null`);
+
+    // The menu: 7 skills, bootstrap disabled with the guard's reason.
+    await click(".context-bar .design-menu > button", "EGM");
+    await until("EGM menu", `document.querySelector(".design-menu .menu") !== null`);
+    await expectSame("menu", await evaluate(`[...document.querySelectorAll(
+        ".design-menu .menu button")].map((b) => [b.textContent, b.disabled])`), [
+        ["brainstorm", false], ["draft", false], ["review design", false],
+        ["review loop", false], ["resolve", false], ["drift report", false],
+        ["bootstrap", true],
+    ]);
+    const guard = await evaluate(
+        `document.querySelector(".design-menu .menu button[data-skill=egm-bootstrap]").title`);
+    await expectSame("bootstrap tooltip", guard,
+        "the design-only scope blocks README writes; use a direct-track session");
+    await shot("93-design-egm-menu");
+    await click(".design-menu .menu button", "resolve");
+    await until("resolve dialog", `${dialog}?.getAttribute("aria-label") === "Resolve"`);
+    const doc = "/home/fixture/.spinner/sessions/s204-csv-drafted/web/docs/designs/csv-export.md";
+    await expectSame("target prefill", await evaluate(
+        `document.querySelector(".design-dialog input").value`), doc);
+    await shot("94-design-resolve-dialog");
+    await click(".design-dialog button", "run");
+    await until("resolve dialog closed", `${dialog} === null`);
+    await expectSame("drafted runs", await received("s204-csv-drafted"), {
+        answers: [], runs: [
+            { skill: "egm-review", preset: "uninterrupted" },
+            { skill: "egm-resolve", args: doc },
+        ],
+    });
+
+    // A refusal goes to the drawer: a review with a preset before the doc exists is a 409.
+    await pick("CSV export \u00b7 intake");
+    await click(".context-bar .design-menu > button", "EGM");
+    await until("EGM menu on intake", `document.querySelector(".design-menu .menu") !== null`);
+    await click(".design-menu .menu button", "review design");
+    await until("preset dialog on intake", `${dialog} !== null`);
+    await click(".design-dialog button", "run");
+    await until("refusal in the drawer",
+        `${text(".drawer .needs-human")}.includes("no design doc yet")`);
+    await shot("95-design-refused");
+    await click(".design-dialog button", "cancel");
+    await until("refused dialog closed", `${dialog} === null`);
+
+    // The direct track: drift report and bootstrap only.
+    await pick("CSV export \u00b7 direct track");
+    await until("no primary on direct", `${primary} === null`);
+    await click(".context-bar .design-menu > button", "EGM");
+    await until("EGM menu on direct", `document.querySelector(".design-menu .menu") !== null`);
+    await expectSame("direct menu", await evaluate(`[...document.querySelectorAll(
+        ".design-menu .menu button")].map((b) => b.textContent)`), ["drift report", "bootstrap"]);
+    await click(".context-bar .design-menu > button", "EGM");
+
+    // Compact: the design group opens the `⋯` menu, the primary first.
+    await pick("CSV export \u00b7 intake");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1100, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await until("compact toolbar", `document.querySelector(".toolbar-compact") !== null`);
+    await click(".toolbar-menu > .icon-button");
+    await until("compact menu", `document.querySelector(".toolbar-menu .menu") !== null`);
+    await expectSame("compact menu", await evaluate(`(() => {
+        const first = document.querySelector(".toolbar-menu .menu").firstElementChild;
+        return [first.className, [...first.querySelectorAll("button")]
+            .map((b) => b.textContent)];
+    })()`), ["toolbar-group design-group", [
+        "brainstorm", "brainstorm", "draft", "review design", "review loop", "resolve",
+        "drift report", "bootstrap",
+    ]]);
+    await shot("96-design-compact-menu");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("design-actions ok");
+    await finish();
+}
+
+if (flow === "design-gate") {
+    // The gate cards (entries 3.21, 3.22, 3.24) against the fixture. The gate session's
+    // `needs you` pill opens the `agents` view with `lead` picked and the gate card above the
+    // chips: the question as markdown and one button per option. A click sends the option's
+    // full text and the card goes on the next `session.updated`. The resolving session shows
+    // the resolve card; `auto accept` sends `Auto accept`. A gate the lead asks while the page
+    // is open shows at once, and the "other answer" box answers it.
+    const card = `document.querySelector(".agents-pane .design-gate")`;
+    const needs = `document.querySelector(".context-bar .context-needs")`;
+    await click(".session", "CSV export \u00b7 gate");
+    await until("gate session", `${text(".context-title")} === "CSV export \u00b7 gate"`);
+    await click(".agents-pane .view-tab", "mission");
+    await until("mission view", `document.querySelector(".agents-view")?.hidden === true`);
+    await until("needs pill is a button", `${needs}?.tagName === "BUTTON"`);
+    await click(".context-bar .context-needs");
+    await until("gate card shown", `${card} !== null
+        && document.querySelector(".agents-view")?.hidden === false`);
+    await expectSame("gate card", await evaluate(`({
+        kind: ${card}.dataset.kind,
+        title: ${card}.querySelector(".design-gate-title").textContent,
+        strong: [...${card}.querySelectorAll(".design-gate-question strong")]
+            .map((e) => e.textContent),
+        options: [...${card}.querySelectorAll(".design-gate-options button")]
+            .map((b) => b.textContent),
+        lead: document.querySelector(".chip-selected .chip-name")?.dataset.name,
+        aboveChips: ${card}.nextElementSibling?.classList.contains("chips"),
+    })`), {
+        kind: "gate", title: "The lead asks", strong: ["Streamed CSV", "Background job"],
+        options: [
+            "Streamed CSV from the list page", "Background job with a mailed link",
+            "Both, picked by row count",
+        ],
+        lead: "lead",
+        aboveChips: true,
+    });
+    await shot("97-design-gate");
+    await click(".design-gate-options button", "Background job");
+    await until("gate card gone", `${card} === null`);
+    await until("needs cleared", `${needs} === null`);
+    await expectSame("gate answer", await received("s211-csv-gate"), {
+        answers: ["Background job with a mailed link"], runs: [],
+    });
+    await shot("98-design-gate-answered");
+
+    // A gate the lead asks now: the card shows from `session.updated`; the box answers it.
+    const asked = await fetch(new URL("/sessions/s211-csv-gate/design/gate", uiUrl), {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: "Name the CSV columns?", options: ["Yes", "No"] }),
+    });
+    await expectSame("gate put", asked.status, 200);
+    await until("new gate card", `${card}?.innerText.includes("Name the CSV columns?") === true`);
+    await fill(".design-gate-other input", "Only id, total and date");
+    await click(".design-gate-other button", "send");
+    await until("new gate card gone", `${card} === null`);
+
+    await click(".session", "CSV export \u00b7 resolving");
+    await until("resolve card", `${card}?.dataset.kind === "resolve"`);
+    await expectSame("resolve card", await evaluate(`({
+        title: ${card}.querySelector(".design-gate-title").textContent,
+        options: [...${card}.querySelectorAll(".design-gate-options button")]
+            .map((b) => [b.textContent, b.title]),
+    })`), {
+        title: "Resolve the review findings",
+        options: [
+            ["auto accept", "Auto accept"], ["continue", "Continue"],
+            ["interactive breakdown", "Interactive breakdown"],
+        ],
+    });
+    await shot("99-design-resolve");
+    await click(".design-gate-options button", "auto accept");
+    await until("resolve card gone", `${card} === null`);
+    await expectSame("resolve answer", await received("s206-csv-resolving"), {
+        answers: ["Auto accept"], runs: [],
+    });
+    await expectSame("other answer", await received("s211-csv-gate"), {
+        answers: ["Background job with a mailed link", "Only id, total and date"], runs: [],
+    });
+    console.log("design-gate ok");
     await finish();
 }
 

@@ -280,6 +280,7 @@ button.track-chip:hover { background: var(--fill); color: var(--text); }
 .design-group > button.primary + .design-menu > button {
     margin-left: -1px; border-radius: 0 var(--radius-control) var(--radius-control) 0;
 }
+.design-menu .menu button { justify-content: flex-start; height: auto; }
 .menu button:disabled { opacity: 0.4; cursor: default; }
 .menu button:disabled:hover { background: transparent; }
 .design-presets {

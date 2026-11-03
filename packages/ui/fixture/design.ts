@@ -94,7 +94,11 @@ export function runFault(body: Record<string, unknown>): string | null {
 export class DesignFixture {
     received = new Map<string, DesignReceived>();
 
-    constructor(private readonly host: DesignHost) {}
+    readonly host: DesignHost;
+
+    constructor(host: DesignHost) {
+        this.host = host;
+    }
 
     /**
      * Handles a design route; false when `path` is not one, so the caller goes on. The body

@@ -512,7 +512,12 @@ export function ContextBar(props: ContextBarProps) {
             </span>
             <RoundBadge view={view} />
             {view.design?.track === "design" ? (
-                <DesignStepper design={view.design} stage={stageOf(view)} needs={needs} />
+                <DesignStepper
+                    key={view.summary.dir}
+                    design={view.design}
+                    stage={stageOf(view)}
+                    needs={needs}
+                />
             ) : (
                 <span className="badge">{stageOf(view)}</span>
             )}
