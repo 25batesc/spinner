@@ -30,6 +30,10 @@
 // The flow `approve-design` approves the design-ready session through the blocker
 // confirmation, removes the approval, and re-approves the changed session from the Design
 // tab's banner with the changed section side by side (build session 6); fixture only.
+// The flow `composer` opens the composer in the working area from the sidebar, keeps its
+// draft across a switch, and starts a session that opens on its lead and a review (s038);
+// `archive` archives from a card, from the context bar's menu and from a review card, and
+// reads the empty state (s038). Both run against the fixture only.
 // The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
@@ -139,11 +143,16 @@ const fill = (selector: string, value: string) =>
 const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
 
-// `reset` and `close` sit behind the toolbar's `⋯` menu in the context bar.
-async function clickEndAction(action: "reset" | "close"): Promise<void> {
+// `reset` and `archive` sit behind the toolbar's `⋯` menu in the context bar; `archive` asks
+// once inside the menu before it runs the `close` job (s038).
+async function clickEndAction(action: "reset" | "archive"): Promise<void> {
     await click(".toolbar-menu .icon-button");
     await until(`${action} in the menu`, `document.querySelector(".toolbar-menu .menu") !== null`);
     await click(".toolbar-menu .menu button", action);
+    if (action === "archive") {
+        await until("archive asks", `${text(".menu-confirm")}.includes("Archive this session?")`);
+        await click(".menu-confirm button.danger", "archive");
+    }
 }
 
 await send("Page.enable");
@@ -866,10 +875,10 @@ if (flow === "compose") {
     // repo, a short `api#N` reference and a URL of a repo outside the project yields three
     // checkboxes after the typing pause: the first two ticked, the third unticked with its
     // reason. An untick survives a re-extraction. The `+ New session` button pinned under the
-    // sessions panel's title opens the box in place (s020); another view and back keeps the
-    // draft. `Start` creates the session, which is selected and opens on the lead's terminal;
-    // the box folds, and the next open finds it empty.
-    const form = `document.querySelector(".sidebar form[aria-label='New session']")`;
+    // sessions panel's title opens the composer in the working area (s038); another session,
+    // another view and back keep the draft. `Start` creates the session, which is selected
+    // and opens on the lead's terminal; the composer goes, and the next open finds it empty.
+    const form = `document.querySelector(".composer form[aria-label='New session']")`;
     const addNew = ".sidebar button.side-add[aria-label='New session']";
     await click(addNew);
     await until("compose box", `${form} !== null`);
@@ -901,8 +910,9 @@ if (flow === "compose") {
     // A look at another session and at the reviews view keep the draft.
     await click(".session", "Refund flow");
     await until("agents shown", `document.querySelector(".agents-pane .view-tabs") !== null`);
+    await until("composer left", `${form} === null`);
     await click(".activity-bar button[aria-label='Show reviews']");
-    await until("reviews view", `${form} === null`);
+    await until("reviews view", `document.querySelector(".reviews-pane") !== null`);
     await click(".activity-bar button[aria-label='Show sessions']");
     await click(addNew);
     await until("compose back", `${form} !== null`);
@@ -928,7 +938,7 @@ if (flow === "compose") {
     await click(".compose-actions .primary", "Start");
     const selected = text(".session-selected");
     await until("session selected", `${selected}.includes("E2E compose ${stamp}")`);
-    await until("compose box folded", `${form} === null`);
+    await until("composer gone", `${form} === null`);
     await until("lead chip", `${text(".agents-pane .chips")}.includes("lead")`);
     await until(
         "lead terminal shown",
@@ -951,12 +961,12 @@ if (flow === "compose") {
 
 if (flow === "sessions-panel") {
     // The sessions view of the side panel (s020): the title row, the `+ New session` button
-    // pinned under it (it opens the paste box, the project and `Start` in place), then one
+    // pinned under it (it opens the composer in the working area, s038), then one
     // block per
     // session of one height (title clamped to two lines, a badge line with the stage, the
     // stack and the PR count, a needs-you line), the per-PR lines as the card's tooltip. The
     // list scrolls inside the panel while the button stays put; a created session is selected,
-    // the agents view stays in the middle pane and the box folds back into the button.
+    // and the agents view replaces the composer in the middle pane.
     const cards = `[...document.querySelectorAll(".session")]`;
     const shape = (await evaluate(`({
         heights: [...new Set(${cards}.map((c) => c.getBoundingClientRect().height))],
@@ -993,17 +1003,17 @@ if (flow === "sessions-panel") {
     }
     await shot("53-list-scrolled-box-pinned");
     await click(".side-compose button.side-add");
-    const form = `document.querySelector(".side-compose form[aria-label='New session']")`;
-    await until("box opened in place", `${form} !== null`);
+    const form = `document.querySelector(".composer form[aria-label='New session']")`;
+    await until("composer opened", `${form} !== null`);
     const name = `E2E card ${Date.now() % 100000}`;
     await fill("textarea[aria-label='What this is about']", name);
     await shot("54-compose-new");
-    await click(".side-compose .compose-actions .primary", "Start");
+    await click(".composer .compose-actions .primary", "Start");
     const picked = text(".session-selected");
     await until("new session selected", `${picked}.includes(${JSON.stringify(name)})`);
     const tabs = `document.querySelectorAll(".agents-pane .view-tabs").length > 0`;
     await until("agents view in the middle", tabs);
-    await until("box folded", `${form} === null`);
+    await until("composer gone", `${form} === null`);
     await shot("55-created-and-selected");
     console.log("sessions panel ok");
     await finish();
@@ -2054,10 +2064,10 @@ if (flow === "terminal") {
             views: ["agents", "mission", "threads", "services"],
             viewSelected: "agents",
             groups: [["run local", "stop local"],
-                ["create PR", "review", "fix", "post", "approve", "land"], ["", "reset", "close"]],
+                ["create PR", "review", "fix", "post", "approve", "land"], ["", "reset", "archive"]],
             seps: 2,
             untitled: [],
-            danger: ["land", "reset", "close"],
+            danger: ["land", "reset", "archive"],
             chips: [
                 { name: "backend", state: "working",
                   tip: "tty · anthropic/claude-fable-5-1 · working · $1.23 · " +
@@ -2512,8 +2522,8 @@ if (flow === "reviews") {
     if ((await evaluate(`${reviewPane}.querySelector(".agent-terminal") !== null`)) === true) {
         throw new Error("a chip click opened a terminal");
     }
-    // A paste makes a review; the job's session is selected when it finishes. The box opens
-    // from the `+ New review` button pinned under the panel's title.
+    // A paste makes a review; the job's session is selected when it finishes. The review
+    // composer opens in the working area from the `+ New review` button (s038).
     await click(".sidebar button.side-add[aria-label='New review']");
     await fill("textarea[aria-label='Pull requests to review']",
         "please look at https://github.com/acme/peanut/pull/9");
@@ -3583,6 +3593,192 @@ if (flow === "goldfish") {
     await finish();
 }
 
+if (flow === "composer") {
+    // The composer (s038), against the fixture. `+ New session` in the sidebar opens the
+    // working area as one large box with its placeholder, the project select and `Start` as the
+    // one primary button; the sidebar holds the button alone, pressed. A paste lists the PRs
+    // found under the box. A look at a session leaves the composer, and the button brings the
+    // draft back. `Start` posts `POST /sessions`: the created session is selected and the
+    // middle pane shows the agents view with `lead` picked. `+ New review` opens the same
+    // composer for PR links with `Start review`; the created review is selected.
+    const form = `document.querySelector(".composer form[aria-label='New session']")`;
+    const box = "textarea[aria-label='What this is about']";
+    const addNew = ".sidebar button.side-add[aria-label='New session']";
+    if ((await evaluate(`document.querySelector(".composer-pane") !== null`)) === true) {
+        throw new Error("a session is selected on load, so the composer must not show");
+    }
+    await click(addNew);
+    await until("composer in the middle", `${form} !== null`);
+    const options = `[...document.querySelectorAll(".composer select[aria-label=Project] option")]`;
+    await until("projects loaded", `${options}.some((o) => o.textContent === "sample-stack")`);
+    const shape = await evaluate(`(() => {
+        const side = document.querySelector(".sidebar").getBoundingClientRect();
+        const pane = document.querySelector(".composer-pane").getBoundingClientRect();
+        const previews = document.querySelector(".preview-pane").getBoundingClientRect();
+        return {
+            placeholder: document.querySelector(${JSON.stringify(box)}).placeholder,
+            between: pane.left >= side.right && pane.right <= previews.left,
+            agentsPane: document.querySelectorAll(".agents-pane").length,
+            sidebarForms: document.querySelectorAll(".sidebar form, .sidebar textarea").length,
+            primary: [...document.querySelectorAll(".composer-pane button.primary")]
+                .map((b) => b.textContent),
+            pressed: document.querySelector(${JSON.stringify(addNew)}).ariaPressed,
+            selectedCards: document.querySelectorAll(".session-selected").length,
+        };
+    })()`);
+    console.log("composer:", JSON.stringify(shape));
+    const wanted = {
+        placeholder:
+            "What should this session be about? Paste a ticket, a PR link, or a sentence.",
+        between: true, agentsPane: 0, sidebarForms: 0, primary: ["Start"], pressed: "true",
+        selectedCards: 0,
+    };
+    if (JSON.stringify(shape) !== JSON.stringify(wanted)) {
+        throw new Error("the composer is not the one box in the working area");
+    }
+    await shot("composer-1-empty");
+    await evaluate(`(() => {
+        const select = document.querySelector(".composer select[aria-label=Project]");
+        const option = [...select.options].find((o) => o.textContent === "sample-stack");
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+        setter.call(select, option.value);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+    })()`);
+    const stamp = Date.now() % 100000;
+    const paste = [
+        `E2E composer ${stamp}`,
+        "Finish the refund copy: https://github.com/example/web/pull/412 and api#87.",
+    ].join("\n");
+    await fill(box, paste);
+    const boxes = `[...document.querySelectorAll(".composer .compose-prs input")]`;
+    await until("two PRs found under the box", `${boxes}.length === 2`);
+    await shot("composer-2-prs-found");
+    // A look at a session leaves the composer; the button brings the draft back.
+    await click(".session", "Refund flow");
+    await until("composer left", `${form} === null`);
+    await until("the session shown", `document.querySelector(".agents-pane .view-tabs") !== null`);
+    await until("button released", `document.querySelector(${JSON.stringify(addNew)})
+        .ariaPressed === "false"`);
+    await click(addNew);
+    await until("composer back", `${form} !== null`);
+    const kept = await evaluate(`document.querySelector(${JSON.stringify(box)}).value`);
+    if (kept !== paste) {
+        throw new Error("the draft did not survive a switch to a session and back");
+    }
+    await until("PRs found again", `${boxes}.length === 2`);
+    await click(".composer .compose-actions .primary", "Start");
+    const selected = text(".session-selected");
+    await until("created session selected", `${selected}.includes("E2E composer ${stamp}")`);
+    await until("composer gone", `${form} === null`);
+    const lead = `document.querySelector(".agents-pane .chip-selected .chip-name")?.dataset.name`;
+    await until("lead picked", `${lead} === "lead"`);
+    await until("agents view shown", `document.querySelector(".agents-pane .view-tab.tab-selected")
+        ?.textContent === "agents"`);
+    await until("lead terminal shown",
+        `document.querySelector(".agent-terminal:not([hidden])") !== null`);
+    await shot("composer-3-lead-after-start");
+    // The review composer: the same box for PR links, `Start review`.
+    await click(".activity-bar button[aria-label='Show reviews']");
+    await until("reviews view", `document.querySelector(".reviews-pane") !== null`);
+    await click(".sidebar button.side-add[aria-label='New review']");
+    const reviewForm = `document.querySelector(".composer form[aria-label='New review']")`;
+    await until("review composer", `${reviewForm} !== null`);
+    await fill("textarea[aria-label='Pull requests to review']",
+        "please look at https://github.com/acme/peanut/pull/9");
+    await until("PR found", `${text(".composer .rv-found")}.includes("acme/peanut#9")`);
+    await click(".composer .compose-actions .primary", "Start review");
+    await until("new review selected", `${text(".rv-card-selected")}.includes("PR 9 of peanut")`);
+    await until("review pane shown", `document.querySelector(".rv-pane .rv-head") !== null`);
+    await until("review composer gone", `${reviewForm} === null`);
+    await shot("composer-4-review-started");
+    console.log("composer ok");
+    await finish();
+}
+
+if (flow === "archive") {
+    // `archive` (s038), against the fixture. Every session card carries the action. It asks
+    // once in place of the card; `cancel` keeps the card; the confirm runs `close`, the card
+    // goes and the selection moves to the next row. The context bar's `⋯` menu asks the same
+    // question. A review card does the same. With every session archived, the middle pane is
+    // the composer: the empty state.
+    const question = "Archive this session? It moves to the archive and its agents stop.";
+    const dirs = `[...document.querySelectorAll(".session")].map((c) => c.dataset.dir)`;
+    const selectedDir = `document.querySelector(".session-selected")?.dataset.dir`;
+    const before = (await evaluate(dirs)) as string[];
+    const counts = await evaluate(`[document.querySelectorAll(".session-item").length,
+        document.querySelectorAll(".session-item .card-archive").length]`);
+    if (JSON.stringify(counts) !== JSON.stringify([before.length, before.length])) {
+        throw new Error("not every session card has an archive action");
+    }
+    const [first, second, third] = before;
+    if (first === undefined || second === undefined || third === undefined) {
+        throw new Error("the fixture needs three sessions");
+    }
+    const card = (dir: string) => `.session[data-dir='${dir}']`;
+    await click(card(first));
+    await until("first selected", `${selectedDir} === ${JSON.stringify(first)}`);
+    // The pill shows under the pointer.
+    const at = (await evaluate(`(() => {
+        const r = document.querySelector(${JSON.stringify(card(first))}).getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`)) as { x: number; y: number };
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
+    const pill = `.session-item:has(${card(first)}) .card-archive`;
+    await until("pill on hover",
+        `getComputedStyle(document.querySelector(${JSON.stringify(pill)})).opacity === "1"`);
+    await click(pill);
+    await until("asked in place", `${text(".session-item .card-confirm")}.includes(${
+        JSON.stringify(question)})`);
+    await shot("archive-1-confirm");
+    await click(".card-confirm button", "cancel");
+    await until("cancel keeps the card", `document.querySelector(".card-confirm") === null
+        && document.querySelector(${JSON.stringify(card(first))}) !== null`);
+    await click(pill);
+    await until("asked again", `document.querySelector(".card-confirm") !== null`);
+    await click(".card-confirm button.danger", "archive");
+    await until("selection on the next row", `${selectedDir} === ${JSON.stringify(second)}`);
+    await until("card gone", `!${dirs}.includes(${JSON.stringify(first)})`);
+    await until("close ran", `${text(".drawer")}.includes("close · ok")`);
+    await shot("archive-2-gone-next-selected");
+    // The context bar's menu: the same question, the same move.
+    await clickEndAction("archive");
+    await until("menu archive moves on", `${selectedDir} === ${JSON.stringify(third)}`);
+    await until("second card gone", `!${dirs}.includes(${JSON.stringify(second)})`);
+    // A review card.
+    await click(".activity-bar button[aria-label='Show reviews']");
+    await until("a review selected", `document.querySelector(".rv-card-selected") !== null`);
+    const reviewDirs = `[...document.querySelectorAll(".rv-card")].map((c) => c.dataset.dir)`;
+    const reviews = (await evaluate(reviewDirs)) as string[];
+    await until("the first review shown",
+        `document.querySelector(".rv-card-selected").dataset.dir === ${JSON.stringify(reviews[0])}`);
+    await click(".rv-card-selected .card-archive");
+    await until("review asked in place",
+        `${text(".rv-card .card-confirm")}.includes(${JSON.stringify(question)})`);
+    await shot("archive-3-review-confirm");
+    await click(".rv-card .card-confirm button.danger", "archive");
+    await until("review selection moved",
+        `document.querySelector(".rv-card-selected")?.dataset.dir === ${JSON.stringify(reviews[1])}`);
+    await until("review card gone", `!${reviewDirs}.includes(${JSON.stringify(reviews[0])})`);
+    // Every other session goes through the daemon's route; the composer is the empty state.
+    const listed = (await (await fetch(new URL("/sessions", uiUrl))).json()) as
+        SessionView[] | { sessions: SessionView[] };
+    const rest = Array.isArray(listed) ? listed : listed.sessions;
+    for (const view of rest) {
+        await fetch(new URL(`/sessions/${view.summary.dir}/close`, uiUrl), {
+            method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+        });
+    }
+    await until("no review left", `document.querySelectorAll(".rv-card").length === 0`);
+    await click(".activity-bar button[aria-label='Show sessions']");
+    await until("no session left", `document.querySelectorAll(".session").length === 0`);
+    await until("the composer is the empty state",
+        `document.querySelector(".composer form[aria-label='New session']") !== null`);
+    await shot("archive-4-empty-state");
+    console.log("archive ok");
+    await finish();
+}
+
 if (flow === "agents") {
     await click(".session", "Refund flow");
     await until("agent tab", `document.querySelector(".agents-pane .tab") !== null`);
@@ -3598,9 +3794,10 @@ if (flow === "agents") {
 }
 
 const title = `E2E ${Date.now() % 100000}`;
-// The `+ New session` button pinned under the sessions panel's title opens the form (s020).
+// The `+ New session` button pinned under the sessions panel's title opens the composer in
+// the working area (s038).
 await click(".sidebar button.side-add[aria-label='New session']");
-const newForm = `document.querySelector(".sidebar form[aria-label='New session']")`;
+const newForm = `document.querySelector(".composer form[aria-label='New session']")`;
 await until("new form shown", `${newForm} !== null`);
 await fill("textarea[aria-label='What this is about']", title);
 const project = process.env["E2E_PROJECT"] ?? "sample-stack";
@@ -3660,7 +3857,7 @@ await until("tick enabled again", `document.querySelector(".verified input")?.di
 await click(".verified input");
 await until("ticked again", `document.querySelector(".verified input")?.checked === true`);
 
-await clickEndAction("close");
+await clickEndAction("archive");
 await until("session gone", `!${text(".sessions-pane")}.includes(${quoted})`);
 await shot("06-closed");
 console.log("lifecycle ok");
