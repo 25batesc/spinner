@@ -270,6 +270,51 @@ button.egm-step:hover { background: var(--fill-soft); }
 .track-menu .menu { left: 0; right: auto; top: 24px; min-width: 100px; }
 button.track-chip { border: 0; font: inherit; font-size: var(--text-meta); cursor: pointer; }
 button.track-chip:hover { background: var(--fill); color: var(--text); }
+/* The toolbar's design group (entry 3.19): the stage's one filled primary joined to the
+   `EGM ▾` menu button; the menu opens under it to the left like the track menu. */
+.design-menu { position: relative; display: flex; }
+.design-menu .menu { left: 0; right: auto; top: 28px; min-width: 160px; }
+.design-group > button.primary:has(+ .design-menu) {
+    border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+.design-group > button.primary + .design-menu > button {
+    margin-left: -1px; border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+.menu button:disabled { opacity: 0.4; cursor: default; }
+.menu button:disabled:hover { background: transparent; }
+.design-presets {
+    display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0;
+    border: 0;
+}
+.design-preset {
+    display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-dense);
+}
+/* The `needs you` pill opens the gate card while one shows (entry 3.22). */
+button.context-needs-button {
+    border: 0; font: inherit; font-size: var(--text-meta); cursor: pointer;
+}
+button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 25%, transparent); }
+/* The gate and resolve cards above the agent chips (entry 3.21): a warn-tinted card, since the
+   lead waits on it; the question as markdown, the options as equal secondary buttons, no
+   primary, because EGM's gates list options without a ranking. */
+.design-gate {
+    display: flex; flex-direction: column; gap: var(--space-2); flex: none;
+    padding: var(--space-3) var(--space-4); border: 1px solid var(--warn);
+    border-radius: var(--radius-box); background: var(--warn-tint);
+}
+.design-gate-title {
+    margin: 0; font-size: var(--text-meta); font-weight: 600; color: var(--warn);
+}
+.design-gate-question { font-size: var(--text-body); }
+.design-gate-question > :first-child { margin-top: 0; }
+.design-gate-question > :last-child { margin-bottom: 0; }
+.design-gate-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.design-gate-options > button {
+    max-width: 100%; height: auto; min-height: var(--control-row); padding: 2px 10px;
+    white-space: normal; text-align: left; background: var(--surface);
+}
+.design-gate-other { display: flex; gap: var(--space-2); }
+.design-gate-other input { flex: 1; min-width: 0; }
 /* The round badge from round 2 on: accent, so a long-lived session stands out. */
 .badge.round-badge { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
 /* The card's five EGM dots, without labels. */

@@ -20,6 +20,7 @@ import {
     type PoppedOut,
     type PopOutRequest,
 } from "./Preview.tsx";
+import { gateCard } from "./design.ts";
 import { diffJob } from "./diff-view.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
@@ -31,7 +32,9 @@ import { EMPTY_DRAFT, type ComposeDraft, type RunAction } from "./SessionForms.t
 import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
-import { revisionsOf, runningJob, sortedSessions, type UiState } from "./state.ts";
+import {
+    needsHuman, revisionsOf, runningJob, sortedSessions, type UiState,
+} from "./state.ts";
 import type { Transcript } from "./transcript.ts";
 import { useLayout } from "./useResizable.ts";
 import { useSpinner } from "./useSpinner.ts";
@@ -151,6 +154,16 @@ export function App() {
     const [panelView, setPanelView] = useState<PanelView["id"]>("sessions");
     // The middle pane shows the selected session or, from the headset icon, the operator agent.
     const [middle, setMiddle] = useState<"agents" | "operator">("agents");
+    // The agents pane's view and picked agent live here (entry 3.22), so the `needs you` pill
+    // can open a gate card: the `agents` view with `lead` picked.
+    const [agentsShown, setAgentsShown] = useState("agents");
+    const [agentPicked, setAgentPicked] = useState<string | undefined>(undefined);
+    const card = view === undefined ? null : gateCard(view.design, needsHuman(view));
+    const openCard = card === null ? undefined : () => {
+        setMiddle("agents");
+        setAgentsShown("agents");
+        setAgentPicked("lead");
+    };
     const notice = operatorNotice(state.operator);
     // The link's failure lands where a job's does, in the drawer.
     const operatorBar =
@@ -323,6 +336,11 @@ export function App() {
             revisions={revisionsOf(state, selected)}
             mission={selected === undefined ? undefined : state.missions[selected]}
             controls={inRoute ? undefined : []}
+            shown={agentsShown}
+            onShown={setAgentsShown}
+            picked={agentPicked}
+            onPicked={setAgentPicked}
+            onError={app.setActionError}
             compose={
                 app.compose
                     ? {
@@ -424,6 +442,7 @@ export function App() {
                 usage={state.usage}
                 operator={operatorBar}
                 onError={app.setActionError}
+                onNeeds={openCard}
                 toolbar={
                     review !== null && selected !== undefined ? (
                         <ReviewToolbar dir={selected} busy={busy} run={run} />
@@ -434,6 +453,8 @@ export function App() {
                             busy={busy}
                             run={run}
                             revision={revisionsOf(state, selected).pipeline}
+                            view={view}
+                            onError={app.setActionError}
                         />
                     )
                 }

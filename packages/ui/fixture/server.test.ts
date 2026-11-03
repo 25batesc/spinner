@@ -423,3 +423,48 @@ it("PUT design/track switches the track, answers the view and refuses as the dae
     expect((await put("s209-csv-direct", "sideways")).status).toBe(400);
     expect((await put("no-such-session", "direct")).status).toBe(404);
 });
+
+it("the design routes open, answer and clear a gate and record runs as the daemon", async () => {
+    // Entry 3.24: the gate session's card clears on an answer; a run clears a gate and a
+    // review starts the next run id; each refusal answers the daemon's status.
+    const base = `http://127.0.0.1:${await start()}`;
+    const call = (method: string, dir: string, verb: string, body?: unknown) =>
+        fetch(`${base}/sessions/${dir}/design/${verb}`, {
+            method, headers: { "content-type": "application/json" },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+    const read = async (dir: string) =>
+        ((await (await fetch(`${base}/sessions/${dir}`)).json()) as SessionResponse).session;
+    const gated = "s211-csv-gate";
+    expect((await read(gated)).design?.gate?.options).toHaveLength(3);
+    expect((await call("POST", gated, "answer", { text: " " })).status).toBe(400);
+    const answered = await call("POST", gated, "answer", { text: "Both, picked by row count" });
+    expect(answered.status).toBe(200);
+    expect((await read(gated)).design?.gate).toBeNull();
+    expect((await read(gated)).summary.session.needs_human).toBeNull();
+
+    const question = "Which shape?";
+    expect((await call("PUT", gated, "gate", { question, options: ["A"] })).status).toBe(400);
+    expect((await call("PUT", gated, "gate", { question, options: ["A", "B"] })).status).toBe(200);
+    const asked = await read(gated);
+    expect(asked.design?.gate?.question).toBe(question);
+    expect(asked.summary.session.needs_human).toBe(`answer the lead: ${question}`);
+    expect((await call("POST", gated, "run", { skill: "egm-draft" })).status).toBe(200);
+    expect((await read(gated)).design?.gate).toBeNull();
+
+    const drafted = "s204-csv-drafted";
+    const review = { skill: "egm-review", preset: "uninterrupted" };
+    expect((await call("POST", drafted, "run", review)).status).toBe(200);
+    expect((await read(drafted)).design?.review_run?.id).toBe("r1");
+    const wrong = { skill: "egm-draft", preset: "uninterrupted" };
+    expect((await call("POST", drafted, "run", wrong)).status).toBe(400);
+    expect((await call("POST", drafted, "run", { skill: "egm-nothing" })).status).toBe(400);
+    expect((await call("POST", "s201-csv-intake", "run", review)).status).toBe(409);
+    const received = (await (await call("GET", gated, "received")).json()) as {
+        answers: string[]; runs: unknown[];
+    };
+    expect(received).toEqual({
+        answers: ["Both, picked by row count"], runs: [{ skill: "egm-draft" }],
+    });
+    expect((await call("POST", "no-such-session", "run", review)).status).toBe(404);
+});

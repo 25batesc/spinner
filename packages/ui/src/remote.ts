@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 
 import type {
+    AgentCommandResponse,
     ApproveResponse,
     ApproveView,
     ContextFileResponse,
@@ -11,6 +12,8 @@ import type {
     CostGroup,
     CostsResponse,
     DefaultBriefResponse,
+    DesignAnswerRequest,
+    DesignRunRequest,
     DesignTrack,
     DesignTrackRequest,
     DiffRepoRequest,
@@ -273,6 +276,29 @@ export async function fetchEgm(signal: AbortSignal): Promise<EgmResponse> {
 export async function putDesignTrack(dir: string, track: DesignTrack): Promise<SessionResponse> {
     const body: DesignTrackRequest = { track };
     return send("PUT", `/sessions/${dir}/design/track`, body);
+}
+
+/**
+ * `POST /sessions/:dir/design/run` (entry 3.23): starts an EGM skill in the lead. 400 for a
+ * bad body, 409 when the lead is not running; the error text names the reason.
+ */
+export async function postDesignRun(
+    dir: string,
+    body: DesignRunRequest,
+): Promise<AgentCommandResponse> {
+    return send("POST", `/sessions/${dir}/design/run`, body);
+}
+
+/**
+ * `POST /sessions/:dir/design/answer` (entry 3.23): clears the gate and prompts the lead with
+ * the text. The `session.updated` that follows removes the card.
+ */
+export async function postDesignAnswer(
+    dir: string,
+    text: string,
+): Promise<AgentCommandResponse> {
+    const body: DesignAnswerRequest = { text };
+    return send("POST", `/sessions/${dir}/design/answer`, body);
 }
 
 /** `GET /costs` over a span of local-zone days, grouped. The Usage section's report. */

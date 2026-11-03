@@ -476,6 +476,24 @@ const DESIGN_NEEDS: Partial<Record<DesignStage, string>> = {
     "design-ready": "approve the design",
 };
 
+/** The gate the fixture's gate session waits on: a question with a list, and 3 options. */
+export const FIXTURE_GATE = {
+    question: "Which export shape should the brief carry forward?\n\n" +
+        "- **Streamed CSV**: rows go out as the query reads them.\n" +
+        "- **Background job**: a file is built, then linked by mail.",
+    options: [
+        "Streamed CSV from the list page",
+        "Background job with a mailed link",
+        "Both, picked by row count",
+    ],
+    asked: "2026-10-20T10:12:00Z",
+};
+
+/** `needs_human` for an open gate (Technical Plan T7, line 1): the first 80 characters. */
+export function gateNeeds(question: string): string {
+    return `answer the lead: ${question.slice(0, 80)}`;
+}
+
 /** The two earlier rounds of the round-3 session: one merged PR, then one closed and one open. */
 export const ROUNDS_OF_R3: RoundView[] = [
     {
@@ -503,8 +521,10 @@ export const ROUNDS_OF_R3: RoundView[] = [
 ];
 
 /**
- * The EGM sessions of the fixture (entries 2.37 and 2.47): one design-track session per
- * design stage, one direct-track session, and one session at round 3 with two round records.
+ * The EGM sessions of the fixture (entries 2.37, 2.47 and 3.24): one design-track session per
+ * design stage, one direct-track session, one session at round 3 with two round records, and
+ * one session whose lead waits on an open gate. The design sessions have a `web` worktree, so
+ * the `EGM \u25be` dialogs prefill absolute paths.
  * They were created before the Refund flow, so the cards that the older flows read first stay
  * first.
  */
@@ -527,6 +547,7 @@ export function initialDesignSessions(): SessionView[] {
             stage: stage === "approved" ? "building" : "planned",
             needs_human: DESIGN_NEEDS[stage] ?? null,
             agents: lead,
+            repos: { web: { path: "~/src/web", worktree: "web", changed: false } },
         });
         const plain = view(`${id}-${slug}`, base, stackView(id, "none"), [], ["lead"]);
         return { ...plain, design: designView(stage), round: 1, rounds: [] };
@@ -548,5 +569,15 @@ export function initialDesignSessions(): SessionView[] {
         ...view("s210-csv-round-3", third, stackView("s210", "none")),
         round: 3, rounds: ROUNDS_OF_R3,
     };
-    return [...designs, directView, thirdView];
+    const gated = session({
+        id: "s211", slug: "csv-gate", title: "CSV export · gate",
+        created: "2026-10-20T10:09:00Z", stage: "planned",
+        needs_human: gateNeeds(FIXTURE_GATE.question), agents: lead,
+        repos: { web: { path: "~/src/web", worktree: "web", changed: false } },
+    });
+    const gatedView = {
+        ...view("s211-csv-gate", gated, stackView("s211", "none"), [], ["lead"]),
+        design: designView("brainstorm", { gate: FIXTURE_GATE }), round: 1, rounds: [],
+    };
+    return [...designs, directView, thirdView, gatedView];
 }

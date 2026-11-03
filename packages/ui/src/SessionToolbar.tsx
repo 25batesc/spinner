@@ -4,6 +4,9 @@
 // narrow window every button moves into the menu, so the bar keeps its title and pills.
 import { useEffect, useState } from "react";
 
+import type { SessionView } from "@spinner/protocol";
+
+import { DesignActions } from "./DesignActions.tsx";
 import { IconButton } from "./PaneHead.tsx";
 import { PipelineActions } from "./PipelineActions.tsx";
 import type { RunAction } from "./SessionForms.tsx";
@@ -17,6 +20,14 @@ export interface SessionToolbarProps {
     run: RunAction;
     /** Moves on pipeline events; the confirm dialogs read the daemon's preview again. */
     revision: number;
+    /**
+     * The selected session. With a `design` block the design group (entry 3.20) renders left
+     * of the stack group. The whole view, not only `design`, because the dialogs prefill
+     * absolute paths from the session's path and worktrees.
+     */
+    view?: SessionView | undefined;
+    /** Where a refused design run goes: the drawer, as a failed job's error does. */
+    onError?: ((message: string) => void) | undefined;
 }
 
 /** Under this window width the whole toolbar is the menu. */
@@ -44,7 +55,7 @@ export function useCompact(): boolean {
 }
 
 export function SessionToolbar(props: SessionToolbarProps) {
-    const { dir, busy, openPr, run } = props;
+    const { dir, busy, openPr, run, view } = props;
     const compact = useCompact();
     const [open, setOpen] = useState(false);
     const off = dir === undefined || busy;
@@ -79,6 +90,9 @@ export function SessionToolbar(props: SessionToolbarProps) {
             />
         </span>
     );
+    const design = view?.design === undefined ? null : (
+        <DesignActions view={view} inMenu={compact} onError={props.onError ?? (() => undefined)} />
+    );
     const end = (
         <span className="toolbar-group">
             {button("reset", "reset", true)}
@@ -91,6 +105,8 @@ export function SessionToolbar(props: SessionToolbarProps) {
             role="toolbar"
             aria-label="Session actions"
         >
+            {!compact && design}
+            {!compact && design !== null && <span className="toolbar-sep" />}
             {!compact && stack}
             {!compact && <span className="toolbar-sep" />}
             {!compact && pipeline}
@@ -107,6 +123,7 @@ export function SessionToolbar(props: SessionToolbarProps) {
                     // buttons do not: their confirm dialogs render inside the group, and a
                     // close would unmount them.
                     <div className="menu" role="menu" aria-label="Session actions">
+                        {compact && design}
                         {compact && stack}
                         {compact && pipeline}
                         {end}

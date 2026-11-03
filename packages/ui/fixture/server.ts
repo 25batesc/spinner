@@ -33,6 +33,7 @@ import {
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { costsReport, OPERATOR_COST } from "./costs.ts";
+import { DESIGN_ROUTE, DesignFixture } from "./design.ts";
 import { extract } from "./extract.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
@@ -204,6 +205,8 @@ class FixtureDaemon {
     pipeline = new PipelineFixture(this);
     /** The review routes (s015, s016): `POST /reviews`, the swarm, the lead's draft routes. */
     reviews = new ReviewFixture(this);
+    /** The design routes (entry 3.24): the gate, the answer, the skill runs. */
+    design = new DesignFixture(this);
     /** The keys each fake viewer page received, per repo (`DIFF_VIEWER_ROUTE`). */
     diffKeys = new Map<string, string[]>();
     /** The port the server listens on, set once it does: the fake viewer URLs name it. */
@@ -814,6 +817,12 @@ class FixtureDaemon {
         if (method === "PUT" && track !== null) {
             this.designTrack(response, track[1] ?? "", await readBody(request));
             return;
+        }
+        if (DESIGN_ROUTE.test(path)) {
+            const body = method === "PUT" || method === "POST" ? await readBody(request) : {};
+            if (this.design.handle(method, path, body, response)) {
+                return;
+            }
         }
         if (await this.reviewRoute(request, response, method, path)) {
             return;

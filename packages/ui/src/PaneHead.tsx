@@ -296,6 +296,32 @@ export interface ContextBarProps {
     toolbar?: ReactNode;
     /** Where a failed track switch goes: the drawer, as a failed job's error does. */
     onError?: ((message: string) => void) | undefined;
+    /**
+     * Set while a gate card or the resolve card shows (entry 3.22): the `needs you` pill is a
+     * button that opens the card, in the `agents` view with `lead` picked.
+     */
+    onNeeds?: (() => void) | undefined;
+}
+
+/** The `needs you` pill: a button that opens the gate card when `onNeeds` is set. */
+function NeedsPill({ needs, onNeeds }: { needs: string; onNeeds: (() => void) | undefined }) {
+    if (onNeeds === undefined) {
+        return (
+            <span className="needs-human pill pill-warn context-needs" title={needs}>
+                {needs}
+            </span>
+        );
+    }
+    return (
+        <button
+            type="button"
+            className="needs-human pill pill-warn context-needs context-needs-button"
+            title={`${needs} · open the question`}
+            onClick={onNeeds}
+        >
+            {needs}
+        </button>
+    );
 }
 
 /**
@@ -436,7 +462,8 @@ export function ReviewPills({ facts }: { facts: ReviewFacts }) {
     );
 }
 
-export function ContextBar({ view, usage, operator, toolbar, onError }: ContextBarProps) {
+export function ContextBar(props: ContextBarProps) {
+    const { view, usage, operator, toolbar, onError, onNeeds } = props;
     if (view === undefined) {
         return (
             <div className="context-bar muted">
@@ -497,11 +524,7 @@ export function ContextBar({ view, usage, operator, toolbar, onError }: ContextB
             <CostFigure cost={view.cost} />
             <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
-            {needs !== null && (
-                <span className="needs-human pill pill-warn context-needs" title={needs}>
-                    {needs}
-                </span>
-            )}
+            {needs !== null && <NeedsPill needs={needs} onNeeds={onNeeds} />}
             <OperatorNotice operator={operator} />
             {view.design !== undefined && (
                 <TrackChip dir={view.summary.dir} track={view.design.track} onError={onError} />

@@ -5,9 +5,11 @@ import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
+import { gateCard } from "./design.ts";
+import { DesignGate } from "./DesignGate.tsx";
 import { MissionWorkspace } from "./MissionWorkspace.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
-import type { Revisions } from "./state.ts";
+import { needsHuman, type Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
@@ -44,6 +46,34 @@ export interface AgentsPaneProps {
     compose?:
         | { onCancel: () => void; draft: ComposeDraft; onDraft: (draft: ComposeDraft) => void }
         | undefined;
+    /**
+     * The shown view and the picked agent, held by the App (entry 3.22): the `needs you` pill
+     * switches to the `agents` view and picks `lead` when a gate card shows.
+     */
+    shown: string;
+    onShown: (view: string) => void;
+    picked: string | undefined;
+    onPicked: (name: string | undefined) => void;
+    /** Where a refused gate answer goes: the drawer, as a failed job's error does. */
+    onError: (message: string) => void;
+}
+
+/**
+ * The gate card or the resolve card above the agent chips (entries 3.21, 3.22), or null when
+ * the lead asks nothing.
+ */
+function GateCard({ view, onError }: { view: SessionView; onError: (message: string) => void }) {
+    const design = view.design;
+    const dir = view.summary.dir;
+    const card = gateCard(design, needsHuman(view));
+    if (card === "gate" && design?.gate !== null && design?.gate !== undefined) {
+        const gate = design.gate;
+        return <DesignGate key={gate.asked} kind="gate" dir={dir} gate={gate} onError={onError} />;
+    }
+    if (card === "resolve") {
+        return <DesignGate key="resolve" kind="resolve" dir={dir} onError={onError} />;
+    }
+    return null;
 }
 
 /** The chip's dot: in a turn, hosted and idle, or not hosted at all. */
@@ -131,9 +161,9 @@ const VIEWS = ["agents", "mission", "threads", "services"];
 
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
-    const { controls, leading, compose } = props;
-    const [picked, setPicked] = useState<string | undefined>(undefined);
-    const [shown, setShown] = useState("agents");
+    const { controls, leading, compose, shown, picked } = props;
+    const setShown = props.onShown;
+    const setPicked = props.onPicked;
     const [agentTab, setAgentTab] = useState("chat");
     // The `+` chip at the end of the agent row: the add-agent form as the pane's view.
     const [adding, setAdding] = useState(false);
@@ -209,6 +239,7 @@ export function AgentsPane(props: AgentsPaneProps) {
                 {/* Hidden, not unmounted, while another view shows: the terminals keep
                     their sockets and buffers. */}
                 <div className="agents-view" hidden={shown !== "agents"}>
+                    {view !== undefined && <GateCard view={view} onError={props.onError} />}
                     {view !== undefined && (
                         <AgentChips
                             view={view}

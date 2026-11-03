@@ -4,12 +4,15 @@
 // `SessionView.design` and maps it. This module is the one place that maps it, for the
 // context bar and the session card.
 import {
+    DESIGN_DEFAULT_DIR,
     REVIEW_STAGE_REPORTS,
     type DesignStage,
     type DesignTrack,
     type DesignView,
+    type EgmSkill,
     type EgmStatus,
     type ReviewStageId,
+    type SessionView,
 } from "@spinner/protocol";
 
 import { formatUsd } from "./costs.ts";
@@ -102,4 +105,150 @@ export function trackChoices(egm: EgmStatus | null): DesignTrack[] {
         return ["design", "direct"];
     }
     return ["direct"];
+}
+
+// The toolbar's design group (entry 3.18, Technical Plan T9 and T13): the one primary button
+// per design stage, the `EGM \u25be` menu with the skills, and when the resolve card shows.
+
+export type PrimaryAction =
+    | { label: string; kind: "run"; skill: EgmSkill }
+    | { label: string; kind: "approve" };
+
+/**
+ * The primary button per design stage, from the toolbar table of Technical Plan T13. The
+ * stages where a skill runs (`drafting`, `design-review`) and `resolving`, where the resolve
+ * card answers, have none. The approve kinds come with build session 6 (6.17); until then
+ * `design-ready` has none either. A direct track (a null stage) has none.
+ */
+export function primaryAction(design: DesignView): PrimaryAction | null {
+    if (design.track !== "design") {
+        return null;
+    }
+    switch (design.stage) {
+        case "intake":
+            return { label: "brainstorm", kind: "run", skill: "egm-brainstorm" };
+        case "brainstorm":
+            return { label: "draft", kind: "run", skill: "egm-draft" };
+        case "drafted":
+            return { label: "review design", kind: "run", skill: "egm-review" };
+        default:
+            return null;
+    }
+}
+
+/**
+ * The one field a menu item asks for before it runs: the concept text of `brainstorm`, the
+ * target file of `review loop` and `resolve`, the designs directory of `drift report`, the
+ * path of `bootstrap`. Null: no field (`draft` runs at once; `review design` asks a preset).
+ */
+export type MenuField = "concept" | "target" | "dir" | "path" | null;
+
+export interface MenuItem {
+    label: string;
+    skill: EgmSkill;
+    field: MenuField;
+    /** The tooltip of a disabled item, or null when the item runs. */
+    disabled: string | null;
+}
+
+/** Technical Plan T9: the edit guard blocks README writes on the design track before approval. */
+export const BOOTSTRAP_BLOCKED =
+    "the design-only scope blocks README writes; use a direct-track session";
+
+/** Technical Plan T14: the drift report reads the worktree, so it waits for a clean round. */
+export const DRIFT_BLOCKED =
+    "the worktree has this round's unlanded commits; run the drift report before the round's " +
+    "first commit or after it lands";
+
+/**
+ * The `EGM \u25be` menu. The design track lists all 7 skills; the direct track lists only
+ * `drift report` and `bootstrap`. `changed` is true when any repo of the session has commits
+ * in this round, which disables the drift report.
+ */
+export function egmMenu(design: DesignView, changed: boolean): MenuItem[] {
+    const drift: MenuItem = {
+        label: "drift report", skill: "egm-drift-report", field: "dir",
+        disabled: changed ? DRIFT_BLOCKED : null,
+    };
+    const guarded = design.track === "design" && design.stage !== "approved";
+    const bootstrap: MenuItem = {
+        label: "bootstrap", skill: "egm-bootstrap", field: "path",
+        disabled: guarded ? BOOTSTRAP_BLOCKED : null,
+    };
+    if (design.track !== "design") {
+        return [drift, bootstrap];
+    }
+    return [
+        { label: "brainstorm", skill: "egm-brainstorm", field: "concept", disabled: null },
+        { label: "draft", skill: "egm-draft", field: null, disabled: null },
+        { label: "review design", skill: "egm-review", field: null, disabled: null },
+        { label: "review loop", skill: "egm-review-loop", field: "target", disabled: null },
+        { label: "resolve", skill: "egm-resolve", field: "target", disabled: null },
+        drift,
+        bootstrap,
+    ];
+}
+
+/** The `needs_human` text the daemon sets at `resolving` once the lead settled (T7, line 2). */
+export const RESOLVE_NEEDS = "resolve the review findings";
+
+/** True when the resolve card shows: stage `resolving` and the lead has settled (T8). */
+export function showResolveCard(design: DesignView, needs: string | null): boolean {
+    return design.stage === "resolving" && needs === RESOLVE_NEEDS;
+}
+
+/**
+ * Which card the agents view shows above the chips (entry 3.22): the gate card while a gate is
+ * open, else the resolve card when `showResolveCard`, else none.
+ */
+export function gateCard(design: DesignView | undefined, needs: string | null) {
+    if (design === undefined) {
+        return null;
+    }
+    if (design.gate !== null) {
+        return "gate" as const;
+    }
+    return showResolveCard(design, needs) ? ("resolve" as const) : null;
+}
+
+/** The absolute paths the menu's dialogs prefill. Null when the session has no worktree. */
+export interface DesignPaths {
+    /** The design doc, or null before `design_doc`. */
+    doc: string | null;
+    /** The designs directory. */
+    designs: string | null;
+    /** The worktree root. */
+    root: string | null;
+}
+
+/**
+ * The prefills of the menu's dialogs. `SessionView.design` names the doc repo-relative and
+ * carries neither its repo nor the designs directory, so this takes the approval's repo, else
+ * the first repo with a worktree, and `DESIGN_DEFAULT_DIR`. The operator confirms or edits
+ * each value before the run; the daemon composes the arguments of `draft` and `review` itself.
+ */
+export function designPaths(view: SessionView): DesignPaths {
+    const repos = view.summary.session.repos;
+    const named = view.design?.approved?.repo;
+    const key = named !== undefined && repos[named]?.worktree !== undefined
+        ? named
+        : Object.keys(repos).find((name) => repos[name]?.worktree !== undefined);
+    const worktree = key === undefined ? undefined : repos[key]?.worktree;
+    if (worktree === undefined) {
+        return { doc: null, designs: null, root: null };
+    }
+    const root = joinPath(view.summary.path, worktree);
+    const doc = view.design?.doc ?? null;
+    return {
+        doc: doc === null ? null : joinPath(root, doc),
+        designs: joinPath(root, DESIGN_DEFAULT_DIR),
+        root,
+    };
+}
+
+/** `a/b` + `./c/` is `a/b/c`: one slash between the parts, none at the end. */
+function joinPath(base: string, relative: string): string {
+    const head = base.replace(/\/+$/, "");
+    const tail = relative.replace(/^(\.\/)+/, "").replace(/^\/+/, "").replace(/\/+$/, "");
+    return tail === "" ? head : `${head}/${tail}`;
 }
