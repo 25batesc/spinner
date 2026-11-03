@@ -2064,7 +2064,8 @@ if (flow === "terminal") {
             views: ["agents", "mission", "threads", "services"],
             viewSelected: "agents",
             groups: [["run local", "stop local"],
-                ["create PR", "review", "fix", "post", "approve", "land"], ["", "reset", "archive"]],
+                ["create PR", "review", "fix", "post", "approve", "land"],
+                ["", "reset", "archive"]],
             seps: 2,
             untitled: [],
             danger: ["land", "reset", "archive"],
@@ -3751,14 +3752,16 @@ if (flow === "archive") {
     const reviewDirs = `[...document.querySelectorAll(".rv-card")].map((c) => c.dataset.dir)`;
     const reviews = (await evaluate(reviewDirs)) as string[];
     await until("the first review shown",
-        `document.querySelector(".rv-card-selected").dataset.dir === ${JSON.stringify(reviews[0])}`);
+        `document.querySelector(
+            ".rv-card-selected").dataset.dir === ${JSON.stringify(reviews[0])}`);
     await click(".rv-card-selected .card-archive");
     await until("review asked in place",
         `${text(".rv-card .card-confirm")}.includes(${JSON.stringify(question)})`);
     await shot("archive-3-review-confirm");
     await click(".rv-card .card-confirm button.danger", "archive");
     await until("review selection moved",
-        `document.querySelector(".rv-card-selected")?.dataset.dir === ${JSON.stringify(reviews[1])}`);
+        `document.querySelector(
+            ".rv-card-selected")?.dataset.dir === ${JSON.stringify(reviews[1])}`);
     await until("review card gone", `!${reviewDirs}.includes(${JSON.stringify(reviews[0])})`);
     // Every other session goes through the daemon's route; the composer is the empty state.
     const listed = (await (await fetch(new URL("/sessions", uiUrl))).json()) as
