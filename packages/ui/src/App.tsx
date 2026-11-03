@@ -38,8 +38,8 @@ import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import {
-    DEFAULT_SIDEBAR, loadSidebar, needsCount, openSection, saveSidebar, setSettings,
-    toggleSection, widthLevel, type SidebarState,
+    DEFAULT_SIDEBAR, loadSidebar, needsCount, pickView, saveSidebar, widthLevel,
+    type SidebarState,
 } from "./sidebar.ts";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
 import {
@@ -182,7 +182,7 @@ export function App() {
     const app = useAppState(state, route);
     const { sessions, selected, view, feed, busy, run } = app;
     const layout = useLayout();
-    // The sidebar's open sections and the settings view, remembered per window (`sidebar.ts`).
+    // The side panel's view, or none, remembered per window (`sidebar.ts`).
     const inRoute = route !== undefined;
     const [sidebar, setSidebar] = useState<SidebarState>(() =>
         inRoute ? DEFAULT_SIDEBAR : loadSidebar(windowStorage()),
@@ -298,10 +298,23 @@ export function App() {
         }
     };
     const sessionsState = layout.layout.panes.sessions;
-    // The rail stands in for the sidebar column whenever the column has no open cell: folded
-    // by a drag or the collapse icon, folded by the window's width, popped out, or expanded.
+    // The panel is on screen when the fitted layout gives it an open column: not collapsed,
+    // not folded by a drag or by the window's width, not popped out, not under expanded.
     const columnShown =
         !expanded && layout.visible.includes("sessions") && isOpen(layout.fitted.panes.sessions);
+    // The view and the column's fold agree: a drag past the snap folds the column, so the
+    // view goes to none; a view of none folds the column (a record from another window).
+    const folded = sessionsState.hidden;
+    useEffect(() => {
+        if (inRoute) {
+            return;
+        }
+        if (folded && sidebar.view !== null) {
+            setSidebar({ view: null });
+        } else if (!folded && sidebar.view === null) {
+            layout.fold("sessions");
+        }
+    }, [folded, sidebar.view, inRoute]);
     const openColumn = () => {
         if (sessionsState.popped) {
             restore("sessions");
@@ -312,13 +325,18 @@ export function App() {
             layout.fold("previews");
         }
     };
-    // A rail icon opens the column on its section, or on the settings view.
+    // A rail icon opens its view in the panel; the lit icon collapses the panel.
     const pickRail = (id: PanelView["id"]) => {
         if (expanded) {
             return;
         }
-        setSidebar((old) => (id === "settings" ? setSettings(old, true) : openSection(old, id)));
-        openColumn();
+        const next = pickView(sidebar, id, columnShown);
+        setSidebar(next);
+        if (next.view === null) {
+            layout.fold("sessions");
+        } else {
+            openColumn();
+        }
     };
     const review = view === undefined ? null : reviewFacts(view);
     const reviewsPane = (
@@ -412,24 +430,23 @@ export function App() {
     const toggleOperator = () => setMiddle(middle === "operator" ? "agents" : "operator");
     const ordinary = ordinarySessions(sessions);
     const reviewRows = sessions.filter(([, row]) => isReview(row));
+    const needs = { sessions: needsCount(ordinary), reviews: needsCount(reviewRows) };
+    // A collapsed panel keeps its column out of the grid; the last view stands in for none,
+    // so the cell is never empty while the fold catches up.
+    const sideView = sidebar.view ?? "sessions";
+    const sideViews = {
+        sessions: { facts: { count: ordinary.length, needs: needs.sessions }, pane: sessionsPane },
+        reviews: { facts: { count: reviewRows.length, needs: needs.reviews }, pane: reviewsPane },
+        settings: { facts: undefined, pane: settingsPane },
+    };
     const sidePanel = (
         <Sidebar
-            state={sidebar}
+            view={sideView}
             level={inRoute ? "full" : widthLevel(layout.fitted.panes.sessions.width)}
-            onToggle={(id) => setSidebar((old) => toggleSection(old, id))}
-            onSettings={() => setSidebar((old) => setSettings(old, !old.settings))}
-            sessions={{ count: ordinary.length, needs: needsCount(ordinary), body: sessionsPane }}
-            reviews={{
-                count: reviewRows.length, needs: needsCount(reviewRows), body: reviewsPane,
-            }}
-            settings={settingsPane}
-            operator={
-                inRoute || operatorHidden(state.operator)
-                    ? undefined
-                    : { shown: operatorOn, onToggle: toggleOperator }
-            }
-            onCollapse={inRoute ? undefined : () => layout.fold("sessions")}
-        />
+            facts={sideViews[sideView].facts}
+        >
+            {sideViews[sideView].pane}
+        </Sidebar>
     );
     const middlePane = operatorOn ? operatorPane : agentsPane;
     const panes = { sessions: sidePanel, agents: middlePane, previews: previewsPane };
@@ -498,16 +515,15 @@ export function App() {
                 }
             />
             <div className="shell-body">
-                {!columnShown && (
-                    <ActivityBar
-                        popped={sessionsState.popped}
-                        onPick={pickRail}
-                        needs={{ sessions: needsCount(ordinary), reviews: needsCount(reviewRows) }}
-                        operatorShown={operatorOn}
-                        operatorAvailable={!operatorHidden(state.operator)}
-                        onOperator={toggleOperator}
-                    />
-                )}
+                <ActivityBar
+                    shown={columnShown && sidebar.view !== null ? sidebar.view : undefined}
+                    popped={sessionsState.popped}
+                    onPick={pickRail}
+                    needs={needs}
+                    operatorShown={operatorOn}
+                    operatorAvailable={!operatorHidden(state.operator)}
+                    onOperator={toggleOperator}
+                />
                 <div
                     ref={layout.container}
                     className={layout.dragging ? "layout layout-dragging" : "layout"}

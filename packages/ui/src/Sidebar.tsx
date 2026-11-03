@@ -1,78 +1,52 @@
-// The sidebar column (s020): the rail pulled out. Each rail icon is a header in the same
-// column: `sessions` and `reviews` open and close their section, both may be open, and each
-// open section pins its compose box under the header and scrolls its list below it. The
-// gear at the foot shows the settings view below the headers. The column resizes with the
-// layout's divider; a drag past the snap point folds it back to the rail (`ActivityBar`).
+// The side panel (s020, round 2): VS Code's shape. The rail (`ActivityBar`) stays at the far
+// left; this panel beside it shows the one view the rail picked: sessions, reviews or
+// settings. A title row names the view with its count and needs-you pill; the sessions and
+// reviews views pin their `+ New …` button under it and scroll their list below. The panel
+// resizes with the layout's divider; a drag past the snap point folds it, and the rail stays.
 import { useState, type ReactNode } from "react";
 
-import { Icon, IconButton, type IconName } from "./PaneHead.tsx";
-import {
-    sectionOpen, type SectionId, type SidebarState, type WidthLevel,
-} from "./sidebar.ts";
+import { IconButton } from "./PaneHead.tsx";
+import type { SidebarView, WidthLevel } from "./sidebar.ts";
 
-export interface SectionContent {
-    /** The rows in the section's list. */
+/** What the title row shows beside a list view's name. */
+export interface ViewFacts {
+    /** The rows in the view's list. */
     count: number;
-    /** The rows that wait on the operator: a warn pill on the header when not zero. */
+    /** The rows that wait on the operator: a warn pill when not zero. */
     needs: number;
-    /** The pane without its head: the compose box and the list. */
-    body: ReactNode;
 }
 
 export interface SidebarProps {
-    state: SidebarState;
-    /** The cards' detail at the column's width (`widthLevel`), as `data-level` for the CSS. */
+    view: SidebarView;
+    /** The cards' detail at the panel's width (`widthLevel`), as `data-level` for the CSS. */
     level: WidthLevel;
-    onToggle: (id: SectionId) => void;
-    onSettings: () => void;
-    sessions: SectionContent;
-    reviews: SectionContent;
-    settings: ReactNode;
-    /** The operator agent's icon at the foot; absent while the agent is off and stopped. */
-    operator: { shown: boolean; onToggle: () => void } | undefined;
-    /** Folds the column to the rail; absent in the `?pane=` route, which has no rail. */
-    onCollapse: (() => void) | undefined;
+    /** The count and the needs pill of the list views; settings shows its name alone. */
+    facts: ViewFacts | undefined;
+    /** The view's pane without a head of its own. */
+    children: ReactNode;
 }
 
-const SECTIONS: readonly { id: SectionId; icon: IconName; label: string }[] = [
-    { id: "sessions", icon: "sessions", label: "Sessions" },
-    { id: "reviews", icon: "pull-request", label: "Reviews" },
-];
+const TITLES: Record<SidebarView, string> = {
+    sessions: "Sessions", reviews: "Reviews", settings: "Settings",
+};
 
-function SectionHead(props: {
-    id: SectionId;
-    icon: IconName;
-    label: string;
-    open: boolean;
-    content: SectionContent;
-    onToggle: (id: SectionId) => void;
-}) {
-    const { id, icon, label, open, content, onToggle } = props;
-    const verb = open ? "Hide" : "Show";
-    const needs = content.needs === 1 ? "1 needs you" : `${content.needs} need you`;
+function TitleRow({ view, facts }: { view: SidebarView; facts: ViewFacts | undefined }) {
+    const needs = facts === undefined ? 0 : facts.needs;
     return (
-        <button
-            type="button"
-            className="side-head"
-            aria-expanded={open}
-            aria-controls={`side-${id}`}
-            aria-label={`${verb} ${label.toLowerCase()}`}
-            title={`${verb} ${label.toLowerCase()}`}
-            onClick={() => onToggle(id)}
-            data-section={id}
-        >
-            <Icon name={icon} />
-            <span className="side-head-label">{label}</span>
-            <span className="muted side-head-count">{content.count}</span>
-            {content.needs > 0 && (
-                <span className="pill pill-warn side-head-needs" title={needs}>
-                    {content.needs}
+        <header className="side-title" data-view={view}>
+            <h2 className="side-title-label">{TITLES[view]}</h2>
+            {facts !== undefined && (
+                <span className="muted side-title-count">{facts.count}</span>
+            )}
+            {needs > 0 && (
+                <span
+                    className="pill pill-warn side-title-needs"
+                    title={needs === 1 ? "1 needs you" : `${needs} need you`}
+                >
+                    {needs}
                 </span>
             )}
-            <span className="side-head-chevron" aria-hidden="true">
-                {open ? "\u25be" : "\u25b8"}
-            </span>
-        </button>
+        </header>
     );
 }
 
@@ -108,66 +82,11 @@ export function AddNew(props: { label: string; children: (close: () => void) => 
     );
 }
 
-export function Sidebar(props: SidebarProps) {
-    const { state, level, onToggle, onSettings, settings, operator, onCollapse } = props;
+export function Sidebar({ view, level, facts, children }: SidebarProps) {
     return (
-        <nav
-            className="sidebar"
-            aria-label="Sidebar"
-            data-level={level}
-            data-settings={state.settings || undefined}
-        >
-            {SECTIONS.map(({ id, icon, label }) => {
-                const open = sectionOpen(state, id);
-                const content = props[id];
-                return (
-                    <div
-                        key={id}
-                        className={open ? "side-section side-section-open" : "side-section"}
-                        data-section={id}
-                    >
-                        <SectionHead
-                            id={id}
-                            icon={icon}
-                            label={label}
-                            open={open}
-                            content={content}
-                            onToggle={onToggle}
-                        />
-                        {open && (
-                            <div className="side-body" id={`side-${id}`}>
-                                {content.body}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-            {state.settings && <div className="side-settings">{settings}</div>}
-            <footer className="side-foot">
-                {onCollapse !== undefined && (
-                    <IconButton
-                        icon="panel-left"
-                        label="Collapse sidebar"
-                        onClick={onCollapse}
-                    />
-                )}
-                <span className="side-foot-gap" />
-                {operator !== undefined && (
-                    <IconButton
-                        icon="operator"
-                        label={operator.shown ? "Hide operator" : "Show operator"}
-                        active={operator.shown}
-                        className="bar-operator"
-                        onClick={operator.onToggle}
-                    />
-                )}
-                <IconButton
-                    icon="gear"
-                    label={state.settings ? "Hide settings" : "Show settings"}
-                    active={state.settings}
-                    onClick={onSettings}
-                />
-            </footer>
+        <nav className="sidebar" aria-label="Sidebar" data-level={level} data-view={view}>
+            <TitleRow view={view} facts={facts} />
+            <div className="side-body">{children}</div>
         </nav>
     );
 }

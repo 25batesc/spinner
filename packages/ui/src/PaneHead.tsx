@@ -187,10 +187,12 @@ export const PANEL_VIEWS: readonly PanelView[] = [
 ];
 
 export interface ActivityBarProps {
+    /** The view the side panel shows on screen, or undefined while it is collapsed. */
+    shown: PanelView["id"] | undefined;
     /** True when the left panel lives in its own window; its icon then docks it back. */
     popped: boolean;
     onPick: (view: PanelView["id"]) => void;
-    /** The needs-you count of each section: a badge on its icon when not zero. */
+    /** The needs-you count of each list view: a badge on its icon when not zero, always. */
     needs: Record<"sessions" | "reviews", number>;
     /** True while the middle pane shows the operator agent's terminal in place of the session. */
     operatorShown: boolean;
@@ -201,12 +203,13 @@ export interface ActivityBarProps {
 }
 
 /**
- * The rail: the narrow bar at the left while the sidebar column is folded (s020). A click on
- * an icon opens the column on that section, or on settings. The operator icon, above the
- * gear, is not a section: it swaps the middle pane between the session and the operator.
+ * The rail, always at the far left (s020, round 2: VS Code's activity bar). A click on an icon
+ * opens its view in the side panel; a click on the lit icon collapses the panel. The operator
+ * icon, above the gear, is not a view: it swaps the middle pane between the session and the
+ * operator.
  */
 export function ActivityBar(props: ActivityBarProps) {
-    const { popped, onPick, needs, operatorShown, operatorAvailable, onOperator } = props;
+    const { shown, popped, onPick, needs, operatorShown, operatorAvailable, onOperator } = props;
     const operator = !operatorAvailable ? null : (
         <IconButton
             key="operator"
@@ -220,15 +223,20 @@ export function ActivityBar(props: ActivityBarProps) {
     return (
         <nav className="activity-bar" aria-label="Views">
             {PANEL_VIEWS.map((view) => {
+                const on = shown === view.id;
                 const label = popped
                     ? `Dock ${view.label.toLowerCase()} back`
-                    : `Show ${view.label.toLowerCase()}`;
+                    : `${on ? "Hide" : "Show"} ${view.label.toLowerCase()}`;
+                const classes = [
+                    popped ? "bar-popped" : "", view.bottom === true ? "bar-bottom" : "",
+                ];
                 const button = (
                     <IconButton
                         key={view.id}
                         icon={view.icon}
                         label={label}
-                        className={popped ? "bar-popped" : undefined}
+                        active={on}
+                        className={classes.join(" ").trim() || undefined}
                         onClick={() => onPick(view.id)}
                     />
                 );

@@ -19,8 +19,9 @@
 // menu, a refusal in the drawer and the compact menu; `design-gate` answers the gate card from
 // the `needs you` pill, the resolve card, and a gate the lead asks while the page is open.
 // Both read the fixture's `GET …/design/received`, so they run against the fixture only. The
-// flow `sidebar` toggles the sidebar's sections, opens both, walks the three width levels,
-// snaps the column to the rail and reads its needs-you badges; `reload` reloads a session
+// flow `sidebar` opens each view from the rail, collapses the panel from the lit icon, reads
+// the needs-you badges, walks the three width levels and snaps the panel shut with the rail
+// in place; `reload` reloads a session
 // view and a review view and checks each comes back (s020). Both read the fixture's
 // sessions. The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
@@ -445,9 +446,10 @@ if (flow === "expanded") {
 
 if (flow === "panes") {
     // The workbench layout in a browser: the context bar above names the active session
-    // (title, stage, stack, PR badge, needs-you line); the sidebar column (s020) has the
-    // section headers and, at its foot, the collapse icon, which folds it to the rail (no
-    // strip); a rail icon opens it again; a drag of the column's divider 60 px past
+    // (title, stage, stack, PR badge, needs-you line); the rail at the far left (s020 round
+    // 2, VS Code's shape) has sessions, reviews, the operator and the gear, the open view's
+    // icon lit; the lit icon folds the side panel (no strip) and the rail stays; the icon
+    // opens it again; a drag of the panel's divider 60 px past
     // its 140 px minimum arms a hide that lands on release (a shorter drag only parks it at
     // the minimum); the previews collapse to the edge strip the same way (200 px minimum) or
     // by their header toggle, and the strip restores them; the agents pane never folds, its
@@ -507,7 +509,6 @@ if (flow === "panes") {
     };
     const topToggle = ".pane-head button[aria-label$='side panel']";
     const barButton = ".activity-bar .icon-button";
-    const collapseButton = "button[aria-label='Collapse sidebar']";
     const noStrips = `document.querySelectorAll(".strip").length === 0`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     const session = (await evaluate(
@@ -515,9 +516,8 @@ if (flow === "panes") {
     )) as string;
     const chrome = await evaluate(`({
         bar: document.querySelectorAll("${barButton}").length,
-        heads: document.querySelectorAll(".sidebar .side-head").length,
-        sessionsOpen: document.querySelector(".side-head[data-section=sessions]").ariaExpanded,
-        collapse: document.querySelectorAll("${collapseButton}").length,
+        barOn: document.querySelector("${barButton}").ariaPressed,
+        title: document.querySelector(".sidebar .side-title-label")?.textContent,
         popOuts: document.querySelectorAll("button[aria-label^='Pop out']").length,
         top: document.querySelectorAll("${topToggle}").length,
         inSessions: document.querySelectorAll(".sessions-pane ${topToggle}").length,
@@ -531,9 +531,8 @@ if (flow === "panes") {
     })`);
     console.log("chrome:", JSON.stringify(chrome));
     const wanted = {
-        // No rail while the column is open: its headers (sessions, reviews) and the collapse
-        // icon at its foot stand in for it.
-        bar: 0, heads: 2, sessionsOpen: "true", collapse: 1, popOuts: 1, top: 0, inSessions: 0,
+        // The rail: sessions (lit), reviews, the operator, the gear; the panel titled.
+        bar: 4, barOn: "true", title: "Sessions", popOuts: 1, top: 0, inSessions: 0,
         // `$3.27` is the fixture session's cost (s013), between the stack and the PR badge.
         context: ["Refund flow", "peer-review", "stack up", "$3.27", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
@@ -541,7 +540,7 @@ if (flow === "panes") {
     };
     if (JSON.stringify(chrome) !== JSON.stringify(wanted)) {
         throw new Error(
-            "expected the column (two headers, the collapse icon), no rail, 1 pop-out, 7 icons",
+            "expected the rail (sessions lit, reviews, operator, gear), 1 pop-out, 7 icons",
         );
     }
     const popOutOwner = await evaluate(
@@ -569,17 +568,18 @@ if (flow === "panes") {
     await until("left panel hidden", `document.querySelector(".sidebar") === null`);
     await until("no strip", noStrips);
     await until("context bar stays", `${text(".context-title")} === "Refund flow"`);
-    // The rail stands in for the folded column, as the way back.
+    // The rail stays, its icon dimmed, as the way back.
     await until("no toggle anywhere", `document.querySelectorAll("${topToggle}").length === 0`);
     await until("rail in place", `${widthOf(".activity-bar")} >= 40`);
+    await until("bar icon off", `document.querySelector("${barButton}").ariaPressed === "false"`);
     await shot("40-left-hidden");
-    // 2. The rail's sessions icon shows it again at the width before the drag and the rail
-    // goes; the collapse icon folds it again. There is no toggle in a pane header.
+    // 2. The rail's sessions icon shows it again at the width before the drag and lights up;
+    // the lit icon folds it again. There is no toggle in a pane header.
     await click(barButton);
     await until("left panel back at 260", `${widthOf(".sidebar")} === 260`);
-    await until("rail gone", `document.querySelector(".activity-bar") === null`);
+    await until("bar icon on", `document.querySelector("${barButton}").ariaPressed === "true"`);
     await until("no header toggle", `document.querySelectorAll("${topToggle}").length === 0`);
-    await click(collapseButton);
+    await click(barButton);
     await until("folded by the icon", `document.querySelector(".sidebar") === null`);
     await click(barButton);
     await until("shown by the rail", `${widthOf(".sidebar")} === 260`);
@@ -601,8 +601,8 @@ if (flow === "panes") {
     await until("restored by double-click", `${widthOf(".preview-pane")} === 520`);
     // 5. The agents pane never folds and nothing else caps the previews: a 1200 px drag stops
     // exactly where the agents pane is at its 280 px minimum, with the previews at the rest
-    // of the width (about 1500 - 260 column - 12 - 280 = 948 px, past any fraction of the
-    // window).
+    // of the width (about 1500 - 40 rail - 260 - 12 - 280 = 908 px, past any fraction of
+    // the window).
     await drag(1, -1200);
     await until("agents at their minimum", `${widthOf(".agents-pane")} === 280`);
     const previewsWidth = (await evaluate(widthOf(".preview-pane"))) as number;
@@ -614,7 +614,7 @@ if (flow === "panes") {
     await drag(1, previewsWidth - 500);
     await until("previews narrower again", `${widthOf(".preview-pane")} < 520`);
     // 6. Left panel hidden plus previews collapsed: the agents take the window.
-    await click(collapseButton);
+    await click(barButton);
     await click("button[aria-label='Collapse previews']");
     await until("agents fill the window", `${widthOf(".agents-pane")} > 1400`);
     await shot("43-agents-whole-window");
@@ -858,10 +858,13 @@ if (flow === "compose") {
     // Chat first (s014): the compose box is one textarea. A paste with a PR URL of a project
     // repo, a short `api#N` reference and a URL of a repo outside the project yields three
     // checkboxes after the typing pause: the first two ticked, the third unticked with its
-    // reason. An untick survives a re-extraction. The box is pinned at the top of the
-    // sidebar's sessions section (s020); a fold of the section keeps the draft. `Start`
-    // creates the session, which is selected and opens on the lead's terminal; the box empties.
+    // reason. An untick survives a re-extraction. The `+ New session` button pinned under the
+    // sessions panel's title opens the box in place (s020); another view and back keeps the
+    // draft. `Start` creates the session, which is selected and opens on the lead's terminal;
+    // the box folds, and the next open finds it empty.
     const form = `document.querySelector(".sidebar form[aria-label='New session']")`;
+    const addNew = ".sidebar button.side-add[aria-label='New session']";
+    await click(addNew);
     await until("compose box", `${form} !== null`);
     const options = `[...document.querySelectorAll("form[aria-label='New session'] option")]`;
     await until("projects loaded", `${options}.some((o) => o.textContent === "sample-stack")`);
@@ -888,12 +891,13 @@ if (flow === "compose") {
     if (JSON.stringify(ticks) !== "[[true,false],[true,false],[false,true]]") {
         throw new Error("the adoptable PRs are not ticked and the foreign one is not refused");
     }
-    // A look at another session and a fold of the section keep the draft.
+    // A look at another session and at the reviews view keep the draft.
     await click(".session", "Refund flow");
     await until("agents shown", `document.querySelector(".agents-pane .view-tabs") !== null`);
-    await click(".side-head[data-section=sessions]");
-    await until("section folded", `${form} === null`);
-    await click(".side-head[data-section=sessions]");
+    await click(".activity-bar button[aria-label='Show reviews']");
+    await until("reviews view", `${form} === null`);
+    await click(".activity-bar button[aria-label='Show sessions']");
+    await click(addNew);
     await until("compose back", `${form} !== null`);
     const draftKept = await evaluate(
         `document.querySelector("textarea[aria-label='What this is about']").value`,
@@ -917,8 +921,7 @@ if (flow === "compose") {
     await click(".compose-actions .primary", "Start");
     const selected = text(".session-selected");
     await until("session selected", `${selected}.includes("E2E compose ${stamp}")`);
-    const draft = `document.querySelector("textarea[aria-label='What this is about']").value`;
-    await until("compose box emptied", `${draft} === ""`);
+    await until("compose box folded", `${form} === null`);
     await until("lead chip", `${text(".agents-pane .chips")}.includes("lead")`);
     await until(
         "lead terminal shown",
@@ -932,22 +935,26 @@ if (flow === "compose") {
         throw new Error("only the ticked PR should be adopted");
     }
     await shot("57-compose-started");
+    await click(addNew);
+    const draft = `document.querySelector("textarea[aria-label='What this is about']")?.value`;
+    await until("next box empty", `${draft} === ""`);
     console.log("compose ok");
     await finish();
 }
 
 if (flow === "sessions-panel") {
-    // The sessions section of the sidebar (s020): the new-session box pinned under the
-    // header (the paste box, the project and `Start`, no card of its own), then one block per
+    // The sessions view of the side panel (s020): the title row, the `+ New session` button
+    // pinned under it (it opens the paste box, the project and `Start` in place), then one
+    // block per
     // session of one height (title clamped to two lines, a badge line with the stage, the
     // stack and the PR count, a needs-you line), the per-PR lines as the card's tooltip. The
-    // list scrolls inside the section while the box stays put; a created session is selected
-    // and the agents view stays in the middle pane.
+    // list scrolls inside the panel while the button stays put; a created session is selected,
+    // the agents view stays in the middle pane and the box folds back into the button.
     const cards = `[...document.querySelectorAll(".session")]`;
     const shape = (await evaluate(`({
         heights: [...new Set(${cards}.map((c) => c.getBoundingClientRect().height))],
         prLines: document.querySelectorAll(".pr-line").length,
-        forms: document.querySelectorAll(".sessions-pane .side-compose form").length,
+        forms: document.querySelectorAll(".sessions-pane .side-compose button.side-add").length,
         middleForms: document.querySelectorAll(".agents-pane form[aria-label='New session']")
             .length,
         composeCards: document.querySelectorAll(".compose-card, .compose-new").length,
@@ -961,13 +968,13 @@ if (flow === "sessions-panel") {
         throw new Error("the cards are not uniform 92 px blocks");
     }
     if (shape.forms !== 1 || shape.middleForms !== 0 || shape.composeCards !== 0) {
-        throw new Error("the new-session box is not pinned in the section alone");
+        throw new Error("the + New session button is not pinned in the panel alone");
     }
     if (!shape.tooltip.includes("web#412") || shape.badge !== "\u2442 2") {
         throw new Error("the PR lines did not move into the tooltip with a count badge");
     }
     await shot("52-session-cards");
-    // The list scrolls under the box: the box keeps its place.
+    // The list scrolls under the button: the button keeps its place.
     const boxTop =
         `Math.round(document.querySelector(".side-compose").getBoundingClientRect().top)`;
     const topBefore = await evaluate(boxTop);
@@ -975,9 +982,12 @@ if (flow === "sessions-panel") {
     await until("list scrolled", `document.querySelector(".sidebar .session-list").scrollTop > 0`);
     const topAfter = await evaluate(boxTop);
     if (topBefore !== topAfter) {
-        throw new Error("the compose box scrolled with the list");
+        throw new Error("the + New session button scrolled with the list");
     }
     await shot("53-list-scrolled-box-pinned");
+    await click(".side-compose button.side-add");
+    const form = `document.querySelector(".side-compose form[aria-label='New session']")`;
+    await until("box opened in place", `${form} !== null`);
     const name = `E2E card ${Date.now() % 100000}`;
     await fill("textarea[aria-label='What this is about']", name);
     await shot("54-compose-new");
@@ -986,8 +996,7 @@ if (flow === "sessions-panel") {
     await until("new session selected", `${picked}.includes(${JSON.stringify(name)})`);
     const tabs = `document.querySelectorAll(".agents-pane .view-tabs").length > 0`;
     await until("agents view in the middle", tabs);
-    const draft = `document.querySelector("textarea[aria-label='What this is about']").value`;
-    await until("box emptied", `${draft} === ""`);
+    await until("box folded", `${form} === null`);
     await shot("55-created-and-selected");
     console.log("sessions panel ok");
     await finish();
@@ -995,7 +1004,7 @@ if (flow === "sessions-panel") {
 
 if (flow === "sidebar" || flow === "reload") {
     // Shared by the two sidebar flows (s020): a width, a drag of the first divider (the
-    // column's), and a reload that waits for the new document.
+    // panel's), a reload that waits for the new document, and the rail's selectors.
     const widthOf = (selector: string) =>
         `Math.round(document.querySelector(${JSON.stringify(selector)})` +
         `?.getBoundingClientRect().width ?? -1)`;
@@ -1024,88 +1033,24 @@ if (flow === "sidebar" || flow === "reload") {
         await until("reloaded", `window.__stale === undefined`);
         await until("daemon connected again", `${text(".status")}.includes("open")`);
     };
-    const expanded = `JSON.stringify([...document.querySelectorAll(".side-head")]
-        .map((h) => [h.dataset.section, h.ariaExpanded]))`;
     const level = `document.querySelector(".sidebar")?.dataset.level`;
     const shown = (selector: string) => `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         return el !== null && getComputedStyle(el).display !== "none";
     })()`;
+    const title = text(".sidebar .side-title-label");
+    const sideRecord = `sessionStorage.getItem("spinner.sidebar.v2")`;
+    const rail = (label: string) => `.activity-bar button[aria-label='${label}']`;
+    const lit = `[...document.querySelectorAll(".activity-bar .icon-button")]
+        .filter((b) => b.ariaPressed === "true").map((b) => b.ariaLabel).join(",")`;
 
     if (flow === "sidebar") {
-        // The rail pulled out into one column: the `sessions` and `reviews` headers toggle
-        // their sections, both may be open, each pins its compose box and scrolls its list
-        // inside the section; the state survives a reload of the window. The column's width
-        // picks one of three detail levels (title alone, title with pills, the full card); a
-        // drag past the snap point folds it to the rail, which counts the sessions and the
-        // reviews that need the operator; a rail icon opens the column on its section.
-        await until("column open", `document.querySelector(".sidebar") !== null`);
-        const start = await evaluate(`({
-            heads: [...document.querySelectorAll(".side-head .side-head-label")]
-                .map((h) => h.textContent),
-            rail: document.querySelector(".activity-bar") !== null,
-            expanded: ${expanded},
-        })`);
-        console.log("start:", JSON.stringify(start));
-        const wantedStart = {
-            heads: ["Sessions", "Reviews"], rail: false,
-            expanded: '[["sessions","true"],["reviews","false"]]',
-        };
-        if (JSON.stringify(start) !== JSON.stringify(wantedStart)) {
-            throw new Error("the column must open on sessions, reviews closed, with no rail");
-        }
-        await until("sessions box pinned", `document.querySelector(
-            ".side-section[data-section=sessions] form[aria-label='New session']") !== null`);
-        await shot("sidebar-1-one-section-open");
-        // Both open: two boxes, two lists, each scrolling inside its own section.
-        await click(".side-head[data-section=reviews]");
-        await until("both open", `${expanded} === '[["sessions","true"],["reviews","true"]]'`);
-        const both = await evaluate(`(() => {
-            const column = document.querySelector(".sidebar").getBoundingClientRect();
-            const lists = [".sidebar .session-list", ".sidebar .rv-list"]
-                .map((s) => document.querySelector(s));
-            return {
-                boxes: [...document.querySelectorAll(".side-compose form")]
-                    .map((f) => f.getAttribute("aria-label")),
-                scrolls: lists.map((l) => getComputedStyle(l).overflowY),
-                inside: lists.every((l) => l.getBoundingClientRect().bottom <= column.bottom),
-            };
-        })()`);
-        console.log("both open:", JSON.stringify(both));
-        const wantedBoth = {
-            boxes: ["New session", "New review"], scrolls: ["auto", "auto"], inside: true,
-        };
-        if (JSON.stringify(both) !== JSON.stringify(wantedBoth)) {
-            throw new Error("both sections must pin their box and scroll inside the column");
-        }
-        await shot("sidebar-2-both-sections-open");
-        // One header closes only its own section; the state survives a reload.
-        await click(".side-head[data-section=sessions]");
-        await until("reviews alone", `${expanded} === '[["sessions","false"],["reviews","true"]]'`);
-        await reload();
-        await until("kept on reload",
-            `${expanded} === '[["sessions","false"],["reviews","true"]]'`);
-        await click(".side-head[data-section=sessions]");
-        await click(".side-head[data-section=reviews]");
-        await until("sessions alone again",
-            `${expanded} === '[["sessions","true"],["reviews","false"]]'`);
-        // The three detail levels follow the width: 260 full, 210 pills, 160 title.
-        await until("full at 260", `${widthOf(".sidebar")} === 260 && ${level} === "full"`);
-        await until("needs line shown", shown(".session-needs"));
-        await shot("sidebar-3-level-full-260");
-        await drag(-50);
-        await until("pills at 210", `${widthOf(".sidebar")} === 210 && ${level} === "pills"`);
-        await until("pills: badges kept", shown(".session .badges"));
-        await until("pills: needs line gone", `!${shown(".session-needs")}`);
-        await shot("sidebar-4-level-pills-210");
-        await drag(-50);
-        await until("title at 160", `${widthOf(".sidebar")} === 160 && ${level} === "title"`);
-        await until("title: badges gone", `!${shown(".session .badges")}`);
-        await until("title: still a title", shown(".session-title"));
-        await shot("sidebar-5-level-title-160");
-        await drag(100);
-        await until("full again", `${widthOf(".sidebar")} === 260 && ${level} === "full"`);
-        // The needs-you counts the rail must show, from the views the daemon sent.
+        // VS Code's shape (s020, round 2): the rail stays at the far left, sessions and
+        // reviews at the top, the gear at the bottom, each list icon with its needs-you badge
+        // at all times. An icon opens its view in the one side panel, titled with its name,
+        // count and needs pill; the lit icon collapses the panel and the rail stays; the
+        // state survives a reload. The panel's width picks one of three detail levels; a drag
+        // past the snap point folds it, and the rail's icon opens it again.
         const body = (await (await fetch(new URL("/sessions", uiUrl))).json()) as
             SessionView[] | { sessions: SessionView[] };
         const views = Array.isArray(body) ? body : body.sessions;
@@ -1114,30 +1059,91 @@ if (flow === "sidebar" || flow === "reload") {
                 !== null;
         const countOf = (review: boolean) => String(views.filter((view) =>
             (view.kind === "review") === review && needs(view)).length);
-        const wantedBadges = { sessions: countOf(false), reviews: countOf(true) };
-        // A drag past the snap point folds the column to the rail on release.
-        const release = await dragHold(-200);
-        await until("armed", `document.querySelector(".layout[data-armed=sessions]") !== null`);
-        await release();
-        await until("folded to the rail", `document.querySelector(".sidebar") === null`);
-        await until("rail shown", `${widthOf(".activity-bar")} >= 40`);
+        const wantedBadges = JSON.stringify({ sessions: countOf(false), reviews: countOf(true) });
         const badges = `JSON.stringify(Object.fromEntries([...document
             .querySelectorAll(".activity-bar .bar-badge")]
             .map((b) => [b.dataset.section, b.textContent])))`;
-        await until("rail badges", `${badges} !== "{}"`);
-        const got = JSON.parse(String(await evaluate(badges))) as Record<string, string>;
-        console.log("rail badges:", JSON.stringify(got), "wanted:", JSON.stringify(wantedBadges));
-        if (JSON.stringify(got) !== JSON.stringify(wantedBadges) || got["sessions"] === "0") {
-            throw new Error("the rail must count the sessions and reviews that need you");
+        await until("panel open", `document.querySelector(".sidebar") !== null`);
+        const start = await evaluate(`(() => {
+            const buttons = [...document.querySelectorAll(".activity-bar .icon-button")];
+            const box = (b) => b.getBoundingClientRect();
+            const gear = buttons[buttons.length - 1];
+            return {
+                rail: buttons.map((b) => b.ariaLabel),
+                gearAtBottom: box(gear).top > box(buttons[1]).bottom + 300,
+                title: ${title},
+                addNew: document.querySelectorAll(".sidebar button.side-add").length,
+                badges: ${badges},
+            };
+        })()`);
+        console.log("start:", JSON.stringify(start));
+        const wantedStart = {
+            rail: ["Hide sessions", "Show reviews", "Show operator", "Show settings"],
+            gearAtBottom: true, title: "Sessions", addNew: 1, badges: wantedBadges,
+        };
+        if (JSON.stringify(start) !== JSON.stringify(wantedStart)) {
+            throw new Error("the rail, the titled sessions panel and the badges are not right");
         }
-        await shot("sidebar-6-rail-collapsed-badges");
-        // A rail icon opens the column on its section, at the width from before the drag.
-        await click(".activity-bar button[aria-label='Show reviews']");
-        await until("column back at 260", `${widthOf(".sidebar")} === 260`);
-        await until("reviews opened",
-            `${expanded} === '[["sessions","true"],["reviews","true"]]'`);
-        await until("rail gone", `document.querySelector(".activity-bar") === null`);
-        await shot("sidebar-7-reopened-from-rail");
+        await shot("sidebar2-1-sessions-open");
+        // One view at a time: reviews replaces sessions; the badges stay on the icons.
+        await click(rail("Show reviews"));
+        await until("reviews titled", `${title} === "Reviews"`);
+        await until("reviews alone", `document.querySelector(".sessions-pane") === null &&
+            document.querySelector(".reviews-pane") !== null`);
+        await until("reviews lit", `${lit} === "Hide reviews"`);
+        await until("New review pinned",
+            `document.querySelector(".sidebar button.side-add[aria-label='New review']") !== null`);
+        await until("badges kept", `${badges} === ${JSON.stringify(wantedBadges)}`);
+        await shot("sidebar2-2-reviews-open");
+        // The gear opens settings in the same panel, its own head hidden under the title.
+        await click(rail("Show settings"));
+        await until("settings titled", `${title} === "Settings"`);
+        await until("settings shown", shown(".sidebar .settings-pane"));
+        await until("gear lit", `${lit} === "Hide settings"`);
+        await shot("sidebar2-3-settings-open");
+        // The lit icon collapses the panel; the rail and its badges stay; a reload keeps it.
+        await click(rail("Hide settings"));
+        await until("collapsed", `document.querySelector(".sidebar") === null`);
+        await until("rail stays", `${widthOf(".activity-bar")} >= 40`);
+        await until("nothing lit", `${lit} === ""`);
+        await until("record collapsed", `${sideRecord} === '{"view":null}'`);
+        await reload();
+        await until("still collapsed", `document.querySelector(".sidebar") === null`);
+        await until("badges while collapsed", `${badges} === ${JSON.stringify(wantedBadges)}`);
+        await shot("sidebar2-4-collapsed-badges");
+        await click(rail("Show sessions"));
+        await until("sessions back at 260", `${widthOf(".sidebar")} === 260 && ${title} ===
+            "Sessions"`);
+        // The three detail levels follow the width: 260 full, 210 pills, 160 title.
+        await until("full at 260", `${level} === "full"`);
+        await until("needs line shown", shown(".session-needs"));
+        await shot("sidebar2-5-level-full-260");
+        await drag(-50);
+        await until("pills at 210", `${widthOf(".sidebar")} === 210 && ${level} === "pills"`);
+        await until("pills: badges kept", shown(".session .badges"));
+        await until("pills: needs line gone", `!${shown(".session-needs")}`);
+        await shot("sidebar2-6-level-pills-210");
+        await drag(-50);
+        await until("title at 160", `${widthOf(".sidebar")} === 160 && ${level} === "title"`);
+        await until("title: badges gone", `!${shown(".session .badges")}`);
+        await until("title: still a title", shown(".session-title"));
+        await shot("sidebar2-7-level-title-160");
+        await drag(100);
+        await until("full again", `${widthOf(".sidebar")} === 260 && ${level} === "full"`);
+        // A drag past the snap point folds the panel on release; the rail stays.
+        const release = await dragHold(-200);
+        await until("armed", `document.querySelector(".layout[data-armed=sessions]") !== null`);
+        await release();
+        await until("folded", `document.querySelector(".sidebar") === null`);
+        await until("rail after the fold", `${widthOf(".activity-bar")} >= 40`);
+        await until("icon dimmed", `${lit} === ""`);
+        await until("fold recorded", `${sideRecord} === '{"view":null}'`);
+        await click(rail("Show reviews"));
+        await until("reopened on reviews at 260",
+            `${widthOf(".sidebar")} === 260 && ${title} === "Reviews"`);
+        await reload();
+        await until("view kept on reload", `${title} === "Reviews" && ${lit} === "Hide reviews"`);
+        await shot("sidebar2-8-reopened-from-rail");
         console.log("sidebar ok");
         await finish();
     }
@@ -1151,10 +1157,12 @@ if (flow === "sidebar" || flow === "reload") {
     if ((await evaluate(`document.querySelector(".rv-context") !== null`)) === true) {
         throw new Error("a fresh window opened on a review");
     }
-    await click(".side-head[data-section=reviews]");
+    await click(rail("Show reviews"));
     await until("reviews open", `document.querySelector(".rv-card") !== null`);
     await click(".rv-card[data-dir='r77-web-77'] .rv-card-body");
     await until("review shown", `${context} === "Dark mode for the settings page"`);
+    await click(rail("Show sessions"));
+    await until("sessions open", `document.querySelector(".session") !== null`);
     await click(".session[data-dir='s001-bootstrap']");
     await until("session shown", `${context} === "Bootstrap: Spinner builds Spinner"`);
     await reload();
@@ -1162,12 +1170,15 @@ if (flow === "sidebar" || flow === "reload") {
         `${context} === "Bootstrap: Spinner builds Spinner"`);
     await until("its card selected",
         `document.querySelector(".session-selected")?.dataset.dir === "s001-bootstrap"`);
-    await until("sections kept", `${expanded} === '[["sessions","true"],["reviews","true"]]'`);
+    await until("sessions view kept", `${title} === "Sessions"`);
     await shot("reload-1-session-view-survives");
+    await click(rail("Show reviews"));
+    await until("reviews again", `document.querySelector(".rv-card") !== null`);
     await click(".rv-card[data-dir='r51-peanut-51'] .rv-card-body");
     await until("other review shown", `${context} === "Retry the upload on 5xx"`);
     await reload();
     await until("same review after reload", `${context} === "Retry the upload on 5xx"`);
+    await until("reviews view kept", `${title} === "Reviews"`);
     await until("its card selected",
         `document.querySelector(".rv-card-selected")?.dataset.dir === "r51-peanut-51"`);
     const kept = JSON.parse(String(await evaluate(record))) as Record<string, string>;
@@ -1518,8 +1529,8 @@ if (flow === "m2-context") {
 }
 
 if (flow === "settings") {
-    // The settings view and the themes, against the fixture: the gear at the foot of the
-    // sidebar opens the view under the section headers (s020); the theme select lists
+    // The settings view and the themes, against the fixture: the gear at the bottom of the
+    // rail opens the view in the side panel (s020); the theme select lists
     // system, light, dark and the valid custom theme, the invalid one is struck through with
     // its missing keys; picking light changes the page's `--bg` and the terminal's
     // background, dark changes them again, system brings the stylesheet's defaults back; each
@@ -1607,14 +1618,15 @@ if (flow === "settings") {
     await until("review stored", `${saveReview}.disabled === true && ${nField}.value === "2"`);
     await until("models stored", `${modelsField}.value === "a/one\\nb/two"`);
     await shot("79-settings-review");
-    // The gear again hides the view and the sections come back as they were; with the
-    // view on, a header click leaves it and opens that section.
+    // The lit gear collapses the panel (s020 round 2); the sessions icon opens the sessions
+    // view again; from settings, the reviews icon swaps the panel to reviews.
     await click("button[aria-label='Hide settings']");
-    await until("settings hidden", `document.querySelector(".settings-pane") === null`);
+    await until("panel collapsed", `document.querySelector(".sidebar") === null`);
+    await click("button[aria-label='Show sessions']");
     await until("sessions view back", `document.querySelector(".session-list") !== null`);
     await click("button[aria-label='Show settings']");
     await until("settings again", `document.querySelector(".settings-pane") !== null`);
-    await click(".side-head[data-section=reviews]");
+    await click("button[aria-label='Show reviews']");
     await until("settings left", `document.querySelector(".settings-pane") === null`);
     await until("reviews open", `document.querySelector(".sidebar .rv-list") !== null`);
     console.log("settings ok");
@@ -1781,8 +1793,8 @@ if (flow === "drawer") {
 }
 
 if (flow === "narrow") {
-    // A narrow window keeps the terminal usable. At 900 px (the open sidebar column takes the
-    // rail's place, so the grid has all 900 px) the previews
+    // A narrow window keeps the terminal usable. At 900 px (860 px for the grid beside the
+    // rail) the previews
     // give up width so the agents pane keeps its 280 px minimum and the terminal opens; at
     // 600 px the previews are a strip and the side panel is at its 140 px minimum; at 440 px
     // the side panel is gone too. None of it is stored: back at 1500 px the defaults show.
@@ -1807,8 +1819,8 @@ if (flow === "narrow") {
     await resize(900);
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     await until("agents at the minimum", `${widthOf(".agents-pane")} === 280`);
-    // 900 px less 260, two handles and 280: about 348 px.
-    await until("previews shrunk", `${widthOf(".preview-pane")} < 360`);
+    // 860 px less the rail's border, 260, two handles and 280: about 307 px.
+    await until("previews shrunk", `${widthOf(".preview-pane")} < 320`);
     await until("previews over their minimum", `${widthOf(".preview-pane")} > 200`);
     await until("xterm mounted", `${shown}?.querySelector(".xterm") !== null`);
     await until("banner", `${rows}.includes("Spinner fixture pty for")`);
@@ -2067,7 +2079,7 @@ if (flow === "terminal") {
 
 if (flow === "operator") {
     // The operator tab, against the fixture (or a scratch daemon with E2E_BANNER set to a
-    // string pi prints): the headset icon sits beside the gear at the sidebar's foot (s020);
+    // string pi prints): the headset icon sits above the gear at the bottom of the rail;
     // a click swaps the middle pane
     // for the operator's terminal while the side panel and the previews stay; the line under
     // the tab names the last notice; the banner shows on attach and keystrokes echo; `stop`
@@ -2089,12 +2101,12 @@ if (flow === "operator") {
     // The headset waits for GET /operator: the fixture's agent is enabled and idle.
     const headsetShown = `document.querySelector("button[aria-label='Show operator']") !== null`;
     await until("headset shown", headsetShown);
-    const bar = await evaluate(`[...document.querySelectorAll(".side-foot .icon-button")]
+    const bar = await evaluate(`[...document.querySelectorAll(".activity-bar .icon-button")]
         .map((b) => b.getAttribute("aria-label"))`);
-    console.log("sidebar foot:", JSON.stringify(bar));
-    const wantedBar = ["Collapse sidebar", "Show operator", "Show settings"];
+    console.log("activity bar:", JSON.stringify(bar));
+    const wantedBar = ["Hide sessions", "Show reviews", "Show operator", "Show settings"];
     if (JSON.stringify(bar) !== JSON.stringify(wantedBar)) {
-        throw new Error("the operator icon must sit between the collapse icon and the gear");
+        throw new Error("the operator icon must sit between the views and the gear");
     }
     await until("no notice while running", `${notice} === null`);
     await click("button[aria-label='Show operator']");
@@ -2399,10 +2411,10 @@ if (flow === "costs") {
 }
 
 if (flow === "reviews") {
-    // The Reviews panel (s015), against the fixture: its header in the sidebar opens it
-    // (s020); the review sessions are not in the Sessions panel; the cards come latest activity
-    // first with the CI pill (the failing checks in its tooltip), the decision pill and the
-    // thread count; a card opens the review's middle pane with the PR header and the swarm
+    // The Reviews panel (s015), against the fixture: its rail icon opens it in the side
+    // panel (s020); the review sessions are not in the Sessions panel; the cards come latest
+    // activity first with the CI pill (the failing checks in its tooltip), the decision pill
+    // and the thread count; a card opens the review's middle pane with the PR header and the swarm
     // chips (s018: facts, not controls; the agents are headless, so no terminal view and
     // nothing happens on a click); the right pane opens on `diff`. A paste in the box makes
     // a review, which starts the lead and the swarm (s016): the chips go queued, reading,
@@ -2412,7 +2424,7 @@ if (flow === "reviews") {
     if ((await evaluate(`${sessionsText}.includes("Retry the upload")`)) === true) {
         throw new Error("a review session shows in the Sessions panel");
     }
-    await click(".side-head[data-section=reviews]");
+    await click(".activity-bar button[aria-label='Show reviews']");
     const pane = `document.querySelector(".reviews-pane")`;
     await until("reviews pane", `${pane} !== null`);
     const cards = `[...document.querySelectorAll(".rv-card")]`;
@@ -2475,7 +2487,9 @@ if (flow === "reviews") {
     if ((await evaluate(`${reviewPane}.querySelector(".agent-terminal") !== null`)) === true) {
         throw new Error("a chip click opened a terminal");
     }
-    // A paste makes a review; the job's session is selected when it finishes.
+    // A paste makes a review; the job's session is selected when it finishes. The box opens
+    // from the `+ New review` button pinned under the panel's title.
+    await click(".sidebar button.side-add[aria-label='New review']");
     await fill("textarea[aria-label='Pull requests to review']",
         "please look at https://github.com/acme/peanut/pull/9");
     await until("PR found", `${text(".rv-found")}.includes("acme/peanut#9")`);
@@ -2484,8 +2498,8 @@ if (flow === "reviews") {
     await until("three cards", `${cards}.length === 3`);
     await until("new review selected",
         `${text(".rv-card-selected")}.includes("PR 9 of peanut")`);
-    await until("box cleared",
-        `document.querySelector("textarea[aria-label='Pull requests to review']").value === ""`);
+    await until("box folded",
+        `document.querySelector("textarea[aria-label='Pull requests to review']") === null`);
     await until("job finished", `${text(".drawer")}.includes("ok")`);
     // The job started the lead and the swarm: the chips move on their own.
     const reviewers = `${chips}.filter((c) => c.dataset.name !== "lead")`;
@@ -2526,7 +2540,7 @@ if (flow === "review-lead") {
     // an APPROVE with no comment: `approve` as a green pill, no comment row, and it posts.
     // On a fresh paste the briefing shows before the verdicts land, the draft once they
     // have; `drop` removes it.
-    await click(".side-head[data-section=reviews]");
+    await click(".activity-bar button[aria-label='Show reviews']");
     await until("reviews pane", `document.querySelector(".reviews-pane") !== null`);
     const cardPills = (title: string) => `(() => {
         const card = [...document.querySelectorAll(".rv-card")]
@@ -2650,6 +2664,7 @@ if (flow === "review-lead") {
     await until("approve card posted",
         `JSON.stringify(${cardPills("Dark mode for the settings page")}) === '["posted"]'`);
     // A fresh review: the briefing shows before the verdicts land; the draft once they have.
+    await click(".sidebar button.side-add[aria-label='New review']");
     await fill("textarea[aria-label='Pull requests to review']",
         "https://github.com/acme/peanut/pull/12");
     await until("PR found", `${text(".rv-found")}.includes("acme/peanut#12")`);
@@ -3150,7 +3165,8 @@ if (flow === "agents") {
 }
 
 const title = `E2E ${Date.now() % 100000}`;
-// The form is pinned at the top of the sidebar's sessions section (s020).
+// The `+ New session` button pinned under the sessions panel's title opens the form (s020).
+await click(".sidebar button.side-add[aria-label='New session']");
 const newForm = `document.querySelector(".sidebar form[aria-label='New session']")`;
 await until("new form shown", `${newForm} !== null`);
 await fill("textarea[aria-label='What this is about']", title);

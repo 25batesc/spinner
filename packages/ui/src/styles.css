@@ -337,35 +337,24 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     opacity: 1; background: var(--fill); box-shadow: inset 2px 0 0 var(--accent);
 }
 .activity-bar .bar-popped { color: var(--accent); opacity: 1; }
-/* The sidebar (s020): the rail pulled out into one column. The headers stay in place; each
-   open section takes an equal share of the height, pins its compose box under its header and
-   scrolls its list below it. The settings view takes the room under the headers. */
+/* The side panel (s020, round 2): VS Code's shape. The rail stays at the far left; the panel
+   beside it shows one view under a title row: the view's name, its count and needs pill. */
 .sidebar {
     display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
     box-sizing: border-box;
 }
-.side-section {
-    display: flex; flex-direction: column; flex: none; min-height: 0;
-    border-bottom: 1px solid var(--line-soft);
+.side-title {
+    display: flex; align-items: center; gap: var(--space-2); flex: none; height: 36px;
+    padding: 0 var(--space-3); box-sizing: border-box;
 }
-.side-section-open { flex: 1 1 0; }
-.side-head {
-    display: flex; align-items: center; gap: var(--space-2); flex: none; width: 100%;
-    height: 36px; padding: 0 var(--space-3); border: 0; background: transparent;
-    color: inherit; font: inherit; font-size: var(--text-body); font-weight: 600;
-    text-align: left; cursor: pointer; transition: background-color 0.1s;
+.side-title-label {
+    min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: var(--text-body); font-weight: 600;
 }
-.side-head:hover { background: var(--fill-soft); }
-.side-head .icon { flex: none; opacity: 0.6; }
-.side-head[aria-expanded="true"] .icon { opacity: 1; }
-.side-head-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-head-count {
+.side-title-count {
     font-size: var(--text-meta); font-weight: 500; font-variant-numeric: tabular-nums;
 }
-.side-head-needs { flex: none; font-variant-numeric: tabular-nums; }
-.side-head-chevron {
-    flex: none; margin-left: auto; font-size: var(--text-dense); color: var(--muted);
-}
+.side-title-needs { flex: none; font-variant-numeric: tabular-nums; }
 .side-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .side-body > .pane {
     display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; overflow: hidden;
@@ -378,13 +367,11 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .sidebar .session-list, .sidebar .rv-list {
     flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-3) var(--space-1);
 }
-.side-settings { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.side-settings > .pane { flex: 1; min-height: 0; }
-.side-foot {
-    display: flex; align-items: center; gap: 2px; flex: none; height: 36px; margin-top: auto;
-    padding: 0 var(--space-2); box-sizing: border-box;
+/* The settings view: the title row names it, so its own pane head hides; it scrolls whole. */
+.sidebar[data-view="settings"] .side-body > .pane {
+    padding: 0 var(--space-3) var(--space-2); overflow: auto;
 }
-.side-foot-gap { flex: 1; }
+.sidebar[data-view="settings"] .side-body > .pane > .pane-head { display: none; }
 /* The new-session box in the column matches the new-review box: a small card whose header
    names it, so the heading and the field labels hide; every `aria-label` stays. */
 .side-compose .compose-form { max-width: none; gap: var(--space-2); padding: var(--space-2); }
@@ -396,7 +383,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .side-compose .rv-compose { margin-bottom: 0; }
 /* The three detail levels follow the column's width (`widthLevel` sets `data-level`): `full`
    is the whole card; `pills` keeps the title and the pills and drops the meta, the needs-you
-   line and the review actions; `title` keeps the title alone. The header keeps the count. */
+   line and the review actions; `title` keeps the title alone. The title row keeps the count. */
 .sidebar[data-level="pills"] .session { height: 72px; }
 .sidebar[data-level="pills"] .session-needs,
 .sidebar[data-level="pills"] .session .badges > .muted,
@@ -409,8 +396,9 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .sidebar[data-level="title"] .rv-meta,
 .sidebar[data-level="title"] .rv-pills,
 .sidebar[data-level="title"] .rv-card-actions { display: none; }
-.sidebar[data-level="title"] .side-head-count { display: none; }
-/* The rail's needs-you count: a warn pill on the corner of the sessions and reviews icons. */
+.sidebar[data-level="title"] .side-title-count { display: none; }
+/* The rail's needs-you count, always shown: a warn pill on the corner of the sessions and
+   reviews icons. */
 .bar-item { position: relative; display: flex; }
 .bar-badge {
     position: absolute; top: -2px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px;
