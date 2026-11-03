@@ -3,9 +3,8 @@
 // settings. A title row names the view with its count and needs-you pill; the sessions and
 // reviews views pin their `+ New …` button under it and scroll their list below. The panel
 // resizes with the layout's divider; a drag past the snap point folds it, and the rail stays.
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { IconButton } from "./PaneHead.tsx";
 import type { SidebarView, WidthLevel } from "./sidebar.ts";
 
 /** What the title row shows beside a list view's name. */
@@ -65,38 +64,6 @@ export function NewButton(props: { label: string; active: boolean; onClick: () =
         >
             + {props.label}
         </button>
-    );
-}
-
-/**
- * The pinned "+ New …" button of a section. A click opens the form in its place with a
- * cancel at its head; the form closes itself after a start through `close`, and a cancel
- * keeps whatever draft the caller holds.
- */
-export function AddNew(props: { label: string; children: (close: () => void) => ReactNode }) {
-    const { label, children } = props;
-    const [open, setOpen] = useState(false);
-    const close = () => setOpen(false);
-    if (!open) {
-        return (
-            <button
-                type="button"
-                className="side-add"
-                onClick={() => setOpen(true)}
-                aria-label={label}
-            >
-                + {label}
-            </button>
-        );
-    }
-    return (
-        <div className="side-add-open" aria-label={`${label} form`}>
-            <div className="side-add-head">
-                <span className="side-add-title">{label}</span>
-                <IconButton icon="close" label={`Cancel ${label.toLowerCase()}`} onClick={close} />
-            </div>
-            {children(close)}
-        </div>
     );
 }
 

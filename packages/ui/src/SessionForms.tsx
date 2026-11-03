@@ -153,6 +153,8 @@ export interface ComposeFormProps {
     /** The draft lives with the caller, so a switch to a session and back keeps the text. */
     draft: ComposeDraft;
     onDraft: (draft: ComposeDraft) => void;
+    /** True while the job that `Start` posted runs; the button waits for the session. */
+    starting: boolean;
 }
 
 export interface ComposeDraft {
@@ -163,7 +165,7 @@ export interface ComposeDraft {
 export const EMPTY_DRAFT: ComposeDraft = { text: "", project: "" };
 
 /** The compose box. `Start` posts the job; the drawer below shows it run. */
-export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
+export function ComposeForm({ run, draft, onDraft, starting }: ComposeFormProps) {
     const projects = useProjects();
     const { text, project } = draft;
     const setText = (next: string) => onDraft({ ...draft, text: next });
@@ -172,7 +174,7 @@ export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
-        if (text.trim() === "") {
+        if (text.trim() === "" || starting) {
             return;
         }
         void run("/sessions", startBody(text, project, extraction.ticked, extraction.prs));
@@ -197,8 +199,12 @@ export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
                     <span className="field-label">Project</span>
                     <ProjectSelect projects={projects} value={project} onChange={setProject} />
                 </label>
-                <button type="submit" className="primary" disabled={text.trim() === ""}>
-                    Start
+                <button
+                    type="submit"
+                    className="primary"
+                    disabled={text.trim() === "" || starting}
+                >
+                    {starting ? "Starting…" : "Start"}
                 </button>
             </div>
         </form>
@@ -207,3 +213,69 @@ export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
 
 const SESSION_PLACEHOLDER =
     "What should this session be about? Paste a ticket, a PR link, or a sentence.";
+
+export interface ReviewComposeFormProps {
+    run: RunAction;
+    /** The text lives with the caller, so a switch to a review and back keeps it. */
+    text: string;
+    onText: (text: string) => void;
+    /** True while the `reviews` job runs; the button waits for the review. */
+    starting: boolean;
+}
+
+/**
+ * The review composer: PR references in any form, no project. The PRs the daemon finds show
+ * under the box while the operator types; the daemon reads the text again when `Start review`
+ * posts it, so the list is a preview, not the request.
+ */
+export function ReviewComposeForm({ run, text, onText, starting }: ReviewComposeFormProps) {
+    const [extraction] = useExtraction(text, "");
+    const found = extraction.prs.filter((pr) => pr.url !== null);
+    const refused = extraction.prs.filter((pr) => pr.url === null);
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        if (text.trim() === "" || starting) {
+            return;
+        }
+        void run("/reviews", { text });
+    };
+    return (
+        <form className="compose-form" onSubmit={submit} aria-label="New review">
+            <h3>New review</h3>
+            <textarea
+                value={text}
+                onChange={(event) => onText(event.target.value)}
+                placeholder="Paste the links of the PRs to review."
+                aria-label="Pull requests to review"
+                rows={8}
+                autoFocus
+            />
+            {found.length > 0 && (
+                <ul className="rv-found" aria-label="Pull requests found">
+                    {found.map((pr) => (
+                        <li key={pr.url} className="rv-found-pr">
+                            <code>{pr.repo}#{pr.number}</code>
+                            {pr.title !== null && <span className="muted">{pr.title}</span>}
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {refused.map((pr) => (
+                <p key={pr.ref} className="needs-human rv-found-reason">
+                    {pr.ref}: {pr.reason ?? "not a PR"}
+                </p>
+            ))}
+            {extraction.pending && <p className="muted rv-extracting">Looking for PRs…</p>}
+            {extraction.error !== null && <p className="needs-human">{extraction.error}</p>}
+            <div className="compose-actions rv-compose-actions">
+                <button
+                    type="submit"
+                    className="primary"
+                    disabled={text.trim() === "" || starting}
+                >
+                    {starting ? "Starting…" : "Start review"}
+                </button>
+            </div>
+        </form>
+    );
+}

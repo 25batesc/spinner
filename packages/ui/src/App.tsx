@@ -35,7 +35,7 @@ import { ReviewPane } from "./ReviewPane.tsx";
 import { ReviewsPane } from "./ReviewsPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import {
-    ComposeForm, EMPTY_DRAFT, type ComposeDraft, type RunAction,
+    ComposeForm, EMPTY_DRAFT, ReviewComposeForm, type ComposeDraft, type RunAction,
 } from "./SessionForms.tsx";
 import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
@@ -113,9 +113,13 @@ function windowStorage(): Storage | undefined {
 
 /**
  * What the middle pane shows: the selected session, the operator agent, or the composer that
- * `+ New session` opens (s038).
+ * `+ New session` or `+ New review` opens (s038).
  */
-type Middle = "agents" | "operator" | "new-session";
+type Middle = "agents" | "operator" | "new-session" | "new-review";
+
+function isComposer(middle: Middle): boolean {
+    return middle === "new-session" || middle === "new-review";
+}
 
 /** View state and the action runner, shared by the main layout and a pane route. */
 function useAppState(state: UiState, route: PaneRoute | undefined) {
@@ -134,7 +138,12 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     }, [focus, inRoute]);
     const [middle, setMiddle] = useState<Middle>("agents");
     // A pick in a list and a rail switch leave the composer; the draft stays for the way back.
-    const leaveComposer = () => setMiddle((old) => (old === "new-session" ? "agents" : old));
+    const leaveComposer = () => setMiddle((old) => (isComposer(old) ? "agents" : old));
+    // The agents pane's view and picked agent live here (entry 3.22), so the `needs you` pill
+    // can open a gate card and a created session can open on its lead: the `agents` view
+    // with `lead` picked.
+    const [agentsShown, setAgentsShown] = useState("agents");
+    const [agentPicked, setAgentPicked] = useState<string | undefined>(undefined);
     const pick = (panel: FocusPanel, dir: string) => {
         setFocus((old) => pickFocus(old, panel, dir));
         leaveComposer();
@@ -155,11 +164,12 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     // The composer's text: it lives here, so a look at a session and back keeps it; the
     // created session clears it.
     const [draft, setDraft] = useState<ComposeDraft>(EMPTY_DRAFT);
+    const [reviewText, setReviewText] = useState("");
 
     const sessions = sortedSessions(state);
     // The composer stands in for a selection: the context bar, the cards and the previews
     // show none while it is open.
-    const selected = middle === "new-session" ? undefined : focusedDir(focus, sessions);
+    const selected = isComposer(middle) ? undefined : focusedDir(focus, sessions);
     const view = selected === undefined ? undefined : state.sessions[selected];
     // The selected session's needs-you line counts as seen while the operator looks at it.
     useEffect(() => {
@@ -171,17 +181,29 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     const busy = selected !== undefined && runningJob(state, selected) !== undefined;
     const job = watched === undefined ? undefined : state.jobs[watched];
 
-    // A finished `new`, `adopt` or `reviews` names its session; show it.
+    // The kind of composer whose `Start` job runs now: its button waits.
+    const creates = job?.action === "new" || job?.action === "adopt" ||
+        job?.action === "reviews";
+    let starting: "session" | "review" | null = null;
+    if (creates && job.state === "running") {
+        starting = job.action === "reviews" ? "review" : "session";
+    }
+    // A finished `new`, `adopt` or `reviews` names its session; show it. A session opens on
+    // its lead, the agent in charge; a review opens on its pane. The composer's draft clears.
     useEffect(() => {
-        const creates = job?.action === "new" || job?.action === "adopt" ||
-            job?.action === "reviews";
-        const created = job?.state === "ok" && creates;
-        if (created && job.session !== null) {
-            const review = job.action === "reviews";
-            pick(review ? "reviews" : "sessions", job.session);
-            if (!review) {
-                setDraft(EMPTY_DRAFT);
-            }
+        const dir = job?.session ?? null;
+        if (!creates || job?.state !== "ok" || dir === null) {
+            return;
+        }
+        const review = job.action === "reviews";
+        setFocus((old) => pickFocus(old, review ? "reviews" : "sessions", dir));
+        setMiddle("agents");
+        if (review) {
+            setReviewText("");
+        } else {
+            setDraft(EMPTY_DRAFT);
+            setAgentsShown("agents");
+            setAgentPicked("lead");
         }
     }, [job?.state, job?.action, job?.session]);
 
@@ -208,6 +230,8 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     return {
         sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
         focus, pick, activate, setActionError, draft, setDraft, seen, middle, setMiddle,
+        agentsShown, setAgentsShown, agentPicked, setAgentPicked, reviewText, setReviewText,
+        starting,
     };
 }
 
@@ -227,11 +251,7 @@ export function App() {
             saveSidebar(windowStorage(), sidebar);
         }
     }, [sidebar, inRoute]);
-    const { middle, setMiddle } = app;
-    // The agents pane's view and picked agent live here (entry 3.22), so the `needs you` pill
-    // can open a gate card: the `agents` view with `lead` picked.
-    const [agentsShown, setAgentsShown] = useState("agents");
-    const [agentPicked, setAgentPicked] = useState<string | undefined>(undefined);
+    const { middle, setMiddle, agentsShown, setAgentsShown, agentPicked, setAgentPicked } = app;
     const card = view === undefined ? null : gateCard(view.design, needsHuman(view));
     const openCard = card === null ? undefined : () => {
         setMiddle("agents");
@@ -395,8 +415,12 @@ export function App() {
     };
     const review = view === undefined ? null : reviewFacts(view);
     // The composer is the empty state too: a home with no sessions opens on it.
-    const composerShown =
-        middle === "new-session" || (middle === "agents" && selected === undefined);
+    let composer: "session" | "review" | null = null;
+    if (middle === "new-review") {
+        composer = "review";
+    } else if (middle === "new-session" || (middle === "agents" && selected === undefined)) {
+        composer = "session";
+    }
     const reviewsPane = (
         <ReviewsPane
             reviews={reviewsByActivity(sessions)}
@@ -404,6 +428,8 @@ export function App() {
             busy={busy}
             onSelect={(dir) => app.pick("reviews", dir)}
             run={run}
+            onNew={() => setMiddle("new-review")}
+            composing={composer === "review"}
         />
     );
     const sessionsPane = (
@@ -414,14 +440,26 @@ export function App() {
             onSelect={(dir) => app.pick("sessions", dir)}
             run={run}
             onNew={() => setMiddle("new-session")}
-            composing={composerShown}
+            composing={composer === "session"}
+        />
+    );
+    const composerForm = composer === "review" ? (
+        <ReviewComposeForm
+            run={run}
+            text={app.reviewText}
+            onText={app.setReviewText}
+            starting={app.starting === "review"}
+        />
+    ) : (
+        <ComposeForm
+            run={run}
+            draft={app.draft}
+            onDraft={app.setDraft}
+            starting={app.starting === "session"}
         />
     );
     const composerPane = (
-        <ComposerPane
-            label="Composer"
-            form={<ComposeForm run={run} draft={app.draft} onDraft={app.setDraft} />}
-        >
+        <ComposerPane label="Composer" form={composerForm}>
             {drawer}
         </ComposerPane>
     );
@@ -522,7 +560,7 @@ export function App() {
     let middlePane = agentsPane;
     if (operatorOn) {
         middlePane = operatorPane;
-    } else if (composerShown) {
+    } else if (composer !== null) {
         middlePane = composerPane;
     }
     const panes = { sessions: sidePanel, agents: middlePane, previews: previewsPane };
