@@ -391,6 +391,41 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         expect(daemon?.agents.running(summary.dir)).toEqual([NAME_B]);
     });
 
+    it("names the approved design doc in each reviewer's brief (D11, 6.12)", async () => {
+        await boot(24);
+        const created = ordinary_session();
+        const approved = {
+            path: "docs/designs/refunds.md",
+            repo: "backend",
+            sha256: "ab",
+            at: "2026-11-03T00:00:00Z",
+            blockers: 0,
+            round: 1,
+        };
+        const design = { track: "design" as const, doc: approved.path, repo: "backend", approved };
+        write_session({ ...created, session: { ...created.session, design } });
+        const one = { theme: "system", review: { models: [MODEL_A] } };
+        expect((await call("PUT", "/settings", one)).status).toBe(200);
+        await start_review(created.dir, { pr: "backend" });
+        const brief = readFileSync(join(created.path, "agents", NAME_A, "BRIEF.md"), "utf8");
+        const doc = join(created.path, "worktrees", "backend", "docs", "designs", "refunds.md");
+        expect(brief).toContain(
+            `The approved design doc is \`${doc}\`. Read it. Name each place where the code ` +
+                "differs from it.",
+        );
+    });
+
+    it("leaves the design line out without an approved doc (6.12)", async () => {
+        await boot(24);
+        const summary = ordinary_session();
+        const one = { theme: "system", review: { models: [MODEL_A] } };
+        expect((await call("PUT", "/settings", one)).status).toBe(200);
+        await start_review(summary.dir, { pr: "backend" });
+        const brief = readFileSync(join(summary.path, "agents", NAME_A, "BRIEF.md"), "utf8");
+        expect(brief).toContain("You are a read-only code reviewer.");
+        expect(brief).not.toContain("approved design doc");
+    });
+
     it("runs the swarm on an ordinary session too, so its chips show (s016)", async () => {
         await boot(24);
         const summary = ordinary_session();

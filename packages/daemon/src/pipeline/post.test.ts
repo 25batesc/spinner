@@ -3,7 +3,7 @@
 // `confirm: true`, stores the permalink, and that the activity poll reads replies into the
 // facts. Method: the fixture Slack client (no token in the environment) against a temporary
 // SPINNER_HOME; the canned replies under `test/fixtures/slack/`.
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -12,7 +12,7 @@ import type { PipelineConfig, Session, SessionSummary } from "@spinner/protocol"
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { create_session, read_session, write_session } from "../store/session-store.js";
 import { pipeline_config_from_spec } from "./config.js";
-import { compose_post, poll_slack_activity, post_message } from "./post.js";
+import { compose_post, poll_slack_activity, post_message, post_view } from "./post.js";
 import { fixture_client, parse_permalink, slack_client_from_env } from "./slack.js";
 
 let home: SpinnerHome;
@@ -79,7 +79,7 @@ describe("compose_post", () => {
         const config = config_with({ channel: "C0TEST" });
         const mission = "## Goal\nCustomers can request a refund.\nMore.";
         const fixture = { transport: "fixture" as const };
-        const view = compose_post(summary, mission, config, fixture, "U0REVIEWER1");
+        const view = compose_post(summary, mission, null, config, fixture, "U0REVIEWER1");
         expect(view.text).toBe(
             [
                 "*Refund flow* (s001)",
@@ -94,18 +94,72 @@ describe("compose_post", () => {
         expect(view.prs).toHaveLength(1);
     });
 
+    it("uses the approved doc's first sentence and names the doc (6.10)", () => {
+        const created = session_with_pr(true);
+        const worktree = "worktrees/backend";
+        const doc_path = "docs/designs/refunds.md";
+        const dir = join(created.path, worktree, "docs", "designs");
+        mkdirSync(dir, { recursive: true });
+        const doc = "# Refunds\n\n## Overview\nCustomers refund in one click. More text.\n";
+        writeFileSync(join(dir, "refunds.md"), doc);
+        const backend = created.session.repos["backend"];
+        if (backend === undefined) {
+            throw new Error("no backend");
+        }
+        const approved = {
+            path: doc_path,
+            repo: "backend",
+            sha256: "ab",
+            at: "2026-11-03T00:00:00Z",
+            blockers: 0,
+            round: 1,
+        };
+        const session: Session = {
+            ...created.session,
+            repos: { backend: { ...backend, worktree } },
+            design: { track: "design", doc: doc_path, repo: "backend", approved },
+        };
+        write_session({ ...created, session });
+        const read = read_session(home, created.dir);
+        if (!read.ok) {
+            throw new Error(read.error);
+        }
+        const fixture = { transport: "fixture" as const };
+        const config = config_with({ channel: "C0TEST" });
+        const view = post_view(read.summary, config, fixture, undefined);
+        expect(view.text).toBe(
+            [
+                "*Refund flow* (s001)",
+                "Customers refund in one click.",
+                "Design: `docs/designs/refunds.md`",
+                "• backend: <https://github.com/acme/backend/pull/412|#412 Refund workflow>",
+            ].join("\n"),
+        );
+        expect(view.text).not.toContain("Customers can request a refund.");
+    });
+
+    it("keeps the Goal line for a session without a design block", () => {
+        const summary = session_with_pr(true);
+        const fixture = { transport: "fixture" as const };
+        const view = post_view(summary, config_with({ channel: "C0TEST" }), fixture, undefined);
+        expect(view.text.split("\n")[1]).toBe("Customers can request a refund.");
+        expect(view.text).not.toContain("Design:");
+    });
+
     it("names what blocks the post", () => {
         const fixture = { transport: "fixture" as const };
         const unverified = session_with_pr(false);
-        expect(compose_post(unverified, "", config_with({}), fixture, undefined).blocked).toBe(
+        const no_channel = config_with({});
+        expect(compose_post(unverified, "", null, no_channel, fixture, undefined).blocked).toBe(
             "no pipeline.slack.channel configured",
         );
         const config = config_with({ channel: "C0TEST" });
-        expect(compose_post(unverified, "", config, fixture, undefined).blocked).toBe(
+        expect(compose_post(unverified, "", null, config, fixture, undefined).blocked).toBe(
             "not verified: run spinner verify first",
         );
         const never = config_with({ channel: "C0TEST", post: "never" });
-        expect(compose_post(session_with_pr(true), "", never, fixture, undefined).blocked).toBe(
+        const verified = session_with_pr(true);
+        expect(compose_post(verified, "", null, never, fixture, undefined).blocked).toBe(
             "pipeline.slack.post is never",
         );
     });

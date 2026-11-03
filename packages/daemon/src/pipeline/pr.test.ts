@@ -211,6 +211,66 @@ describe("spinner pr", () => {
         expect(log.some((line) => line.includes("opened https://github.com"))).toBe(true);
     });
 
+    it("writes the body from the approved design doc of a design session (6.9)", async () => {
+        const created = session_with_worktrees(["backend"]);
+        const doc_path = "docs/designs/example.md";
+        const doc_dir = join(created.path, "worktrees", "backend", "docs", "designs");
+        mkdirSync(doc_dir, { recursive: true });
+        const doc = "# Example\n\n## Overview\nThe example ships.\n\n## Goals\n*   It works.\n";
+        writeFileSync(join(doc_dir, "example.md"), `${doc}\n## The Problem\nNot in the PR.\n`);
+        const approved = {
+            path: doc_path,
+            repo: "backend",
+            sha256: "ab",
+            at: "2026-11-03T00:00:00Z",
+            blockers: 0,
+            round: 1,
+        };
+        const design = { track: "design" as const, doc: doc_path, repo: "backend", approved };
+        write_session({ ...created, session: { ...created.session, design } });
+        const read = read_session(home, created.dir);
+        if (!read.ok) {
+            throw new Error(read.error);
+        }
+        writer.ahead.set(join(created.path, "worktrees", "backend"), 1);
+        writer.response = load("pr-fixing");
+        const deps = { gh: writer.gh, writer, config: spec_with(["acme/backend"]), log: () => {} };
+        await open_prs(home, read.summary, {}, deps);
+        const create = writer.gh_calls.find((args) => args[1] === "create");
+        const body = readFileSync(create?.[create.indexOf("--body-file") + 1] ?? "", "utf8");
+        expect(body).toBe(
+            [
+                "The example ships.",
+                "",
+                "## Goals",
+                "*   It works.",
+                "",
+                "Design: `docs/designs/example.md` (drafted with EGM)",
+                "",
+                `Spinner session ${created.session.id}`,
+                "",
+            ].join("\n"),
+        );
+        expect(body).not.toContain("Ship the example.");
+    });
+
+    it("keeps the mission body for a design session whose doc is not approved", async () => {
+        const created = session_with_worktrees(["backend"]);
+        const design = { track: "design" as const, doc: "docs/designs/x.md", repo: "backend" };
+        write_session({ ...created, session: { ...created.session, design } });
+        const read = read_session(home, created.dir);
+        if (!read.ok) {
+            throw new Error(read.error);
+        }
+        writer.ahead.set(join(created.path, "worktrees", "backend"), 1);
+        writer.response = load("pr-fixing");
+        const deps = { gh: writer.gh, writer, config: spec_with(["acme/backend"]), log: () => {} };
+        await open_prs(home, read.summary, {}, deps);
+        const create = writer.gh_calls.find((args) => args[1] === "create");
+        const body = readFileSync(create?.[create.indexOf("--body-file") + 1] ?? "", "utf8");
+        expect(body).toContain("## Goal\nShip the example.");
+    });
+
     it("refuses before pushing when the repo is not on the allow-list", async () => {
         const summary = session_with_worktrees(["backend"]);
         writer.ahead.set(join(summary.path, "worktrees", "backend"), 1);

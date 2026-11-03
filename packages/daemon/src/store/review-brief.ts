@@ -59,6 +59,20 @@ export interface ReviewBriefInput {
     url: string;
     /** The `pr-review` skill's directory; null when none is configured and none is installed. */
     skill: string | null;
+    /** Absolute path of the session's approved design doc (D11, 6.12); absent without one. */
+    design_doc?: string;
+}
+
+/** The brief's lines about the approved design doc; none without one. */
+function design_lines(design_doc: string | undefined): string[] {
+    if (design_doc === undefined) {
+        return [];
+    }
+    return [
+        `The approved design doc is \`${design_doc}\`. Read it. Name each place where the code ` +
+            "differs from it.",
+        "",
+    ];
 }
 
 function path_line(label: string, path: string): string {
@@ -183,6 +197,7 @@ export function render_review_brief(input: ReviewBriefInput): string {
         ),
         path_line("principles", rules.principles),
         "",
+        ...design_lines(input.design_doc),
         ...WHAT_TO_JUDGE,
         "",
         "Write each finding as a line comment would read, so the lead can carry it over:",
