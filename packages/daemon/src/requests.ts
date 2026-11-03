@@ -246,7 +246,14 @@ export function parse_agent_message(input: unknown): AgentMessageRequest | strin
     if (text === undefined) {
         return "`text` must be a non-empty string";
     }
-    return { text };
+    // The UI's message box marks the operator's own steers for the outcome counter (6.20).
+    if (record.source === undefined) {
+        return { text };
+    }
+    if (record.source !== "operator") {
+        return 'source must be "operator" when given';
+    }
+    return { text, source: "operator" };
 }
 
 function as_record(input: unknown): Record<string, unknown> | string {

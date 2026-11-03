@@ -256,6 +256,17 @@ export interface Session {
      * that are only in `## Previous rounds` of MISSION.md.
      */
     rounds?: RoundRecord[];
+    /** Absent in sessions created before EGM build session 6. */
+    outcomes?: OutcomeCounts;
+}
+
+/**
+ * The outcome counters (docs/designs/egm-adoption.md, 6.19 to 6.22): fixer rounds and the
+ * operator's steers to the lead, counted per session across rounds.
+ */
+export interface OutcomeCounts {
+    fix_rounds: number;
+    operator_steers: number;
 }
 
 /** One PR of an earlier round. `merged_at` is the PR's `last_activity` when merged, else null. */

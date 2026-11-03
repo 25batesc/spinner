@@ -265,6 +265,18 @@ export const ROUTES = {
     "GET /sessions/:dir/design/reviews/:run/:name": "text/markdown",
     /** The design doc from the worktree of `design.repo`. 404 before `design.doc`. */
     "GET /sessions/:dir/design/doc": "text/markdown",
+    /**
+     * Body: DesignApproveRequest. Approves the design doc (T10). 409 with a
+     * DesignApproveRefusal without a doc, while resolving, with an open gate, or when the
+     * newest report lists blockers that `blockers_confirmed` does not confirm.
+     */
+    "POST /sessions/:dir/design/approve": "SessionResponse",
+    /** Removes the approval and `approved.md`; `design.approvals` keeps its history. */
+    "DELETE /sessions/:dir/design/approve": "SessionResponse",
+    /** The doc as approved, `<session>/design/approved.md`. 404 before an approval. */
+    "GET /sessions/:dir/design/approved": "text/markdown",
+    /** The `## ` sections changed since the approval; an empty list without a change. */
+    "GET /sessions/:dir/design/changes": "DesignChangesResponse",
 } as const;
 
 export type Route = keyof typeof ROUTES;
@@ -1018,6 +1030,8 @@ export interface AddAgentRequest {
 
 export interface AgentMessageRequest {
     text: string;
+    /** Set only by the Spinner UI's message box, for the outcome counter. */
+    source?: "operator";
 }
 
 /** `GET /sessions/:dir/agents/default-brief`. */

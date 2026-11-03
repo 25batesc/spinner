@@ -372,3 +372,33 @@ export interface DesignFilesResponse {
 
 /** A design file name the workspace routes accept; a name that starts with `.` is refused too. */
 export const DESIGN_FILE_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,100}\.md$/;
+
+// Approval and the build (docs/designs/egm-adoption.md, build session 6, T10).
+
+/**
+ * Body of `POST /sessions/:dir/design/approve`. `build` prompts the lead with the build
+ * message (D5). `blockers_confirmed` must equal the blockers the newest report lists when
+ * that count is above 0 (D2, review M17).
+ */
+export interface DesignApproveRequest {
+    build: boolean;
+    blockers_confirmed?: number;
+}
+
+/** The 409 body of `POST /sessions/:dir/design/approve`. `blockers` is null for other refusals. */
+export interface DesignApproveRefusal {
+    error: string;
+    blockers: number | null;
+}
+
+/** One `## ` section that differs between `approved.md` and the doc; null when absent. */
+export interface DesignChange {
+    heading: string;
+    approved: string | null;
+    current: string | null;
+}
+
+/** `GET /sessions/:dir/design/changes`: an empty list without a change. */
+export interface DesignChangesResponse {
+    changes: DesignChange[];
+}
