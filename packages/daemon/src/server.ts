@@ -82,6 +82,7 @@ import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
+import { count_outcome, counts_as_operator_steer } from "./pipeline/outcomes.js";
 import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
 import { mount_review_routes } from "./pipeline/review-routes.js";
 import { start_review_lead } from "./agents/review-lead.js";
@@ -519,6 +520,11 @@ export function create_app(deps: AppDeps): Hono {
             }
             try {
                 const disposition = await handle[command](request.text);
+                // The outcome counter (6.20, review v2 M-5): only a steer to the lead that
+                // the UI's message box marked with `source: "operator"`.
+                if (counts_as_operator_steer(command, name, request)) {
+                    count_outcome(deps.home, summary.dir, "operator_steers");
+                }
                 const body: AgentCommandResponse = { ok: true, disposition };
                 return c.json(body);
             } catch (error) {
