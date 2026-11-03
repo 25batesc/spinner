@@ -1,6 +1,6 @@
 {
     "name": "@spinner/desktop",
-    "version": "0.14.0",
+    "version": "0.14.1",
     "private": true,
     "description": "Spinner desktop: the web UI in an Electron window, previews as top-level pages.",
     "license": "MIT",
