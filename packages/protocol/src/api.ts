@@ -246,6 +246,25 @@ export const ROUTES = {
      * `:round` is an integer from 1 to `ROUNDS_MAX`; 404 for a round without one.
      */
     "GET /sessions/:dir/rounds/:round/log": "text/markdown",
+    /**
+     * The transcript events of one Goldfish step (build session 4), from the step's
+     * `sessionFile`. 404 for an unknown run or step, or a file outside `<session>/agents/`.
+     */
+    "GET /sessions/:dir/egm/goldfish/:run/:step/events": "AgentEventsResponse",
+    /** The files of `<session>/design/` and the archived review runs (build session 5). */
+    "GET /sessions/:dir/design/files": "DesignFilesResponse",
+    /**
+     * One file of `<session>/design/`. 400 unless `:name` matches `DESIGN_FILE_NAME_PATTERN`
+     * and does not start with `.`; 404 when absent.
+     */
+    "GET /sessions/:dir/design/files/:name": "text/markdown",
+    /**
+     * One report of an archived review run, `<session>/design/reviews/:run/:name`. 400 unless
+     * `:run` matches `^r\d{1,2}$` and `:name` is valid as above; 404 when absent.
+     */
+    "GET /sessions/:dir/design/reviews/:run/:name": "text/markdown",
+    /** The design doc from the worktree of `design.repo`. 404 before `design.doc`. */
+    "GET /sessions/:dir/design/doc": "text/markdown",
 } as const;
 
 export type Route = keyof typeof ROUTES;

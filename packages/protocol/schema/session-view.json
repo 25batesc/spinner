@@ -1572,7 +1572,15 @@
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/AgentCost"
-                    }
+                    },
+                    "description": "Each agent's own rows; a Goldfish's rows are under `children`, not under the lead."
+                },
+                "children": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/AgentCost"
+                    },
+                    "description": "Each Goldfish step's sum, keyed `\"<runId>/<step index>\"`. Absent without one."
                 }
             },
             "required": [

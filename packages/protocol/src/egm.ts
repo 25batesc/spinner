@@ -345,3 +345,30 @@ export const DESIGN_RUN_ARGS_MAX = 4000;
 export const REVIEW_RUNS_MAX = 99;
 /** The replies that `egm-resolve` Step 4 interprets; the resolve card sends one. */
 export const RESOLVE_ANSWERS = ["Auto accept", "Continue", "Interactive breakdown"] as const;
+
+// Goldfish visibility (docs/designs/egm-adoption.md, build session 4, T5, T6). The daemon
+// reads the status files that pi-subagents writes under `<session>/egm-runs/` and shows each
+// Goldfish step as a chip with its state, tokens and cost.
+
+/** The watcher polls a session's runs this often while it watches the session. */
+export const GOLDFISH_POLL_MS = 2_000;
+/** The watcher keeps polling this long after the lead's last `agent.settled`. */
+export const GOLDFISH_SETTLE_POLL_MS = 30_000;
+/** The watcher reads at most this many run directories per session, the newest. */
+export const GOLDFISH_RUNS_MAX = 200;
+/** While this many Goldfish run across all sessions, `POST …/design/run` answers 409 (D8). */
+export const GOLDFISH_LIVE_MAX = 12;
+/** `{ "<runId>": "<design step>" }` under `<session>/egm-runs/`: each run's design step. */
+export const GOLDFISH_RUNS_FILE = "runs.json";
+
+// The design workspace (docs/designs/egm-adoption.md, build session 5).
+
+/** `GET /sessions/:dir/design/files`: the files of `<session>/design/` and the archived runs. */
+export interface DesignFilesResponse {
+    files: DesignFileView[];
+    /** The `r<n>` directories of `<session>/design/reviews/`, newest first. */
+    review_runs: string[];
+}
+
+/** A design file name the workspace routes accept; a name that starts with `.` is refused too. */
+export const DESIGN_FILE_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,100}\.md$/;

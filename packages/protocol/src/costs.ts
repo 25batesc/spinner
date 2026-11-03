@@ -19,6 +19,8 @@ export interface CostRow {
     tokens_out: number;
     cache_read: number;
     cache_write: number;
+    /** `"<runId>/<step index>"` for a row of a Goldfish transcript (T6); absent otherwise. */
+    child?: string;
 }
 
 /** Sums over rows. `tokens_in` and `tokens_out` leave the cache counts out. */
@@ -35,7 +37,10 @@ export interface AgentCost extends CostTotals {
 
 /** `SessionView.cost`: the session's agents summed, and each agent's share. */
 export interface SessionCost extends CostTotals {
+    /** Each agent's own rows; a Goldfish's rows are under `children`, not under the lead. */
     agents: Record<string, AgentCost>;
+    /** Each Goldfish step's sum, keyed `"<runId>/<step index>"`. Absent without one. */
+    children?: Record<string, AgentCost>;
 }
 
 /** `OperatorView.cost`: the operator agent's transcripts summed. */
