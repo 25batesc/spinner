@@ -172,8 +172,8 @@ design:
   waiting: false           # derived: the lead settled on a question
   doc: docs/designs/csv-export.md   # repo-relative; absent until the lead calls design_doc
   repo: web                # repo key of the doc
-  review_run: { id: r2, preset: uninterrupted, started: 2026-11-04T10:02:00+01:00 }  # build session 3
-  gate: { question: "...", options: ["...", "..."], asked: 2026-11-04T10:12:00+01:00 } # build session 3
+  review_run: { id: r2, preset: uninterrupted, started: 2026-11-04T10:02:00+01:00 }  # the review the app started
+  gate: { question: "...", options: ["...", "..."], asked: 2026-11-04T10:12:00+01:00 } # the lead's open gate
   approved: { path: docs/designs/csv-export.md, repo: web, sha256: 9f2c..., at: 2026-11-04T11:40:00+01:00, blockers: 0, round: 1 }
   approvals: [ ... ]       # every approval, oldest first, at most 100
   changed_after_approval: false
@@ -187,9 +187,11 @@ rounds:                    # appended by reset since the EGM design, at most 200
 
 | Field | Meaning |
 |---|---|
-| `design.track` | `design` runs EGM up to an approved doc before the build. `direct` builds at once. The track is fixed once a repo has commits. A new paste session gets `direct` in this release. |
+| `design.track` | `design` runs EGM up to an approved doc before the build. `direct` builds at once. The track is fixed once a repo has commits. A new paste session gets `design` when EGM is ready and pi-subagents is installed, else `direct`. A paste with adopted PRs gets `direct`. |
 | `design.stage`, `design.needs`, `design.waiting` | Derived from the files in `<session>/design/` and the doc; see the stage table below. Nobody sets them by hand. |
 | `design.doc`, `design.repo` | The design doc, named by the lead's `design_doc` tool. |
+| `design.gate` | The one open gate: the question that the lead asked through `ask_question`, its options, and the time. See "Gates" below. |
+| `design.review_run` | The review run that `POST …/design/run` started: the id `r<n>`, the preset (null for `egm-review-loop`) and the start time. |
 | `design.approved`, `design.approvals` | The current approval and every approval, each with the normalized SHA-256 of the doc. |
 | `design.changed_after_approval` | True when the doc's hash no longer matches the approval: the approval is invalidated and the operator re-approves. |
 | `rounds` | One record per finished round. `merged_at` is the PR's `last_activity` when it merged, else null. Rounds before the EGM design are read from `## Previous rounds` in `MISSION.md`. |
@@ -211,6 +213,31 @@ The design stage comes from these rules; the first match wins.
 The normalized hash is the SHA-256 of the doc after two steps: the `*   **Status:**` line is removed, and `\r\n` becomes `\n`.
 On the design track, the design's `needs` becomes the session's `needs_human` before approval. At `approved` it fills `needs_human` only when the pipeline has none. A review draft still wins.
 The design tracker writes `<session>/design/.state.json` (`{ track, stage, approved, designs_dir }`) on both tracks for the extension.
+
+#### Gates
+
+A gate is one EGM question with fixed options ([designs/egm-adoption.md](designs/egm-adoption.md), Technical Plan T8).
+The lead asks it with `ask_question`, and the daemon keeps it in `design.gate`, one slot per session.
+An open gate is line 1 of the design's `needs`: `answer the lead: <first 80 characters of the question>`. It applies at every stage, `approved` included.
+A gate clears on the first of these:
+
+1.  `POST /sessions/:dir/design/answer { text }`, the UI's gate card. It clears the gate and prompts the lead with the text.
+2.  `POST /sessions/:dir/design/run`, a skill started from the app.
+3.  A prompt or a steer to the lead through `POST /sessions/:dir/agents/lead/prompt|steer`.
+4.  The lead's `agent_start` event with a time after `design.gate.asked`. This covers an answer typed in the lead's terminal.
+
+The resolve gate has no store. `egm-resolve` Step 4 asks in chat and calls no tool.
+At stage `resolving`, when the lead has settled, `needs` is `resolve the review findings`. The UI then shows a resolve card whose buttons send `Auto accept`, `Continue` or `Interactive breakdown` through `…/design/answer`.
+The stage stays `resolving` until `egm-resolve` Step 5 writes `Status: resolved` at the top of the report.
+A question that the lead asks in plain chat sets `design.waiting` when the lead settles: its last text ends with `?`, no gate is open, and the stage is not `approved`. The next `agent_start` clears it.
+
+#### Review runs
+
+`POST …/design/run` with `egm-review` or `egm-review-loop` first archives the current run.
+The report files directly in `<session>/design/` move into `<session>/design/reviews/<id>/`. The id is `design.review_run.id` when a run is recorded, else one past the highest archived id.
+The new run gets the next free id and is recorded in `design.review_run`. A new run never takes the id of an archived one.
+Ids go up to `r99`. Past it the route answers 409 and asks the operator to move `reviews/` aside by hand.
+A review typed in the lead's terminal does not archive; EGM then overwrites the reports with the same names.
 
 ## `MISSION.md`
 
@@ -422,7 +449,7 @@ Commands and what they change:
 So that agents follow the protocol without being told every turn, `spinnerd` loads a pi extension into each agent session:
 
 - **System prompt section**: session id, hostnames, the agent's `BRIEF.md`, the full `MISSION.md`, and a one-line digest per other agent (`admin-ui: blocked on /refunds`).
-- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
+- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. The lead's `ask_question(questions)` asks one EGM gate. `questions` is the JSON text of EGM's payload, `[{"question": "...", "options": ["...", "..."], "is_multi_select": false}]` or `{"questions": [...]}`, with exactly one single-select question and 2 to 6 options. The tool refuses any other payload and calls nothing. Otherwise it writes `design.gate` and tells the lead to end its turn. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
 - **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first.
 
 Until then, the brief carries these instructions, and the operator serializes by running only two or three agents at once.

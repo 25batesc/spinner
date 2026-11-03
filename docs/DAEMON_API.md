@@ -93,6 +93,9 @@ WebSockets below.
 | `POST /egm/fetch` | | `JobResponse` | The `egm` job: fetches EGM again at the pin and regenerates the adapter; below. |
 | `PUT /sessions/:dir/design/track` | `DesignTrackRequest` | `SessionResponse` | Sets `design.track`; below. 400 for an unknown track, 409 once a repo has commits or for `design` when EGM is not available. |
 | `PUT /sessions/:dir/design/doc` | `DesignDocRequest` | `SessionResponse` | The lead's `design_doc` tool; below. 400 with the reason, 409 off the design track or while an approval stands. |
+| `PUT /sessions/:dir/design/gate` | `DesignGateRequest` | `OkResponse` | The lead's `ask_question` tool writes `design.gate`; below. 400 with the first fault. |
+| `POST /sessions/:dir/design/answer` | `DesignAnswerRequest` | `AgentCommandResponse` | Clears the gate and prompts the lead with the text; below. 400 for an empty or long text, 409 when the lead is not running. |
+| `POST /sessions/:dir/design/run` | `DesignRunRequest` | `AgentCommandResponse` | Starts an EGM skill in the lead with the arguments the daemon composes; below. 400 for a bad body, 409 with the reason. |
 | `GET /sessions/:dir/rounds/:round/log` | | `text/markdown` | The Log of an earlier round from `## Previous rounds`. 400 unless `:round` is an integer from 1 to 200, 404 for a round without one. |
 
 ## Events WebSocket
@@ -265,9 +268,40 @@ The route answers 400 with the first refusal of these checks, in order:
 It answers 409 off the design track, and while an approval stands that no edit invalidated.
 On success it records `design.doc` and `design.repo`, points the Goal at the doc, and watches the doc file.
 
-`SessionView.design` (a `DesignView`) carries the track, the stage (null on the direct track), the files of `<session>/design/`, the current run's report flags, the doc and whether it is missing, the approvals and the gate.
+`SessionView.design` (a `DesignView`) carries the track, the stage (null on the direct track), the files of `<session>/design/`, the current run's report flags, the doc and whether it is missing, the doc's repo (`repo`), the absolute designs directory (`designs_dir`), the approvals and the gate.
 `SessionView.round` is `session.round`, else the `-r<n>` suffix of the branch, else 1.
 `SessionView.rounds` lists the earlier rounds, oldest first, from `session.yaml` `rounds` (`source: "record"`) and from `## Previous rounds` (`source: "mission"`).
+
+### Gates and skill runs
+
+`PUT /sessions/:dir/design/gate` takes `{ question, options }`, the lead's `ask_question` payload after the extension checked it.
+It answers 400 with the first fault: an empty question, a question over 2000 characters, fewer than 2 or more than 6 options, or an empty option or one over 300 characters.
+It writes `design.gate` with the time, replaces any open gate, and answers `{ ok: true }`.
+The design's `needs` and the session's `needs_human` become `answer the lead: <first 80 characters of the question>`.
+
+`POST /sessions/:dir/design/answer` takes `{ text }`, at most 4000 characters.
+It answers 409 with `the lead is not running; resume it from its tab` when the lead has no process; the gate then stays.
+Otherwise it clears the gate, prompts the lead with the text, and answers with the prompt's disposition.
+The resolve card uses the same route with `Auto accept`, `Continue` or `Interactive breakdown`.
+A prompt or a steer to the lead through the agents routes also clears the gate, and so does the lead's next `agent_start`.
+
+`POST /sessions/:dir/design/run` takes `{ skill, args?, preset? }`.
+`skill` is one of the 7 EGM skills. `preset` goes only with `egm-review` and is one of `interactive`, `uninterrupted`, `feature_spec` and `implementation`. `args` is at most 4000 characters.
+The route checks, in order: 400 for a bad body, 409 when the lead is not running, then the 409s of the table.
+It prompts the lead with `/skill:<skill>`, a space and the composed arguments:
+
+| Skill | Arguments | 409 |
+| --- | --- | --- |
+| `egm-brainstorm` | `args`, the operator's concept text, when given | |
+| `egm-draft` | `Context File: <session>/design/concepts_brief.md. Target directory: <designs dir>.`, then `args` when given | no worktree of the designs repo |
+| `egm-review` with `preset` | `<absolute doc path> Step: <preset> GoldfishContext: none` | `no design doc yet` |
+| `egm-review` without `preset`, `egm-review-loop`, `egm-resolve` | `args`, else the absolute doc path | `no design doc yet` when neither is set |
+| `egm-drift-report` | `args`, else the designs dir, then `Landed rounds: r1 web#41, r3 web#57.` from the merged PRs of `SessionView.rounds` | a repo has `changed: true` |
+| `egm-bootstrap` | `path: ` and `args`, else the designs repo's worktree root | no worktree of the designs repo |
+
+The composed text is at most 4000 characters, else 400.
+For `egm-review` and `egm-review-loop` the route first archives the current review run into `<session>/design/reviews/<id>/` and records `design.review_run` with the next free id ([SESSION_PROTOCOL.md](SESSION_PROTOCOL.md#review-runs)). It answers 409 when 99 runs are archived.
+Every run clears an open gate.
 
 ## Stack logs
 

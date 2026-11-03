@@ -354,6 +354,25 @@ Four layers keep a Goldfish free of the lead's context:
 
 The tty channel rewrites a prompt or a steer that starts with `/skill:<name>`. `pi.sendUserMessage` does not expand it, so the extension sends "Read the skill file at `<path>` and follow it in this thread". The evidence for each layer and each probe is in [egm/HARNESS_EVIDENCE.md](egm/HARNESS_EVIDENCE.md).
 
+Build session 3 puts the skills and the gates in the app ([DAEMON_API.md](DAEMON_API.md#gates-and-skill-runs)):
+
+```text
+UI button ──POST …/design/run──▶ daemon: archive the review run, compose the arguments ──prompt──▶ lead
+lead ──ask_question──▶ extension: check EGM's payload ──PUT …/design/gate──▶ session.yaml design.gate
+UI gate card ──POST …/design/answer──▶ daemon: clear the gate ──prompt──▶ lead
+```
+
+| Module | Role |
+| --- | --- |
+| `egm/gate.ts` | `set_gate` checks the lengths and writes `design.gate`; `clear_gate` removes it. Both re-read `session.yaml` right before they write. |
+| `egm/review-runs.ts` | `archive_review_run` moves the current run's reports into `design/reviews/<id>/` and returns the next free id. |
+| `egm/routes.ts` | The gate, answer and run routes, and the argument table of Technical Plan T9. |
+| `egm/design.ts` | The tracker passes `lead_busy` from `AgentManager.is_busy`, sets `design.waiting` when the lead settles on a question, and clears a gate on a later `agent_start` of the lead. |
+| `server.ts` | A prompt or a steer to the lead clears its gate before it is sent. |
+
+The lead brief of a new session has a "Design (EGM)" section: the lead proposes a track, starts no EGM skill on its own, asks each gate with `ask_question`, and writes only the design doc and the session's files before approval.
+The extension's prompt section names the designs directory from `.state.json` on the design track.
+
 ### Storage
 
 Files, no database. Every session is a directory of YAML, Markdown and JSONL under `~/.spinner/sessions/` ([layout](SESSION_PROTOCOL.md#where-everything-lives)); the daemon's only state is process handles and an in-memory index it rebuilds from the tree at start. Reasons: an agent reads and writes the same files with its ordinary tools; a person can `cat`, `grep` and `git`-archive a session; the pi transcripts are already JSONL files; there is no migration tooling beyond the `version` field; and a crashed daemon loses nothing.
