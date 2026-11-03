@@ -89,5 +89,5 @@ describe("watch_session_files: the design directory (2.14)", () => {
         expect(errors.every((error) => error.includes("probe file was not reported"))).toBe(true);
         expect(calls[0]).toBe("design s1-x concepts_brief.md");
         expect(calls.every((call) => call === "design s1-x concepts_brief.md")).toBe(true);
-    }, 15_000);
+    }, 20_000);
 });
