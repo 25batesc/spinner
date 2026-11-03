@@ -17,6 +17,12 @@
 //        approval are build session 6's row of the Verification Plan.
 //   P5   the brainstorm's brief is in `<session>/design`, not in the worktree
 //   P8   no Goldfish run is `egm-synthesizer`
+//   P6   during the P11 brainstorm, `SessionView.design.goldfish` holds six new entries with
+//        a persona within 5 seconds of the lead's `subagent` launch (4.11)
+//   P7   after the brainstorm, `SessionView.cost.children` is not empty, `cost_by_stage
+//        .brainstorm` is above 0, and a Goldfish transcript opens through its events route
+//   W1   after the review, the workspace routes serve the brief, the doc and the consolidated
+//        report (5.3); the gates of P11 were answered through `POST …/design/answer`
 //
 // P4 runs before P3, so the brainstorm that P3 starts is the brainstorm of P11 without a
 // listing prompt in the middle. The driver waits on artifacts: the lead's `agent.settled`
@@ -96,6 +102,19 @@ let bus: WebSocket | null = null;
 /** The lead's terminal, so a failure can keep what pi drew. */
 let last_term: Term | null = null;
 
+/**
+ * P6's watch of the chips during the brainstorm. `launches` are the times of the lead's
+ * `subagent` calls without an `action` (a launch, not a status or a listing); `seen_at` is
+ * when the view first held six new Goldfish with a persona.
+ */
+const chips = {
+    polling: false,
+    baseline: new Set<string>(),
+    launches: [] as number[],
+    seen_at: null as number | null,
+    personas: [] as string[],
+};
+
 try {
     await main();
     await finish(probes.every((probe) => probe.pass) ? 0 : 1);
@@ -162,6 +181,9 @@ async function main(): Promise<void> {
     await probe_p2b();
     await probe_p2c();
     await probe_p4();
+    if (!SHORT) {
+        await watch_chips();
+    }
     const p3_reply = await probe_p3();
     if (!SHORT) {
         await probe_p11(p3_reply);
@@ -173,6 +195,13 @@ function on_event(event: BusEvent): void {
         return;
     }
     lead_last_event = Date.now();
+    const pi = event["event"] as { type?: string; toolName?: string; args?: unknown } | undefined;
+    if (chips.polling && pi?.type === "tool_execution_start" && pi.toolName === "subagent") {
+        const args = (pi.args ?? {}) as Record<string, unknown>;
+        if (typeof args["action"] !== "string") {
+            chips.launches.push(Date.now());
+        }
+    }
     if (event.type === "agent.settled") {
         lead_settles += 1;
         lead_busy = false;
@@ -349,6 +378,8 @@ async function probe_p11(first_reply: string): Promise<void> {
         if (phase === "brainstorm" && brief_exists() && (proceed_at !== null || brief_done)) {
             await end_phase();
             probe_p5();
+            probe_p6();
+            await probe_p7();
             phase = "draft";
         }
         if (phase === "draft") {
@@ -377,6 +408,7 @@ async function probe_p11(first_reply: string): Promise<void> {
             if (existsSync(report) && view.gate === null) {
                 await end_phase();
                 probe_p8();
+                await probe_w1(doc);
                 const built = build_changes();
                 const verdict = built.length === 0 ? "no code change" : built.join(", ");
                 return record(
@@ -536,6 +568,142 @@ function probe_p8(): void {
     ];
     const synthesizer = agents.includes("egm-synthesizer");
     record("P8", !synthesizer, `step agents: ${[...new Set(agents)].join(", ") || "none"}`);
+}
+
+interface ChipView {
+    run: string;
+    step: number;
+    agent: string;
+    persona: string | null;
+    state: string;
+    tokens: number;
+    usd: number;
+    transcript: boolean;
+}
+
+interface GoldfishFacts {
+    goldfish: ChipView[];
+    cost_by_stage: Record<string, number>;
+    children: Record<string, { usd: number }>;
+}
+
+async function goldfish_facts(): Promise<GoldfishFacts> {
+    const response = await fetch(`${base}/sessions/${session_dir}`);
+    const body = (await response.json()) as {
+        session: {
+            design?: { goldfish?: ChipView[]; cost_by_stage?: Record<string, number> };
+            cost?: { children?: Record<string, { usd: number }> };
+        };
+    };
+    return {
+        goldfish: body.session.design?.goldfish ?? [],
+        cost_by_stage: body.session.design?.cost_by_stage ?? {},
+        children: body.session.cost?.children ?? {},
+    };
+}
+
+/**
+ * Starts P6's poll of the view (every 500 ms) before the brainstorm starts. The Goldfish of
+ * P2a and P2c are the baseline. The poll ends at the first sight of six new Goldfish with a
+ * persona, or when the brainstorm ends (`probe_p6`).
+ */
+async function watch_chips(): Promise<void> {
+    const facts = await goldfish_facts();
+    for (const chip of facts.goldfish) {
+        chips.baseline.add(`${chip.run}/${chip.step}`);
+    }
+    chips.polling = true;
+    void (async () => {
+        while (chips.polling && chips.seen_at === null) {
+            const facts = await goldfish_facts().catch(() => null);
+            const fresh = (facts?.goldfish ?? []).filter(
+                (chip) => !chips.baseline.has(`${chip.run}/${chip.step}`) && chip.persona !== null,
+            );
+            if (fresh.length >= 6) {
+                chips.seen_at = Date.now();
+                chips.personas = fresh.map((chip) => chip.persona ?? "?");
+            }
+            await sleep(500);
+        }
+    })();
+}
+
+/** P6 (4.11): six new chips with a persona within 5 s of the launch that started them. */
+function probe_p6(): void {
+    chips.polling = false;
+    const seen = chips.seen_at;
+    if (seen === null) {
+        const launches = chips.launches.length;
+        record("P6", false, `fewer than 6 new Goldfish in the view; ${launches} launches`);
+        return;
+    }
+    const launch = chips.launches.filter((time) => time <= seen).at(-1) ?? null;
+    const latency = launch === null ? null : seen - launch;
+    record(
+        "P6",
+        latency !== null && latency <= 5_000,
+        `6 Goldfish in the view ${latency === null ? "with no launch seen" : `${latency} ms`} ` +
+            `after the launch; personas ${chips.personas.join(", ")}`,
+    );
+}
+
+/**
+ * P7 (4.11): after the brainstorm, `SessionView.cost.children` is not empty and
+ * `cost_by_stage.brainstorm` is above 0; one Goldfish transcript opens. The ledger refolds on
+ * the lead's `agent.settled`, so the driver waits up to 70 s (one 60 s refold) for the figures.
+ */
+async function probe_p7(): Promise<void> {
+    let facts = await goldfish_facts();
+    const deadline = Date.now() + 70_000;
+    const ready = (): boolean =>
+        Object.keys(facts.children).length > 0 && (facts.cost_by_stage["brainstorm"] ?? 0) > 0;
+    while (Date.now() < deadline && !ready()) {
+        await sleep(2_000);
+        facts = await goldfish_facts();
+    }
+    const children = Object.keys(facts.children).length;
+    const brainstorm = facts.cost_by_stage["brainstorm"] ?? 0;
+    const chip = facts.goldfish.find((entry) => entry.transcript && entry.state === "done");
+    let events = 0;
+    if (chip !== undefined) {
+        const route = `/sessions/${session_dir}/egm/goldfish/${chip.run}/${chip.step}/events`;
+        const response = await fetch(`${base}${route}`);
+        events = response.ok ? ((await response.json()) as { events: unknown[] }).events.length : 0;
+    }
+    const states = facts.goldfish.map((entry) => entry.state);
+    const which = chip === undefined ? "no chip" : `${chip.persona} ${chip.run}/${chip.step}`;
+    record(
+        "P7",
+        children > 0 && brainstorm > 0 && events > 0,
+        `cost.children ${children}; cost_by_stage ${JSON.stringify(facts.cost_by_stage)}; ` +
+            `${facts.goldfish.length} chips (${[...new Set(states)].join(", ")}); ` +
+            `transcript of ${which}: ${events} events`,
+    );
+}
+
+/** W1 (5.3): the workspace routes serve the brief, the doc and the consolidated report. */
+async function probe_w1(doc: string | null): Promise<void> {
+    const files_route = `${base}/sessions/${session_dir}/design/files`;
+    const listed = (await (await fetch(files_route)).json()) as {
+        files: Array<{ name: string }>;
+        review_runs: string[];
+    };
+    const names = listed.files.map((file) => file.name);
+    const read = async (route: string): Promise<string | null> => {
+        const response = await fetch(`${base}/sessions/${session_dir}/design/${route}`);
+        return response.ok ? await response.text() : null;
+    };
+    const brief = await read("files/concepts_brief.md");
+    const report = await read("files/consolidated_review_report.md");
+    const served_doc = await read("doc");
+    const doc_same = doc !== null && served_doc === readFileSync(doc, "utf8");
+    record(
+        "W1",
+        brief !== null && report !== null && doc_same,
+        `files ${names.join(", ")}; archived runs ${listed.review_runs.join(", ") || "none"}; ` +
+            `brief ${brief?.length ?? "missing"} chars; report ${report?.length ?? "missing"} ` +
+            `chars; doc served and equal to the worktree file: ${doc_same}`,
+    );
 }
 
 // --- the lead --------------------------------------------------------------------------
