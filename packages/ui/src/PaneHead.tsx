@@ -201,9 +201,9 @@ export interface ActivityBarProps {
 }
 
 /**
- * The narrow bar at the left, one icon per left-panel view. A click on the active icon hides
- * the panel; a click on any icon shows the panel on that view. The operator icon, above the
- * gear, is not a panel view: it swaps the middle pane between the session and the operator.
+ * The rail: the narrow bar at the left while the sidebar column is folded (s020). A click on
+ * an icon opens the column on that section, or on settings. The operator icon, above the
+ * gear, is not a section: it swaps the middle pane between the session and the operator.
  */
 export function ActivityBar(props: ActivityBarProps) {
     const { shown, popped, onPick, operatorShown, operatorAvailable, onOperator } = props;

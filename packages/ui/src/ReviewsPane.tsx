@@ -1,10 +1,10 @@
-// The Reviews panel (s015): a view of the left panel for the operator's peers' PRs. The paste
-// box at the top takes PR links in any form; `Start review` posts them and the daemon makes
-// one review session per PR. Below it, one card per review, the latest activity first, with
-// the review's pills (s018: the state and the draft's count among them).
+// The Reviews panel (s015): a section of the sidebar (s020) for the operator's peers' PRs. The
+// paste box pinned at the top takes PR links in any form; `Start review` posts them and the
+// daemon makes one review session per PR. Below it, one card per review, the latest activity
+// first, with the review's pills (s018: the state and the draft's count among them).
 import { useState, type FormEvent } from "react";
 
-import { PaneHead, ReviewPills, type IconButtonProps } from "./PaneHead.tsx";
+import { ReviewPills } from "./PaneHead.tsx";
 import { swarmLine, type ReviewFacts } from "./review.ts";
 import { useExtraction, type RunAction } from "./SessionForms.tsx";
 
@@ -15,10 +15,6 @@ export interface ReviewsPaneProps {
     run: RunAction;
     /** True while a job runs on the selected review; its `review` button waits. */
     busy: boolean;
-    /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
-    controls?: IconButtonProps[] | undefined;
-    /** The side-panel toggle, at the left of the title. */
-    leading?: IconButtonProps | undefined;
 }
 
 /**
@@ -126,11 +122,12 @@ function ReviewCard(props: {
 }
 
 export function ReviewsPane(props: ReviewsPaneProps) {
-    const { reviews, selected, onSelect, run, busy, controls, leading } = props;
+    const { reviews, selected, onSelect, run, busy } = props;
     return (
         <section className="pane reviews-pane" aria-label="Reviews">
-            <PaneHead name="reviews" controls={controls} leading={leading} />
-            <ReviewComposeBox run={run} />
+            <div className="side-compose">
+                <ReviewComposeBox run={run} />
+            </div>
             <ul className="rv-list">
                 {reviews.map((facts) => (
                     <ReviewCard

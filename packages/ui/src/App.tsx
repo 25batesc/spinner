@@ -27,13 +27,20 @@ import {
 } from "./focus.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
-import { ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
+import { isReview, ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
 import { ReviewPane } from "./ReviewPane.tsx";
 import { ReviewsPane } from "./ReviewsPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
-import { EMPTY_DRAFT, type ComposeDraft, type RunAction } from "./SessionForms.tsx";
+import {
+    ComposeForm, EMPTY_DRAFT, type ComposeDraft, type RunAction,
+} from "./SessionForms.tsx";
 import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
+import { Sidebar } from "./Sidebar.tsx";
+import {
+    DEFAULT_SIDEBAR, loadSidebar, needsCount, openSection, saveSidebar, setSettings,
+    toggleSection, type SidebarState,
+} from "./sidebar.ts";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
 import {
     needsHuman, revisionsOf, runningJob, sortedSessions, type UiState,
@@ -118,9 +125,8 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     const pick = (panel: FocusPanel, dir: string) => setFocus((old) => pickFocus(old, panel, dir));
     const [watched, setWatched] = useState<string | undefined>(undefined);
     const [actionError, setActionError] = useState<string | null>(null);
-    // True while the middle pane shows the compose box; it closes when the session exists or
-    // when another session is picked. The draft stays, so coming back finds the text.
-    const [compose, setCompose] = useState(false);
+    // The compose box's text, pinned in the sessions section: it lives here, so a fold of the
+    // section keeps it; the created session clears it.
     const [draft, setDraft] = useState<ComposeDraft>(EMPTY_DRAFT);
 
     const sessions = sortedSessions(state);
@@ -136,8 +142,11 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
             job?.action === "reviews";
         const created = job?.state === "ok" && creates;
         if (created && job.session !== null) {
-            pick(job.action === "reviews" ? "reviews" : "sessions", job.session);
-            setCompose(false);
+            const review = job.action === "reviews";
+            pick(review ? "reviews" : "sessions", job.session);
+            if (!review) {
+                setDraft(EMPTY_DRAFT);
+            }
         }
     }, [job?.state, job?.action, job?.session]);
 
@@ -163,7 +172,7 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     };
     return {
         sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
-        focus, pick, setActionError, compose, setCompose, draft, setDraft,
+        focus, pick, setActionError, draft, setDraft,
     };
 }
 
@@ -173,9 +182,16 @@ export function App() {
     const app = useAppState(state, route);
     const { sessions, selected, view, feed, busy, run } = app;
     const layout = useLayout();
-    // The side panel shows the sessions or, from the gear at the bottom of the bar, settings.
-    // A reload opens it on the list whose selection the middle pane shows.
-    const [panelView, setPanelView] = useState<PanelView["id"]>(app.focus.panel);
+    // The sidebar's open sections and the settings view, remembered per window (`sidebar.ts`).
+    const inRoute = route !== undefined;
+    const [sidebar, setSidebar] = useState<SidebarState>(() =>
+        inRoute ? DEFAULT_SIDEBAR : loadSidebar(windowStorage()),
+    );
+    useEffect(() => {
+        if (!inRoute) {
+            saveSidebar(windowStorage(), sidebar);
+        }
+    }, [sidebar, inRoute]);
     // The middle pane shows the selected session or, from the headset icon, the operator agent.
     const [middle, setMiddle] = useState<"agents" | "operator">("agents");
     // The agents pane's view and picked agent live here (entry 3.22), so the `needs you` pill
@@ -281,35 +297,28 @@ export function App() {
             layout.restore(pane);
         }
     };
-    const inRoute = route !== undefined;
     const sessionsState = layout.layout.panes.sessions;
-    const panelShown = !sessionsState.hidden && !sessionsState.popped;
-    const togglePanel = () => {
+    // The rail stands in for the sidebar column whenever the column has no open cell: folded
+    // by a drag or the collapse icon, folded by the window's width, popped out, or expanded.
+    const columnShown =
+        !expanded && layout.visible.includes("sessions") && isOpen(layout.fitted.panes.sessions);
+    const openColumn = () => {
         if (sessionsState.popped) {
             restore("sessions");
         } else if (sessionsState.hidden) {
             layout.restore("sessions");
         } else if (layout.fitted.panes.sessions.hidden) {
-            // The width folded the panel: collapse the previews so it has room.
+            // The width folded the column: collapse the previews so it has room.
             layout.fold("previews");
-        } else {
-            layout.fold("sessions");
         }
     };
-    // The bar: the active view's icon hides the panel; another view's icon shows it on that
-    // view, opening the panel when it is hidden.
-    const pickPanel = (view: PanelView["id"]) => {
+    // A rail icon opens the column on its section, or on the settings view.
+    const pickRail = (id: PanelView["id"]) => {
         if (expanded) {
             return;
         }
-        if (panelShown && view === panelView) {
-            togglePanel();
-            return;
-        }
-        setPanelView(view);
-        if (!panelShown) {
-            togglePanel();
-        }
+        setSidebar((old) => (id === "settings" ? setSettings(old, true) : openSection(old, id)));
+        openColumn();
     };
     const review = view === undefined ? null : reviewFacts(view);
     const reviewsPane = (
@@ -317,12 +326,8 @@ export function App() {
             reviews={reviewsByActivity(sessions)}
             selected={selected}
             busy={busy}
-            onSelect={(dir) => {
-                app.setCompose(false);
-                app.pick("reviews", dir);
-            }}
+            onSelect={(dir) => app.pick("reviews", dir)}
             run={run}
-            controls={inRoute ? undefined : []}
         />
     );
     const sessionsPane = (
@@ -330,16 +335,12 @@ export function App() {
             sessions={ordinarySessions(sessions)}
             usage={state.usage}
             selected={selected}
-            onSelect={(dir) => {
-                app.setCompose(false);
-                app.pick("sessions", dir);
-            }}
+            onSelect={(dir) => app.pick("sessions", dir)}
             run={run}
-            onCompose={() => app.setCompose(true)}
-            controls={inRoute ? undefined : []}
+            compose={<ComposeForm run={run} draft={app.draft} onDraft={app.setDraft} />}
         />
     );
-    const agentsPane = review !== null && view !== undefined && !app.compose ? (
+    const agentsPane = review !== null && view !== undefined ? (
         <ReviewPane
             view={view}
             facts={review}
@@ -365,15 +366,6 @@ export function App() {
             picked={agentPicked}
             onPicked={setAgentPicked}
             onError={app.setActionError}
-            compose={
-                app.compose
-                    ? {
-                          onCancel: () => app.setCompose(false),
-                          draft: app.draft,
-                          onDraft: app.setDraft,
-                      }
-                    : undefined
-            }
         >
             {drawer}
         </AgentsPane>
@@ -413,10 +405,29 @@ export function App() {
     const operatorPane = (
         <OperatorPane view={state.operator} controls={inRoute ? undefined : []} />
     );
-    const sidePanels = { sessions: sessionsPane, reviews: reviewsPane, settings: settingsPane };
-    const sidePanel = sidePanels[panelView];
     // The operator tab goes when the agent is off and stopped: back to the session.
     const operatorOn = middle === "operator" && !operatorHidden(state.operator);
+    const toggleOperator = () => setMiddle(middle === "operator" ? "agents" : "operator");
+    const ordinary = ordinarySessions(sessions);
+    const reviewRows = sessions.filter(([, row]) => isReview(row));
+    const sidePanel = (
+        <Sidebar
+            state={sidebar}
+            onToggle={(id) => setSidebar((old) => toggleSection(old, id))}
+            onSettings={() => setSidebar((old) => setSettings(old, !old.settings))}
+            sessions={{ count: ordinary.length, needs: needsCount(ordinary), body: sessionsPane }}
+            reviews={{
+                count: reviewRows.length, needs: needsCount(reviewRows), body: reviewsPane,
+            }}
+            settings={settingsPane}
+            operator={
+                inRoute || operatorHidden(state.operator)
+                    ? undefined
+                    : { shown: operatorOn, onToggle: toggleOperator }
+            }
+            onCollapse={inRoute ? undefined : () => layout.fold("sessions")}
+        />
+    );
     const middlePane = operatorOn ? operatorPane : agentsPane;
     const panes = { sessions: sidePanel, agents: middlePane, previews: previewsPane };
     const status = (
@@ -484,14 +495,16 @@ export function App() {
                 }
             />
             <div className="shell-body">
-                <ActivityBar
-                    shown={panelShown ? panelView : undefined}
-                    popped={sessionsState.popped}
-                    onPick={pickPanel}
-                    operatorShown={operatorOn}
-                    operatorAvailable={!operatorHidden(state.operator)}
-                    onOperator={() => setMiddle(middle === "operator" ? "agents" : "operator")}
-                />
+                {!columnShown && (
+                    <ActivityBar
+                        shown={undefined}
+                        popped={sessionsState.popped}
+                        onPick={pickRail}
+                        operatorShown={operatorOn}
+                        operatorAvailable={!operatorHidden(state.operator)}
+                        onOperator={toggleOperator}
+                    />
+                )}
                 <div
                     ref={layout.container}
                     className={layout.dragging ? "layout layout-dragging" : "layout"}

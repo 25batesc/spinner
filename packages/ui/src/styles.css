@@ -182,7 +182,7 @@ html, body, #root { height: 100%; margin: 0; }
 .layout-dragging, .handle { user-select: none; }
 /* A drag pulled past the minimum by the snap margin: the pane fades, the divider lights up,
    and the pane folds on release. */
-.layout[data-armed="sessions"] .sessions-pane, .layout[data-armed="previews"] .preview-pane {
+.layout[data-armed="sessions"] .sidebar, .layout[data-armed="previews"] .preview-pane {
     opacity: 0.35; transition: opacity 0.15s;
 }
 .layout[data-armed] .handle:active::after { background: var(--accent); }
@@ -337,6 +337,59 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     opacity: 1; background: var(--fill); box-shadow: inset 2px 0 0 var(--accent);
 }
 .activity-bar .bar-popped { color: var(--accent); opacity: 1; }
+/* The sidebar (s020): the rail pulled out into one column. The headers stay in place; each
+   open section takes an equal share of the height, pins its compose box under its header and
+   scrolls its list below it. The settings view takes the room under the headers. */
+.sidebar {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+    box-sizing: border-box;
+}
+.side-section {
+    display: flex; flex-direction: column; flex: none; min-height: 0;
+    border-bottom: 1px solid var(--line-soft);
+}
+.side-section-open { flex: 1 1 0; }
+.side-head {
+    display: flex; align-items: center; gap: var(--space-2); flex: none; width: 100%;
+    height: 36px; padding: 0 var(--space-3); border: 0; background: transparent;
+    color: inherit; font: inherit; font-size: var(--text-body); font-weight: 600;
+    text-align: left; cursor: pointer; transition: background-color 0.1s;
+}
+.side-head:hover { background: var(--fill-soft); }
+.side-head .icon { flex: none; opacity: 0.6; }
+.side-head[aria-expanded="true"] .icon { opacity: 1; }
+.side-head-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-head-count {
+    font-size: var(--text-meta); font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.side-head-needs { flex: none; font-variant-numeric: tabular-nums; }
+.side-head-chevron {
+    flex: none; margin-left: auto; font-size: var(--text-dense); color: var(--muted);
+}
+.side-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.side-body > .pane {
+    display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; overflow: hidden;
+}
+.side-compose { flex: none; padding: 0 var(--space-3) var(--space-2); }
+.sidebar .session-list, .sidebar .rv-list {
+    flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-3) var(--space-1);
+}
+.side-settings { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.side-settings > .pane { flex: 1; min-height: 0; }
+.side-foot {
+    display: flex; align-items: center; gap: 2px; flex: none; height: 36px; margin-top: auto;
+    padding: 0 var(--space-2); box-sizing: border-box;
+}
+.side-foot-gap { flex: 1; }
+/* The new-session box in the column matches the new-review box: a small card whose header
+   names it, so the heading and the field labels hide; every `aria-label` stays. */
+.side-compose .compose-form { max-width: none; gap: var(--space-2); padding: var(--space-2); }
+.side-compose .compose-form h3, .side-compose .compose-form .field-label { display: none; }
+.side-compose .compose-form textarea {
+    min-height: 56px; height: 56px; resize: vertical; font-size: var(--text-dense);
+}
+.side-compose .compose-actions { justify-content: flex-end; padding-top: 0; }
+.side-compose .rv-compose { margin-bottom: 0; }
 .layout { flex: 1; min-width: 0; }
 /* A collapsed or popped-out pane: a 24 px strip, the name turned sideways. */
 .strip {
@@ -362,7 +415,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .status[data-connection="closed"]::before { background: var(--fail); }
 .muted { color: var(--muted); }
 .session-list { list-style: none; margin: 0; padding: 0; }
-/* Every card is the same height as the compose card: up to two title lines at the top, then
+/* Every card is the same height: up to two title lines at the top, then
    the badge line and the needs-you line at the bottom. The selected card takes the accent
    tint and a bar on its left edge, as the active row of a PR list does. */
 .session {
@@ -391,22 +444,6 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 16px;
     line-height: 16px;
 }
-/* The block above the list: New session, the panel's one way to start a session (s014: the
-   PRs to adopt come out of the paste, so there is no Adopt block). */
-.compose-card { display: flex; gap: var(--space-2); height: 92px; margin-bottom: var(--space-2); }
-.compose-card button {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 6px; border: 1px solid var(--line-soft); border-radius: var(--radius-box);
-    background: var(--fill-soft); color: inherit; cursor: pointer; font: inherit;
-    font-weight: 500; transition: background-color 0.1s, border-color 0.1s;
-}
-.compose-card button:hover { background: var(--fill); }
-.compose-card .compose-new {
-    flex: 1; background: var(--accent-tint);
-    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-.compose-card .compose-new:hover { background: var(--accent-fill); border-color: var(--accent); }
-.compose-plus { font-size: 24px; line-height: 1; font-weight: 400; color: var(--accent); }
 /* A form card: a heading, a visible label over each field, the filled primary button first. */
 .compose-form {
     display: flex; flex-direction: column; gap: var(--space-3); max-width: 520px;

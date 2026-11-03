@@ -1,9 +1,9 @@
+import type { ReactNode } from "react";
+
 import type { SessionView } from "@spinner/protocol";
 
 import { designSteps, stepperText } from "./design.ts";
-import {
-    CostFigure, PaneHead, PrBadge, RoundBadge, type IconButtonProps,
-} from "./PaneHead.tsx";
+import { CostFigure, PrBadge, RoundBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import type { RunAction } from "./SessionForms.tsx";
@@ -16,12 +16,8 @@ export interface SessionsPaneProps {
     selected: string | undefined;
     onSelect: (dir: string) => void;
     run: RunAction;
-    /** Opens the compose box in the middle pane. */
-    onCompose: () => void;
-    /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
-    controls?: IconButtonProps[] | undefined;
-    /** The side-panel toggle, at the left of the title. */
-    leading?: IconButtonProps | undefined;
+    /** The compose box, pinned above the list (s020: it moved here from the middle pane). */
+    compose: ReactNode;
     /** The last usage sample, for the line beside each up stack. */
     usage: UsageSample | null;
 }
@@ -45,26 +41,6 @@ function CardDots({ view, needs }: { view: SessionView; needs: string | null }) 
                 <span key={step.id} className="card-dot" data-state={step.state} />
             ))}
         </span>
-    );
-}
-
-/**
- * The block at the top of the list: `+ New session`, the one way to start a session. It opens
- * the compose box as a view of the middle pane; the PRs to adopt come out of the paste.
- */
-function ComposeCard({ onCompose }: { onCompose: () => void }) {
-    return (
-        <li className="compose-card">
-            <button
-                type="button"
-                className="compose-new"
-                onClick={onCompose}
-                aria-label="New session"
-            >
-                <span className="compose-plus">+</span>
-                <span>New session</span>
-            </button>
-        </li>
     );
 }
 
@@ -109,12 +85,11 @@ function SessionCard(props: {
 }
 
 export function SessionsPane(props: SessionsPaneProps) {
-    const { sessions, selected, onSelect, onCompose, controls, leading, usage } = props;
+    const { sessions, selected, onSelect, compose, usage } = props;
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
-            <PaneHead name="sessions" controls={controls} leading={leading} />
+            <div className="side-compose">{compose}</div>
             <ul className="session-list">
-                <ComposeCard onCompose={onCompose} />
                 {sessions.map(([dir, view]) => (
                     <SessionCard
                         key={dir}

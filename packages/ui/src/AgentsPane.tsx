@@ -22,7 +22,7 @@ import {
 
 import { formatUsd } from "./costs.ts";
 
-import { ComposeForm, type ComposeDraft, type RunAction } from "./SessionForms.tsx";
+import type { RunAction } from "./SessionForms.tsx";
 
 export interface AgentsPaneProps {
     view: SessionView | undefined;
@@ -42,10 +42,6 @@ export interface AgentsPaneProps {
     controls?: IconButtonProps[] | undefined;
     /** The side-panel toggle, at the left of the title. */
     leading?: IconButtonProps | undefined;
-    /** The compose box as the pane's view, in place of the agents tabs. */
-    compose?:
-        | { onCancel: () => void; draft: ComposeDraft; onDraft: (draft: ComposeDraft) => void }
-        | undefined;
     /**
      * The shown view and the picked agent, held by the App (entry 3.22): the `needs you` pill
      * switches to the `agents` view and picks `lead` when a gate card shows.
@@ -161,7 +157,7 @@ const VIEWS = ["agents", "mission", "threads", "services"];
 
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
-    const { controls, leading, compose, shown, picked } = props;
+    const { controls, leading, shown, picked } = props;
     const setShown = props.onShown;
     const setPicked = props.onPicked;
     const [agentTab, setAgentTab] = useState("chat");
@@ -192,21 +188,6 @@ export function AgentsPane(props: AgentsPaneProps) {
               ));
     const mainTab = selected !== undefined && terminalFor(selected) ? "terminal" : "chat";
 
-    if (compose !== undefined) {
-        return (
-            <section className="pane agents-pane" aria-label="Agents">
-                <div className="chat">
-                    <ComposeForm
-                        run={run}
-                        onCancel={compose.onCancel}
-                        draft={compose.draft}
-                        onDraft={compose.onDraft}
-                    />
-                    {children}
-                </div>
-            </section>
-        );
-    }
     return (
         <section className="pane agents-pane" aria-label="Agents">
             <ViewTabs

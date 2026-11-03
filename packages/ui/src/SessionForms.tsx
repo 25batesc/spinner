@@ -1,7 +1,7 @@
 // The form that starts a session: one box for the paste, the project, the PRs the daemon
-// pulled out of the paste as checkboxes, and `Start`. The side panel's "new session" card opens
-// it as a view of the middle pane; the App closes the view once the job that creates the
-// session finishes and selects the session, which opens on the lead's terminal.
+// pulled out of the paste as checkboxes, and `Start`. It is pinned at the top of the sidebar's
+// sessions section (s020); the App clears the draft once the job that creates the session
+// finishes and selects the session, which opens on the lead's terminal.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { ProjectView } from "@spinner/protocol";
@@ -149,9 +149,7 @@ function PrChecklist(props: { extraction: Extraction; onToggle: (url: string) =>
 
 export interface ComposeFormProps {
     run: RunAction;
-    /** Back to the agents view without creating anything. */
-    onCancel: () => void;
-    /** The draft lives with the caller, so a look at another session keeps what was typed. */
+    /** The draft lives with the caller, so a fold of the section keeps what was typed. */
     draft: ComposeDraft;
     onDraft: (draft: ComposeDraft) => void;
 }
@@ -164,7 +162,7 @@ export interface ComposeDraft {
 export const EMPTY_DRAFT: ComposeDraft = { text: "", project: "" };
 
 /** The compose box. `Start` posts the job; the drawer below shows it run. */
-export function ComposeForm({ run, onCancel, draft, onDraft }: ComposeFormProps) {
+export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
     const projects = useProjects();
     const { text, project } = draft;
     const setText = (next: string) => onDraft({ ...draft, text: next });
@@ -185,7 +183,6 @@ export function ComposeForm({ run, onCancel, draft, onDraft }: ComposeFormProps)
             <label className="field">
                 <span className="field-label">What this is about</span>
                 <textarea
-                    autoFocus
                     value={text}
                     onChange={(event) => setText(event.target.value)}
                     placeholder="Paste what this is about: a sentence, a ticket, PR links."
@@ -203,9 +200,6 @@ export function ComposeForm({ run, onCancel, draft, onDraft }: ComposeFormProps)
             <div className="compose-actions">
                 <button type="submit" className="primary" disabled={text.trim() === ""}>
                     Start
-                </button>
-                <button type="button" onClick={onCancel}>
-                    cancel
                 </button>
             </div>
         </form>
