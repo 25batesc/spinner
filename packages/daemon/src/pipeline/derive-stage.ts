@@ -13,7 +13,28 @@ const PRS_MAX = 100;
 export function derive_stage(facts: PipelineFacts): StageResult {
     assert.ok(facts.prs.length <= PRS_MAX, `more than ${PRS_MAX} PRs in one session`);
     assert.ok(facts.stale_after_hours > 0, "stale_after_hours must be positive");
-    return with_review_draft(facts, with_diff_comments(facts, derive_pipeline(facts)));
+    const result = with_design(facts, with_diff_comments(facts, derive_pipeline(facts)));
+    return with_review_draft(facts, result);
+}
+
+/**
+ * The design stage's next action (docs/designs/egm-adoption.md, Technical Plan T7). Before
+ * approval the design's `needs` wins over the pipeline's text when it is set. At `approved`
+ * the design only fills a null `needs_human`: a gate during the build gives `needs` an
+ * `answer the lead` text, and the pipeline's own action still comes first.
+ */
+function with_design(facts: PipelineFacts, result: StageResult): StageResult {
+    const design = facts.design;
+    if (design === undefined || design.needs === null) {
+        return result;
+    }
+    if (design.stage !== "approved") {
+        return { ...result, needs_human: design.needs };
+    }
+    if (result.needs_human === null) {
+        return { ...result, needs_human: design.needs };
+    }
+    return result;
 }
 
 /**

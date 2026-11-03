@@ -28,6 +28,7 @@ import {
     type MissionBlock,
     type MissionItem,
 } from "../pipeline/mission-sections.js";
+import { read_session } from "./session-store.js";
 
 /** Heading of each section, as the template writes it. */
 export const SECTION_HEADINGS: Record<MissionSection, string> = {
@@ -39,6 +40,9 @@ export const SECTION_HEADINGS: Record<MissionSection, string> = {
     open_questions: "Open questions",
     log: "Log",
 };
+
+/** The daemon's own author: the one that writes Goal and Done when on the design track. */
+export const SPEC_AUTHOR = "spinner";
 
 /** Sections the operator owns; `replace` is allowed there and nowhere else. */
 const REPLACEABLE: readonly MissionSection[] = ["goal", "done_when"];
@@ -420,8 +424,28 @@ export class MissionWriter {
         return this.last_notes.get(`${dir}/${agent}`) ?? null;
     }
 
+    /**
+     * On the design track the design doc is the spec (docs/designs/egm-adoption.md, D6, T11):
+     * only `spinner` writes Goal and Done when. The session is read before each write, so a
+     * track switch applies at the next write.
+     */
+    private design_refusal(dir: string, request: MissionSectionRequest): string | null {
+        if (request.section !== "goal" && request.section !== "done_when") {
+            return null;
+        }
+        if (request.author === SPEC_AUTHOR) {
+            return null;
+        }
+        const read = read_session(this.home, dir);
+        const design = read.ok ? read.summary.session.design : undefined;
+        if (design?.track !== "design") {
+            return null;
+        }
+        return `this session's spec is the design doc (${design.doc ?? "not named yet"})`;
+    }
+
     private write_now(dir: string, request: MissionSectionRequest): MissionSectionResponse {
-        const reason = validate_mission_write(request);
+        const reason = validate_mission_write(request) ?? this.design_refusal(dir, request);
         if (reason !== null) {
             throw new MissionWriteError(reason);
         }

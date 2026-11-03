@@ -9,6 +9,8 @@ import type {
     AdoptRequest,
     ApproveRequest,
     ApproveView,
+    DesignTrack,
+    EgmStatus,
     ExtractRequest,
     ExtractResponse,
     FixRequest,
@@ -73,6 +75,7 @@ import {
 import { list_projects } from "./projects.js";
 import { find_spec, load_spec } from "./stack/spec.js";
 import { create_session, read_session, write_session } from "./store/session-store.js";
+import { SPEC_AUTHOR, type MissionWriter } from "./store/mission-writer.js";
 import { diff_home } from "./diff/fetch.js";
 import { stop_viewers } from "./diff/viewer.js";
 
@@ -233,6 +236,60 @@ export function set_title(
         writeFileSync(file, next);
     }
     return fresh.summary;
+}
+
+/** The Goal that `set_design_track` writes until the lead names its doc (2.20). */
+export const DESIGN_GOAL_PENDING =
+    "The design doc holds the goal. Spinner names it here once the lead calls design_doc.";
+/** The one Done when item of a design-track session (2.20). */
+export const DESIGN_DONE_WHEN = "The design is approved and every Plan item is ticked.";
+
+/**
+ * Writes `design.track`, creating the `design` block (docs/designs/egm-adoption.md, D1, 2.20).
+ * A session whose build started keeps its track. `design` needs EGM ready and pi-subagents.
+ * On `design` the Goal and Done when become the design pointers, as author `spinner`.
+ */
+export async function set_design_track(
+    ctx: ActionContext,
+    writer: MissionWriter,
+    summary: SessionSummary,
+    track: DesignTrack,
+    egm: EgmStatus,
+): Promise<SessionSummary> {
+    const fresh = read_session(ctx.home, summary.dir);
+    assert.ok(fresh.ok, `${summary.dir} must exist to set its track`);
+    const session = fresh.summary.session;
+    const started = Object.values(session.repos ?? {}).some((repo) => repo.changed);
+    if (session.design !== undefined && started) {
+        throw new Error("the build has started; the track is fixed");
+    }
+    if (track === "design" && egm.state !== "ready") {
+        const reason = egm.error === null ? egm.state : `${egm.state}: ${egm.error}`;
+        throw new Error(`EGM is not available: ${reason}`);
+    }
+    if (track === "design" && !egm.subagents) {
+        throw new Error("EGM is not available: pi-subagents is not installed");
+    }
+    session.design = { ...(session.design ?? {}), track };
+    write_session(fresh.summary);
+    if (track === "design") {
+        const author = SPEC_AUTHOR;
+        await writer.write(summary.dir, {
+            section: "goal",
+            mode: "replace",
+            text: DESIGN_GOAL_PENDING,
+            author,
+        });
+        await writer.write(summary.dir, {
+            section: "done_when",
+            mode: "replace",
+            text: `- [ ] ${DESIGN_DONE_WHEN}`,
+            author,
+        });
+    }
+    const check = read_session(ctx.home, summary.dir);
+    assert.ok(check.ok, `${summary.dir} must read back after the track write`);
+    return check.summary;
 }
 
 /** The job half of `new`: worktrees and the spec copy, when the session has a project. */
