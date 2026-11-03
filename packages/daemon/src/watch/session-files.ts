@@ -14,6 +14,8 @@ export interface SessionFileHandlers {
     on_mission(dir: string, kind: "add" | "change"): void;
     on_notes(dir: string, agent: string): void;
     on_inbox(dir: string, file: string): void;
+    /** A file directly in `<session>/design/` was written; dotfiles are not reported (2.14). */
+    on_design(dir: string, file: string): void;
     on_error(message: string): void;
 }
 
@@ -31,6 +33,9 @@ const SKIPPED = new Set([
     "skills",
     "threads",
     "pi",
+    // The Goldfish watcher polls this tree on purpose (EGM, 4.4); here it would only stat
+    // pi-subagents' temp files.
+    "egm-runs",
     ".git",
     "node_modules",
 ]);
@@ -68,6 +73,11 @@ export function watch_session_files(
         }
         if (kind === "add" && parts.length === 3 && parts[1] === "inbox") {
             handlers.on_inbox(dir, parts[2] ?? "");
+            return;
+        }
+        const name = parts[2] ?? "";
+        if (parts.length === 3 && parts[1] === "design" && !name.startsWith(".")) {
+            handlers.on_design(dir, name);
         }
     };
 

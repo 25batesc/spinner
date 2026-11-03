@@ -72,6 +72,7 @@ import type { SpinnerHome } from "./home.js";
 import { JobRunner, type JobWork } from "./jobs/jobs.js";
 import { DiffManager } from "./diff/manager.js";
 import { mount_diff_routes } from "./diff/routes.js";
+import { DesignTracker } from "./egm/design.js";
 import { EgmFetcher } from "./egm/fetch.js";
 import { mount_egm_routes } from "./egm/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
@@ -224,6 +225,8 @@ export interface AppDeps {
     poll?: () => Promise<void>;
     /** The EGM fetcher; `/egm` mounts and a lead fetches EGM when given. */
     egm?: EgmFetcher;
+    /** The design tracker (EGM, 2.26); the EGM routes mount with `egm` and `writer`. */
+    design?: DesignTracker;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -282,6 +285,8 @@ export function create_app(deps: AppDeps): Hono {
                 ctx: deps.ctx,
                 agents: deps.agents,
                 ...(deps.egm === undefined ? {} : { egm: deps.egm }),
+                ...(deps.design === undefined ? {} : { design: deps.design }),
+                ...(deps.writer === undefined ? {} : { writer: deps.writer }),
             };
             return start_job(c, deps, "new", dir, (log) =>
                 start_lead_session(lead_deps, summary, request, log).then(() => {}),
@@ -664,8 +669,15 @@ export function create_app(deps: AppDeps): Hono {
     if (deps.diff !== undefined) {
         mount_diff_routes(app, { ...deps, diff: deps.diff });
     }
-    if (deps.egm !== undefined) {
-        mount_egm_routes(app, { fetcher: deps.egm, jobs: deps.jobs });
+    if (deps.egm !== undefined && deps.design !== undefined && deps.writer !== undefined) {
+        mount_egm_routes(app, {
+            fetcher: deps.egm,
+            jobs: deps.jobs,
+            design: deps.design,
+            ctx: deps.ctx,
+            view: deps.view,
+            writer: deps.writer,
+        });
     }
     if (deps.writer !== undefined && deps.deliverer !== undefined) {
         // ext: mission section, inbox, context
@@ -814,6 +826,8 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     let observer: StackObserver | null = null;
     let usage: UsageSampler | null = null;
     let costs: LedgerLoop | null = null;
+    // Late-bound: `view_ctx` is built before `refresh`, which the tracker needs.
+    let design: DesignTracker | null = null;
     const view_ctx: ViewContext = {
         home,
         cwd,
@@ -823,6 +837,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             costs?.ledger.session_cost(dir) ?? { usd: 0, tokens_in: 0, tokens_out: 0, agents: {} },
         agents_running: (dir) => agents.running(dir),
         diff: (summary) => diff.view(summary),
+        design: (summary) => design?.view(summary),
         now: () => new Date(),
         log,
     };
@@ -887,6 +902,8 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         sampler.wake();
         publish_view(dir);
     };
+    design = new DesignTracker({ home, cwd, agents, bus, writer, refresh, log });
+    const designs = design;
 
     const build = options.build ?? { version: "0.0.0", commit: null, built: null };
     // The poller starts after the port opens; a posted review asks it for a round through
@@ -938,6 +955,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         swarm,
         poll,
         egm: new EgmFetcher(home, process.env),
+        design: designs,
         ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.
@@ -953,6 +971,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         on_mission: (dir) => deliverer.on_mission_change(dir),
         on_notes: (dir, agent) => deliverer.on_notes_change(dir, agent),
         on_inbox: (dir, file) => void deliverer.deliver_inbox(dir, file),
+        on_design: (dir) => void designs.refresh(dir),
         on_error: log,
     });
     await files.ready;
@@ -969,6 +988,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         log(`adopt: resumed tty agent ${resumed} on its transcript`);
     }
     await swarm.prime();
+    await designs.prime();
     // The operator agent comes last: a session agent's adoption must not wait on it, and its
     // first notices (an agent that settled during adoption) are queued, not lost.
     if (options.operator !== false) {
@@ -987,6 +1007,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         close: async () => {
             unwatch_stack_jobs();
             swarm.close();
+            await designs.close();
             diff.close();
             await operator.close();
             await agents.stop_all();

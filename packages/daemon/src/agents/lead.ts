@@ -6,8 +6,10 @@
 // created with a `title` alone still takes the old path (`actions.attach_new_session`).
 import assert from "node:assert/strict";
 import type { NewSessionRequest, SessionSummary, StackSpec } from "@spinner/protocol";
+import { DESIGN_DEFAULT_TRACK } from "@spinner/protocol";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
+import type { DesignTracker } from "../egm/design.js";
 import { type EgmFetcher, egm_fetched } from "../egm/fetch.js";
 import { EGM_PIN } from "../egm/pins.js";
 import type { SpinnerHome } from "../home.js";
@@ -15,6 +17,7 @@ import { adopt_into_session } from "../pipeline/adopt.js";
 import { extract_prs } from "../pipeline/extract.js";
 import { attach_project, type Log } from "../stack/runner.js";
 import { load_spec } from "../stack/spec.js";
+import type { MissionWriter } from "../store/mission-writer.js";
 import { read_session } from "../store/session-store.js";
 import type { AgentManager } from "./manager.js";
 
@@ -32,6 +35,12 @@ export interface LeadStartDeps {
      * one; without it the lead starts with no EGM step and no EGM log line.
      */
     egm?: EgmFetcher;
+    /**
+     * The design tracker and the mission writer (EGM, 2.23). Optional like `egm`; with all
+     * three the session gets a `design` block and a track, else none.
+     */
+    design?: DesignTracker;
+    writer?: MissionWriter;
 }
 
 /** The job half of `new` with `text`: attach, adopt, start the lead, send the first message. */
@@ -67,6 +76,7 @@ export async function start_lead_session(
     if (deps.egm !== undefined) {
         await prepare_egm(deps.home, deps.egm, log);
     }
+    current = await choose_track(deps, current, adopt.length, log);
     log(`starting ${LEAD_NAME}${repo === undefined ? "" : ` in the ${repo} worktree`}`);
     const handle = await deps.agents.add(current, {
         name: LEAD_NAME,
@@ -106,6 +116,31 @@ async function prepare_egm(home: SpinnerHome, egm: EgmFetcher, log: Log): Promis
         return;
     }
     log(`EGM unavailable: ${egm.status().error ?? "the fetch failed"}; the lead starts without it`);
+}
+
+/**
+ * The track of a new paste session (D1, D12, 2.23): `DESIGN_DEFAULT_TRACK` when EGM is ready
+ * with pi-subagents and nothing was adopted, else `direct`. Without the fetcher, the tracker
+ * and the writer, no `design` block: the session behaves as one from before the EGM design.
+ */
+async function choose_track(
+    deps: LeadStartDeps,
+    summary: SessionSummary,
+    adopted: number,
+    log: Log,
+): Promise<SessionSummary> {
+    if (deps.egm === undefined || deps.design === undefined || deps.writer === undefined) {
+        return summary;
+    }
+    const status = deps.egm.status();
+    const ready = status.state === "ready" && status.subagents;
+    const track = ready && adopted === 0 ? DESIGN_DEFAULT_TRACK : "direct";
+    await actions.set_design_track(deps.ctx, deps.writer, summary, track, status);
+    log(`track: ${track}`);
+    await deps.design.refresh(summary.dir);
+    const fresh = read_session(deps.home, summary.dir);
+    assert.ok(fresh.ok, "a session must read back after its track write");
+    return fresh.summary;
 }
 
 /** The fallback title gives way to the first adopted PR's title, when one was adopted. */

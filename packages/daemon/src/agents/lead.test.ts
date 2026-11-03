@@ -27,7 +27,10 @@ import type {
     MissionViewResponse,
     SpinnerEvent,
 } from "@spinner/protocol";
-import { EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES } from "@spinner/protocol";
+import type { Session } from "@spinner/protocol";
+import { DESIGN_DEFAULT_TRACK, EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES } from "@spinner/protocol";
+import { DesignTracker } from "../egm/design.js";
+import { MissionWriter } from "../store/mission-writer.js";
 import { EgmFetcher, egm_source_dir, marker_path } from "../egm/fetch.js";
 import type { Runner } from "../git/pinned-clone.js";
 import { EGM_PIN } from "../egm/pins.js";
@@ -199,6 +202,8 @@ describe("POST /sessions with text", () => {
         expect(done.log.join("\n")).toContain("adopted acme/backend#4812 as backend");
         expect(done.log.join("\n")).toContain("starting lead in the backend worktree");
         expect(done.log.join("\n")).toContain("first message delivered");
+        // A session with adopted PRs gets the direct track (D12, 2.23).
+        expect(done.log).toContain("track: direct");
 
         const read = read_session(home, dir);
         expect(read.ok).toBe(true);
@@ -213,6 +218,7 @@ describe("POST /sessions with text", () => {
         const branch = await run_ok("git", ["-C", worktree, "branch", "--show-current"]);
         expect(branch.trim()).toBe(head_of(APPROVING));
         expect(session.agents?.["lead"]).toMatchObject({ process: "idle", repo: "backend" });
+        expect(session.design?.track).toBe("direct");
 
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as {
             cwd: string;
@@ -339,21 +345,53 @@ describe("the EGM step of a lead start", () => {
     const failing: Runner = () =>
         Promise.resolve({ code: 128, stdout: "", stderr: "network down" });
 
-    async function start(egm: EgmFetcher | undefined): Promise<string[]> {
+    let last: Session | null = null;
+
+    /** Starts a lead; with `design`, the tracker and the writer join the deps (2.23). */
+    async function start(egm: EgmFetcher | undefined, design = false): Promise<string[]> {
         const summary = create_session(home, { title: "Egm lead", lead: true });
         const lines: string[] = [];
+        const writer = new MissionWriter(home, daemon.bus);
+        const tracker = new DesignTracker({
+            home,
+            cwd: root,
+            agents: daemon.agents,
+            bus: daemon.bus,
+            writer,
+            refresh: async () => undefined,
+            log: () => undefined,
+        });
         const deps = {
             home,
             ctx: { home, cwd: root, gh },
             agents: daemon.agents,
             ...(egm === undefined ? {} : { egm }),
+            ...(design ? { design: tracker, writer } : {}),
         };
-        const started = await start_lead_session(deps, summary, { text: "Add a flag" }, (line) =>
-            lines.push(line),
-        );
-        expect(started.session.agents?.["lead"]?.process).toBe("idle");
+        try {
+            const started = await start_lead_session(
+                deps,
+                summary,
+                { text: "Add a flag" },
+                (line) => lines.push(line),
+            );
+            expect(started.session.agents?.["lead"]?.process).toBe("idle");
+            last = started.session;
+        } finally {
+            await tracker.close();
+        }
         await daemon.agents.stop(summary.dir, "lead");
         return lines;
+    }
+
+    function fetched_home(): void {
+        for (const file of EGM_REQUIRED_FILES) {
+            const path = join(egm_source_dir(home), file);
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, "x\n");
+        }
+        const marker = { sha: EGM_PIN.sha, adapter_version: EGM_ADAPTER_VERSION, fetched: "x" };
+        writeFileSync(marker_path(home), JSON.stringify(marker));
     }
 
     it("starts the lead and logs the reason when the fetch fails", async () => {
@@ -373,15 +411,30 @@ describe("the EGM step of a lead start", () => {
     });
 
     it("skips the fetch on a fetched home", async () => {
-        for (const file of EGM_REQUIRED_FILES) {
-            const path = join(egm_source_dir(home), file);
-            mkdirSync(dirname(path), { recursive: true });
-            writeFileSync(path, "x\n");
-        }
-        const marker = { sha: EGM_PIN.sha, adapter_version: EGM_ADAPTER_VERSION, fetched: "x" };
-        writeFileSync(marker_path(home), JSON.stringify(marker));
+        fetched_home();
         const lines = await start(new EgmFetcher(home, pi_env(true), failing));
         expect(lines.filter((line) => line.includes("EGM"))).toEqual([]);
+    });
+
+    it("gives a ready EGM the default track, direct in build session 2 (2.23)", async () => {
+        expect(DESIGN_DEFAULT_TRACK).toBe("direct");
+        fetched_home();
+        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true);
+        expect(lines).toContain("track: direct");
+        expect(last?.design?.track).toBe("direct");
+    });
+
+    it("gives a failed fetch the direct track", async () => {
+        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true);
+        expect(lines).toContain("track: direct");
+        expect(last?.design?.track).toBe("direct");
+    });
+
+    it("writes no design block without the tracker in the deps", async () => {
+        fetched_home();
+        const lines = await start(new EgmFetcher(home, pi_env(true), failing));
+        expect(lines.some((line) => line.startsWith("track:"))).toBe(false);
+        expect(last?.design).toBeUndefined();
     });
 
     it("logs no EGM line without a fetcher", async () => {

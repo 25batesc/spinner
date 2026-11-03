@@ -230,7 +230,7 @@ describe("derive_stage: several PRs", () => {
 });
 
 describe("derive_stage: the design stage (2.17, Technical Plan T7)", () => {
-    const planned = (design: PipelineFacts["design"]): PipelineFacts =>
+    const planned = (design: NonNullable<PipelineFacts["design"]>): PipelineFacts =>
         facts({ has_commits: false, design }, []);
 
     it("before approval, the design's needs wins and the stage stays the pipeline's", () => {

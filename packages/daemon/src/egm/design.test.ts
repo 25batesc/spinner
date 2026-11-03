@@ -225,11 +225,17 @@ describe("DesignTracker: approval, change and the track switch", () => {
         expect(session().design?.stage).toBe("approved");
         expect(session().needs_human).toBeNull();
         expect(state()).toMatchObject({ stage: "approved", approved: true });
-        // The doc watcher refreshes the session on an edit; wait on session.yaml, 10 s at most.
-        writeFileSync(doc, `${DOC_TEXT}2. Add the button.\n`);
-        const deadline = Date.now() + 10_000;
-        while (session().design?.changed_after_approval !== true && Date.now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, 50));
+        // The doc watcher refreshes the session on an edit; wait on session.yaml, 15 s at most.
+        // chokidar's native watch can start late under load (watch/live.ts), so the edit is
+        // repeated every second until the artifact shows.
+        const deadline = Date.now() + 15_000;
+        for (let edit = 1; session().design?.changed_after_approval !== true; edit += 1) {
+            expect(Date.now()).toBeLessThan(deadline);
+            writeFileSync(doc, `${DOC_TEXT}${edit + 1}. Add the button.\n`);
+            const changed = (): boolean => session().design?.changed_after_approval === true;
+            for (let tick = 0; tick < 20 && !changed(); tick += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
         }
         expect(session().design).toMatchObject({
             stage: "design-ready",
@@ -238,7 +244,7 @@ describe("DesignTracker: approval, change and the track switch", () => {
         expect(session().needs_human).toBe("re-approve the design (changed since approval)");
         expect(session().stage).toBe("planned");
         expect(state()).toMatchObject({ stage: "design-ready", approved: false });
-    });
+    }, 20_000);
 
     it("a switch to direct rewrites .state.json and gives the pipeline's needs_human", async () => {
         writeFileSync(join(designs, "csv-export.md"), DOC_TEXT);

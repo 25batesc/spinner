@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type {
     BoardView,
+    DesignView,
     DiffView,
     ReviewFields,
     ReviewProgress,
@@ -50,6 +51,8 @@ export interface ViewContext {
     diff?: (summary: SessionSummary) => DiffView;
     /** The session's spend from the cost ledger (s013); absent when not given. */
     cost?: (dir: string) => SessionCost;
+    /** The design facts (EGM, 2.19); absent from the view when not given or undefined. */
+    design?: (summary: SessionSummary) => DesignView | undefined;
     now: () => Date;
     log: (line: string) => void;
 }
@@ -61,6 +64,7 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
     const spec = session_spec_or_null(summary);
     const cost = ctx.cost?.(summary.dir);
     const review = build_review(summary, cost ?? null);
+    const design = ctx.design?.(summary);
     return {
         summary,
         kind: summary.session.kind ?? "session",
@@ -76,6 +80,7 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         diff: ctx.diff?.(summary) ?? DIFF_ABSENT,
         ...(cost === undefined ? {} : { cost }),
         ...(review === null ? {} : { review }),
+        ...(design === undefined ? {} : { design }),
     };
 }
 
