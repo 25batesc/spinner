@@ -9,6 +9,7 @@ import { daemon_command } from "./commands/daemon.js";
 import { doctor_command } from "./commands/doctor.js";
 import { fix_command } from "./commands/fix.js";
 import { land_command } from "./commands/land.js";
+import { outcomes_command } from "./commands/outcomes.js";
 import { PIPELINE_COMMANDS } from "./commands/pipeline.js";
 import { post_command } from "./commands/post.js";
 import { pr_command } from "./commands/pr.js";
@@ -28,6 +29,7 @@ const COMMANDS: Command[] = [
     reset_command,
     daemon_command,
     doctor_command,
+    outcomes_command,
 ];
 
 export const USAGE = render_usage(COMMANDS);

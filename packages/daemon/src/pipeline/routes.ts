@@ -25,6 +25,7 @@ import type {
     ThreadsResponse,
 } from "@spinner/protocol";
 import { ROUNDS_MAX } from "@spinner/protocol";
+import { count_outcome } from "./outcomes.js";
 import { parse_previous_rounds } from "./rounds.js";
 import { thread_file, type ThreadsDiff } from "./threads.js";
 import { review_targets } from "./review.js";
@@ -93,7 +94,10 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
             return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
         }
         return start_job(c, deps, "fix", summary.dir, async (log) => {
-            const result = await actions.fix(deps.ctx, summary, request, log);
+            // A fixer round counts when its job starts (6.20), on a fresh read of the session.
+            // The fix continues from the counted summary, because it writes the session too.
+            const counted = count_outcome(deps.home, summary.dir, "fix_rounds");
+            const result = await actions.fix(deps.ctx, counted, request, log);
             publish_threads(deps, summary, result.diffs);
         });
     });

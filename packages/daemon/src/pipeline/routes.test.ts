@@ -3,10 +3,11 @@
 // before any job starts; `GET threads` answers from the files; a thread write answers 409
 // with the rule's reason. Method: `start_daemon` on a temporary SPINNER_HOME with a fake
 // `gh` and a fake writer, plain `fetch` against the bound port.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import type { Job, Session, ThreadsResponse } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { start_daemon, type Daemon } from "../server.js";
@@ -149,6 +150,26 @@ describe("pipeline routes", () => {
             session: { summary: { session: Session } };
         };
         expect(session.session.summary.session.round).toBe(2);
+    });
+
+    it("counts a fixer round when the fix job starts, from no outcomes to 1 (6.20)", async () => {
+        const dir = session_dir();
+        const read_outcomes = (): Session["outcomes"] =>
+            (parse(readFileSync(join(home.sessions, dir, "session.yaml"), "utf8")) as Session)
+                .outcomes;
+        expect(read_outcomes()).toBeUndefined();
+        const started = await post(`/sessions/${dir}/fix`, {});
+        expect(started.status).toBe(202);
+        const { job } = (await started.json()) as { job: Job };
+        const done = await finished(job.id);
+        expect(done.state, done.error ?? "").toBe("ok");
+        expect(read_outcomes()).toEqual({ fix_rounds: 1, operator_steers: 0 });
+        const again = (await (await post(`/sessions/${dir}/fix`, {})).json()) as { job: Job };
+        await finished(again.job.id);
+        expect(read_outcomes()).toEqual({ fix_rounds: 2, operator_steers: 0 });
+        // A bad body is a 400 before any job, so it counts nothing.
+        expect((await post(`/sessions/${dir}/fix`, { pr: 7 })).status).toBe(400);
+        expect(read_outcomes()).toEqual({ fix_rounds: 2, operator_steers: 0 });
     });
 
     it("answers a round's Log with 200, a bad round with 400, a missing one with 404", async () => {
