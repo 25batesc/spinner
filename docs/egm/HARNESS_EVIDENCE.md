@@ -133,3 +133,29 @@ The lead proposed the `design` track with a reason, put the stack choice under O
 | egm-review | 2 | 844 s | 24,449 | $10.08 |
 
 `SessionView.cost` counts the lead only; it was $15.50 at the end of run F, P1 to P4 and the resolve turns included. The child `meta.json` files sum to $10.20 for the Goldfish. The driver now ends P11 when the lead holds for approval after the review (commit after `b329a11`).
+
+## Build session 4
+
+Run G checks the Goldfish rows of entry 4.11 and the workspace reads of build session 5, at commit `ee51605`. The setup is the same as above: pi 1.4.0, pi-subagents 0.84.0, EGM `a119668`, the model `anthropic/claude-fable-5-1`.
+
+| Run | Scratch | What ran | Lead transcript |
+| --- | --- | --- | --- |
+| G | `spinner-e2e-egm.dhOVKojo8T` | P1, P2a, P2b, P2c, P4, P3, then P11 with P5, P6, P7, P8 and W1; all PASS | `<S>/agents/lead/pi/2026-11-03T04-42-52-115Z_lead.jsonl` |
+
+The driver log is `s036-e2e-log.S68as6NQbx/run.log`, under the same temporary directory. The record is `<scratch>/egm-evidence.json`.
+
+| Probe | Result | Detail |
+| --- | --- | --- |
+| P6 | PASS | `SessionView.design.goldfish` held 6 new Goldfish with a persona 276 ms after the lead's `subagent` launch: structural, implementation-readiness, comprehension, codebase-details, design and zoom-out. The view reads the run files at each request, so the 2-second poll of the watcher bounds only the push of `session.updated`. |
+| P7 | PASS | After the brainstorm: 8 entries in `SessionView.cost.children`, `cost_by_stage.brainstorm` $2.75, 8 chips `done`. The events route served 15 events of one Goldfish transcript. |
+| W1 | PASS | After the review, `GET …/design/files` listed 10 files. `…/design/files/concepts_brief.md` (12,960 characters), `…/design/files/consolidated_review_report.md` (15,680 characters) and `…/design/doc` answered 200. The doc text equals the worktree file. |
+| P11 | PASS | 3 skills; 8 gates answered through `POST …/design/answer`; the lead held for approval with no code change. The stage at the end was `resolving`: the lead wrote `goldfish_review_report.md` after the driver's "Continue." turn in the review. |
+| P5, P8 | PASS | The brief is in `<S>/design/` and not in the worktree. No run names `egm-synthesizer`. |
+
+| Skill | Turns | Wall time | Lead tokens | `SessionView.cost` at the end |
+| --- | --- | --- | --- | --- |
+| egm-brainstorm | 4 | 430 s | 15,347 | $5.97 |
+| egm-draft | 7 | 320 s | 15,923 | $8.01 |
+| egm-review | 2 | 1,010 s | 29,963 | $16.89 |
+
+`SessionView.cost` now includes the Goldfish. At the end it was $16.89: $9.02 for the lead and $7.87 for 17 Goldfish steps in `children`. By design step, the Goldfish cost $2.75 in the brainstorm (the 2 probe Goldfish of P2a and P2c included) and $5.13 in the review. The draft ran no Goldfish.

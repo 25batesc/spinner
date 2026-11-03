@@ -2108,6 +2108,25 @@ The P11 rerun ran on a scratch daemon with the real pi and the sandbox repositor
 *   **Tests:** `operator.test.ts` timed out at its 5-second bound in 1 of 2 full daemon runs at load average 7, and passed alone.
 *   **Change for the protocol:** a driver change that spends model money gets one short run that stops at the first gate before the full run.
 
+### Sessions 4 and 5
+
+The engine entries of both sessions were built in one session (s036). Run G of `docs/egm/HARNESS_EVIDENCE.md` ran on a scratch daemon with the real pi and the sandbox repository. P1 to P8, P11 and the workspace row W1 passed.
+
+*   **4.4, T5:** pi-subagents 0.84.0 runs an async fan-out as one `mode: workflow` run. Each step names a child run (`steps[].runId`), and each child writes its own run directory with the same `sessionFile`. Read as the entry says, every Goldfish shows twice and costs twice. In run F, 3 of 21 run directories were workflow roots. The built variant drops a workflow step whose child run is read too. The chip key is then the child's `<runId>/0`.
+*   **4.4, session 1 finding 4:** the watcher reads foreground runs from `agents/lead/pi/subagent-artifacts/<runId>_<agent>_<i>_transcript.jsonl` when the run has no async directory. A `meta.json` gives `done` or `failed` from `exitCode`. Without it the step is `running`, or `stopped` while the lead is not busy, so it cannot hold the cap. The child's pi session is `<lead pi>/<lead session>/<runId>/run-<i>/session.jsonl`. That file is the source of cost and of events.
+*   **4.4:** `GoldfishStep` gained `index` and `child_run`, and `GoldfishRun` gained `foreground`. The entry's interface has no field for either rule above.
+*   **4.4, 4.8:** the stage `intake` maps to the step `brainstorm`. So a Goldfish that runs before any skill counts as brainstorm cost. In run G, the 2 probe Goldfish of P2a and P2c are in `cost_by_stage.brainstorm`.
+*   **4.6, T6:** child costs move only when the ledger refolds: at `agent.settled` and every 60 s. A lead in one long turn shows Goldfish costs up to 60 s late. In run G a chip went from $0.109 to $0.326 at one refold.
+*   **4.6 (inferred, not tested):** a status file names absolute paths under `<home>/sessions/`. After `close` moves a session to the archive, those paths do not exist, so the ledger skips the archived session's Goldfish.
+*   **4.8, 4.11:** the view reads the run files at each request, not the watcher's last tick. P6 saw the 6 chips 276 ms after the launch. The 2-second poll bounds only the push of `session.updated`.
+*   **4.9, 5.3:** the workspace routes of 5.3 were built in the commit of 4.9, because both entries change `egm/routes.ts` and its test.
+*   **4.10:** the EGM routes now mount only with `goldfish` set. `routes.test.ts` was the only test that built them.
+*   **4.11:** the driver adds the row W1 for build session 5: the brief, the consolidated report and the doc read through the workspace routes.
+*   **P11, run G:** the stage ended at `resolving`, not `design-ready`. After the driver's "Continue." in the review, the lead wrote `goldfish_review_report.md` with "the scope the operator approved". The lead read a bare "Continue." as approval of a scope. It still held for approval and changed no code.
+*   **Cost:** run G's `SessionView.cost` was $16.89 at the end: $9.02 for the lead and $7.87 for 17 Goldfish steps. By step: brainstorm $2.75, review $5.13. The draft ran no Goldfish.
+*   **Change for the design:** state the two shapes of pi-subagents 0.84.0 in T5 and 4.4: workflow runs with child runs, and foreground runs. Give each chip one key and one cost source.
+*   **Change for the protocol:** the e2e drivers are outside every `tsconfig`, so no check type-checks them. This session checked the driver with a scratch `tsconfig`. Add `packages/daemon/e2e` to a typecheck script.
+
 --------------------------------------------------------------------------------
 
 <!-- Provenance: Indicates initial structural drafting via EGM. -->
