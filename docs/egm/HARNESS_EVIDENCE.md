@@ -1,6 +1,6 @@
 # EGM harness evidence
 
-This file records the evidence probes of build session 1 of [the EGM design](../designs/egm-adoption.md) (entries 1.26 and 1.27). EGM's own bar for a harness is in `docs/harnesses.md` of the EGM checkout, "Contributing Support": transcripts, a parent-only canary probe and a negative write probe.
+This file records the evidence probes of build session 1 of [the EGM design](../designs/egm-adoption.md) (entries 1.26 and 1.27), and the P11 rerun of build session 3 (entry 3.15, "Build session 3" below). EGM's own bar for a harness is in `docs/harnesses.md` of the EGM checkout, "Contributing Support": transcripts, a parent-only canary probe and a negative write probe.
 
 ## Setup
 
@@ -95,7 +95,41 @@ Entry 1.25 is built (commit `b8f8e51`), because run B showed the literal `/skill
 | C10 | Nesting or direct dispatch | met | Direct dispatch in run C; P8 for the brainstorm |
 | C11 | Parallel reviewers | met | Run C: 6 Goldfish in one async parallel run |
 | C12 | Artifact directory | met | P5 |
-| C13 | One-question gates | not met | `ask_question` is build session 3 (entry 3.4) |
-| C14 | Design-only scope | not met | The lead built the feature after the brief (P11); the guard is build session 6 |
-| C15 | Feedback on the artifact | not met | Build sessions 3 and 5 |
-| C16 | Evidence | partly met | This file; draft and review not reached |
+| C13 | One-question gates | met (session 3) | Run F: 8 gates asked with `ask_question` and answered through `POST …/design/answer` |
+| C14 | Design-only scope | met by the brief (session 3) | Run F: the lead held at `approved: false` with no commit; the edit guard is build session 6 |
+| C15 | Feedback on the artifact | not met | Build session 5 |
+| C16 | Evidence | partly met | This file; brainstorm, draft and review in run F; resolve and approval are build session 6 |
+
+## Build session 3
+
+The P11 rerun after entry 3.13 (the design-track lead brief), with the driver of entry 3.15. The setup is the same as in session 1, at commit `b329a11`. The session got `track: design` (`DESIGN_DEFAULT_TRACK`, 3.1).
+
+| Run | Scratch | What ran | Lead transcript |
+| --- | --- | --- | --- |
+| E | `spinner-e2e-egm.Knvbha3xqQ` | P1, P2a, P2b, P2c, P4 PASS; P3 FAIL on the driver's question rule; stopped at the first gate by a driver bug (a top-level constant read before its initialization), fixed in `b329a11` | `<S>/agents/lead/pi/2026-11-03T01-33-14-180Z_lead.jsonl` |
+| F | `spinner-e2e-egm.yorzFWH9PI` | P1 to P5 PASS, then P11: brainstorm, draft and review end to end | `<S>/agents/lead/pi/*_lead.jsonl` |
+
+The driver logs are `s034-e2e-log.vqZJhBfDlq/run.log` (run E) and `s034-e2e-log.NZFAAUxPuF/run.log` (run F), under the same temporary directory. The record of each run is `<scratch>/egm-evidence.json`.
+
+### The lead's first answer (run E and run F)
+
+The lead proposed the `design` track with a reason, put the stack choice under Open questions with a recommendation, and said: "start `/skill:egm-brainstorm` when you want the design cycle to begin. I will not start an EGM skill on my own."
+
+### P11 in run F
+
+| Step | Result | Detail |
+| --- | --- | --- |
+| Brainstorm | PASS | Started by `POST …/design/run { skill: "egm-brainstorm" }` (P3). The lead asked the clarifying questions, then the readiness gate and the "Select next step" gate through `ask_question`. The driver answered both through `design/answer`. 6 Goldfish ran in one async run. `concepts_brief.md` is in `<S>/design/` (P5). |
+| Draft | PASS | After "Proceed to /egm-draft", the lead ended the brainstorm and waited. It started the draft on the driver's next "Continue." The context gate, 4 section gates and the save gate came through `ask_question`. The lead wrote `docs/designs/sandbox-cli-version-flag.md` in the worktree and called `design_doc`. |
+| Review | PASS | Started by `POST …/design/run { skill: "egm-review", preset: "uninterrupted" }`, recorded as `review_run: r1`. It did not stop for a reading list. All five stage reports and the consolidated report are in `<S>/design/`: `zoom_out_report.md`, `comprehension_report.md`, `critic_report.md`, `intermediate_zoom_out_report.md`, `implementation_readiness_report.md` (and `implementation_readiness_report_round2.md`, the one re-audit), `consolidated_review_report.md`. |
+| Resolve | NOT EXERCISED | Not a pass criterion of session 3; the resolve step and approval are build session 6's row. The driver of run F started `egm-resolve` after the review and answered `Auto accept`. The lead wrote `goldfish_review_report.md` and applied 22 fixes. Its marker `**Status: resolved** (…)` is on the third line, so the stage rule (first non-empty line `Status: resolved`) kept the stage at `resolving`. The driver counted 5 "Continue." turns as no progress and recorded P11 as failed. |
+| Hold for approval | PASS (the design-only rule of the brief) | To each "Continue." the lead answered that the design is not approved (`design/.state.json` `approved: false`) and that it does not build. The worktree has no commit ahead of `origin/main`. Its one change is the untracked design doc. |
+| P8 | PASS | The 21 async runs name `egm-zoom-out`, `egm-design`, `egm-comprehension`, `egm-structural`, `egm-style`, `egm-implementation-readiness` and `egm-codebase-details`. None names `egm-synthesizer`. All are `complete`. |
+
+| Skill | Turns | Wall time | Lead tokens | `SessionView.cost` at the end |
+| --- | --- | --- | --- | --- |
+| egm-brainstorm | 4 | 303 s | 12,264 | $3.00 |
+| egm-draft | 7 | 367 s | 21,384 | $6.04 |
+| egm-review | 2 | 844 s | 24,449 | $10.08 |
+
+`SessionView.cost` counts the lead only; it was $15.50 at the end of run F, P1 to P4 and the resolve turns included. The child `meta.json` files sum to $10.20 for the Goldfish. The driver now ends P11 when the lead holds for approval after the review (commit after `b329a11`).

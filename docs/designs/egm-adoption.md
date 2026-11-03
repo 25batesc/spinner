@@ -2051,8 +2051,9 @@ Sizes: `engine` about 5 hours, `ui` about 2 hours.
 *   **Test Coverage Requirement**: Every new pure function has a test per branch of its rule table: `derive_design`, `check_design_doc`, `round_of`, `parse_previous_rounds`, `rounds_of`, `round_record`, `roundBadge`, `roundTooltip`, `chip_state`, `parse_status`, `count_listed_blockers`, `normalized_doc_hash`, `archive_review_run`, `subagents_installed`, `designSteps`, `trackChoices`, `primaryAction`, `egmMenu`, `render_pi_agent`, `expand_skill` (when built).
 *   **E2E/Integration**:
     *   Build session 1: `node packages/daemon/e2e/egm-harness.ts` passes P1, P2a, P2b, P2c, P3 (either branch), P4, P5, P8 and P11. The record lands in `docs/egm/HARNESS_EVIDENCE.md`. A failure of P1, P2, P4 or P5 stops the build sessions and goes to the operator; later build sessions do not start.
-    *   Build session 3: the same driver answers gates through `design.gate` and runs the resolve step.
+    *   Build session 3: the same driver answers gates through `design.gate`, starts each skill through `POST …/design/run`, and ends P11 when the lead holds for approval after the review, with no code change in the worktree.
     *   Build session 4: the same driver passes P6 and P7.
+    *   Build session 6: the same driver runs the resolve step (`egm-resolve` on the consolidated report, `Auto accept`, until the resolve report is marked resolved), then approves through `POST …/design/approve` and checks that the build starts.
     *   Build sessions 2, 3, 4, 5 and 6: `packages/ui/e2e/drive.ts` against the fixture with the new assertions.
     *   After build session 6, one manual run by the operator on a real project: paste, brainstorm, draft, consolidated review, resolve, approve and build, create PR. The operator records the cost per step from the stepper.
     *   After 10 design-track and 10 direct-track sessions with a PR: `spinner outcomes` prints the comparison of the outcome Goal.
@@ -2089,6 +2090,23 @@ The checkpoint ran on a scratch daemon with the real pi and the sandbox reposito
 *   **Change for the protocol:** a scratch e2e names its project by the absolute path of its `spinner.yaml`, never by a name.
 *   **Change for the UI (2.33, 2.47):** at 1600 px the context-bar title shrinks to `Spi…` beside the stepper and the round badge. The title needs a minimum width.
 *   **Tests:** the existing `watcher_live` probe test timed out at its 5-second bound in 1 of 7 full daemon runs under load.
+
+### Session 3
+
+The P11 rerun ran on a scratch daemon with the real pi and the sandbox repository (runs E and F of `docs/egm/HARNESS_EVIDENCE.md`). A design-track session ran brainstorm, draft and review from `POST …/design/run`, and 8 `ask_question` gates were answered through `POST …/design/answer`. The lead proposed the `design` track, started no skill on its own, and after the review held at `approved: false` without a commit. Session 1's P11 failure (the lead built after the brief) did not recur.
+
+*   **T7, 2.9, egm-resolve Step 5:** EGM writes its marker as `**Status: resolved** (…)` on the third line of `goldfish_review_report.md`, under the `#` heading. Rule 2 reads the first non-empty line for `Status: resolved`, so the stage stayed `resolving` after the resolve finished. The rule needs to find a `Status: resolved` line near the top, with or without bold. Build session 6 owns the resolve check.
+*   **3.9:** the entry gives `no design doc yet` only for `egm-review` with `preset`. The built variant: `egm-review` without `preset`, `egm-review-loop` and `egm-resolve` take `args`, else the absolute doc path, else 409 `no design doc yet`. `egm-draft`, `egm-drift-report` and `egm-bootstrap` answer 409 without a worktree of the designs repo. Operator `args` to `egm-draft` follow the composed text. A skill run on the direct track is not refused.
+*   **3.19, T12:** the dialogs prefill the absolute doc path and designs directory, which `DesignView` did not carry. `DesignView.repo` and `DesignView.designs_dir` were added, optional as in the 2.40 finding, and the daemon always sets them.
+*   **3.15:** with the "Proceed to /egm-draft" option chosen, the lead ended the brainstorm and waited, as the brief says. The driver then sent "Continue.", and the lead started `egm-draft` without the composed `Context File` and `Target directory`, so EGM asked the save gate. The driver should click `draft` (`POST …/design/run`) at once after that answer.
+*   **3.15, 1.26:** a numbered list of questions can end with "Answer in whatever order you like". The driver reads a question when one of the last 2 paragraphs has a `?`.
+*   **3.15:** run E stopped on a driver bug: a top-level constant read by `main()` before its initialization. A driver with top-level `await main()` must declare its tables inside functions or above the call.
+*   **3.15, the operator's decision:** P11 ends when the lead holds for approval after the review. The resolve step moves to build session 6's row of the Verification Plan.
+*   **3.1, 3.14:** the 2.23 test that expected `direct` was updated in the protocol commit, so the daemon suite stayed green at that commit.
+*   **3.16:** the protocol commit changed no schema file; the request bodies are outside the session and view schemas. The `DesignView` fields changed `session-view.json`.
+*   **Cost:** run F's `SessionView.cost` was $15.50 for the lead, and the child `meta.json` files sum to $10.20 for the Goldfish. The review was the largest step (844 s).
+*   **Tests:** `operator.test.ts` timed out at its 5-second bound in 1 of 2 full daemon runs at load average 7, and passed alone.
+*   **Change for the protocol:** a driver change that spends model money gets one short run that stops at the first gate before the full run.
 
 --------------------------------------------------------------------------------
 

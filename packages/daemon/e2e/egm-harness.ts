@@ -11,9 +11,10 @@
 //   P2c  a Goldfish cannot write a file
 //   P4   pi-subagents lists the adapters from `<home>/egm/pi/agents`
 //   P3   `/skill:egm-brainstorm` through `POST …/design/run` reaches the model as the skill
-//   P11  brainstorm, draft, review and resolve run end to end from the app's routes, the
-//        gates answered through `design.gate` (3.15), and the worktree holds no code
-//        change before approval; then P5 and P8
+//   P11  brainstorm, draft and review run end to end from the app's routes, the gates
+//        answered through `design.gate` (3.15); P11 ends when the lead holds for approval
+//        with no code change in the worktree; then P5 and P8. The resolve step and
+//        approval are build session 6's row of the Verification Plan.
 //   P5   the brainstorm's brief is in `<session>/design`, not in the worktree
 //   P8   no Goldfish run is `egm-synthesizer`
 //
@@ -285,19 +286,20 @@ async function probe_p3(): Promise<string> {
     return turn.assistant;
 }
 
-type Phase = "brainstorm" | "draft" | "review" | "resolve";
+type Phase = "brainstorm" | "draft" | "review";
 
 /**
- * P11 (1.26, 3.15): brainstorm, draft, review and resolve, each started from the app's
- * routes. After each settle the driver answers an open `design.gate` through
- * `POST …/design/answer` with the gate's full option that starts with the prefix of its
- * answer table; it uses the text table only when no gate is open. The draft ends when
- * `SessionView.design.doc` is set; the resolve ends when the resolve report's first
- * non-empty line is `Status: resolved`. Stop rules: `P11_MS` in all, `P11_TURNS_MAX` turns
- * per skill, `CONTINUE_MAX` "Continue." turns, and a repeated reply.
+ * P11 (1.26, 3.15): brainstorm, draft and review, each started from the app's routes. After
+ * each settle the driver answers an open `design.gate` through `POST …/design/answer` with
+ * the gate's full option that starts with the prefix of its answer table; it uses the text
+ * table only when no gate is open. The draft ends when `SessionView.design.doc` is set. The
+ * review ends when the consolidated report exists and no gate is open; P11 then ends with
+ * the lead's hold: no commit and no change outside the designs directory before approval
+ * (the design-track brief, 3.13). Stop rules: `P11_MS` in all, `P11_TURNS_MAX` turns per
+ * skill, `CONTINUE_MAX` "Continue." turns, and a repeated reply.
  */
 async function probe_p11(first_reply: string): Promise<void> {
-    step("P11: brainstorm, draft, review, resolve");
+    step("P11: brainstorm, draft, review, then the hold for approval");
     const started_at = Date.now();
     let phase: Phase = "brainstorm";
     let turns = 0;
@@ -308,7 +310,6 @@ async function probe_p11(first_reply: string): Promise<void> {
     /** `lead_settles` when the driver first saw `concepts_brief.md`, else null. */
     let brief_at: number | null = null;
     let draft_sent = false;
-    let resolve_answered = false;
     let previous = "";
     let continues = 0;
     let gates = 0;
@@ -330,7 +331,6 @@ async function probe_p11(first_reply: string): Promise<void> {
         phase_tokens = tokens;
     };
     const report = join(session_path, "design", "consolidated_review_report.md");
-    const resolve_report = join(session_path, "design", "goldfish_review_report.md");
     for (;;) {
         if (Date.now() - started_at > P11_MS) {
             return record("P11", false, `past 60 minutes in egm-${phase} after ${turns} turns`);
@@ -376,15 +376,6 @@ async function probe_p11(first_reply: string): Promise<void> {
             }
             if (existsSync(report) && view.gate === null) {
                 await end_phase();
-                phase = "resolve";
-                last = (await send_turn("run", { skill: "egm-resolve", args: report })).assistant;
-                turns += 1;
-                continue;
-            }
-        }
-        if (phase === "resolve") {
-            if (first_nonempty_line(resolve_report) === "Status: resolved") {
-                await end_phase();
                 probe_p8();
                 const built = build_changes();
                 const verdict = built.length === 0 ? "no code change" : built.join(", ");
@@ -392,14 +383,9 @@ async function probe_p11(first_reply: string): Promise<void> {
                     "P11",
                     built.length === 0,
                     `doc ${doc ?? "?"}; ${skills.length} skills ran; ${gates} gates answered ` +
-                        `through design/answer; worktree before approval: ${verdict}`,
+                        `through design/answer; stage ${view.stage ?? "?"}; the lead holds for ` +
+                        `approval; worktree before approval: ${verdict}`,
                 );
-            }
-            if (!resolve_answered && view.stage === "resolving" && view.needs_resolve) {
-                resolve_answered = true;
-                last = (await send_turn("answer", { text: "Auto accept" })).assistant;
-                turns += 1;
-                continue;
             }
         }
         if (view.gate !== null) {
@@ -414,7 +400,7 @@ async function probe_p11(first_reply: string): Promise<void> {
             previous = "";
             continue;
         }
-        const answer = answer_for(last, phase, doc, report);
+        const answer = answer_for(last, phase);
         if (answer !== null && answer.startsWith("Proceed to /egm-draft")) {
             proceed_at = lead_settles;
         }
@@ -483,12 +469,7 @@ function asks_question(text: string): boolean {
  * The answer table of entry 1.26, for a lead that asks in chat and opens no gate: the first
  * row whose text the last reply contains.
  */
-function answer_for(
-    text: string,
-    phase: Phase,
-    doc: string | null,
-    report: string,
-): string | null {
+function answer_for(text: string, phase: Phase): string | null {
     const rows: Array<[string, string]> = [
         ["Anchored feature hypothesis", "Review with Goldfishes"],
         ["Select next step", "Proceed to /egm-draft"],
@@ -497,16 +478,6 @@ function answer_for(
         if (text.includes(needle)) {
             return option_line(text, prefix);
         }
-    }
-    if (phase === "resolve" && /auto accept/i.test(text)) {
-        return "Auto accept";
-    }
-    if (phase === "resolve" && asks_question(text)) {
-        // egm-resolve's Step 1 asks for each input it lacks (a driver row, in the evidence).
-        return (
-            `TargetFile: ${doc ?? "the design doc"}. LineRange: full file. ` +
-            `FindingsList: the findings in ${report}.`
-        );
     }
     if (phase === "draft" && text.includes("How would you like to proceed?")) {
         return option_line(text, "Approve");
@@ -803,34 +774,28 @@ function git_status(): string[] {
  * approval. The design-track brief (3.13) allows only the design doc and the session's files.
  */
 function build_changes(): string[] {
-    return git_status()
+    const log = ["log", "--oneline", "origin/main..HEAD"];
+    const commits = execFileSync("git", log, { cwd: worktree })
+        .toString()
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+        .map((line) => `commit ${line}`);
+    const files = git_status()
         .map((line) => line.slice(3).trim())
         .filter((path) => !path.startsWith("docs/designs/"));
-}
-
-function first_nonempty_line(path: string): string | null {
-    if (!existsSync(path)) {
-        return null;
-    }
-    const line = readFileSync(path, "utf8")
-        .split(/\r?\n/)
-        .find((entry) => entry.trim().length > 0);
-    return line === undefined ? null : line.trim();
+    return [...commits, ...files];
 }
 
 interface DesignFacts {
     stage: string | null;
     doc: string | null;
     gate: { question: string; options: string[] } | null;
-    /** `needs_human` reads `resolve the review findings`: the lead settled while resolving. */
-    needs_resolve: boolean;
 }
 
 async function design_view(): Promise<DesignFacts> {
     const response = await fetch(`${base}/sessions/${session_dir}`);
     const body = (await response.json()) as {
         session: {
-            summary: { session: { needs_human?: string | null } };
             design?: {
                 stage: string | null;
                 doc: string | null;
@@ -843,7 +808,6 @@ async function design_view(): Promise<DesignFacts> {
         stage: design?.stage ?? null,
         doc: design?.doc ?? null,
         gate: design?.gate ?? null,
-        needs_resolve: body.session.summary.session.needs_human === "resolve the review findings",
     };
 }
 
