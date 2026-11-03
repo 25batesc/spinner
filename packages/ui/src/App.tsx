@@ -24,7 +24,8 @@ import { gateCard, type StepId } from "./design.ts";
 import { stepTab, type WorkspaceTab } from "./design-workspace.ts";
 import { diffJob } from "./diff-view.ts";
 import {
-    focusedDir, loadFocus, NO_FOCUS, pickFocus, saveFocus, type Focus, type FocusPanel,
+    activatePanel, focusedDir, loadFocus, NO_FOCUS, pickFocus, saveFocus, type Focus,
+    type FocusPanel,
 } from "./focus.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
@@ -125,6 +126,7 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
         }
     }, [focus, inRoute]);
     const pick = (panel: FocusPanel, dir: string) => setFocus((old) => pickFocus(old, panel, dir));
+    const activate = (panel: FocusPanel) => setFocus((old) => activatePanel(old, panel));
     // The needs-you lines the operator has looked at: the badges count the rest (`sidebar.ts`).
     const [seen, setSeen] = useState<Seen>(() => (inRoute ? {} : loadSeen(windowStorage())));
     useEffect(() => {
@@ -187,7 +189,7 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     };
     return {
         sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
-        focus, pick, setActionError, draft, setDraft, seen,
+        focus, pick, activate, setActionError, draft, setDraft, seen,
     };
 }
 
@@ -364,6 +366,10 @@ export function App() {
         }
         const next = pickView(sidebar, id, columnShown);
         setSidebar(next);
+        // The list shown is the list the middle pane follows (`focus.ts` `activatePanel`).
+        if (next.view === "sessions" || next.view === "reviews") {
+            app.activate(next.view);
+        }
         if (next.view === null) {
             layout.fold("sessions");
         } else {

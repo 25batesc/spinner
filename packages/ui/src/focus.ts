@@ -73,6 +73,14 @@ export function pickFocus(focus: Focus, panel: FocusPanel, dir: string): Focus {
     return { ...focus, panel, session: dir };
 }
 
+/**
+ * The rail switched to `panel`'s view: that list becomes active, so the middle pane shows
+ * its selection (or its first row); both lists keep their own last pick.
+ */
+export function activatePanel(focus: Focus, panel: FocusPanel): Focus {
+    return focus.panel === panel ? focus : { ...focus, panel };
+}
+
 /** The panel a session belongs to: a review in the reviews list, else the sessions list. */
 export function panelOf(view: SessionView | undefined): FocusPanel {
     return isReview(view) ? "reviews" : "sessions";

@@ -1064,15 +1064,24 @@ if (flow === "sidebar" || flow === "reload") {
         const needs = (view: SessionView) =>
             (view.board === null ? view.summary.session.needs_human : view.board.needs_human)
                 !== null;
-        // The badge leaves out the selected session: its needs-you line counts as seen while
-        // the operator looks at it (`sidebar.ts` `markSeen`).
-        const selectedDir = await evaluate(
-            `document.querySelector(".session-selected, .rv-card-selected")?.dataset.dir ?? null`,
-        ) as string | null;
+        // The badge leaves out every session the operator has looked at: a pick marks its
+        // needs-you line seen (`sidebar.ts` `markSeen`). The rail switch selects the first
+        // row of the other list, so that row counts as seen from then on.
+        const seenDirs: string[] = [];
+        const noteSelected = async () => {
+            const dir = await evaluate(`document.querySelector(
+                ".session-selected, .rv-card-selected")?.dataset.dir ?? null`) as string | null;
+            if (dir !== null && !seenDirs.includes(dir)) {
+                seenDirs.push(dir);
+            }
+        };
+        await noteSelected();
         const countOf = (review: boolean) => String(views.filter((view) =>
             (view.kind === "review") === review && needs(view) &&
-            view.summary.dir !== selectedDir).length);
-        const wantedBadges = JSON.stringify({ sessions: countOf(false), reviews: countOf(true) });
+            !seenDirs.includes(view.summary.dir)).length);
+        const badgesNow = () =>
+            JSON.stringify({ sessions: countOf(false), reviews: countOf(true) });
+        const wantedBadges = badgesNow();
         const badges = `JSON.stringify(Object.fromEntries([...document
             .querySelectorAll(".activity-bar .bar-badge")]
             .map((b) => [b.dataset.section, b.textContent])))`;
@@ -1106,7 +1115,10 @@ if (flow === "sidebar" || flow === "reload") {
         await until("reviews lit", `${lit} === "Hide reviews"`);
         await until("New review pinned",
             `document.querySelector(".sidebar button.side-add[aria-label='New review']") !== null`);
-        await until("badges kept", `${badges} === ${JSON.stringify(wantedBadges)}`);
+        // The switch focused the reviews list: a review is selected and its line is seen.
+        await until("a review selected", `document.querySelector(".rv-card-selected") !== null`);
+        await noteSelected();
+        await until("badges kept", `${badges} === ${JSON.stringify(badgesNow())}`);
         await shot("sidebar2-2-reviews-open");
         // The gear opens settings in the same panel, its own head hidden under the title.
         await click(rail("Show settings"));
@@ -1122,7 +1134,7 @@ if (flow === "sidebar" || flow === "reload") {
         await until("record collapsed", `${sideRecord} === '{"view":null}'`);
         await reload();
         await until("still collapsed", `document.querySelector(".sidebar") === null`);
-        await until("badges while collapsed", `${badges} === ${JSON.stringify(wantedBadges)}`);
+        await until("badges while collapsed", `${badges} === ${JSON.stringify(badgesNow())}`);
         await shot("sidebar2-4-collapsed-badges");
         await click(rail("Show sessions"));
         await until("sessions back at 260", `${widthOf(".sidebar")} === 260 && ${title} ===

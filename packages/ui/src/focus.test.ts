@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { initialReviews, initialSessions } from "../fixture/data.ts";
 import {
+    activatePanel,
     FOCUS_KEY,
     focusedDir,
     loadFocus,
@@ -97,5 +98,15 @@ describe("loadFocus and saveFocus", () => {
             },
         };
         expect(() => saveFocus(full, NO_FOCUS)).not.toThrow();
+    });
+});
+
+describe("activatePanel", () => {
+    it("makes the rail's list the active one and keeps both selections", () => {
+        const focus = { panel: "sessions" as const, session: "s001", review: "r051" };
+        const reviews = activatePanel(focus, "reviews");
+        expect(reviews).toEqual({ panel: "reviews", session: "s001", review: "r051" });
+        expect(activatePanel(reviews, "reviews")).toBe(reviews);
+        expect(activatePanel(reviews, "sessions").panel).toBe("sessions");
     });
 });

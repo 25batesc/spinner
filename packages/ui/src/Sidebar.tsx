@@ -63,7 +63,7 @@ export function AddNew(props: { label: string; children: (close: () => void) => 
         return (
             <button
                 type="button"
-                className="secondary side-add"
+                className="side-add"
                 onClick={() => setOpen(true)}
                 aria-label={label}
             >

@@ -109,7 +109,7 @@ html {
    its own (a tab, a chip, an icon, a card) keeps its own look. Secondary is the default;
    `.primary` is the one filled action of a form or dialog; `.danger` is irreversible and says
    so with its colour before the click. */
-:where(button:not([class]), button.primary, button.danger) {
+:where(button:not([class]), button.primary, button.danger, button.side-add) {
     display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1);
     height: var(--control-row); padding: 0 10px; box-sizing: border-box;
     font: inherit; font-size: var(--text-dense); font-weight: 500; white-space: nowrap;
@@ -117,7 +117,7 @@ html {
     border: 1px solid var(--border); border-radius: var(--radius-control); cursor: pointer;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
-:where(button:not([class])):hover:not(:disabled) { background: var(--fill); }
+:where(button:not([class]), button.side-add):hover:not(:disabled) { background: var(--fill); }
 :where(button.primary) {
     background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
 }
