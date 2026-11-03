@@ -59,9 +59,58 @@ export function widthLevel(width: number): WidthLevel {
     return "title";
 }
 
-/** How many of `sessions` wait on the operator: the pill on the title row, the rail badge. */
-export function needsCount(sessions: readonly [string, SessionView][]): number {
-    return sessions.filter(([, view]) => needsHuman(view) !== null).length;
+/**
+ * The needs-you lines the operator has looked at, by session dir. A pick of a session marks
+ * its current line seen; the badge counts a session again only when the line changes.
+ */
+export type Seen = Readonly<Record<string, string>>;
+
+export const SEEN_KEY = "spinner.seen.v1";
+
+/** The record with the session's current needs-you line marked seen; unchanged without one. */
+export function markSeen(seen: Seen, dir: string, view: SessionView | undefined): Seen {
+    const line = view === undefined ? null : needsHuman(view);
+    if (line === null || seen[dir] === line) {
+        return seen;
+    }
+    return { ...seen, [dir]: line };
+}
+
+/**
+ * How many of `sessions` wait on the operator with a line the operator has not seen: the
+ * pill on the title row, the rail badge. Without `seen`, every waiting session counts.
+ */
+export function needsCount(sessions: readonly [string, SessionView][], seen: Seen = {}): number {
+    return sessions.filter(([dir, view]) => {
+        const line = needsHuman(view);
+        return line !== null && seen[dir] !== line;
+    }).length;
+}
+
+export function loadSeen(storage: SidebarStorage | undefined): Seen {
+    const raw = storage?.getItem(SEEN_KEY);
+    if (raw === null || raw === undefined) {
+        return {};
+    }
+    try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+            return {};
+        }
+        const seen: Record<string, string> = {};
+        for (const [dir, line] of Object.entries(parsed)) {
+            if (typeof line === "string") {
+                seen[dir] = line;
+            }
+        }
+        return seen;
+    } catch {
+        return {};
+    }
+}
+
+export function saveSeen(storage: SidebarStorage | undefined, seen: Seen): void {
+    storage?.setItem(SEEN_KEY, JSON.stringify(seen));
 }
 
 /** Reads the record; a missing, unreadable or unknown record falls back to the default. */

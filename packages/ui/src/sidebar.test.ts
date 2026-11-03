@@ -5,10 +5,16 @@
 import { describe, expect, it } from "vitest";
 
 import { initialReviews, initialSessions } from "../fixture/data.ts";
+import { needsHuman } from "./state.ts";
 import {
     DEFAULT_SIDEBAR,
     loadSidebar,
+    loadSeen,
+    markSeen,
     needsCount,
+    saveSeen,
+    SEEN_KEY,
+    type Seen,
     pickView,
     saveSidebar,
     SIDEBAR_KEY,
@@ -63,6 +69,40 @@ describe("needsCount", () => {
         expect(needsCount(pairs(initialSessions()))).toBe(1);
         expect(needsCount(pairs(initialReviews()))).toBe(2);
         expect(needsCount([])).toBe(0);
+    });
+
+    it("stops counting a session once its needs-you line was seen, until the line changes", () => {
+        const rows = initialSessions().map(
+            (view) => [view.summary.dir, view] as [string, typeof view],
+        );
+        const waiting = rows.find(([, view]) => needsHuman(view) !== null);
+        if (waiting === undefined) {
+            throw new Error("the fixture has a waiting session");
+        }
+        const [dir, view] = waiting;
+        const seen = markSeen({}, dir, view);
+        expect(seen[dir]).toBe(needsHuman(view));
+        expect(needsCount(rows, seen)).toBe(0);
+        const changed: Seen = { [dir]: "something else" };
+        expect(needsCount(rows, changed)).toBe(1);
+        // A pick of a session without a needs-you line leaves the record alone.
+        const quiet = rows.find(([, row]) => needsHuman(row) === null);
+        expect(markSeen(seen, quiet?.[0] ?? "none", quiet?.[1])).toBe(seen);
+    });
+
+    it("round-trips the seen record and drops a bad one", () => {
+        const store = new Map<string, string>();
+        const storage = {
+            getItem: (key: string) => store.get(key) ?? null,
+            setItem: (key: string, value: string) => void store.set(key, value),
+        };
+        saveSeen(storage, { "s001-a": "approve the PR" });
+        expect(loadSeen(storage)).toEqual({ "s001-a": "approve the PR" });
+        store.set(SEEN_KEY, "[1]");
+        expect(loadSeen(storage)).toEqual({});
+        store.set(SEEN_KEY, "{");
+        expect(loadSeen(storage)).toEqual({});
+        expect(loadSeen(undefined)).toEqual({});
     });
 });
 

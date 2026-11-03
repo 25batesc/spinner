@@ -39,7 +39,8 @@ import { SessionToolbar } from "./SessionToolbar.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import {
-    DEFAULT_SIDEBAR, loadSidebar, needsCount, pickView, saveSidebar, widthLevel,
+    DEFAULT_SIDEBAR, loadSeen, loadSidebar, markSeen, needsCount, pickView, saveSeen,
+    saveSidebar, widthLevel, type Seen,
     type SidebarState,
 } from "./sidebar.ts";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
@@ -124,6 +125,13 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
         }
     }, [focus, inRoute]);
     const pick = (panel: FocusPanel, dir: string) => setFocus((old) => pickFocus(old, panel, dir));
+    // The needs-you lines the operator has looked at: the badges count the rest (`sidebar.ts`).
+    const [seen, setSeen] = useState<Seen>(() => (inRoute ? {} : loadSeen(windowStorage())));
+    useEffect(() => {
+        if (!inRoute) {
+            saveSeen(windowStorage(), seen);
+        }
+    }, [seen, inRoute]);
     const [watched, setWatched] = useState<string | undefined>(undefined);
     const [actionError, setActionError] = useState<string | null>(null);
     // The compose box's text, pinned in the sessions section: it lives here, so a fold of the
@@ -133,6 +141,12 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     const sessions = sortedSessions(state);
     const selected = focusedDir(focus, sessions);
     const view = selected === undefined ? undefined : state.sessions[selected];
+    // The selected session's needs-you line counts as seen while the operator looks at it.
+    useEffect(() => {
+        if (selected !== undefined) {
+            setSeen((old) => markSeen(old, selected, view));
+        }
+    }, [selected, view === undefined ? null : needsHuman(view)]);
     const feed = selected === undefined ? [] : state.feed.filter((l) => l.session === selected);
     const busy = selected !== undefined && runningJob(state, selected) !== undefined;
     const job = watched === undefined ? undefined : state.jobs[watched];
@@ -173,7 +187,7 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     };
     return {
         sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
-        focus, pick, setActionError, draft, setDraft,
+        focus, pick, setActionError, draft, setDraft, seen,
     };
 }
 
@@ -181,7 +195,7 @@ export function App() {
     const route = paneRouteOf(window.location.search);
     const state = useSpinner();
     const app = useAppState(state, route);
-    const { sessions, selected, view, feed, busy, run } = app;
+    const { sessions, selected, view, feed, busy, run, seen } = app;
     const layout = useLayout();
     // The side panel's view, or none, remembered per window (`sidebar.ts`).
     const inRoute = route !== undefined;
@@ -454,7 +468,7 @@ export function App() {
     const toggleOperator = () => setMiddle(middle === "operator" ? "agents" : "operator");
     const ordinary = ordinarySessions(sessions);
     const reviewRows = sessions.filter(([, row]) => isReview(row));
-    const needs = { sessions: needsCount(ordinary), reviews: needsCount(reviewRows) };
+    const needs = { sessions: needsCount(ordinary, seen), reviews: needsCount(reviewRows, seen) };
     // A collapsed panel keeps its column out of the grid; the last view stands in for none,
     // so the cell is never empty while the fold catches up.
     const sideView = sidebar.view ?? "sessions";

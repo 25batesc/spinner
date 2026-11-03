@@ -1061,8 +1061,14 @@ if (flow === "sidebar" || flow === "reload") {
         const needs = (view: SessionView) =>
             (view.board === null ? view.summary.session.needs_human : view.board.needs_human)
                 !== null;
+        // The badge leaves out the selected session: its needs-you line counts as seen while
+        // the operator looks at it (`sidebar.ts` `markSeen`).
+        const selectedDir = await evaluate(
+            `document.querySelector(".session-selected, .rv-card-selected")?.dataset.dir ?? null`,
+        ) as string | null;
         const countOf = (review: boolean) => String(views.filter((view) =>
-            (view.kind === "review") === review && needs(view)).length);
+            (view.kind === "review") === review && needs(view) &&
+            view.summary.dir !== selectedDir).length);
         const wantedBadges = JSON.stringify({ sessions: countOf(false), reviews: countOf(true) });
         const badges = `JSON.stringify(Object.fromEntries([...document
             .querySelectorAll(".activity-bar .bar-badge")]
