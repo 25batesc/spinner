@@ -187,11 +187,11 @@ export const PANEL_VIEWS: readonly PanelView[] = [
 ];
 
 export interface ActivityBarProps {
-    /** The view the left panel shows, or undefined while the panel is hidden. */
-    shown: PanelView["id"] | undefined;
     /** True when the left panel lives in its own window; its icon then docks it back. */
     popped: boolean;
     onPick: (view: PanelView["id"]) => void;
+    /** The needs-you count of each section: a badge on its icon when not zero. */
+    needs: Record<"sessions" | "reviews", number>;
     /** True while the middle pane shows the operator agent's terminal in place of the session. */
     operatorShown: boolean;
     /** False hides the headset: the operator agent is off and not running (s014). */
@@ -206,7 +206,7 @@ export interface ActivityBarProps {
  * gear, is not a section: it swaps the middle pane between the session and the operator.
  */
 export function ActivityBar(props: ActivityBarProps) {
-    const { shown, popped, onPick, operatorShown, operatorAvailable, onOperator } = props;
+    const { popped, onPick, needs, operatorShown, operatorAvailable, onOperator } = props;
     const operator = !operatorAvailable ? null : (
         <IconButton
             key="operator"
@@ -220,23 +220,37 @@ export function ActivityBar(props: ActivityBarProps) {
     return (
         <nav className="activity-bar" aria-label="Views">
             {PANEL_VIEWS.map((view) => {
-                const on = shown === view.id;
                 const label = popped
                     ? `Dock ${view.label.toLowerCase()} back`
-                    : `${on ? "Hide" : "Show"} ${view.label.toLowerCase()}`;
-                const classes = [popped ? "bar-popped" : ""];
+                    : `Show ${view.label.toLowerCase()}`;
                 const button = (
                     <IconButton
                         key={view.id}
                         icon={view.icon}
                         label={label}
-                        active={on}
-                        className={classes.join(" ").trim()}
+                        className={popped ? "bar-popped" : undefined}
                         onClick={() => onPick(view.id)}
                     />
                 );
                 // The first bottom view takes the operator icon above it.
-                return view.bottom === true ? [operator, button] : button;
+                if (view.bottom === true) {
+                    return [operator, button];
+                }
+                const count = view.id === "settings" ? 0 : needs[view.id];
+                return (
+                    <span key={view.id} className="bar-item">
+                        {button}
+                        {count > 0 && (
+                            <span
+                                className="bar-badge"
+                                data-section={view.id}
+                                title={count === 1 ? "1 needs you" : `${count} need you`}
+                            >
+                                {count}
+                            </span>
+                        )}
+                    </span>
+                );
             })}
         </nav>
     );

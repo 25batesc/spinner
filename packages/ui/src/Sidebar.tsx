@@ -6,7 +6,9 @@
 import type { ReactNode } from "react";
 
 import { Icon, IconButton, type IconName } from "./PaneHead.tsx";
-import { sectionOpen, type SectionId, type SidebarState } from "./sidebar.ts";
+import {
+    sectionOpen, type SectionId, type SidebarState, type WidthLevel,
+} from "./sidebar.ts";
 
 export interface SectionContent {
     /** The rows in the section's list. */
@@ -19,6 +21,8 @@ export interface SectionContent {
 
 export interface SidebarProps {
     state: SidebarState;
+    /** The cards' detail at the column's width (`widthLevel`), as `data-level` for the CSS. */
+    level: WidthLevel;
     onToggle: (id: SectionId) => void;
     onSettings: () => void;
     sessions: SectionContent;
@@ -73,9 +77,14 @@ function SectionHead(props: {
 }
 
 export function Sidebar(props: SidebarProps) {
-    const { state, onToggle, onSettings, settings, operator, onCollapse } = props;
+    const { state, level, onToggle, onSettings, settings, operator, onCollapse } = props;
     return (
-        <nav className="sidebar" aria-label="Sidebar" data-settings={state.settings || undefined}>
+        <nav
+            className="sidebar"
+            aria-label="Sidebar"
+            data-level={level}
+            data-settings={state.settings || undefined}
+        >
             {SECTIONS.map(({ id, icon, label }) => {
                 const open = sectionOpen(state, id);
                 const content = props[id];

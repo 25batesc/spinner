@@ -1,7 +1,7 @@
 // The sidebar's sections (s020): a header toggles its own section and leaves the other one
 // alone, so both can be open; the settings view gives the column back on a header click; a
 // rail click opens its section; the record survives storage and falls back from bad input;
-// the needs-you count follows `needs_human`.
+// the needs-you count follows `needs_human`; the detail level follows the column's width.
 import { describe, expect, it } from "vitest";
 
 import { initialReviews, initialSessions } from "../fixture/data.ts";
@@ -15,6 +15,7 @@ import {
     setSettings,
     SIDEBAR_KEY,
     toggleSection,
+    widthLevel,
     type SidebarStorage,
 } from "./sidebar.ts";
 
@@ -54,6 +55,18 @@ describe("the sections", () => {
             sessions: false, reviews: true, settings: false,
         });
         expect(openSection(DEFAULT_SIDEBAR, "sessions")).toEqual(DEFAULT_SIDEBAR);
+    });
+});
+
+describe("widthLevel", () => {
+    it("is the title alone under 190 px, the pills under 240 px, the full card from 240 px", () => {
+        expect(widthLevel(140)).toBe("title");
+        expect(widthLevel(189)).toBe("title");
+        expect(widthLevel(190)).toBe("pills");
+        expect(widthLevel(239)).toBe("pills");
+        expect(widthLevel(240)).toBe("full");
+        expect(widthLevel(260)).toBe("full");
+        expect(widthLevel(480)).toBe("full");
     });
 });
 

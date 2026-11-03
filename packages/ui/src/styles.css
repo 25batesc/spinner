@@ -390,6 +390,30 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 }
 .side-compose .compose-actions { justify-content: flex-end; padding-top: 0; }
 .side-compose .rv-compose { margin-bottom: 0; }
+/* The three detail levels follow the column's width (`widthLevel` sets `data-level`): `full`
+   is the whole card; `pills` keeps the title and the pills and drops the meta, the needs-you
+   line and the review actions; `title` keeps the title alone. The header keeps the count. */
+.sidebar[data-level="pills"] .session { height: 72px; }
+.sidebar[data-level="pills"] .session-needs,
+.sidebar[data-level="pills"] .session .badges > .muted,
+.sidebar[data-level="pills"] .rv-meta,
+.sidebar[data-level="pills"] .rv-cost,
+.sidebar[data-level="pills"] .rv-card-actions { display: none; }
+.sidebar[data-level="title"] .session { height: 52px; }
+.sidebar[data-level="title"] .session-needs,
+.sidebar[data-level="title"] .session .badges,
+.sidebar[data-level="title"] .rv-meta,
+.sidebar[data-level="title"] .rv-pills,
+.sidebar[data-level="title"] .rv-card-actions { display: none; }
+.sidebar[data-level="title"] .side-head-count { display: none; }
+/* The rail's needs-you count: a warn pill on the corner of the sessions and reviews icons. */
+.bar-item { position: relative; display: flex; }
+.bar-badge {
+    position: absolute; top: -2px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px;
+    box-sizing: border-box; border-radius: 999px; background: var(--warn); color: var(--bg);
+    font-size: var(--text-meta); font-weight: 600; line-height: 16px; text-align: center;
+    font-variant-numeric: tabular-nums; pointer-events: none;
+}
 .layout { flex: 1; min-width: 0; }
 /* A collapsed or popped-out pane: a 24 px strip, the name turned sideways. */
 .strip {

@@ -39,7 +39,7 @@ import { SettingsPane } from "./SettingsPane.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import {
     DEFAULT_SIDEBAR, loadSidebar, needsCount, openSection, saveSidebar, setSettings,
-    toggleSection, type SidebarState,
+    toggleSection, widthLevel, type SidebarState,
 } from "./sidebar.ts";
 import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
 import {
@@ -413,6 +413,7 @@ export function App() {
     const sidePanel = (
         <Sidebar
             state={sidebar}
+            level={inRoute ? "full" : widthLevel(layout.fitted.panes.sessions.width)}
             onToggle={(id) => setSidebar((old) => toggleSection(old, id))}
             onSettings={() => setSidebar((old) => setSettings(old, !old.settings))}
             sessions={{ count: ordinary.length, needs: needsCount(ordinary), body: sessionsPane }}
@@ -497,9 +498,9 @@ export function App() {
             <div className="shell-body">
                 {!columnShown && (
                     <ActivityBar
-                        shown={undefined}
                         popped={sessionsState.popped}
                         onPick={pickRail}
+                        needs={{ sessions: needsCount(ordinary), reviews: needsCount(reviewRows) }}
                         operatorShown={operatorOn}
                         operatorAvailable={!operatorHidden(state.operator)}
                         onOperator={toggleOperator}

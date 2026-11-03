@@ -47,6 +47,26 @@ export function sectionOpen(state: SidebarState, id: SectionId): boolean {
     return state[id] && !state.settings;
 }
 
+/**
+ * The detail a card shows at the column's width: `title` alone, the `title` with its `pills`,
+ * or the `full` card. CSS draws each level from the column's `data-level` attribute.
+ */
+export type WidthLevel = "title" | "pills" | "full";
+
+/** The narrowest width, in CSS pixels, of the `pills` and the `full` levels. */
+export const LEVEL_PILLS_PX = 190;
+export const LEVEL_FULL_PX = 240;
+
+export function widthLevel(width: number): WidthLevel {
+    if (width >= LEVEL_FULL_PX) {
+        return "full";
+    }
+    if (width >= LEVEL_PILLS_PX) {
+        return "pills";
+    }
+    return "title";
+}
+
 /** How many of `sessions` wait on the operator: the badge on a header and on the rail. */
 export function needsCount(sessions: readonly [string, SessionView][]): number {
     return sessions.filter(([, view]) => needsHuman(view) !== null).length;
