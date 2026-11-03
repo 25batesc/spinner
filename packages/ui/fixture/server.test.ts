@@ -7,6 +7,9 @@ import {
     EVENTS_PATH,
     OPERATOR_TTY_PATH,
     type CostsResponse,
+    type DesignApproveRefusal,
+    type DesignApproveRequest,
+    type DesignChangesResponse,
     type EgmResponse,
     type JobResponse,
     type OperatorView,
@@ -467,6 +470,59 @@ it("the design routes open, answer and clear a gate and record runs as the daemo
         answers: ["Both, picked by row count"], runs: [{ skill: "egm-draft" }],
     });
     expect((await call("POST", "no-such-session", "run", review)).status).toBe(404);
+});
+
+it("the approve routes confirm the listed blockers, approve, show changes and remove", async () => {
+    // Entry 6.18: the design-ready session lists 1 blocker, so the first approve is a 409
+    // with the count and the confirmed one approves; the changed session answers its changed
+    // section and the approved copy; DELETE removes the approval and keeps the history.
+    const base = `http://127.0.0.1:${await start()}`;
+    const call = (method: string, dir: string, verb: string, body?: unknown) =>
+        fetch(`${base}/sessions/${dir}/design/${verb}`, {
+            method, headers: { "content-type": "application/json" },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+    const ready = "s207-csv-design-ready";
+    expect((await call("POST", ready, "approve", { build: "yes" })).status).toBe(400);
+    const first = await call("POST", ready, "approve", { build: true });
+    expect(first.status).toBe(409);
+    expect(((await first.json()) as DesignApproveRefusal).blockers).toBe(1);
+    expect((await call("GET", ready, "approved")).status).toBe(404);
+    const second = await call("POST", ready, "approve", { build: true, blockers_confirmed: 1 });
+    expect(second.status).toBe(200);
+    const approved = ((await second.json()) as SessionResponse).session.design;
+    expect(approved?.stage).toBe("approved");
+    expect(approved?.approved?.blockers).toBe(1);
+    expect(approved?.approvals).toHaveLength(1);
+    expect((await call("GET", ready, "approved")).status).toBe(200);
+    const bodies = (await (await call("GET", ready, "approve-received")).json()) as {
+        approves: DesignApproveRequest[];
+    };
+    expect(bodies.approves).toEqual([{ build: true }, { build: true, blockers_confirmed: 1 }]);
+
+    const resolving = await call("POST", "s206-csv-resolving", "approve", { build: true });
+    expect(resolving.status).toBe(409);
+    expect(((await resolving.json()) as DesignApproveRefusal).blockers).toBeNull();
+    expect((await call("POST", "s201-csv-intake", "approve", { build: false })).status)
+        .toBe(409);
+
+    const changed = "s212-csv-changed";
+    const changes = (await (await call("GET", changed, "changes")).json()) as
+        DesignChangesResponse;
+    expect(changes.changes.map((change) => change.heading)).toEqual(["Technical Plan"]);
+    expect(changes.changes[0]?.approved).not.toBe(changes.changes[0]?.current);
+    const copy = await (await call("GET", changed, "approved")).text();
+    expect(copy).toContain(changes.changes[0]?.approved ?? "missing");
+    const none = (await (await call("GET", ready, "changes")).json()) as DesignChangesResponse;
+    expect(none.changes).toEqual([]);
+
+    const removed = await call("DELETE", changed, "approve");
+    expect(removed.status).toBe(200);
+    const cleared = ((await removed.json()) as SessionResponse).session.design;
+    expect(cleared?.approved).toBeNull();
+    expect(cleared?.changed_after_approval).toBe(false);
+    expect(cleared?.approvals).toHaveLength(1);
+    expect((await call("DELETE", changed, "approve")).status).toBe(409);
 });
 
 it("serves six Goldfish, one transcript and a session at the cap (entry 4.18)", async () => {

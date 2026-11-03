@@ -283,6 +283,34 @@ button.track-chip:hover { background: var(--fill); color: var(--text); }
     margin-left: -1px; border-radius: 0 var(--radius-control) var(--radius-control) 0;
 }
 .design-menu .menu button { justify-content: flex-start; height: auto; }
+/* `remove approval` ends the menu, apart from the skills, in the danger colour (entry 6.17). */
+.design-menu .menu .danger, .toolbar-menu .menu .design-group > .danger { color: var(--fail); }
+.menu [data-action=remove-approval] {
+    margin-top: 2px; border-top: 1px solid var(--line-soft); border-radius: 0 0 3px 3px;
+}
+/* The approve dialog (entry 6.16): the doc, the changed sections side by side when the doc
+   changed after approval, the build checkbox, then the one filled confirm. */
+.confirm.approve-dialog-wide { width: min(960px, 92vw); }
+.approve-doc code { font-family: var(--font-mono); font-size: var(--text-dense); }
+.approve-build {
+    display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-dense);
+}
+.approve-changes {
+    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+    gap: var(--space-3);
+}
+.approve-change h4 { margin: 0 0 var(--space-1); font-size: var(--text-dense); font-weight: 600; }
+.approve-sides { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.approve-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.approve-side .confirm-text { max-height: 240px; overflow: auto; }
+/* The Design tab's banner while the doc differs from its approval (entry 6.17). */
+.dw-changed-banner {
+    display: flex; align-items: center; gap: var(--space-2); box-sizing: border-box;
+    padding: var(--space-2) var(--space-3); font-size: var(--text-dense);
+    background: var(--warn-tint); border-left: 2px solid var(--warn);
+    border-radius: var(--radius-control);
+}
+.dw-changed-banner > span { flex: 1; }
 .menu button:disabled { opacity: 0.4; cursor: default; }
 .menu button:disabled:hover { background: transparent; }
 .design-presets {

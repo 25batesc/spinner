@@ -3,8 +3,11 @@
 // does; `POST …/design/answer` clears it and records the text; `POST …/design/run` records the
 // skill, clears any gate and, for a review, starts the next review run. Each refuses as the
 // daemon does: 400 for a bad body, 409 while the lead is not running. The fixture does not run
-// a skill, so no stage moves. `GET …/design/received` is the fixture's own route: the answers
-// and runs it received, for the driver to read.
+// a skill, so no stage moves. `POST …/design/approve` approves as the daemon's T10 steps 1, 2
+// and 5 do, through the blocker confirmation, and moves the stage to `approved`; `DELETE`
+// removes the approval (entry 6.18). `GET …/design/received` and `…/design/approve-received`
+// are the fixture's own routes: the answers, runs and approve bodies it received, for the
+// driver to read.
 import type { ServerResponse } from "node:http";
 
 import {
@@ -15,6 +18,9 @@ import {
     DESIGN_RUN_ARGS_MAX,
     EGM_SKILLS,
     REVIEW_PRESETS,
+    type DesignApproval,
+    type DesignApproveRefusal,
+    type DesignApproveRequest,
     type DesignRunRequest,
     type DesignStage,
     type DesignView,
@@ -23,7 +29,7 @@ import {
     type SessionView,
 } from "@spinner/protocol";
 
-import { gateNeeds } from "./data.ts";
+import { LISTED_BLOCKERS, gateNeeds } from "./data.ts";
 
 /** The part of the fixture daemon these routes use. */
 export interface DesignHost {
@@ -37,7 +43,8 @@ export interface DesignReceived {
     runs: DesignRunRequest[];
 }
 
-export const DESIGN_ROUTE = /^\/sessions\/([^/]+)\/design\/(gate|answer|run|received)$/;
+export const DESIGN_ROUTE =
+    /^\/sessions\/([^/]+)\/design\/(gate|answer|run|received|approve|approve-received)$/;
 
 /** The stage lines of `needs_human` that stay once the lead works again (T7, lines 6 and 7). */
 const STAGE_NEEDS: Partial<Record<DesignStage, string>> = {
@@ -91,8 +98,25 @@ export function runFault(body: Record<string, unknown>): string | null {
     return null;
 }
 
+/** The hash the fixture records for an approval; the daemon hashes the normalized doc. */
+export const APPROVED_SHA = "c0ffee5a1e0f".padEnd(64, "0");
+
+/** The first fault of an approve body, as the daemon's route checks it; null when valid. */
+export function approveFault(body: Record<string, unknown>): string | null {
+    const { build, blockers_confirmed: confirmed } = body;
+    if (typeof build !== "boolean") {
+        return "build must be a boolean";
+    }
+    if (confirmed !== undefined && !(Number.isInteger(confirmed) && (confirmed as number) >= 0)) {
+        return "blockers_confirmed must be a whole number";
+    }
+    return null;
+}
+
 export class DesignFixture {
     received = new Map<string, DesignReceived>();
+    /** The approve bodies per session, for `GET …/design/approve-received`. */
+    approves = new Map<string, DesignApproveRequest[]>();
 
     readonly host: DesignHost;
 
@@ -126,6 +150,12 @@ export class DesignFixture {
             this.answer(response, current, body);
         } else if (method === "POST" && verb === "run") {
             this.run(response, current, body);
+        } else if (method === "POST" && verb === "approve") {
+            this.approve(response, current, body);
+        } else if (method === "DELETE" && verb === "approve") {
+            this.unapprove(response, current);
+        } else if (method === "GET" && verb === "approve-received") {
+            sendJson(response, { approves: this.approves.get(dir) ?? [] });
         } else {
             sendJson(response, { error: `no route ${method} ${path}` }, 404);
         }
@@ -207,6 +237,62 @@ export class DesignFixture {
         }
         this.write(current, change, this.stageNeeds(current));
         sendJson(response, { ok: true, disposition: "started" });
+    }
+
+    /**
+     * T10 steps 1, 2 and 5: 409 without a doc, while resolving, with an open gate, and while
+     * `blockers_confirmed` does not confirm the listed blockers; else the approval stands and
+     * the stage is `approved`. The fixture runs no lead, so `build` is only recorded.
+     */
+    approve(response: ServerResponse, current: SessionView, body: Record<string, unknown>): void {
+        const fault = approveFault(body);
+        if (fault !== null) {
+            sendJson(response, { error: fault }, 400);
+            return;
+        }
+        const dir = current.summary.dir;
+        const design = current.design as DesignView;
+        const request = body as unknown as DesignApproveRequest;
+        this.approves.set(dir, [...(this.approves.get(dir) ?? []), request]);
+        const listed = LISTED_BLOCKERS[dir] ?? 0;
+        const refuse = (error: string, blockers: number | null) => {
+            const refusal: DesignApproveRefusal = { error, blockers };
+            sendJson(response, refusal, 409);
+        };
+        if (design.doc === null) {
+            refuse("no design doc yet", null);
+        } else if (design.stage === "resolving") {
+            refuse("the review findings are not resolved yet", null);
+        } else if (design.gate !== null) {
+            refuse("the lead waits on a gate; answer it first", null);
+        } else if (listed > 0 && request.blockers_confirmed !== listed) {
+            refuse(`the newest review report lists ${listed} blockers; confirm them`, listed);
+        } else {
+            const approval: DesignApproval = {
+                path: design.doc, repo: design.repo ?? "web", sha256: APPROVED_SHA, at: now(),
+                blockers: listed, round: current.round ?? 1,
+            };
+            const change: Partial<DesignView> = {
+                stage: "approved", approved: approval, approvals: [...design.approvals, approval],
+                changed_after_approval: false,
+            };
+            this.write(current, change, null);
+            sendJson(response, { session: this.host.sessions.get(dir) });
+        }
+    }
+
+    /** `DELETE …/design/approve`: the approval goes, `approvals` keeps it; 409 without one. */
+    unapprove(response: ServerResponse, current: SessionView): void {
+        const design = current.design as DesignView;
+        if (design.approved === null) {
+            sendJson(response, { error: "the design is not approved" }, 409);
+            return;
+        }
+        const change: Partial<DesignView> = {
+            stage: "design-ready", approved: null, changed_after_approval: false,
+        };
+        this.write(current, change, STAGE_NEEDS["design-ready"] ?? null);
+        sendJson(response, { session: this.host.sessions.get(current.summary.dir) });
     }
 
     /** The `needs_human` once no gate is open: the stage's own line, else none. */

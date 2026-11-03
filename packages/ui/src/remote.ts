@@ -14,6 +14,10 @@ import type {
     CostsResponse,
     DefaultBriefResponse,
     DesignAnswerRequest,
+    DesignApproveRefusal,
+    DesignApproveRequest,
+    DesignChange,
+    DesignChangesResponse,
     DesignFilesResponse,
     DesignRunRequest,
     DesignTrack,
@@ -368,6 +372,66 @@ export async function fetchReviewFile(
 /** `GET /sessions/:dir/design/doc`: the design doc from the worktree; 404 before `design.doc`. */
 export async function fetchDesignDoc(dir: string, signal: AbortSignal): Promise<string> {
     return getText(`/sessions/${dir}/design/doc`, signal);
+}
+
+// Approval (entries 6.1 and 6.18, Technical Plan T10).
+
+/** A 409 of `POST …/design/approve`: the daemon's reason, and the listed blockers or null. */
+export class ApproveRefused extends Error {
+    readonly blockers: number | null;
+
+    constructor(refusal: DesignApproveRefusal) {
+        super(refusal.error);
+        this.blockers = refusal.blockers;
+    }
+}
+
+/**
+ * `POST /sessions/:dir/design/approve`: approves the doc and, with `build`, prompts the lead
+ * with the build message. A 409 throws `ApproveRefused`; the dialog asks for the blocker
+ * confirmation when its count is above 0.
+ */
+export async function postDesignApprove(
+    dir: string,
+    body: DesignApproveRequest,
+): Promise<SessionResponse> {
+    const path = `/sessions/${dir}/design/approve`;
+    const response = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    if (response.status === 409) {
+        throw new ApproveRefused((await response.json()) as DesignApproveRefusal);
+    }
+    if (!response.ok) {
+        throw await failure("POST", path, response);
+    }
+    return (await response.json()) as SessionResponse;
+}
+
+/** `DELETE /sessions/:dir/design/approve`: removes the approval; the approvals keep it. */
+export async function deleteDesignApprove(dir: string): Promise<SessionResponse> {
+    const path = `/sessions/${dir}/design/approve`;
+    const response = await fetch(path, { method: "DELETE" });
+    if (!response.ok) {
+        throw await failure("DELETE", path, response);
+    }
+    return (await response.json()) as SessionResponse;
+}
+
+/** `GET /sessions/:dir/design/approved`: the doc as approved; 404 before an approval. */
+export async function fetchDesignApproved(dir: string, signal: AbortSignal): Promise<string> {
+    return getText(`/sessions/${dir}/design/approved`, signal);
+}
+
+/** `GET /sessions/:dir/design/changes`: the `## ` sections changed since the approval. */
+export async function fetchDesignChanges(
+    dir: string,
+    signal: AbortSignal,
+): Promise<DesignChange[]> {
+    const path = `/sessions/${dir}/design/changes`;
+    return (await getJson<DesignChangesResponse>(path, signal)).changes;
 }
 
 /** `GET /sessions/:dir/rounds/:round/log`: the Log of an earlier round, as markdown. */

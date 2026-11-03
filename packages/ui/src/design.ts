@@ -122,8 +122,9 @@ export type PrimaryAction =
 /**
  * The primary button per design stage, from the toolbar table of Technical Plan T13. The
  * stages where a skill runs (`drafting`, `design-review`) and `resolving`, where the resolve
- * card answers, have none. The approve kinds come with build session 6 (6.17); until then
- * `design-ready` has none either. A direct track (a null stage) has none.
+ * card answers, have none. `design-ready` opens the approve dialog (entry 6.17), labelled
+ * `re-approve design` after an edit invalidated the approval. A direct track (a null stage)
+ * has none.
  */
 export function primaryAction(design: DesignView): PrimaryAction | null {
     if (design.track !== "design") {
@@ -136,6 +137,11 @@ export function primaryAction(design: DesignView): PrimaryAction | null {
             return { label: "draft", kind: "run", skill: "egm-draft" };
         case "drafted":
             return { label: "review design", kind: "run", skill: "egm-review" };
+        case "design-ready":
+            return {
+                label: design.changed_after_approval ? "re-approve design" : "approve design",
+                kind: "approve",
+            };
         default:
             return null;
     }
@@ -192,6 +198,28 @@ export function egmMenu(design: DesignView, changed: boolean): MenuItem[] {
         drift,
         bootstrap,
     ];
+}
+
+// The approve dialog's words (entry 6.16, D2 and D5).
+
+/** The dialog's confirm button: `approve and build` while `start the build` is checked. */
+export function approveLabel(build: boolean): string {
+    return build ? "approve and build" : "approve";
+}
+
+/** `blocker` for 1, `blockers` otherwise. */
+function blockerNoun(count: number): string {
+    return count === 1 ? "blocker" : "blockers";
+}
+
+/** The line over the second confirm, after a 409 that names the listed blockers. */
+export function blockersLine(count: number): string {
+    return `The newest review report lists ${count} ${blockerNoun(count)}.`;
+}
+
+/** The second confirm button, which posts again with `blockers_confirmed`. */
+export function blockersLabel(count: number): string {
+    return `approve with ${count} listed ${blockerNoun(count)}`;
 }
 
 /** The `needs_human` text the daemon sets at `resolving` once the lead settled (T7, line 2). */

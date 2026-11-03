@@ -495,6 +495,18 @@ export function gateNeeds(question: string): string {
     return `answer the lead: ${question.slice(0, 80)}`;
 }
 
+/**
+ * The blockers the newest review report lists, per session (entry 6.18): the design-ready
+ * session's report lists 1, so its approval goes through the blocker confirmation.
+ */
+export const LISTED_BLOCKERS: Record<string, number> = { "s207-csv-design-ready": 1 };
+
+/** The session whose doc changed after its approval (entry 6.18, CUJ 7). */
+export const CHANGED_DIR = "s212-csv-changed";
+
+/** `needs_human` after an edit invalidated the approval (Technical Plan T7, line 5). */
+export const REAPPROVE_NEEDS = "re-approve the design (changed since approval)";
+
 /** `DesignView.repo` and `designs_dir` as the daemon sets them for a `web` worktree. */
 function designsOf(dir: string): Pick<DesignView, "repo" | "designs_dir"> {
     return { repo: "web", designs_dir: `/home/fixture/.spinner/sessions/${dir}/web/docs/designs` };
@@ -587,5 +599,24 @@ export function initialDesignSessions(): SessionView[] {
         design: designView("brainstorm", { gate: FIXTURE_GATE, ...designsOf("s211-csv-gate") }),
         round: 1, rounds: [],
     };
-    return [...designs, directView, thirdView, gatedView].map(withGoldfish);
+    return [...designs, directView, thirdView, gatedView, changedView(lead)].map(withGoldfish);
+}
+
+/**
+ * The session whose doc changed after its approval (entry 6.18): stage `design-ready`, the
+ * approval record kept, `changed_after_approval` set, and the re-approve needs line.
+ */
+function changedView(agents: Session["agents"]): SessionView {
+    const base = session({
+        id: "s212", slug: "csv-changed", title: "CSV export · changed",
+        created: "2026-10-20T10:10:00Z", stage: "planned", needs_human: REAPPROVE_NEEDS, agents,
+        repos: { web: { path: "~/src/web", worktree: "web", changed: false } },
+    });
+    const approved = designView("approved", designsOf(CHANGED_DIR)).approved;
+    const design = designView("design-ready", {
+        ...designsOf(CHANGED_DIR), approved, approvals: approved === null ? [] : [approved],
+        changed_after_approval: true,
+    });
+    const plain = view(CHANGED_DIR, base, stackView("s212", "none"), [], ["lead"]);
+    return { ...plain, design, round: 1, rounds: [] };
 }

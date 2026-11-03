@@ -27,6 +27,9 @@
 // fixture's sessions. The flow `goldfish` reads the Goldfish chips of the fixture's design-review
 // session, opens a transcript and watches it reload, returns to the lead, and reads the cap
 // line and the stepper's running count and cost tooltip; it runs against the fixture only.
+// The flow `approve-design` approves the design-ready session through the blocker
+// confirmation, removes the approval, and re-approves the changed session from the Design
+// tab's banner with the changed section side by side (build session 6); fixture only.
 // The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
@@ -3327,6 +3330,130 @@ if (flow === "design-gate") {
         answers: ["Background job with a mailed link", "Only id, total and date"], runs: [],
     });
     console.log("design-gate ok");
+    await finish();
+}
+
+if (flow === "approve-design") {
+    // The approve dialog (docs/designs/egm-adoption.md, entries 6.16 to 6.18) against the
+    // fixture. At design-ready the one primary is `approve design`; its dialog names the doc,
+    // has `start the build` checked, and confirms with `approve and build`. The report lists
+    // 1 blocker, so the first post is a 409 and the dialog asks `approve with 1 listed
+    // blocker`, which posts `blockers_confirmed: 1`; the stepper then shows Build active and
+    // the `EGM ▾` menu ends with `remove approval`, which takes the session back. The changed
+    // session reads `re-approve design`; its Design tab has the "Changed since approval"
+    // banner, whose dialog shows the Technical Plan side by side and approves without a build.
+    const primary = `document.querySelector(".context-bar .design-group > .primary")`;
+    const dialog = `document.querySelector(".approve-dialog")`;
+    const confirm = `(${dialog}?.querySelector(".confirm-actions .primary")?.textContent ?? "")`;
+    const compactStep = `document.querySelector(".context-bar .egm-compact")`;
+    const stepState = (step: string) =>
+        `document.querySelector(".context-bar .egm-step[data-step=${step}]")?.dataset.state`;
+    // The toolbar of an approved session is wider, so the stepper may fold to its compact form.
+    const buildActive = `((${stepState("approve")} === "done" && ${stepState("build")} === "active")
+        || (${compactStep}?.dataset.state === "active"
+            && ${compactStep}?.textContent === "EGM 5/5 Build"))`;
+    const approves = async (dir: string) => {
+        const url = new URL(`/sessions/${dir}/design/approve-received`, uiUrl);
+        return ((await (await fetch(url)).json()) as { approves: unknown[] }).approves;
+    };
+    const pick = async (title: string) => {
+        await click(".session", title);
+        await until(`${title} selected`, `${text(".context-title")} === ${JSON.stringify(title)}`);
+    };
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 1000, deviceScaleFactor: 1, mobile: false,
+    });
+    await pick("CSV export \u00b7 design-ready");
+    await until("approve primary", `${primary}?.textContent === "approve design"`);
+    await until("full stepper", `${stepState("approve")} === "waiting"`);
+    await click(".context-bar .design-group > .primary", "approve design");
+    await until("approve dialog", `${dialog}?.getAttribute("aria-label") === "Approve the design"`);
+    await expectSame("approve dialog", await evaluate(`({
+        doc: ${dialog}.querySelector(".approve-doc code").textContent,
+        build: ${dialog}.querySelector(".approve-build input").checked,
+        confirm: ${confirm},
+        primaries: ${dialog}.querySelectorAll("button.primary").length,
+        changes: ${dialog}.querySelector(".approve-changes") !== null,
+    })`), {
+        doc: "docs/designs/csv-export.md", build: true, confirm: "approve and build",
+        primaries: 1, changes: false,
+    });
+    await click(".approve-build input");
+    await until("confirm without build", `${confirm} === "approve"`);
+    await click(".approve-build input");
+    await until("confirm with build", `${confirm} === "approve and build"`);
+    await shot("100-approve-dialog");
+    await click(".approve-dialog .confirm-actions .primary", "approve and build");
+    await until("blocker confirmation", `${confirm} === "approve with 1 listed blocker"`);
+    await expectSame("blocker line", await evaluate(text(".approve-dialog .approve-blockers")),
+        "The newest review report lists 1 blocker.");
+    await shot("101-approve-blockers");
+    await click(".approve-dialog .confirm-actions .primary", "approve with 1 listed blocker");
+    await until("dialog closed", `${dialog} === null`);
+    await until("build active", buildActive);
+    await until("no primary once approved", `${primary} === null`);
+    await expectSame("approve bodies", await approves("s207-csv-design-ready"), [
+        { build: true }, { build: true, blockers_confirmed: 1 },
+    ]);
+    await shot("102-approved-build");
+
+    // `remove approval` ends the menu while an approval exists and takes the session back.
+    await click(".context-bar .design-menu > button", "EGM");
+    await until("EGM menu", `document.querySelector(".design-menu .menu") !== null`);
+    await expectSame("menu end", await evaluate(`[...document.querySelectorAll(
+        ".design-menu .menu button")].slice(-2).map((b) => [b.textContent, b.disabled])`), [
+        ["bootstrap", false], ["remove approval", false],
+    ]);
+    await shot("103-remove-approval-menu");
+    await click(".design-menu .menu button", "remove approval");
+    await until("approval removed", `${primary}?.textContent === "approve design"
+        && ${stepState("approve")} === "waiting"`);
+    await click(".context-bar .design-menu > button", "EGM");
+    await until("EGM menu again", `document.querySelector(".design-menu .menu") !== null`);
+    await expectSame("no remove item", await evaluate(`[...document.querySelectorAll(
+        ".design-menu .menu button")].some((b) => b.textContent === "remove approval")`), false);
+    await click(".context-bar .design-menu > button", "EGM");
+
+    // The changed session: the re-approve primary and needs line, the banner, the changes.
+    await pick("CSV export \u00b7 changed");
+    await until("re-approve primary", `${primary}?.textContent === "re-approve design"`);
+    await expectSame("needs line", await evaluate(text(".context-bar .context-needs")),
+        "re-approve the design (changed since approval)");
+    await click(".agents-pane .view-tab", "design");
+    await click(".agents-pane .dw .tab", "Design");
+    await until("changed banner", `${text(".agents-pane .dw-changed-banner")}
+        .startsWith("Changed since approval")`);
+    await shot("104-changed-banner");
+    await click(".agents-pane .dw-changed-banner button", "re-approve design");
+    await until("re-approve dialog", `${dialog}?.getAttribute("aria-label")
+        === "Re-approve the design" && ${dialog}.querySelector(".approve-change") !== null`);
+    await expectSame("changes", await evaluate(`[...${dialog}.querySelectorAll(
+        ".approve-change")].map((row) => [row.dataset.heading,
+        ...[...row.querySelectorAll(".approve-side")].map((side) => [side.dataset.side,
+            side.querySelector("pre")?.textContent ?? null])])`), [[
+        "Technical Plan",
+        ["approved", "`GET /exports/:list.csv` streams every row of the list."],
+        ["current", "`GET /exports/:list.csv` streams rows with the list's filters."],
+    ]]);
+    await expectSame("side by side", await evaluate(`(() => {
+        const [left, right] = [...${dialog}.querySelectorAll(".approve-side")]
+            .map((side) => side.getBoundingClientRect());
+        return Math.abs(left.top - right.top) < 1 && left.right <= right.left;
+    })()`), true);
+    await shot("105-reapprove-changes");
+    await click(".approve-build input");
+    await until("confirm without build", `${confirm} === "approve"`);
+    await click(".approve-dialog .confirm-actions .primary", "approve");
+    await until("re-approved", `${dialog} === null
+        && document.querySelector(".agents-pane .dw-changed-banner") === null && ${buildActive}`);
+    await expectSame("re-approve bodies", await approves("s212-csv-changed"), [{ build: false }]);
+    await shot("106-reapproved");
+    await click(".agents-pane .view-tab", "agents");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await until("no error", `document.querySelector(".drawer .needs-human") === null`);
+    console.log("approve-design ok");
     await finish();
 }
 

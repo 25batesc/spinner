@@ -2,11 +2,14 @@
 // once the lead named it with `design_doc`, else `design_draft.md`. A left outline lists the
 // `## ` headings; a click scrolls to the section. Under each section, `request revision` opens
 // a text box whose `send` answers the lead through `POST …/design/answer`. `source` shows the
-// raw text. The doc renders section by section with the mission's markdown renderer.
-import { useMemo, useRef, useState, type FormEvent } from "react";
+// raw text. The doc renders section by section with the mission's markdown renderer. While
+// the doc differs from its approval, a warn banner above it opens the approve dialog with the
+// changed sections (entry 6.17).
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { DESIGN_ANSWER_MAX, type SessionView } from "@spinner/protocol";
 
+import { ApproveDesign } from "./ApproveDesign.tsx";
 import {
     docSections, docSource, outline, revisionText, type DocSection,
 } from "./design-workspace.ts";
@@ -46,6 +49,7 @@ export function DesignDoc({ view, reload, onError }: DesignDocProps) {
     if (loaded.value === undefined) {
         return <p className="muted">Loading {source.name}…</p>;
     }
+    const changed = source.kind === "doc" && view.design?.changed_after_approval === true;
     return (
         <DocView
             key={source.name}
@@ -53,8 +57,21 @@ export function DesignDoc({ view, reload, onError }: DesignDocProps) {
             name={source.name}
             path={source.kind === "doc" ? source.path : null}
             text={loaded.value}
+            banner={changed ? <ChangedBanner view={view} /> : null}
             onError={onError}
         />
+    );
+}
+
+/** "Changed since approval" and the button that opens the approve dialog. */
+function ChangedBanner({ view }: { view: SessionView }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div className="dw-changed-banner" role="status">
+            <span>Changed since approval</span>
+            <button type="button" onClick={() => setOpen(true)}>re-approve design</button>
+            {open && <ApproveDesign view={view} onClose={() => setOpen(false)} />}
+        </div>
     );
 }
 
@@ -64,9 +81,11 @@ function DocView(props: {
     /** The repo-relative path of the doc; null for the draft. */
     path: string | null;
     text: string;
+    /** Above the head: the changed-since-approval banner, or null. */
+    banner: ReactNode;
     onError: (message: string) => void;
 }) {
-    const { dir, name, path, text, onError } = props;
+    const { dir, name, path, text, banner, onError } = props;
     const [raw, setRaw] = useState(false);
     const body = useRef<HTMLDivElement | null>(null);
     // Each section with the index of its heading in the outline, null for the preamble.
@@ -87,6 +106,7 @@ function DocView(props: {
     };
     return (
         <div className="dw-doc">
+            {banner}
             <div className="dw-doc-head">
                 <code className="dw-doc-name" title={path ?? name}>{path ?? name}</code>
                 {path === null && <span className="pill pill-warn">draft</span>}

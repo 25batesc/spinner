@@ -4,13 +4,17 @@
 // markdown; `GET …/rounds/:round/log` answers an earlier round's Log. Each refuses as entry
 // 5.3 says: 400 for a bad name or run id, 404 when absent. `withWorkspace` gives the seeded
 // sessions what the workspace reads: a draft with 6 sections, the reports, one archived run,
-// one drift report, and the round-3 session's two approvals.
+// one drift report, and the round-3 session's two approvals. `GET …/design/approved` answers
+// the approved copy (404 before an approval) and `GET …/design/changes` the changed `## `
+// sections, the Technical Plan of the changed session (entry 6.18).
 import type { ServerResponse } from "node:http";
 
 import {
     DESIGN_FILE_NAME_PATTERN,
     ROUNDS_MAX,
     type DesignApproval,
+    type DesignChange,
+    type DesignChangesResponse,
     type DesignFilesResponse,
     type DesignView,
     type GoldfishView,
@@ -28,6 +32,8 @@ const FILES_ROUTE = /^\/sessions\/([^/]+)\/design\/files$/;
 const FILE_ROUTE = /^\/sessions\/([^/]+)\/design\/files\/([^/]+)$/;
 const REVIEW_ROUTE = /^\/sessions\/([^/]+)\/design\/reviews\/([^/]+)\/([^/]+)$/;
 const DOC_ROUTE = /^\/sessions\/([^/]+)\/design\/doc$/;
+const APPROVED_ROUTE = /^\/sessions\/([^/]+)\/design\/approved$/;
+const CHANGES_ROUTE = /^\/sessions\/([^/]+)\/design\/changes$/;
 const ROUND_LOG_ROUTE = /^\/sessions\/([^/]+)\/rounds\/([^/]+)\/log$/;
 const RUN_ID = /^r\d{1,2}$/;
 
@@ -35,6 +41,10 @@ const RUN_ID = /^r\d{1,2}$/;
 export const ARCHIVED_RUNS: Record<string, string[]> = { "s206-csv-resolving": ["r1"] };
 /** The direct-track session's drift report, in its Files tab. */
 export const DRIFT_REPORT = "CSV_EXPORT_DRIFT_REPORT.md";
+
+/** The Technical Plan body now, and as the changed session's approval recorded it. */
+const PLAN_NOW = "`GET /exports/:list.csv` streams rows with the list's filters.";
+const PLAN_APPROVED = "`GET /exports/:list.csv` streams every row of the list.";
 
 const DRAFT = [
     "# CSV export",
@@ -63,7 +73,7 @@ const DRAFT = [
     "",
     "## Technical Plan",
     "",
-    "`GET /exports/:list.csv` streams rows with the list's filters.",
+    PLAN_NOW,
     "",
     "## Verification Plan",
     "",
@@ -73,6 +83,14 @@ const DRAFT = [
 
 /** The doc in the worktree: the draft, reviewed. */
 const DOC = DRAFT.replace("**Status:** Draft", "**Status:** Reviewed");
+
+/** `approved.md` of the changed session: the doc before its Technical Plan changed. */
+const APPROVED_DOC = DOC.replace(PLAN_NOW, PLAN_APPROVED);
+
+/** The changed session's one changed section. */
+const CHANGES: DesignChange[] = [
+    { heading: "Technical Plan", approved: PLAN_APPROVED, current: PLAN_NOW },
+];
 
 function report(title: string, line: string): string {
     return `# ${title}\n\n${line}\n`;
@@ -202,7 +220,8 @@ export class WorkspaceFixture {
             return true;
         }
         const match = FILES_ROUTE.exec(path) ?? FILE_ROUTE.exec(path) ??
-            REVIEW_ROUTE.exec(path) ?? DOC_ROUTE.exec(path);
+            REVIEW_ROUTE.exec(path) ?? DOC_ROUTE.exec(path) ?? APPROVED_ROUTE.exec(path) ??
+            CHANGES_ROUTE.exec(path);
         if (match === null) {
             return false;
         }
@@ -219,6 +238,14 @@ export class WorkspaceFixture {
             sendJson(response, body);
         } else if (DOC_ROUTE.test(path)) {
             sendMarkdown(response, design.doc === null ? undefined : DOC, "design doc yet");
+        } else if (APPROVED_ROUTE.test(path)) {
+            const copy = design.changed_after_approval ? APPROVED_DOC : DOC;
+            sendMarkdown(response, design.approved === null ? undefined : copy, "approval yet");
+        } else if (CHANGES_ROUTE.test(path)) {
+            const body: DesignChangesResponse = {
+                changes: design.changed_after_approval ? CHANGES : [],
+            };
+            sendJson(response, body);
         } else if (REVIEW_ROUTE.test(path)) {
             this.review(response, dir, decodeURIComponent(match[2] ?? ""),
                 decodeURIComponent(match[3] ?? ""));

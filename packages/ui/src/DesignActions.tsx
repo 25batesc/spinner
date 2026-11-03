@@ -3,17 +3,20 @@
 // with the skills. `brainstorm` asks an optional concept, `review design` a preset, and the
 // menu's `review loop`, `resolve`, `drift report` and `bootstrap` one prefilled field; `draft`
 // runs at once. Each run is `POST …/design/run`; the daemon composes the arguments and the
-// `session.updated` that follows moves the stepper. A refusal goes to the drawer.
+// `session.updated` that follows moves the stepper. A refusal goes to the drawer. At
+// `design-ready` the primary opens the approve dialog, and while an approval exists the menu
+// ends with `remove approval`, a `DELETE …/design/approve` (entry 6.17).
 import { useState, type ReactNode } from "react";
 
 import {
     REVIEW_PRESETS, type EgmSkill, type ReviewPreset, type SessionView,
 } from "@spinner/protocol";
 
+import { ApproveDesign } from "./ApproveDesign.tsx";
 import {
     designPaths, egmMenu, primaryAction, type MenuField, type MenuItem,
 } from "./design.ts";
-import { postDesignRun } from "./remote.ts";
+import { deleteDesignApprove, postDesignRun } from "./remote.ts";
 
 export interface DesignActionsProps {
     /** A session with a `design` block. */
@@ -46,7 +49,8 @@ const FIELD_LABELS: Record<Exclude<MenuField, null>, string> = {
 type Dialog =
     | { kind: "concept" }
     | { kind: "preset" }
-    | { kind: "field"; item: MenuItem; value: string };
+    | { kind: "field"; item: MenuItem; value: string }
+    | { kind: "approve" };
 
 /** One sentence per primary button, as its tooltip. */
 const PRIMARY_TIPS: Partial<Record<EgmSkill, string>> = {
@@ -54,6 +58,12 @@ const PRIMARY_TIPS: Partial<Record<EgmSkill, string>> = {
     "egm-draft": "Start egm-draft in the lead on the concepts brief.",
     "egm-review": "Start egm-review on the design doc; Goldfish review it from a fresh context.",
 };
+
+/** The approve primary's tooltip (D2, D5). */
+const APPROVE_TIP = "Approve the design doc; the dialog starts the build by default.";
+
+/** The `remove approval` item's tooltip (Technical Plan T10). */
+const REMOVE_TIP = "Remove the approval; the lead's code writes lock until you approve again.";
 
 export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
     const design = view.design;
@@ -108,17 +118,34 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
             }
         }
     };
-    const primaryButton = primary?.kind === "run" ? (
+    const removeApproval = () => {
+        setMenuOpen(false);
+        setPosting(true);
+        deleteDesignApprove(dir).then(
+            () => setPosting(false),
+            (failure: unknown) => {
+                setPosting(false);
+                onError(String(failure));
+            },
+        );
+    };
+    const primaryButton = primary === null ? null : (
         <button
             type="button"
             className="primary design-primary"
             disabled={posting}
-            title={PRIMARY_TIPS[primary.skill]}
-            onClick={() => start({ skill: primary.skill, field: null })}
+            title={primary.kind === "run" ? PRIMARY_TIPS[primary.skill] : APPROVE_TIP}
+            onClick={() => {
+                if (primary.kind === "run") {
+                    start({ skill: primary.skill, field: null });
+                } else {
+                    setDialog({ kind: "approve" });
+                }
+            }}
         >
             {primary.label}
         </button>
-    ) : null;
+    );
     const menuItems = items.map((item) => (
         <button
             key={item.skill}
@@ -132,7 +159,25 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
             {item.label}
         </button>
     ));
-    const dialogs = dialog === null ? null : (
+    if (design.approved !== null) {
+        menuItems.push(
+            <button
+                key="remove-approval"
+                type="button"
+                role="menuitem"
+                className="danger"
+                data-action="remove-approval"
+                disabled={posting}
+                title={REMOVE_TIP}
+                onClick={removeApproval}
+            >
+                remove approval
+            </button>,
+        );
+    }
+    const dialogs = dialog === null ? null : dialog.kind === "approve" ? (
+        <ApproveDesign view={view} onClose={() => setDialog(null)} />
+    ) : (
         <RunDialog
             key={dialog.kind}
             dialog={dialog}
@@ -177,7 +222,7 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
 }
 
 interface RunDialogProps {
-    dialog: Dialog;
+    dialog: Exclude<Dialog, { kind: "approve" }>;
     posting: boolean;
     onChange: (dialog: Dialog) => void;
     onCancel: () => void;

@@ -14,8 +14,9 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
-    BOOTSTRAP_BLOCKED, DRIFT_BLOCKED, RESOLVE_NEEDS, compactLabel, designPaths, designSteps,
-    egmMenu, gateCard, primaryAction, showResolveCard, stepTitle, stepperText, trackChoices,
+    BOOTSTRAP_BLOCKED, DRIFT_BLOCKED, RESOLVE_NEEDS, approveLabel, blockersLabel, blockersLine,
+    compactLabel, designPaths, designSteps, egmMenu, gateCard, primaryAction, showResolveCard,
+    stepTitle, stepperText, trackChoices,
 } from "./design.ts";
 
 function design(stage: DesignStage | null, partial: Partial<DesignView> = {}): DesignView {
@@ -154,8 +155,6 @@ describe("primaryAction", () => {
         ["drafted", "review design", "egm-review"],
         ["design-review", null, null],
         ["resolving", null, null],
-        // The approve kinds come with build session 6 (6.17).
-        ["design-ready", null, null],
         ["approved", null, null],
     ];
     for (const [stage, label, skill] of table) {
@@ -169,8 +168,16 @@ describe("primaryAction", () => {
         });
     }
 
-    it("gives no button at design-ready after a change to an approved doc", () => {
-        expect(primaryAction(design("design-ready", { changed_after_approval: true }))).toBeNull();
+    it("gives approve design at design-ready (entry 6.17)", () => {
+        expect(primaryAction(design("design-ready"))).toEqual({
+            label: "approve design", kind: "approve",
+        });
+    });
+
+    it("gives re-approve design at design-ready after a change to an approved doc", () => {
+        expect(primaryAction(design("design-ready", { changed_after_approval: true }))).toEqual({
+            label: "re-approve design", kind: "approve",
+        });
     });
 
     it("gives no button on the direct track", () => {
@@ -311,5 +318,21 @@ describe("designPaths", () => {
         expect(designPaths(before).doc).toBeNull();
         const bare = sessionView({}, { web: { path: "~/src/web", changed: false } });
         expect(designPaths(bare)).toEqual({ doc: null, designs: null, root: null });
+    });
+});
+
+// The approve dialog's words (entry 6.16): the confirm follows the build checkbox, and the
+// blocker confirmation names the count the 409 gave, singular for 1.
+describe("approve dialog words", () => {
+    it("reads approve and build while the build box is checked, else approve", () => {
+        expect(approveLabel(true)).toBe("approve and build");
+        expect(approveLabel(false)).toBe("approve");
+    });
+
+    it("names the listed blockers in the line and the second confirm", () => {
+        expect(blockersLine(1)).toBe("The newest review report lists 1 blocker.");
+        expect(blockersLabel(1)).toBe("approve with 1 listed blocker");
+        expect(blockersLine(3)).toBe("The newest review report lists 3 blockers.");
+        expect(blockersLabel(3)).toBe("approve with 3 listed blockers");
     });
 });
