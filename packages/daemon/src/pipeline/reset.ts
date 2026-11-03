@@ -3,6 +3,9 @@
 // the round's threads moved under `artifacts/`, the Log moved under `## Previous rounds` in
 // MISSION.md, and the stack recreated with a fresh database clone when it was up. Agent
 // transcripts stay, so an agent resumes with its history (docs/SESSION_PROTOCOL.md, "reset").
+// The round's PRs are also recorded in `session.yaml` `rounds`. The `design` block is not
+// touched: the design doc and its approvals carry across rounds (docs/designs/egm-adoption.md,
+// T14).
 import assert from "node:assert/strict";
 import {
     existsSync,
@@ -14,6 +17,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { PipelineConfig, ResetRequest, Session, SessionSummary } from "@spinner/protocol";
+import { ROUNDS_MAX } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import {
     read_session_spec,
@@ -27,6 +31,7 @@ import { read_session, write_session } from "../store/session-store.js";
 import type { GitRunner } from "./github-write.js";
 import { archive_round } from "./mission-sections.js";
 import { repo_base } from "./pr.js";
+import { round_record } from "./rounds.js";
 import { THREADS_DIR } from "./threads.js";
 import { refresh_session, session_prs } from "./tracker.js";
 
@@ -75,6 +80,11 @@ export async function reset_session(
         await stack_down(home, summary, deps.log ?? (() => {}));
     }
     const session: Session = structuredClone(previous);
+    // Recorded before the PR facts are cleared; past ROUNDS_MAX the oldest record drops, and
+    // its Log stays under `## Previous rounds`.
+    session.rounds = [...(previous.rounds ?? []), round_record(previous, now())].slice(
+        -ROUNDS_MAX,
+    );
     for (const [repo, entry] of Object.entries(session.repos)) {
         entry.pr = null;
         entry.changed = false;

@@ -3,7 +3,7 @@
 // plus the daemon's last docker observation. Pure apart from reading the session's spec copy,
 // so a test builds a view from a summary and an observation.
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
     BoardView,
@@ -27,6 +27,7 @@ import { derive_stage } from "../pipeline/derive-stage.js";
 import { briefing_path, read_draft } from "../pipeline/review-draft.js";
 import { config_for } from "../pipeline/poller.js";
 import { facts_from_session, session_prs } from "../pipeline/tracker.js";
+import { round_of, rounds_of } from "../pipeline/rounds.js";
 import { SESSION_SPEC, read_session_spec } from "../stack/runner.js";
 
 /** What the stack observer saw last for one session. */
@@ -81,7 +82,15 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         ...(cost === undefined ? {} : { cost }),
         ...(review === null ? {} : { review }),
         ...(design === undefined ? {} : { design }),
+        round: round_of(summary.session),
+        rounds: rounds_of(summary.session, mission_or_null(summary)),
     };
+}
+
+/** The session's MISSION.md text, or null without one (a review session has none). */
+function mission_or_null(summary: SessionSummary): string | null {
+    const file = join(summary.path, "MISSION.md");
+    return existsSync(file) ? readFileSync(file, "utf8") : null;
 }
 
 /**

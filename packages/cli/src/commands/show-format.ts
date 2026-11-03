@@ -67,6 +67,11 @@ export function format_session_detail(data: ShowData, palette: Palette): string 
     if (session.needs_human !== null) {
         lines.push(`${palette.dim("needs you:")} ${palette.yellow(session.needs_human)}`);
     }
+    if (session.design !== undefined) {
+        // The EGM design block (docs/designs/egm-adoption.md, 2.28); absent on a legacy session.
+        const { track, stage } = session.design;
+        lines.push(`${palette.dim("design:")} ${track} · ${stage ?? "-"}`);
+    }
     lines.push("");
     if (data.services.length > 0) {
         lines.push(...service_table(data.services, palette));

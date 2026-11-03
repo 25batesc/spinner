@@ -2,6 +2,8 @@
 // `reset`), mounted on the daemon's Hono app by one registry line in `server.ts`. Each write
 // starts a job on `actions.ts`, the same functions the CLI calls; each read answers from the
 // session directory. Bodies are parsed here, so a bad request is a 400 before any job starts.
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Hono, Context } from "hono";
 import type {
     ApproveRequest,
@@ -22,6 +24,8 @@ import type {
     ThreadResponse,
     ThreadsResponse,
 } from "@spinner/protocol";
+import { ROUNDS_MAX } from "@spinner/protocol";
+import { parse_previous_rounds } from "./rounds.js";
 import { thread_file, type ThreadsDiff } from "./threads.js";
 import { review_targets } from "./review.js";
 import type { ReviewSwarm } from "../agents/swarm.js";
@@ -45,6 +49,26 @@ export interface PipelineRouteDeps {
 }
 
 export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void {
+    // The Log of an earlier round, from `## Previous rounds` (EGM, T14, 2.45).
+    app.get("/sessions/:dir/rounds/:round/log", (c) => {
+        const raw = c.req.param("round");
+        const round = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+        if (!Number.isInteger(round) || round < 1 || round > ROUNDS_MAX) {
+            return c.json(error_body(`round must be an integer from 1 to ${ROUNDS_MAX}`), 400);
+        }
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const file = join(summary.path, "MISSION.md");
+        const mission = existsSync(file) ? readFileSync(file, "utf8") : "";
+        const entry = parse_previous_rounds(mission).find((parsed) => parsed.round === round);
+        if (entry === undefined) {
+            return c.json(error_body(`no Log for round ${round} in ${summary.dir}`), 404);
+        }
+        return c.body(`${entry.log}\n`, 200, { "content-type": "text/markdown" });
+    });
+
     app.post("/sessions/:dir/pr", async (c) => {
         const request = parse_pr(await json_body(c));
         if (typeof request === "string") {

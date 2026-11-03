@@ -160,6 +160,58 @@ agents:
     pid: 48250
 ```
 
+### The `design` block and `rounds`
+
+Two optional blocks record the EGM design stage and the earlier rounds ([designs/egm-adoption.md](designs/egm-adoption.md), Technical Plan T7, T12 and T14). `version` stays 1. A session without a `design` block is a session from before the EGM design. The UI and the CLI show it as before.
+
+```yaml
+design:
+  track: design            # design | direct; set at the start and by the track chip
+  stage: drafting          # derived by the daemon's design tracker
+  needs: null              # the design stage's needs_human text, or null
+  waiting: false           # derived: the lead settled on a question
+  doc: docs/designs/csv-export.md   # repo-relative; absent until the lead calls design_doc
+  repo: web                # repo key of the doc
+  review_run: { id: r2, preset: uninterrupted, started: 2026-11-04T10:02:00+01:00 }  # build session 3
+  gate: { question: "...", options: ["...", "..."], asked: 2026-11-04T10:12:00+01:00 } # build session 3
+  approved: { path: docs/designs/csv-export.md, repo: web, sha256: 9f2c..., at: 2026-11-04T11:40:00+01:00, blockers: 0, round: 1 }
+  approvals: [ ... ]       # every approval, oldest first, at most 100
+  changed_after_approval: false
+rounds:                    # appended by reset since the EGM design, at most 200
+  - round: 1
+    branch: feat/csv-export
+    prs: [{ repo: web, number: 41, url: "https://github.com/acme/web/pull/41", state: merged, merged_at: 2026-11-05T16:02:00+01:00 }]
+    started: 2026-11-04T09:30:00+01:00
+    ended: 2026-11-05T17:10:00+01:00
+```
+
+| Field | Meaning |
+|---|---|
+| `design.track` | `design` runs EGM up to an approved doc before the build. `direct` builds at once. The track is fixed once a repo has commits. A new paste session gets `direct` in this release. |
+| `design.stage`, `design.needs`, `design.waiting` | Derived from the files in `<session>/design/` and the doc; see the stage table below. Nobody sets them by hand. |
+| `design.doc`, `design.repo` | The design doc, named by the lead's `design_doc` tool. |
+| `design.approved`, `design.approvals` | The current approval and every approval, each with the normalized SHA-256 of the doc. |
+| `design.changed_after_approval` | True when the doc's hash no longer matches the approval: the approval is invalidated and the operator re-approves. |
+| `rounds` | One record per finished round. `merged_at` is the PR's `last_activity` when it merged, else null. Rounds before the EGM design are read from `## Previous rounds` in `MISSION.md`. |
+
+The design stage comes from these rules; the first match wins.
+"The current review run" is the report files directly in `<session>/design/`.
+
+| # | Stage | Fact |
+|---|---|---|
+| 1 | `approved` | `design.approved.sha256` equals the normalized hash of the doc now. |
+| 2 | `resolving` | `goldfish_review_report.md` exists, and its first non-empty line is not `Status: resolved`. |
+| 3 | `design-ready` | `design.doc` is set, and `consolidated_review_report.md` or `implementation_readiness_report.md` exists, or `intermediate_zoom_out_report.md` exists while the review run's preset is `feature_spec` or no run is recorded. |
+| 4 | `design-review` | `design.doc` is set, and at least one review report exists. |
+| 5 | `drafted` | `design.doc` is set. |
+| 6 | `drafting` | `design_draft.md` exists. |
+| 7 | `brainstorm` | `concepts_brief.md` exists. |
+| 8 | `intake` | none of the above. |
+
+The normalized hash is the SHA-256 of the doc after two steps: the `*   **Status:**` line is removed, and `\r\n` becomes `\n`.
+On the design track, the design's `needs` becomes the session's `needs_human` before approval. At `approved` it fills `needs_human` only when the pipeline has none. A review draft still wins.
+The design tracker writes `<session>/design/.state.json` (`{ track, stage, approved, designs_dir }`) on both tracks for the extension.
+
 ## `MISSION.md`
 
 One file, one mission. Every agent reads it in full at the start of every turn (the Spinner pi extension injects it into the system prompt; by hand, the brief tells the agent to read it). The operator reads it to know where things stand without opening any chat.
@@ -208,6 +260,8 @@ and updates the order. (One paragraph. Operator-owned.)
 ```
 
 ### Editing rules
+
+On the design track the design doc is the spec. The mission writer refuses a write to *Goal* or *Done when* from every author except `spinner`, with `this session's spec is the design doc (<doc or "not named yet">)`. When the track becomes `design`, Spinner writes a Goal that points at the doc and one *Done when* item. When the lead names its doc, the Goal names it. On the direct track the lead writes both as before.
 
 These rules are what make a shared file safe with several writers. They are enforced socially in the bootstrap phase and by the `mission` tool once the daemon exists.
 
@@ -368,7 +422,7 @@ Commands and what they change:
 So that agents follow the protocol without being told every turn, `spinnerd` loads a pi extension into each agent session:
 
 - **System prompt section**: session id, hostnames, the agent's `BRIEF.md`, the full `MISSION.md`, and a one-line digest per other agent (`admin-ui: blocked on /refunds`).
-- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, `agent_add`, `agent_steer` and `adopt(refs)`. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
+- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
 - **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first.
 
 Until then, the brief carries these instructions, and the operator serializes by running only two or three agents at once.

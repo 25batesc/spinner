@@ -91,6 +91,9 @@ WebSockets below.
 | `GET /jobs/:id` | | `JobResponse` | 404 when the daemon never ran it. |
 | `GET /egm` | | `EgmResponse` | The EGM fetch state and the pin; below. |
 | `POST /egm/fetch` | | `JobResponse` | The `egm` job: fetches EGM again at the pin and regenerates the adapter; below. |
+| `PUT /sessions/:dir/design/track` | `DesignTrackRequest` | `SessionResponse` | Sets `design.track`; below. 400 for an unknown track, 409 once a repo has commits or for `design` when EGM is not available. |
+| `PUT /sessions/:dir/design/doc` | `DesignDocRequest` | `SessionResponse` | The lead's `design_doc` tool; below. 400 with the reason, 409 off the design track or while an approval stands. |
+| `GET /sessions/:dir/rounds/:round/log` | | `text/markdown` | The Log of an earlier round from `## Previous rounds`. 400 unless `:round` is an integer from 1 to 200, 404 for a round without one. |
 
 ## Events WebSocket
 
@@ -239,6 +242,32 @@ required files, the adapter under `<home>/egm/pi/agents`, then the marker. The b
 5 minutes. The job fails with the fetch error. A lead start fetches EGM the same way when
 pi-subagents is installed and EGM is not fetched. A failure there is one job log line, and
 the lead starts without EGM.
+
+### The design track and the design doc
+
+`PUT /sessions/:dir/design/track` takes `{ track: "design" | "direct" }`.
+It creates the `design` block when it is absent and answers with the session's view.
+It answers 409 with `the build has started; the track is fixed` when a track is set and a repo has commits.
+It answers 409 with `EGM is not available: <reason>` for `design` when EGM is not `ready` or pi-subagents is not installed.
+On `design` it writes the Goal pointer and the one *Done when* item as author `spinner`.
+
+`PUT /sessions/:dir/design/doc` takes `{ path }`, the absolute path of the doc.
+The designs directory is `spinner.yaml` `designs.dir` (default `docs/designs`) in the worktree of `designs.repo` (default the first repo).
+The route answers 400 with the first refusal of these checks, in order:
+
+1.  The path is absolute.
+2.  The file is a `.md` file directly in the designs directory.
+3.  The name is not `SITEMAP.md` or `README.md`.
+4.  The file exists and is at most 1 MB.
+5.  The file has both a `## Overview` and a `## Detailed Implementation Plan` heading.
+6.  The file does not exist on `origin/<base>`, unless it is the session's current `design.doc`. The `git` call has a 10-second bound.
+
+It answers 409 off the design track, and while an approval stands that no edit invalidated.
+On success it records `design.doc` and `design.repo`, points the Goal at the doc, and watches the doc file.
+
+`SessionView.design` (a `DesignView`) carries the track, the stage (null on the direct track), the files of `<session>/design/`, the current run's report flags, the doc and whether it is missing, the approvals and the gate.
+`SessionView.round` is `session.round`, else the `-r<n>` suffix of the branch, else 1.
+`SessionView.rounds` lists the earlier rounds, oldest first, from `session.yaml` `rounds` (`source: "record"`) and from `## Previous rounds` (`source: "mission"`).
 
 ## Stack logs
 

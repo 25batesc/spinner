@@ -150,4 +150,30 @@ describe("pipeline routes", () => {
         };
         expect(session.session.summary.session.round).toBe(2);
     });
+
+    it("answers a round's Log with 200, a bad round with 400, a missing one with 404", async () => {
+        const dir = session_dir();
+        const text = [
+            "# r\n\n## Goal\nG\n\n## Log\n\n## Previous rounds",
+            "### Round 1 · feat/routes · PRs: backend#7 (merged)",
+            "- 09:00 lead: began",
+            "",
+        ].join("\n");
+        writeFileSync(join(home.sessions, dir, "MISSION.md"), text);
+        const log = await fetch(`${base}/sessions/${dir}/rounds/1/log`);
+        expect(log.status).toBe(200);
+        expect(log.headers.get("content-type")).toContain("text/markdown");
+        expect(await log.text()).toBe("- 09:00 lead: began\n");
+        for (const bad of ["0", "x", "201", "1.5"]) {
+            const response = await fetch(`${base}/sessions/${dir}/rounds/${bad}/log`);
+            expect(response.status, bad).toBe(400);
+        }
+        expect((await fetch(`${base}/sessions/${dir}/rounds/2/log`)).status).toBe(404);
+        expect((await fetch(`${base}/sessions/nope/rounds/1/log`)).status).toBe(404);
+        const view = (await (await fetch(`${base}/sessions/${dir}`)).json()) as {
+            session: { round: number; rounds: { round: number; source: string }[] };
+        };
+        expect(view.session.round).toBe(1);
+        expect(view.session.rounds).toMatchObject([{ round: 1, source: "mission" }]);
+    });
 });

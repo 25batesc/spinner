@@ -410,4 +410,78 @@ describe("reset", () => {
         expect(mission).toContain("- 10:00 a: b");
         expect(mission.indexOf("## Log")).toBeLessThan(mission.indexOf("## Previous rounds"));
     });
+
+    it("records each round in session.yaml rounds and keeps the design block (2.44)", async () => {
+        const summary = session_with(pr_with({ state: "merged" }));
+        const approval = {
+            path: "docs/designs/refunds.md",
+            repo: "backend",
+            sha256: "f".repeat(64),
+            at: "2026-10-26T11:00:00Z",
+            blockers: 0,
+            round: 1,
+        };
+        const design = {
+            track: "design" as const,
+            stage: "approved" as const,
+            doc: "docs/designs/refunds.md",
+            repo: "backend",
+            approved: approval,
+            approvals: [approval],
+        };
+        write_session({ ...summary, session: { ...summary.session, design } });
+        const deps = { git: fake.git, config: config_with({}) };
+        const first_end = new Date("2026-10-27T12:00:00Z");
+        const first = await reset_session(home, read_ok(summary.dir), {}, {
+            ...deps,
+            now: () => first_end,
+        });
+        expect(first.session.rounds).toEqual([
+            {
+                round: 1,
+                branch: summary.session.branch,
+                prs: [
+                    {
+                        repo: "backend",
+                        number: 4812,
+                        url: "https://github.com/acme/backend/pull/4812",
+                        state: "merged",
+                        merged_at: "2026-10-27T00:00:00Z",
+                    },
+                ],
+                started: summary.session.created,
+                ended: first_end.toISOString(),
+            },
+        ]);
+        expect(first.session.design?.doc).toBe(design.doc);
+        expect(first.session.design?.approved).toEqual(approval);
+        expect(first.session.design?.approvals).toEqual([approval]);
+        // Round 2 ends with a closed PR; its record starts where round 1 ended.
+        const round_two = read_ok(summary.dir);
+        const backend = round_two.session.repos["backend"];
+        if (backend !== undefined) {
+            backend.pr = pr_with({ number: 4900, state: "closed" });
+        }
+        write_session(round_two);
+        const second = await reset_session(home, read_ok(summary.dir), {}, {
+            ...deps,
+            now: () => new Date("2026-10-28T12:00:00Z"),
+        });
+        expect(second.session.rounds).toHaveLength(2);
+        expect(second.session.rounds?.[1]).toMatchObject({
+            round: 2,
+            branch: `${summary.session.branch}-r2`,
+            started: first_end.toISOString(),
+            prs: [{ number: 4900, state: "closed", merged_at: null }],
+        });
+        expect(second.session.design?.approvals).toEqual([approval]);
+    });
 });
+
+function read_ok(dir: string): SessionSummary {
+    const read = read_session(home, dir);
+    if (!read.ok) {
+        throw new Error(read.error);
+    }
+    return read.summary;
+}

@@ -1,5 +1,16 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`spinner show > adds the design line for a session with a design block (2.28) 1`] = `
+"s018 · csv                          planned · stack down · feat/csv from develop
+needs you: review the design
+design: design · drafted
+
+database:  spinner_s018
+worktrees: backend → /home/me/.spinner/sessions/s016-a/worktrees/backend
+session:   /home/me/.spinner/sessions/s018-csv
+logs:      spinner logs s018 [<service>]"
+`;
+
 exports[`spinner show > lists sessions as a table, the ones that need the operator first 1`] = `
 "id    title  stage    stack  needs you
 s017  b      planned  down   log in and check the report page

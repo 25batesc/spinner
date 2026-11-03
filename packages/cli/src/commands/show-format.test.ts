@@ -68,6 +68,19 @@ describe("spinner show", () => {
         expect(plain).not.toContain("\u001b[");
     });
 
+    it("adds the design line for a session with a design block (2.28)", () => {
+        const design_entry = entry("s018", "csv", "review the design", "down");
+        design_entry.session.design = { track: "design", stage: "drafted" };
+        const direct_entry = entry("s019", "fix", null, "down");
+        direct_entry.session.design = { track: "direct" };
+        const plain = palette_for(false, {});
+        const shown = (summary: SessionSummary): string =>
+            format_session_detail({ ...data, entry: summary, services: [] }, plain);
+        expect(shown(design_entry)).toMatchSnapshot();
+        expect(shown(direct_entry)).toContain("\ndesign: direct · -\n");
+        expect(format_session_detail(data, palette_for(false, {}))).not.toContain("design:");
+    });
+
     it("lists sessions as a table, the ones that need the operator first", () => {
         const entries = [
             entry("s016", "a", null, "up"),
