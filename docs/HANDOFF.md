@@ -2,20 +2,18 @@
 
 This page is for the operator and for an agent that opens a new chat with no memory of the last one. It says what runs, where the state lives, how to resume the work, and what the open decisions are. [STATUS.md](STATUS.md) holds the full record per milestone. This page holds only what you need in the first ten minutes.
 
-Updated: 2026-11-02, after s017 and v0.7.0.
+Updated: 2026-11-03, after s037 and v0.14.0.
 
 ## State in one paragraph
 
-Spinner builds Spinner. M0 to M3 are done; M4 is in daily use. The releases run `v0.1.0` (2026-10-31) to `v0.7.0` (2026-11-02). They added the soak fixes, the operator agent (now off), the diff tab, costs, the design pass, chat-first sessions with the mission workspace, the review step, and the Reviews panel. The repo holds 273 commits, 209 by agents, 536 tests, CI with two jobs. Agent cost to date about $490. Every session since s001 ran as pi subagents from one parent chat. Since s016 the lead agent of each session owns the mission. That is the shape the operator wants.
+Spinner builds Spinner, and since 2026-11-02 it does so the EGM way. Google's Elephant-Goldfish Model is the design process. The lead agent (the Elephant) brainstorms, drafts and reviews a design doc with fresh read-only Goldfish agents. The operator approves it with one click. The build runs on the doc, and the PR carries it. The releases run `v0.1.0` to `v0.14.0`. The repo holds about 160 commits by agents since the first release, 831 tests, CI with two jobs. Agent cost to date about $740. The design of the adoption, `docs/designs/egm-adoption.md`, was itself produced by that process and built in six sessions from its own plan.
 
 ## What changed since v0.1.0
 
-- `v0.2.0` s012: UI snapshot per daemon commit, settings applied to new agents, verify undo, the narrow window, cookies per session, the watcher race, ids across homes.
-- `v0.3.0` s013: the operator agent (one per home, the headset tab). Off by default since s016; the host stays.
-- `v0.4.0` s014 and s015: the `diff` tab and costs. The viewer is fetched on first use under `~/.spinner/diffview/`, one per repo. Comments become notices and `needs you`; the tools are `diff_comments` and `diff_reply`. Costs come from the transcripts: `$` on cards and chips, `GET /costs`, Settings → Usage.
-- `v0.5.0` the design pass: one button system, type and spacing scales, pills and rings, hairlines, labelled forms (`packages/ui/DESIGN-PASS.md`).
-- `v0.6.0` s016: a session starts from one paste and `Start`. `POST /sessions/extract` finds PR references, adoptable or reference-only. The lead agent owns the mission with `session_title`, `mission_goal`, `mission_done_when`, `mission_plan`, `agent_add` and `adopt`. Plan items carry ids and tick times. `GET /sessions/:dir/mission/view` feeds the mission workspace. Also the `review` step, the toolbar in the context bar, markdown in context (mdview's stack, MIT), and expanded previews as one state.
-- `v0.7.0` s017: the Reviews panel. A review is a session of kind `review`: a detached checkout at the PR head and one tty reviewer per model in `settings.review.models`. Reviewers follow the review skill's brief and post inline COMMENT reviews only. The cards show CI and decision pills; the pane shows swarm chips with state and cost, and the threads live.
+- `v0.2.0` to `v0.7.0` (2026-11-01 to 02): soak fixes, the operator agent (off by default), the diff tab, costs, the design pass, chat-first sessions with the mission workspace, the Reviews panel.
+- `v0.8.0` s018: a review runs the operator's `pr-review` skill end to end. Headless reviewers return verdicts. A headless lead writes the briefing and drafts one review in one voice. The operator posts with one click.
+- `v0.9.0` to `v0.14.0`, EGM sessions 1 to 6. Session 1: EGM fetched and pinned under `~/.spinner/egm/`, with generated Goldfish agent files. Session 2: the design stage derived from files, `design_doc`, the stepper, rounds. Session 3: the design-track lead brief, skill buttons, the `EGM ▾` menu, gate cards. Session 4: Goldfish chips with live state and cost, transcripts. Session 5: the design workspace with Brief, Design, Review, Files and History. Session 6: `approve and build`, re-approval on edits with the guard, the PR body from the doc, outcome counters. The evidence is in `docs/egm/HARNESS_EVIDENCE.md`: runs A to H with the real pi.
+- `v0.12.0` to `v0.13.1`: the sidebar in VS Code's shape (rail, one panel per view, `+ New …`), the reload focus fix, the needs-you badges count only unseen sessions.
 
 ## What runs on the operator's machine
 
@@ -75,15 +73,16 @@ pnpm install --frozen-lockfile && pnpm -r build
 
 ## Open decisions
 
-1. **Stacked PRs** (option B, 2026-10-29). A session holds an ordered list of PRs per repo, with the worktree at the top. `adopt` walks the base chain. `land` goes bottom-up. `session.yaml` moves to version 2. Waiting for the operator's go after a week of daily use.
-2. **Signing and distribution** of the desktop app (M5): an Apple developer account for a notarized `.app`; the local unsigned build works today.
-3. **`threads.autofix: all`** stays off until the operator trusts the fixer enough to let it run without the `fix` click.
+1. **Stacked PRs** (option B, 2026-10-29): waiting for the operator's go. A design PR under a code PR is the same shape (D2 in the EGM design).
+2. **Signing and distribution** of the desktop app (M5).
+3. **`threads.autofix: all`** stays off.
 4. **The Slack token** has been in the chat transcript; the operator chose not to rotate it.
-5. **The operator agent** is built and off; delete the host or keep it dormant. Recommended: keep until s016's lead has had a week of use.
+5. **The operator agent** is built and off; the host stays dormant.
+6. **An upstream pi adapter for EGM** (D14): not now; EGM's `AI_POLICY.md` forbids autonomous PRs and needs the CLA.
 
 ## Open work, by size
 
-- Queued next. The `docs` tab: mdview as a host process per session, fetched on first use like the diff viewer, with its comments loop as notices. Preview signals to the agent: console errors, failed requests, screenshot (M4's exit criterion). `spinner init` from the recipes.
-- The soak list, `docs/sessions/soak-questions.md`. `plumbing.test.ts` still misses one run in three under full load; a retry keeps CI honest. The machine-memory figure rounds differently in two places (48 vs 52 GB). The e2e drivers leave scratch daemons and Chrome processes when an agent ends by error; the parent kills them by hand today.
-- Records: STATUS and the lessons are current through s017; the soak rows closed in s012 are marked; costs in STATUS are from the subagent runs' `status.json`.
-- M5: packaging, `spinner init`, the public repository with a changelog, the protocol at v2 if the stacks land.
+- Small. `docs/designs/README.md` is a duplicate of `SITEMAP.md`; the guard blocks `rm` on READMEs, so the operator removes it. The context-bar title shrinks to "Spi…" at 1600 px beside the stepper and the badge. `packages/desktop/e2e/sample-session.ts` clicks a `Show side panel` label that no longer exists. The driver flows `pipeline` and `history` fail on the fixture; that is older than the sidebar work.
+- Queued, each its own session. The `docs` tab: mdview as a host process with its comments loop. Preview console errors, failed requests and a screenshot streamed to the agent (M4's exit criterion). `spinner init` from the recipes. The first live `land` on a real PR. The drift report as a weekly badge (D10).
+- EGM's own follow-ups from "Build findings" in the design doc. The ledger rename (D6 deferred). The foreground-Goldfish case in the watcher. An outcome metric read in Settings.
+- M5: packaging, the public repository with a changelog.
