@@ -1874,6 +1874,20 @@
                         "null"
                     ]
                 },
+                "repo": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The repo key of the doc, else of the designs repo; null without one. Optional, so a fixture written before build session 3 still type-checks; the daemon always sets it."
+                },
+                "designs_dir": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The absolute designs directory (`spinner.yaml` `designs`, T7), the one `.state.json` carries; null when the designs repo has no worktree. Optional, as `repo`."
+                },
                 "doc_missing": {
                     "type": "boolean"
                 },

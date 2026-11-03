@@ -270,6 +270,16 @@ export interface DesignView {
     resolve: "none" | "open" | "resolved";
     review_run: DesignReviewRun | null;
     doc: string | null;
+    /**
+     * The repo key of the doc, else of the designs repo; null without one. Optional, so a
+     * fixture written before build session 3 still type-checks; the daemon always sets it.
+     */
+    repo?: string | null;
+    /**
+     * The absolute designs directory (`spinner.yaml` `designs`, T7), the one `.state.json`
+     * carries; null when the designs repo has no worktree. Optional, as `repo`.
+     */
+    designs_dir?: string | null;
     doc_missing: boolean;
     approved: DesignApproval | null;
     approvals: DesignApproval[];

@@ -236,6 +236,8 @@ describe("PUT /sessions/:dir/design/doc", () => {
         expect(named.status).toBe(200);
         const body = (await named.json()) as SessionResponse;
         expect(body.session.design).toMatchObject({ doc: "docs/designs/csv.md", stage: "drafted" });
+        // The ui's prefills (3.19, the ui agent's request): the doc's repo, the designs dir.
+        expect(body.session.design).toMatchObject({ repo: "web", designs_dir: designs });
         expect(body.session.summary.session.needs_human).toBe("review the design");
     });
 

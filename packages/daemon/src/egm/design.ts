@@ -298,6 +298,7 @@ export class DesignTracker {
         }
         const reads = this.reads(summary, false, design.waiting === true);
         const on_design = design.track === "design";
+        const location = this.designs_of(summary);
         return {
             track: design.track,
             stage: on_design ? reads.result.stage : null,
@@ -307,6 +308,8 @@ export class DesignTracker {
             resolve: reads.result.resolve,
             review_run: design.review_run ?? null,
             doc: design.doc ?? null,
+            repo: design.repo ?? location?.repo ?? null,
+            designs_dir: location?.dir ?? null,
             doc_missing: reads.doc_missing,
             approved: design.approved ?? null,
             approvals: design.approvals ?? [],
