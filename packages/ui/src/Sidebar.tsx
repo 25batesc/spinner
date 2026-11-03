@@ -3,7 +3,7 @@
 // open section pins its compose box under the header and scrolls its list below it. The
 // gear at the foot shows the settings view below the headers. The column resizes with the
 // layout's divider; a drag past the snap point folds it back to the rail (`ActivityBar`).
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Icon, IconButton, type IconName } from "./PaneHead.tsx";
 import {
@@ -73,6 +73,38 @@ function SectionHead(props: {
                 {open ? "\u25be" : "\u25b8"}
             </span>
         </button>
+    );
+}
+
+/**
+ * The pinned "+ New …" button of a section. A click opens the form in its place with a
+ * cancel at its head; the form closes itself after a start through `close`, and a cancel
+ * keeps whatever draft the caller holds.
+ */
+export function AddNew(props: { label: string; children: (close: () => void) => ReactNode }) {
+    const { label, children } = props;
+    const [open, setOpen] = useState(false);
+    const close = () => setOpen(false);
+    if (!open) {
+        return (
+            <button
+                type="button"
+                className="secondary side-add"
+                onClick={() => setOpen(true)}
+                aria-label={label}
+            >
+                + {label}
+            </button>
+        );
+    }
+    return (
+        <div className="side-add-open" aria-label={`${label} form`}>
+            <div className="side-add-head">
+                <span className="side-add-title">{label}</span>
+                <IconButton icon="close" label={`Cancel ${label.toLowerCase()}`} onClick={close} />
+            </div>
+            {children(close)}
+        </div>
     );
 }
 

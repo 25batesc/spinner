@@ -152,6 +152,8 @@ export interface ComposeFormProps {
     /** The draft lives with the caller, so a fold of the section keeps what was typed. */
     draft: ComposeDraft;
     onDraft: (draft: ComposeDraft) => void;
+    /** Called once the start request is accepted; the sidebar folds the form on it. */
+    onStarted?: () => void;
 }
 
 export interface ComposeDraft {
@@ -162,7 +164,7 @@ export interface ComposeDraft {
 export const EMPTY_DRAFT: ComposeDraft = { text: "", project: "" };
 
 /** The compose box. `Start` posts the job; the drawer below shows it run. */
-export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
+export function ComposeForm({ run, draft, onDraft, onStarted }: ComposeFormProps) {
     const projects = useProjects();
     const { text, project } = draft;
     const setText = (next: string) => onDraft({ ...draft, text: next });
@@ -174,7 +176,9 @@ export function ComposeForm({ run, draft, onDraft }: ComposeFormProps) {
         if (text.trim() === "") {
             return;
         }
-        void run("/sessions", startBody(text, project, extraction.ticked, extraction.prs));
+        void run("/sessions", startBody(text, project, extraction.ticked, extraction.prs)).then(
+            () => onStarted?.(),
+        );
     };
 
     return (

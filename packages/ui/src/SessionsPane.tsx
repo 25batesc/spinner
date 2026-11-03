@@ -7,6 +7,7 @@ import { CostFigure, PrBadge, RoundBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import type { RunAction } from "./SessionForms.tsx";
+import { AddNew } from "./Sidebar.tsx";
 import { stackLine, stackUsageOf, type UsageSample } from "./usage.ts";
 
 export type { RunAction } from "./SessionForms.tsx";
@@ -16,8 +17,8 @@ export interface SessionsPaneProps {
     selected: string | undefined;
     onSelect: (dir: string) => void;
     run: RunAction;
-    /** The compose box, pinned above the list (s020: it moved here from the middle pane). */
-    compose: ReactNode;
+    /** The compose form, behind the pinned `+ New session` button; `close` folds it. */
+    compose: (close: () => void) => ReactNode;
     /** The last usage sample, for the line beside each up stack. */
     usage: UsageSample | null;
 }
@@ -88,7 +89,9 @@ export function SessionsPane(props: SessionsPaneProps) {
     const { sessions, selected, onSelect, compose, usage } = props;
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
-            <div className="side-compose">{compose}</div>
+            <div className="side-compose">
+                <AddNew label="New session">{compose}</AddNew>
+            </div>
             <ul className="session-list">
                 {sessions.map(([dir, view]) => (
                     <SessionCard

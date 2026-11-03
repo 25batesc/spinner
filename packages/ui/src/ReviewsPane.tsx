@@ -7,6 +7,7 @@ import { useState, type FormEvent } from "react";
 import { ReviewPills } from "./PaneHead.tsx";
 import { swarmLine, type ReviewFacts } from "./review.ts";
 import { useExtraction, type RunAction } from "./SessionForms.tsx";
+import { AddNew } from "./Sidebar.tsx";
 
 export interface ReviewsPaneProps {
     reviews: ReviewFacts[];
@@ -22,7 +23,7 @@ export interface ReviewsPaneProps {
  * the box while the operator types; the daemon reads the text again when `Start review` posts
  * it, so the list is a preview, not the request.
  */
-function ReviewComposeBox({ run }: { run: RunAction }) {
+function ReviewComposeBox({ run, onStarted }: { run: RunAction; onStarted: () => void }) {
     const [text, setText] = useState("");
     const [extraction] = useExtraction(text, "");
     const found = extraction.prs.filter((pr) => pr.url !== null);
@@ -32,7 +33,10 @@ function ReviewComposeBox({ run }: { run: RunAction }) {
         if (text.trim() === "") {
             return;
         }
-        void run("/reviews", { text }).then(() => setText(""));
+        void run("/reviews", { text }).then(() => {
+            setText("");
+            onStarted();
+        });
     };
     return (
         <form className="rv-compose" onSubmit={submit} aria-label="New review">
@@ -126,7 +130,9 @@ export function ReviewsPane(props: ReviewsPaneProps) {
     return (
         <section className="pane reviews-pane" aria-label="Reviews">
             <div className="side-compose">
-                <ReviewComposeBox run={run} />
+                <AddNew label="New review">
+                    {(close) => <ReviewComposeBox run={run} onStarted={close} />}
+                </AddNew>
             </div>
             <ul className="rv-list">
                 {reviews.map((facts) => (

@@ -337,7 +337,9 @@ export function App() {
             selected={selected}
             onSelect={(dir) => app.pick("sessions", dir)}
             run={run}
-            compose={<ComposeForm run={run} draft={app.draft} onDraft={app.setDraft} />}
+            compose={(close) => (
+                <ComposeForm run={run} draft={app.draft} onDraft={app.setDraft} onStarted={close} />
+            )}
         />
     );
     const agentsPane = review !== null && view !== undefined ? (
