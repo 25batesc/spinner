@@ -2127,6 +2127,33 @@ The engine entries of both sessions were built in one session (s036). Run G of `
 *   **Change for the design:** state the two shapes of pi-subagents 0.84.0 in T5 and 4.4: workflow runs with child runs, and foreground runs. Give each chip one key and one cost source.
 *   **Change for the protocol:** the e2e drivers are outside every `tsconfig`, so no check type-checks them. This session checked the driver with a scratch `tsconfig`. Add `packages/daemon/e2e` to a typecheck script.
 
+### Session 6
+
+Three agents built session 6 in one session (s037): `engine`, `engine-pipeline` and `ui`.
+Run H of the driver (`SPINNER_E2E_PROBES=approve node packages/daemon/e2e/egm-harness.ts`) ran on a scratch daemon with the real pi and the sandbox repository.
+It seeds a design doc and a consolidated report with two `Severity: High` findings, so brainstorm, draft and review do not run.
+Six rows passed in 5 minutes for $1.81: R1 (resolve), A1 (approve and build), E1 (an edit clears the approval), L1 (the lock), RA (re-approval) and PR1 (the PR body).
+No GitHub write happened: the clone pushed to a local bare repository through `pushInsteadOf`, and the daemon's `gh` was a scratch script that answered `pr create` with a fake URL.
+
+*   **6.13, T10:** the worktrees live under `<session>/worktrees/`. A design check "after the session-directory check" never blocks a code write. The built guard runs the design rule first and counts `worktrees/` as code, except the designs directory. The out-of-area glob guard has the same hole for worktree paths; it is not changed.
+*   **6.13:** with `designs_dir: null` in `.state.json`, a locked lead can write only the session's own files.
+*   **6.2, T10:** T10 does not say what `build: true` does while the lead is stopped. The built route answers 409 before any write, so an approval never stands without its build prompt. It also answers 409 when the doc is missing from the worktree. The build message names the absolute doc path.
+*   **6.2, run H:** `egm-resolve` writes every finding as `### [Issue n] … - Severity: High` and keeps the severity after it applies the fix. So the approval after a resolve lists all High findings, fixed or not. Run H's approval needed "approve with 2 listed blockers" after both fixes were applied.
+*   **6.3:** the approval tests that need a session, a worktree and a recording lead run through the routes in `egm/routes.test.ts`. `approve.test.ts` holds the pure ones.
+*   **6.6:** the change notice reaches a tty lead as a custom message. `GET …/agents/:name/events` does not list custom messages, so the driver reads the notice from the lead's transcript. In run H the lead answered it with a Log line and changed no code.
+*   **6.6, run H, driver:** the view derives `changed_after_approval` from the disk at once; `needs_human` changes when the tracker's doc watcher writes `session.yaml`. Run 1 of H read `needs_human` between the two and failed E1. The driver now waits on the needs line.
+*   **T10, 2.9:** a doc changed after approval read `design-ready` in run H, because the consolidated report was in the current run. Session 2's finding still holds without a concluding report: such a session reads `drafted`, and the UI's approve button (6.17) is only at `design-ready`.
+*   **6.8 (engine-pipeline):** "the `## Overview` body" runs to the next `## ` heading, so `###` subsections go into the PR body. A doc that is missing from the worktree falls back to the mission body (6.9) and the Goal line (6.10).
+*   **6.10 (engine-pipeline):** the Slack message gets a second line `Design: \`<doc path>\``, which the entry does not name.
+*   **6.20 (engine-pipeline):** the fix job wrote `session.yaml` from the summary it started with, so the counter written before it was lost. The fix job now continues from the summary that `count_outcome` returns.
+*   **6.20, ownership:** `AgentMessageRequest.source` and its parse in `packages/daemon/src/requests.ts` went into `engine`'s protocol commit, because `engine-pipeline` owns neither file.
+*   **6.22 (engine-pipeline):** the entry names `server.test.ts`, which no brief gives to the owner of 6.20. The steer-route tests are in `pipeline/outcomes.test.ts`.
+*   **6.16, 6.17 (ui):** one listed blocker reads in the singular. `remove approval` posts `DELETE` at once, without a confirmation. `fetchDesignApproved` has no caller in the UI. The changed sections start with the blank line under the heading, and the dialog strips it.
+*   **Run H:** `OperatorHost.notice` asserted "a notice line is one line" on the PR job's multi-line `gh` error (`agents/operator.ts`). The daemon logged the failed listener and continued.
+*   **Change for the design:** say in T10 that the blocker count does not drop after a resolve. Or let `egm-resolve`'s categories count: an applied `PROPOSE FIX` is not a listed blocker.
+*   **Change for the design:** name the worktree layout in 6.13, and give the guard rule its place before the session-directory exemption.
+*   **Change for the protocol:** an e2e row that ends in a GitHub write (`create PR`) needs a fake `gh` and a local push target in the driver, so no agent posts while the operator is away.
+
 --------------------------------------------------------------------------------
 
 <!-- Provenance: Indicates initial structural drafting via EGM. -->
