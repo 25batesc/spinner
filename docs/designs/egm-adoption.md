@@ -2074,6 +2074,22 @@ The build sessions record here what the build found against this document. The e
 *   **Change for T5:** cover foreground Goldfish in the watcher and in the cost ledger.
 *   **Change for the protocol:** a probe that spends model money names its stop rule before it runs.
 
+### Session 2
+
+The checkpoint ran on a scratch daemon with the real pi and the sandbox repository. A design-track session moved `intake` → `brainstorm` (a `concepts_brief.md` that the session-files watcher reported) → `drafted` when the lead called `design_doc`. `session.needs_human` became `review the design`, the Goal named the doc, and the UI showed the stepper and the card dots. A `reset` then gave round 2 with one `rounds` record and the `r2` badge.
+
+*   **2.40:** `SessionView.round` and `SessionView.rounds` are optional, not required. Required fields broke `tsc` of the ui fixture and tests at the protocol commit, before the ui agent filled them. The daemon always sets both, as for `diff`, `cost` and `kind`.
+*   **2.27:** `session.ts` now imports `DesignState` from `egm.ts`. The type check of ts-json-schema-generator rejects imports between files, so `scripts/generate-schema.ts` and `schema.test.ts` skip that check for `session.ts`, as they already did for `index.ts`. `tsc` still checks the sources.
+*   **2.12:** `designs_of` returns null when the designs repo has no worktree in the session (a session without a project). `set_doc` then answers 400 `this session has no worktree of the designs repo`, and `.state.json` carries `designs_dir: null`. `refresh` runs one call at a time per session through a promise chain, because the watcher, `agent.settled` and the routes call it concurrently.
+*   **2.9, T7, T10:** T10 says a doc changed after approval is at `design-ready`. The rule table gives `design-ready` only when the current run has a concluding report. `derive_design` follows the table: an approval made at `drafted` and then invalidated reads `drafted` with the needs line `re-approve the design (changed since approval)`. After a round whose doc is not on the base, the stage stays `drafted` with the missing-doc needs line.
+*   **2.12, 2.13:** chokidar's native watch can start late under load (`watch/live.ts`). The doc watcher has no liveness probe, because a probe file in the designs directory would show in the worktree. An edit in the first second after `set_doc` can be missed until the next `agent.settled`. The tests repeat the edit until `session.yaml` shows the change.
+*   **2.20:** a switch from `direct` to `design` after `design_doc` rewrites the Goal to the "not named yet" text, although `design.doc` is set. The next `set_doc` restores the pointer.
+*   **2.23:** with `DESIGN_DEFAULT_TRACK` at `direct`, a test cannot tell the ready path from the fallback. The test asserts the constant and the `track: direct` line.
+*   **Checkpoint:** the project name `sandbox` resolved to the operator's `local/sandbox/spinner.yaml` (the daemon's cwd is the repo root) and not to `<scratch home>/projects/sandbox`. The session's worktree and the branches `feat/spinner-checkpoint-…` and `…-r2` went into the operator's clone of the sandbox repository. Nothing was pushed.
+*   **Change for the protocol:** a scratch e2e names its project by the absolute path of its `spinner.yaml`, never by a name.
+*   **Change for the UI (2.33, 2.47):** at 1600 px the context-bar title shrinks to `Spi…` beside the stepper and the round badge. The title needs a minimum width.
+*   **Tests:** the existing `watcher_live` probe test timed out at its 5-second bound in 1 of 7 full daemon runs under load.
+
 --------------------------------------------------------------------------------
 
 <!-- Provenance: Indicates initial structural drafting via EGM. -->
