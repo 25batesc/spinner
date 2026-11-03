@@ -373,6 +373,27 @@ UI gate card ──POST …/design/answer──▶ daemon: clear the gate ──
 The lead brief of a new session has a "Design (EGM)" section: the lead proposes a track, starts no EGM skill on its own, asks each gate with `ask_question`, and writes only the design doc and the session's files before approval.
 The extension's prompt section names the designs directory from `.state.json` on the design track.
 
+Build session 4 makes the Goldfish visible ([DAEMON_API.md](DAEMON_API.md#goldfish)). The Goldfish are not daemon agents. They run inside the lead's pi, so the daemon observes the files that pi-subagents writes:
+
+```text
+lead pi ──subagent (async)──▶ <session>/egm-runs/async-subagent-runs/<runId>/status.json
+lead pi ──subagent (foreground)──▶ agents/lead/pi/subagent-artifacts/<runId>_<agent>_<step>_*
+        each child's pi session: agents/lead/pi/<lead session>/<runId>/run-<i>/session.jsonl
+GoldfishWatcher (2 s poll) ──on change──▶ DesignTracker.refresh ──▶ session.updated (chips)
+CostLedger ──steps[].sessionFile──▶ rows with child ──▶ SessionCost.children
+```
+
+| Module | Role |
+| --- | --- |
+| `egm/goldfish.ts` | `read_runs` reads the async and foreground runs; each Goldfish shows once. `GoldfishWatcher` polls, attributes new runs in `runs.json`, and counts live Goldfish. |
+| `costs/ledger.ts` | Folds each step's transcript inside `<session>/agents/` as rows of the lead with `child`. They sum into `SessionCost.children`. |
+| `egm/design.ts` | The view fills `goldfish`, `goldfish_live` and `cost_by_stage`. A running Goldfish keeps the "lead waits" line off. |
+| `egm/routes.ts` | The Goldfish transcript route, the global cap of 12 live Goldfish on `POST …/design/run`, and the workspace reads of build session 5. |
+
+A result reaches the lead without the daemon. An async launch returns a receipt at once. pi-subagents delivers a completion notice into the lead's session when the run ends, and the lead can block on `bg_wait`. The prompt section tells the lead to wait for every Goldfish of a stage before it consolidates.
+
+The global cap holds new skill starts only. The daemon cannot stop a launch inside pi, so a lead that is already in a skill can pass the cap by one stage's fan-out. Cost is shown, not enforced.
+
 ### Storage
 
 Files, no database. Every session is a directory of YAML, Markdown and JSONL under `~/.spinner/sessions/` ([layout](SESSION_PROTOCOL.md#where-everything-lives)); the daemon's only state is process handles and an in-memory index it rebuilds from the tree at start. Reasons: an agent reads and writes the same files with its ordinary tools; a person can `cat`, `grep` and `git`-archive a session; the pi transcripts are already JSONL files; there is no migration tooling beyond the `version` field; and a crashed daemon loses nothing.

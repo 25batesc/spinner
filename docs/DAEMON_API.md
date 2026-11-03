@@ -97,6 +97,11 @@ WebSockets below.
 | `POST /sessions/:dir/design/answer` | `DesignAnswerRequest` | `AgentCommandResponse` | Clears the gate and prompts the lead with the text; below. 400 for an empty or long text, 409 when the lead is not running. |
 | `POST /sessions/:dir/design/run` | `DesignRunRequest` | `AgentCommandResponse` | Starts an EGM skill in the lead with the arguments the daemon composes; below. 400 for a bad body, 409 with the reason. |
 | `GET /sessions/:dir/rounds/:round/log` | | `text/markdown` | The Log of an earlier round from `## Previous rounds`. 400 unless `:round` is an integer from 1 to 200, 404 for a round without one. |
+| `GET /sessions/:dir/egm/goldfish/:run/:step/events` | | `AgentEventsResponse` | The transcript events of one Goldfish step; below. 404 for an unknown run or step, or a transcript outside `<session>/agents/`. |
+| `GET /sessions/:dir/design/files` | | `DesignFilesResponse` | The files of `<session>/design/` and the archived review runs; below. |
+| `GET /sessions/:dir/design/files/:name` | | `text/markdown` | One file of `<session>/design/`. 400 for a bad name, 404 when absent. |
+| `GET /sessions/:dir/design/reviews/:run/:name` | | `text/markdown` | One report of an archived review run. 400 for a bad run id or name, 404 when absent. |
+| `GET /sessions/:dir/design/doc` | | `text/markdown` | The design doc from the worktree of `design.repo`. 404 before `design_doc` and when the file is missing. |
 
 ## Events WebSocket
 
@@ -302,6 +307,50 @@ It prompts the lead with `/skill:<skill>`, a space and the composed arguments:
 The composed text is at most 4000 characters, else 400.
 For `egm-review` and `egm-review-loop` the route first archives the current review run into `<session>/design/reviews/<id>/` and records `design.review_run` with the next free id ([SESSION_PROTOCOL.md](SESSION_PROTOCOL.md#review-runs)). It answers 409 when 99 runs are archived.
 Every run clears an open gate.
+After the 400 checks, the route answers 409 with `<n> Goldfish are running across sessions (cap 12); start this skill when they finish` while 12 or more Goldfish run across all watched sessions.
+
+### Goldfish
+
+`DesignView.goldfish` lists the lead's Goldfish of the newest 200 runs, newest run first.
+The daemon reads the files that pi-subagents writes:
+
+1.  An async run writes `<session>/egm-runs/async-subagent-runs/<runId>/status.json`. A fan-out is one `workflow` run whose steps each name a child run with its own directory. The child run stands for the step, so each Goldfish shows once.
+2.  A foreground run writes only `agents/lead/pi/subagent-artifacts/<runId>_<agent>_<step>_*`. Its step runs until its `meta.json` exists, and reads `stopped` if the lead's turn ends first.
+
+Each `GoldfishView` has the run id, the step index, the agent, the chip `state`, the model and the tokens.
+`persona` is the agent name without `egm-`. `usd` comes from `SessionCost.children`.
+The view also has the start and last-activity times, `design_step` and `transcript`.
+
+| Step status | Chip state |
+| --- | --- |
+| `queued`, `pending` | `queued` |
+| `running` | `running` |
+| `complete`, `completed` | `done` |
+| `failed`, `rejected` | `failed` |
+| `stopped`, `paused` | `stopped` |
+| any other word | `running` while the run's state is `running`, else `failed` |
+
+`design_step` comes from `<session>/egm-runs/runs.json`, which records the design stage of each run at its first sight (at most 1,000 runs).
+`cost_by_stage` sums the Goldfish `usd` per design step. The lead's own cost is not split.
+`goldfish_live` counts the `running` Goldfish across all sessions.
+
+The watcher polls a session every 2 s while its lead is busy, while one of its Goldfish runs, and for 30 s after the lead's `agent.settled`. The lead's `agent_start` and its `subagent` tool calls start the poll. A change publishes `session.updated`.
+
+`GET /sessions/:dir/egm/goldfish/:run/:step/events` answers `{ events }` from the step's transcript, in the shape of `GET …/agents/:name/events`.
+
+### The design workspace
+
+`GET /sessions/:dir/design/files` answers `{ files, review_runs }`.
+`files` lists the `.md` files of `<session>/design/` without dotfiles, newest first, as `DesignView.files` does.
+`review_runs` lists the `r<n>` directories of `<session>/design/reviews/`, highest number first.
+
+`GET /sessions/:dir/design/files/:name` and `GET /sessions/:dir/design/reviews/:run/:name` answer the file as `text/markdown`.
+`:name` must match `DESIGN_FILE_NAME_PATTERN` (`^[A-Za-z0-9_.-]{1,100}\.md$`) and must not start with `.`. `:run` must match `^r\d{1,2}$`. Else the route answers 400.
+An absent file is 404.
+
+`GET /sessions/:dir/design/doc` answers the doc at `<worktree of design.repo>/<design.doc>` as `text/markdown`.
+It answers 404 before `design_doc` and when the file is missing.
+The daemon does not parse report findings.
 
 ## Stack logs
 
@@ -373,6 +422,15 @@ transcripts in the archive stay the record.
 maps each agent to `{ usd, tokens_in, tokens_out, model }` and `model` is that of its latest
 message. `OperatorView.cost` is the same without `agents`. Token counts leave the cache
 counts out.
+
+The ledger also folds the transcripts of the lead's Goldfish. Each run's `status.json`
+under `<session>/egm-runs/` names a transcript per step (`steps[].sessionFile`). A
+foreground run names it through its files under `subagent-artifacts/`. The ledger takes
+only a path inside `<session>/agents/`. Each row of such a file carries
+`child: "<runId>/<step index>"`. Those rows sum into `SessionCost.children[child]`, not into
+`agents.lead`. The session totals include them. `children` is absent when the session has
+no Goldfish row. At most 20,000 child transcripts are folded across the home. Past that
+bound, the newest by mtime are kept, and the ledger logs one line per refold.
 
 `GET /costs?from=YYYY-MM-DD&to=YYYY-MM-DD&group=day|week|month` answers `CostsResponse`.
 `from` and `to` are days in the daemon's local zone, both inclusive. `to` defaults to today
