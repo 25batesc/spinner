@@ -2057,6 +2057,23 @@ Sizes: `engine` about 5 hours, `ui` about 2 hours.
     *   After build session 6, one manual run by the operator on a real project: paste, brainstorm, draft, consolidated review, resolve, approve and build, create PR. The operator records the cost per step from the stepper.
     *   After 10 design-track and 10 direct-track sessions with a PR: `spinner outcomes` prints the comparison of the outcome Goal.
 
+## Build findings
+
+The build sessions record here what the build found against this document. The evidence of session 1 is `docs/egm/HARNESS_EVIDENCE.md`.
+
+### Session 1
+
+*   **1.9, T2:** pi-subagents reads `extensions: []` as one extension named `[]`. The adapter writes `extensions:` with an empty value, which pi-subagents documents as "no extensions".
+*   **T3, 1.4:** the installed pi-subagents is 0.84.0, not 0.83.0. The three variables exist at the cited files in 0.84.0.
+*   **1.22, 1.14:** a daemon started inside a pi-subagents child passed `PI_SUBAGENT_CHILD=1` to every agent, and the Spinner extension stayed off. `pi_spawn_plan` now drops every inherited `PI_SUBAGENT_*` variable that the plan does not set itself (`env_unset`). `PI_CODING_AGENT_DIR` stays.
+*   **T5, 4.4, P8:** a foreground Goldfish (`async: false`) writes no `status.json`. Its files are `<session>/agents/lead/pi/subagent-artifacts/<runId>_<agent>_<step>_{meta.json,output.md,transcript.jsonl}`. The GoldfishWatcher and P8 must read them too.
+*   **1.26:** EGM questions end a paragraph that continues after the `?`. The driver reads a question when the last paragraph has a `?`, not when the text ends with one.
+*   **1.25, P3:** `pi.sendUserMessage` passes `/skill:` text to the model unexpanded. Entry 1.25 is built (`b8f8e51`).
+*   **P11, 3.13:** the session-1 lead carries the build brief. It ran the brainstorm (6 Goldfish, the brief) and then built the feature. Draft and review were not reached. Run P11 again after 3.13.
+*   **Change for 1.26:** add a row for a lead that asks in prose, and stop P11 after N idle turns. The driver stops after 5 "Continue." turns.
+*   **Change for T5:** cover foreground Goldfish in the watcher and in the cost ledger.
+*   **Change for the protocol:** a probe that spends model money names its stop rule before it runs.
+
 --------------------------------------------------------------------------------
 
 <!-- Provenance: Indicates initial structural drafting via EGM. -->

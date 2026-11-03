@@ -224,6 +224,7 @@ export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): P
         env[EXTENSION_ENV.egm_artifacts] = egm.artifacts_dir;
     }
     return {
+        env_unset: inherited_subagent_env(env),
         pi: options.pi(),
         cwd: input.cwd,
         session_dir: input.pi_dir,
@@ -232,6 +233,18 @@ export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): P
         extra_args,
         env,
     };
+}
+
+/**
+ * The inherited `PI_SUBAGENT_*` variables the agent must not see. A daemon started from
+ * inside a pi-subagents child inherits `PI_SUBAGENT_CHILD=1`, and the Spinner extension then
+ * stays off in every agent (EGM design, build findings of session 1). The variables the
+ * plan sets itself stay; `PI_CODING_AGENT_DIR` does not match the prefix and stays.
+ */
+function inherited_subagent_env(env: Record<string, string>): string[] {
+    return Object.keys(process.env).filter(
+        (key) => key.startsWith("PI_SUBAGENT_") && !(key in env),
+    );
 }
 
 /** The extension entry that exists, or null: absent means the checkout's, null means none. */

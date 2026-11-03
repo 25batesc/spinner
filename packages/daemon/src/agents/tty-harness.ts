@@ -27,7 +27,7 @@ import {
     type PiCommand,
     type PiHarnessOptions,
 } from "./harness.js";
-import { pi_args, type PiSpawnOptions } from "./pi-rpc.js";
+import { child_env, pi_args, type PiSpawnOptions } from "./pi-rpc.js";
 
 /** Time pi gets after SIGTERM before SIGKILL. pi flushes its transcript on SIGTERM. */
 const STOP_GRACE_MS = 5_000;
@@ -101,8 +101,7 @@ export class PiTtyHarness implements AgentHarness {
         );
         assert.ok(existsSync(spawn.cwd), `agent cwd ${spawn.cwd} does not exist`);
         const env: Record<string, string> = {
-            ...process_env_strings(),
-            ...spawn.env,
+            ...child_env(spawn),
             SPINNER_HARNESS: "tty",
             TERM: "xterm-256color",
         };
@@ -348,17 +347,6 @@ function load_node_pty(): { spawn: typeof PtySpawn } {
         }
     }
     return require_("node-pty") as { spawn: typeof PtySpawn };
-}
-
-/** `process.env` without the undefined values node-pty's typings reject. */
-function process_env_strings(): Record<string, string> {
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
-        if (value !== undefined) {
-            env[key] = value;
-        }
-    }
-    return env;
 }
 
 function key_of(dir: string, name: string): string {

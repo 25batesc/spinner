@@ -26,7 +26,7 @@ import { PiRpcHarness, default_extension_path, pi_spawn_plan } from "./harness.j
 import { events_of_transcript } from "./history.js";
 import { AgentManager, ensure_brief } from "./manager.js";
 import { models_of } from "./models.js";
-import { model_args, resolve_pi_binary, spawn_pi } from "./pi-rpc.js";
+import { child_env, model_args, resolve_pi_binary, spawn_pi } from "./pi-rpc.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = resolve(here, "..", "..", "test", "fixtures", "fake-pi.ts");
@@ -379,7 +379,7 @@ describe("the EGM spawn of a lead", () => {
             expect(lead.argv).toContain(join(egm_source_dir(home), "skills"));
             expect(lead.argv).toContain("subagents_enable");
             expect(lead.env).toMatchObject({
-                // The fake pi records only the SPINNER_* variables; the plan test checks the rest.
+                PI_SUBAGENTS_TEMP_ROOT: join(summary.path, "egm-runs"),
                 SPINNER_EGM_ROOT: egm_source_dir(home),
                 SPINNER_EGM_ARTIFACTS: join(summary.path, "design"),
             });
@@ -410,6 +410,81 @@ describe("the EGM spawn of a lead", () => {
             } else {
                 process.env["PI_CODING_AGENT_DIR"] = saved;
             }
+        }
+    });
+});
+
+describe("the environment of a spawned agent", () => {
+    it("drops inherited PI_SUBAGENT_* variables and keeps PI_CODING_AGENT_DIR", async () => {
+        // A daemon started inside a pi-subagents child inherits these; with them every
+        // agent's Spinner extension would stay off.
+        const inherited = {
+            PI_SUBAGENT_CHILD: "1",
+            PI_SUBAGENT_PARENT_SESSION: "parent",
+            PI_SUBAGENT_EXTRA_AGENT_DIRS: "/inherited/agents",
+        };
+        const saved = { ...process.env };
+        Object.assign(process.env, inherited);
+        const args_file = join(home.root, "args.json");
+        process.env["FAKE_PI_ARGS_FILE"] = args_file;
+        try {
+            const summary = create_session(home, { title: "Child" });
+            const harness = new PiRpcHarness({ pi: () => FAKE_PI });
+            const bus = new EventBus();
+            const manager = new AgentManager(home, { default: "rpc", rpc: harness }, bus);
+            await manager.add(summary, { name: "backend", brief: "# backend" });
+            const spawned = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
+            for (const key of Object.keys(inherited)) {
+                expect(Object.keys(spawned.env)).not.toContain(key);
+            }
+            expect(spawned.env["PI_CODING_AGENT_DIR"]).toBe(process.env["PI_CODING_AGENT_DIR"]);
+            expect(spawned.env["SPINNER_ROLE"]).toBe("worker");
+            await manager.stop_all();
+        } finally {
+            for (const key of [...Object.keys(inherited), "FAKE_PI_ARGS_FILE"]) {
+                if (saved[key] === undefined) {
+                    delete process.env[key];
+                } else {
+                    process.env[key] = saved[key];
+                }
+            }
+        }
+    });
+
+    it("keeps the PI_SUBAGENT_* variables the plan sets for an EGM lead", () => {
+        process.env["PI_SUBAGENT_EXTRA_AGENT_DIRS"] = "/inherited/agents";
+        process.env["PI_SUBAGENT_CHILD"] = "1";
+        try {
+            const summary = create_session(home, { title: "Lead" });
+            const brief = join(summary.path, "BRIEF.md");
+            writeFileSync(brief, "# lead\n");
+            const skills_dir = join(home.root, "skills");
+            mkdirSync(skills_dir);
+            const plan = pi_spawn_plan(
+                {
+                    name: "lead",
+                    cwd: summary.path,
+                    model: undefined,
+                    role: "lead",
+                    brief,
+                    pi_dir: join(summary.path, "agents", "lead", "pi"),
+                    session_dir: summary.path,
+                    egm: {
+                        root: home.root,
+                        skills_dir,
+                        agents_dir: "/egm/agents",
+                        runs_dir: join(summary.path, "egm-runs"),
+                        artifacts_dir: join(summary.path, "design"),
+                    },
+                },
+                { pi: () => FAKE_PI, extension: null },
+            );
+            const env = child_env(plan);
+            expect(env["PI_SUBAGENT_EXTRA_AGENT_DIRS"]).toBe("/egm/agents");
+            expect(Object.keys(env)).not.toContain("PI_SUBAGENT_CHILD");
+        } finally {
+            delete process.env["PI_SUBAGENT_EXTRA_AGENT_DIRS"];
+            delete process.env["PI_SUBAGENT_CHILD"];
         }
     });
 });

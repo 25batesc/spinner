@@ -16,7 +16,9 @@ interface Command {
 const args_file = process.env["FAKE_PI_ARGS_FILE"];
 if (args_file !== undefined && args_file !== "") {
     const spinner_env = Object.fromEntries(
-        Object.entries(process.env).filter(([key]) => key.startsWith("SPINNER_")),
+        Object.entries(process.env).filter(
+            ([key]) => key.startsWith("SPINNER_") || key.startsWith("PI_"),
+        ),
     );
     writeFileSync(
         args_file,

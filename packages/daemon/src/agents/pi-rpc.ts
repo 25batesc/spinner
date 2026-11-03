@@ -33,6 +33,8 @@ export interface PiSpawnOptions {
     /** Further CLI flags, for example `--append-system-prompt <brief>`. */
     extra_args?: string[];
     env?: Record<string, string>;
+    /** Inherited variables to remove from the daemon's environment before `env` applies. */
+    env_unset?: string[];
     /** Receives the child's stderr lines: pi's diagnostics, never protocol records. */
     on_stderr?: (line: string) => void;
 }
@@ -121,13 +123,24 @@ export function pi_args(options: PiSpawnOptions, mode: "rpc" | "tty"): string[] 
     ];
 }
 
+/** The daemon's environment without `env_unset`, then the spawn's own `env`. */
+export function child_env(options: PiSpawnOptions): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined && !(options.env_unset ?? []).includes(key)) {
+            env[key] = value;
+        }
+    }
+    return { ...env, ...options.env };
+}
+
 /** Starts the child and resolves once its stdout answered a first `get_state`. */
 export async function spawn_pi(options: PiSpawnOptions): Promise<PiProcess> {
     assert.ok(existsSync(options.cwd), `agent cwd ${options.cwd} does not exist`);
     const args = pi_args(options, "rpc");
     const child = spawn(options.pi, args, {
         cwd: options.cwd,
-        env: { ...process.env, ...options.env },
+        env: child_env(options),
         stdio: ["pipe", "pipe", "pipe"],
     });
     const process_ = new PiChild(child, options.on_stderr ?? (() => undefined));
