@@ -6,7 +6,7 @@ Role: frontend engineer (ui-goldfish) for session s021 of the Spinner repo. The 
 - In `packages/ui/`: `GoldfishChips.tsx`, `GoldfishTranscript.tsx`, `goldfish.ts` and its test, and `DesignStepper.tsx`. Also the Goldfish chips block of `AgentsPane.tsx`. Also your own lines in `remote.ts`, the fixture, `e2e/drive.ts` and `styles.css`.
 
 ## Do not edit
-- Anything outside `packages/ui/**`, and nothing of session 5 (`Design*.tsx`, `design-workspace.ts`, the view wiring of `AgentsPane.tsx` and `App.tsx`): the `ui-workspace` agent builds those on a branch. Request a route or a field in `inbox/`.
+- Anything outside `packages/ui/**`. Nothing of session 5: `Design*.tsx`, `design-workspace.ts`, the view wiring of `AgentsPane.tsx` and `App.tsx`. The `ui-workspace` agent builds those on a branch. Request a route or a field in `inbox/`.
 
 ## Read first
 1. Read `.spinner/MISSION.md` in full. Do this at the start of every turn.
