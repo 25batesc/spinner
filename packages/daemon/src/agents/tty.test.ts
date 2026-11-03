@@ -141,7 +141,8 @@ describe("the tty harness through the daemon", () => {
             argv: string[];
             env: Record<string, string>;
         };
-        expect(spawned.argv.slice(0, 4)).toEqual([
+        expect(spawned.argv.slice(0, 5)).toEqual([
+            "--approve",
             "--session-dir",
             join(summary.path, "agents", "backend", "pi"),
             "--session-id",

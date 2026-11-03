@@ -108,12 +108,16 @@ export function model_args(model: string | undefined): string[] {
 /**
  * The argument list both harnesses hand pi: the transcript, the model and the extra flags.
  * `rpc` prepends `--mode rpc`; `tty` leaves the mode out so pi opens its terminal UI.
+ * `--approve` trusts the worktree's project-local files for the run: the worktrees are the
+ * operator's own repositories, and without it pi stops on its "Trust project folder?"
+ * dialog, which no harness answers (dogfooding 2026-11-03, #23).
  */
 export function pi_args(options: PiSpawnOptions, mode: "rpc" | "tty"): string[] {
     assert.ok(options.session_id.length > 0, "a pi session id is required");
     assert.ok(options.session_dir.length > 0, "a pi session dir is required");
     return [
         ...(mode === "rpc" ? ["--mode", "rpc"] : []),
+        "--approve",
         "--session-dir",
         options.session_dir,
         "--session-id",

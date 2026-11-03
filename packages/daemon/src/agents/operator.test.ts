@@ -165,7 +165,8 @@ describe("the operator agent through the daemon", () => {
             env: Record<string, string>;
         };
         expect(realpathSync(spawned.cwd)).toBe(realpathSync(home.root));
-        expect(spawned.argv.slice(0, 4)).toEqual([
+        expect(spawned.argv.slice(0, 5)).toEqual([
+            "--approve",
             "--session-dir",
             join(home.root, "operator", "pi"),
             "--session-id",
@@ -230,7 +231,7 @@ describe("the operator agent through the daemon", () => {
         const spawned = JSON.parse(readFileSync(join(root, "args.json"), "utf8")) as {
             argv: string[];
         };
-        expect(spawned.argv.slice(2, 4)).toEqual(["--session-id", "operator"]);
+        expect(spawned.argv.slice(3, 5)).toEqual(["--session-id", "operator"]);
     }, 30_000);
 
     it("hears needs_human, settled, exited, a failed job and a message as notices", async () => {

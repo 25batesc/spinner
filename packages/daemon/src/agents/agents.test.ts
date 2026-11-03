@@ -181,6 +181,7 @@ describe("AgentManager with PiRpcHarness", () => {
         expect(spawned.argv).toEqual([
             "--mode",
             "rpc",
+            "--approve",
             "--session-dir",
             join(summary.path, "agents", "backend", "pi"),
             "--session-id",
