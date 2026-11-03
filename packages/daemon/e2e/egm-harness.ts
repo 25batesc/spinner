@@ -24,6 +24,21 @@
 //   W1   after the review, the workspace routes serve the brief, the doc and the consolidated
 //        report (5.3); the gates of P11 were answered through `POST …/design/answer`
 //
+// Build session 6 (`SPINNER_E2E_PROBES=approve`) skips P1 to P11. The driver writes a small
+// design doc and a consolidated report with two findings, names the doc through the
+// `design_doc` route, and runs the session-6 rows of the Verification Plan:
+//   R1   `egm-resolve` on the consolidated report from `POST …/design/run`, `Auto accept`
+//        through `POST …/design/answer`, until the resolve report is marked resolved
+//   A1   `approve and build`: the 409 with the listed blockers, the confirmation, the pinned
+//        hash, `approved.md`, the Log line, the build message, and Plan items from the lead
+//   E1   an edit to the doc clears the approval: `changed_after_approval`, the needs line,
+//        `.state.json` `approved: false`, the changed sections, and the lead's notice
+//   L1   the lead's code write is refused by the guard while re-approval is pending
+//   RA   re-approval with the changed sections shown: a second approval, the lock lifted
+//   PR1  `create PR` writes the PR body from the doc. No GitHub write: the scratch clone
+//        pushes to a local bare repository (`pushInsteadOf`), and the daemon's `gh` is a
+//        scratch script that records its arguments and answers a fake PR URL
+//
 // P4 runs before P3, so the brainstorm that P3 starts is the brainstorm of P11 without a
 // listing prompt in the middle. The driver waits on artifacts: the lead's `agent.settled`
 // event, then no live async run under `<session>/egm-runs` and no lead event for
@@ -34,8 +49,9 @@
 //     node packages/daemon/e2e/egm-harness.ts
 //
 // SPINNER_E2E_REPO (`owner/name`, default 25batesc/spinner-sandbox) picks the repository.
-// SPINNER_E2E_PROBES=short stops after P3 (no P11, P5, P8). The scratch directory is printed
-// and kept; the record is `<scratch>/egm-evidence.json`.
+// SPINNER_E2E_PROBES=short stops after P3 (no P11, P5, P8); SPINNER_E2E_PROBES=approve runs
+// the build session 6 rows only. The scratch directory is printed and kept; the record is
+// `<scratch>/egm-evidence.json`.
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -50,6 +66,11 @@ const daemon_main = resolve(here, "..", "dist", "main.js");
 
 const REPO = process.env["SPINNER_E2E_REPO"] ?? "25batesc/spinner-sandbox";
 const SHORT = process.env["SPINNER_E2E_PROBES"] === "short";
+const APPROVE = process.env["SPINNER_E2E_PROBES"] === "approve";
+/** The session-6 run's bound in all (its stop rule, logged before the run). */
+const APPROVE_MS = 75 * 60_000;
+/** Lead turns in the resolve step before R1 fails. */
+const RESOLVE_TURNS_MAX = 8;
 const PASTE = "Add a --version flag to the sandbox CLI";
 /** A lead turn counts as finished after this long without a lead event. */
 const QUIET_MS = 10_000;
@@ -176,6 +197,10 @@ async function main(): Promise<void> {
     await wait_for(() => hello_seen(), "the lead extension's hello", 60_000);
     check(await wait_idle(0, PROBE_MS), "the lead settled after the paste");
 
+    if (APPROVE) {
+        await probe_session6();
+        return;
+    }
     await probe_p1();
     await probe_p2a();
     await probe_p2b();
@@ -706,6 +731,354 @@ async function probe_w1(doc: string | null): Promise<void> {
     );
 }
 
+// --- build session 6 ---------------------------------------------------------------------
+
+/** The seeded design doc: two plan entries, a `Status:` line for the approval to rewrite. */
+function seeded_doc(): string {
+    return [
+        "# Sandbox CLI: a --version flag",
+        "",
+        "*   **Author:** the session-6 e2e driver",
+        "*   **Status:** Reviewed",
+        "",
+        "## Overview",
+        "",
+        "The sandbox repository gets a tiny Node CLI, `cli.js`, that prints its version with " +
+            "`--version`. The version comes from `package.json`.",
+        "",
+        "## Goals",
+        "",
+        "*   `node cli.js --version` prints the `version` field of `package.json` and exits 0.",
+        "*   Any other argument prints a one-line usage and exits 1.",
+        "",
+        "## Detailed Implementation Plan",
+        "",
+        "##### 1.1 `package.json` (Create)",
+        "",
+        '*   **Proposed Changes**: `{ "name": "sandbox-cli", "version": "0.1.0" }`.',
+        "",
+        "##### 1.2 `cli.js` (Create)",
+        "",
+        "*   **Proposed Changes**: read `package.json` next to the script with `fs`, print " +
+            "`version` for `--version`, else print `usage: node cli.js --version` and exit 1.",
+        "",
+    ].join("\n");
+}
+
+/** The seeded consolidated report: two findings in the synthesizer layout. */
+function seeded_report(doc: string): string {
+    return [
+        "# Consolidated Review Report",
+        "",
+        `**Target:** \`${doc}\``,
+        "",
+        "## Findings",
+        "",
+        "### The usage text is not specified for no arguments - Severity: High",
+        "*   **Persona:** implementation_readiness",
+        "*   **Discrepancy:** 1.2 says 'any other argument'; running with no argument is " +
+            "not covered.",
+        "*   **Rationale:** The builder must decide the no-argument behaviour.",
+        "",
+        "### The read path of package.json is ambiguous - Severity: High",
+        "*   **Persona:** design_critic",
+        "*   **Discrepancy:** 'next to the script' does not say `__dirname` or the cwd.",
+        "*   **Rationale:** The two differ when the CLI runs from another directory.",
+        "",
+    ].join("\n");
+}
+
+/**
+ * The session-6 rows (R1, A1, E1, L1, RA, PR1). Stop rules, logged before the run: the
+ * whole probe `APPROVE_MS`; the resolve step `RESOLVE_TURNS_MAX` turns; each lead turn
+ * `PROBE_MS`; the first failed `check` ends the run; no GitHub write (`make_fake_gh`).
+ */
+async function probe_session6(): Promise<void> {
+    const started_at = Date.now();
+    const in_time = (): boolean => Date.now() - started_at < APPROVE_MS;
+    step("S6: seed the design doc and the consolidated report");
+    const designs = join(worktree, "docs", "designs");
+    mkdirSync(designs, { recursive: true });
+    const doc = join(designs, "version-flag.md");
+    writeFileSync(doc, seeded_doc());
+    const named = await put(`/sessions/${session_dir}/design/doc`, { path: doc });
+    check(named.status === 200, `PUT …/design/doc → ${named.status} ${await error_text(named)}`);
+    const report = join(session_path, "design", "consolidated_review_report.md");
+    writeFileSync(report, seeded_report(doc));
+    const ready = async (): Promise<boolean> => (await design_view()).stage === "design-ready";
+    await wait_for(ready, "the stage design-ready", 30_000);
+
+    await probe_r1(doc, report, in_time);
+    if (!in_time()) {
+        return record("S6", false, "past the session-6 bound after R1");
+    }
+    const blockers = await probe_a1(doc);
+    if (blockers === null || !in_time()) {
+        return;
+    }
+    await probe_e1_l1(doc);
+    await probe_ra(blockers);
+    if (in_time()) {
+        await probe_pr1();
+    }
+}
+
+/** R1: `egm-resolve` from the app, `Auto accept`, until `Status: resolved` clears the stage. */
+async function probe_r1(doc: string, report: string, in_time: () => boolean): Promise<void> {
+    step("R1: egm-resolve on the consolidated report, Auto accept");
+    const args =
+        `TargetFile: ${doc}. LineRange: full file. ` + `FindingsList: the findings in ${report}.`;
+    let last = (await send_turn("run", { skill: "egm-resolve", args })).assistant;
+    let turns = 1;
+    let accepted = false;
+    for (;;) {
+        const view = await design_full();
+        if (view.resolve === "resolved" && view.stage !== "resolving") {
+            const detail = `stage ${view.stage} after ${turns} turns; resolve resolved`;
+            return record("R1", true, detail);
+        }
+        if (turns >= RESOLVE_TURNS_MAX || !in_time()) {
+            const detail = `resolve ${view.resolve}, stage ${view.stage} after ${turns} turns`;
+            return record("R1", false, detail);
+        }
+        let text = "Continue.";
+        if (view.gate !== null) {
+            text = view.gate.options[0] ?? "Continue.";
+        } else if (!accepted && view.stage === "resolving") {
+            text = "Auto accept";
+            accepted = true;
+        } else if (accepted && view.resolve === "open") {
+            text = "Finish Step 5: write the Status: resolved line at the top of the report.";
+        }
+        console.log(`  resolve: ${first_line(last)} → ${text}`);
+        last = (await send_turn("answer", { text })).assistant;
+        turns += 1;
+    }
+}
+
+/**
+ * A1: approve and build. The newest report lists the High findings, so the first post is a
+ * 409 with the count; the second confirms it. Returns the count, or null on a failure.
+ */
+async function probe_a1(doc: string): Promise<number | null> {
+    step("A1: approve and build, through the blocker confirmation");
+    const route = `/sessions/${session_dir}/design/approve`;
+    const before = lead_settles;
+    const first = await post(route, { build: true });
+    let blockers = 0;
+    if (first.status === 409) {
+        const refusal = (await first.json()) as { error: string; blockers: number | null };
+        console.log(`  409: ${refusal.error}`);
+        if (refusal.blockers === null) {
+            record("A1", false, `409 without a count: ${refusal.error}`);
+            return null;
+        }
+        blockers = refusal.blockers;
+        const confirmed = await post(route, { build: true, blockers_confirmed: blockers });
+        const status = confirmed.status;
+        check(status === 200, `approve with ${blockers} listed blockers → ${status}`);
+    } else {
+        check(first.status === 200, `approve → ${first.status} ${await error_text(first)}`);
+    }
+    await wait_idle(before, PROBE_MS);
+    const view = await design_full();
+    const text = readFileSync(doc, "utf8");
+    const copy = join(session_path, "design", "approved.md");
+    const mission = readFileSync(join(session_path, "MISSION.md"), "utf8");
+    const users = (await lead_messages()).filter((message) => message.role === "user");
+    const built = users.some((message) =>
+        text_of(message.content).includes("The design is approved:"),
+    );
+    const plan_items = mission.split("\n").filter((line) => /^- \[[ x]\] .*plan 1\.\d/.test(line));
+    const pass =
+        view.stage === "approved" &&
+        text.includes("**Status:** Approved") &&
+        existsSync(copy) &&
+        mission.includes("design approved: docs/designs/version-flag.md") &&
+        state_approved() === true &&
+        built &&
+        plan_items.length >= 2;
+    record(
+        "A1",
+        pass,
+        `listed blockers ${blockers}; stage ${view.stage}; status line rewritten ` +
+            `${text.includes("**Status:** Approved")}; approved.md ${existsSync(copy)}; ` +
+            `build message sent ${built}; Plan items ${plan_items.length}; ` +
+            `worktree ${build_changes().join(", ") || "unchanged"}`,
+    );
+    return blockers;
+}
+
+/** E1 and L1: an edit clears the approval, tells the lead, and locks its code writes. */
+async function probe_e1_l1(doc: string): Promise<void> {
+    step("E1: an edit to the doc clears the approval");
+    const settles = lead_settles;
+    const text = readFileSync(doc, "utf8");
+    writeFileSync(doc, text.replace("exits 0.", "exits 0, with no other output."));
+    // The view derives `changed_after_approval` from the disk at once; `needs_human` comes
+    // from `session.yaml`, which the tracker writes when its doc watcher fires. Wait on both.
+    const reapprove = "re-approve the design (changed since approval)";
+    await wait_for(
+        async () => (await design_full()).changed_after_approval,
+        "changed_after_approval",
+        30_000,
+    );
+    await wait_for(async () => (await needs_human()) === reapprove, "the needs line", 30_000);
+    const view = await design_full();
+    const changes = await design_changes();
+    const needs = await needs_human();
+    await wait_idle(settles, PROBE_MS);
+    // The notice is a custom message, which the events route does not list: read the
+    // lead's pi transcripts.
+    const noticed = lead_transcripts().includes("The design doc changed in Goals");
+    record(
+        "E1",
+        view.changed_after_approval &&
+            state_approved() === false &&
+            changes.includes("Goals") &&
+            needs === reapprove &&
+            noticed,
+        `stage ${view.stage}; needs ${needs}; changed sections ${changes.join(", ")}; ` +
+            `.state.json approved ${state_approved()}; the lead's notice ${noticed}`,
+    );
+
+    step("L1: the lead's code write is refused until re-approval");
+    const target = join(worktree, "LOCKTEST.txt");
+    const turn = await prompt_turn(
+        `Use the write tool once to create ${target} with the text "x". Do not use bash. ` +
+            "Then report the tool's result in one line.",
+    );
+    const refused = turn.tools.includes("design-only scope");
+    record(
+        "L1",
+        refused && !existsSync(target),
+        `tool refused: ${refused}; file exists: ${existsSync(target)}; reply: ` +
+            first_line(turn.assistant),
+    );
+}
+
+/** RA: re-approval with the changed sections shown; the lock lifts. */
+async function probe_ra(blockers: number): Promise<void> {
+    step("RA: re-approve with the changes shown");
+    const shown = await design_changes();
+    const body = blockers > 0 ? { build: false, blockers_confirmed: blockers } : { build: false };
+    const response = await post(`/sessions/${session_dir}/design/approve`, body);
+    const view = await design_full();
+    const after = await design_changes();
+    record(
+        "RA",
+        response.status === 200 &&
+            view.stage === "approved" &&
+            view.approvals === 2 &&
+            state_approved() === true &&
+            after.length === 0,
+        `shown before: ${shown.join(", ")}; approve → ${response.status}; stage ${view.stage}; ` +
+            `approvals ${view.approvals}; .state.json approved ${state_approved()}`,
+    );
+}
+
+/** PR1: the lead commits, then `create PR` writes the body from the doc. */
+async function probe_pr1(): Promise<void> {
+    step("PR1: create PR writes the body from the doc");
+    if (build_changes().filter((line) => line.startsWith("commit ")).length === 0) {
+        await prompt_turn(
+            "Finish the doc's plan in the worktree and commit it there with git. Do not push.",
+        );
+    }
+    const started = await post(`/sessions/${session_dir}/pr`, {});
+    check(started.status === 202, `POST …/pr → ${started.status} ${await error_text(started)}`);
+    const job = await wait_job(((await started.json()) as { job: { id: string } }).job.id);
+    job.log.forEach((line) => console.log(`  job: ${line}`));
+    const body_file = join(session_path, "artifacts", "pr-app.md");
+    const body = existsSync(body_file) ? readFileSync(body_file, "utf8") : "";
+    const calls_file = join(scratch, "gh-calls.txt");
+    const calls = existsSync(calls_file) ? readFileSync(calls_file, "utf8") : "";
+    const pushed = safe(() =>
+        execFileSync("git", ["--git-dir", join(scratch, "origin.git"), "branch", "--list"])
+            .toString()
+            .trim(),
+    );
+    const from_doc =
+        body.includes("The sandbox repository gets a tiny Node CLI") &&
+        body.includes("## Goals") &&
+        body.includes("Design: `docs/designs/version-flag.md`");
+    record(
+        "PR1",
+        from_doc && calls.includes("pr create"),
+        `job ${job.state} (${job.error ?? "no error"}; the fake gh answers only pr create); ` +
+            `body from the doc ${from_doc}; local push branches: ${pushed ?? "?"}; ` +
+            `gh calls: ${calls.split("\n").filter((line) => line.length > 0).length}`,
+    );
+}
+
+interface DesignFull {
+    stage: string | null;
+    resolve: string;
+    gate: { question: string; options: string[] } | null;
+    changed_after_approval: boolean;
+    approvals: number;
+}
+
+async function design_full(): Promise<DesignFull> {
+    const response = await fetch(`${base}/sessions/${session_dir}`);
+    const body = (await response.json()) as {
+        session: {
+            design?: {
+                stage: string | null;
+                resolve: string;
+                gate: { question: string; options: string[] } | null;
+                changed_after_approval: boolean;
+                approvals: unknown[];
+            };
+        };
+    };
+    const design = body.session.design;
+    return {
+        stage: design?.stage ?? null,
+        resolve: design?.resolve ?? "none",
+        gate: design?.gate ?? null,
+        changed_after_approval: design?.changed_after_approval ?? false,
+        approvals: design?.approvals.length ?? 0,
+    };
+}
+
+async function design_changes(): Promise<string[]> {
+    const response = await fetch(`${base}/sessions/${session_dir}/design/changes`);
+    const body = (await response.json()) as { changes: Array<{ heading: string }> };
+    return body.changes.map((change) => change.heading);
+}
+
+async function needs_human(): Promise<string | null> {
+    const response = await fetch(`${base}/sessions/${session_dir}`);
+    const body = (await response.json()) as {
+        session: { summary: { session: { needs_human: string | null } } };
+    };
+    return body.session.summary.session.needs_human;
+}
+
+/** The text of the lead's pi transcripts (`agents/lead/pi/*.jsonl`), joined. */
+function lead_transcripts(): string {
+    const dir = join(session_path, "agents", "lead", "pi");
+    if (!existsSync(dir)) {
+        return "";
+    }
+    return readdirSync(dir)
+        .filter((name) => name.endsWith(".jsonl"))
+        .map((name) => readFileSync(join(dir, name), "utf8"))
+        .join("\n");
+}
+
+/** `approved` of `<session>/design/.state.json`, or null when it does not read. */
+function state_approved(): boolean | null {
+    const file = join(session_path, "design", ".state.json");
+    const state = safe(() => readFileSync(file, "utf8"));
+    if (state === null) {
+        return null;
+    }
+    const parsed = JSON.parse(state) as { approved?: unknown };
+    return typeof parsed.approved === "boolean" ? parsed.approved : null;
+}
+
 // --- the lead --------------------------------------------------------------------------
 
 interface Turn {
@@ -1053,9 +1426,13 @@ async function stop_everything(): Promise<void> {
 // --- plumbing (as chat-first.ts) -------------------------------------------------------
 
 function make_project(project_: string, repo: string): void {
-    execFileSync("git", ["clone", "--quiet", `https://github.com/${REPO}.git`, repo], {
-        stdio: "ignore",
-    });
+    const remote = `https://github.com/${REPO}.git`;
+    execFileSync("git", ["clone", "--quiet", remote, repo], { stdio: "ignore" });
+    // Session 6's PR row pushes: every push of the clone and its worktrees goes to a local
+    // bare repository; `git remote get-url origin` still names github.com for the allowlist.
+    const bare = join(scratch, "origin.git");
+    execFileSync("git", ["clone", "--quiet", "--bare", repo, bare], { stdio: "ignore" });
+    execFileSync("git", ["-C", repo, "config", `url.${bare}.pushInsteadOf`, remote]);
     mkdirSync(project_, { recursive: true });
     const owner = REPO.split("/")[0] ?? "";
     writeFileSync(
@@ -1067,7 +1444,9 @@ function make_project(project_: string, repo: string): void {
             `  app: { path: ${repo}, base: main }`,
             "services: {}",
             "pipeline:",
-            `  github: { org: ${owner}, write_repos: [] }`,
+            APPROVE
+                ? `  github: { org: ${owner}, owner_login: ${owner}, write_repos: [${REPO}] }`
+                : `  github: { org: ${owner}, write_repos: [] }`,
             "",
         ].join("\n"),
     );
@@ -1088,9 +1467,11 @@ function clean_env(): NodeJS.ProcessEnv {
 }
 
 function start_daemon(): ChildProcess {
+    const fake_bin = APPROVE ? `${make_fake_gh()}:` : "";
     return spawn(process.execPath, [daemon_main], {
         env: {
             ...clean_env(),
+            PATH: `${fake_bin}${process.env["PATH"] ?? ""}`,
             SPINNER_HOME: home_root,
             SPINNER_PORT: String(port),
             SPINNER_PROXY_DIR: join(scratch, "proxy"),
@@ -1101,6 +1482,30 @@ function start_daemon(): ChildProcess {
         },
         stdio: ["ignore", "inherit", "inherit"],
     });
+}
+
+/**
+ * A `gh` for the session-6 run that never reaches GitHub: it appends its arguments to
+ * `<scratch>/gh-calls.txt`, answers `pr create` with a fake PR URL, and fails every other
+ * call. Returns the directory to put first on the daemon's PATH.
+ */
+function make_fake_gh(): string {
+    const bin = join(scratch, "bin");
+    mkdirSync(bin, { recursive: true });
+    const calls = join(scratch, "gh-calls.txt");
+    const script = [
+        "#!/bin/sh",
+        `printf '%s\\n' "$*" >> '${calls}'`,
+        'if [ "$1" = "pr" ] && [ "$2" = "create" ]; then',
+        `  echo "https://github.com/${REPO}/pull/999999"`,
+        "  exit 0",
+        "fi",
+        "echo 'fake gh: no GitHub in this e2e' >&2",
+        "exit 1",
+        "",
+    ].join("\n");
+    writeFileSync(join(bin, "gh"), script, { mode: 0o755 });
+    return bin;
 }
 
 async function health(): Promise<boolean> {
