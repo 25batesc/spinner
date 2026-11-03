@@ -57,7 +57,7 @@ WebSockets below.
 | `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
 | `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. |
 | `POST /sessions/:dir/agents/:name/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 with the state for a stopped agent. |
-| `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. |
+| `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. A steer to `lead` with `source: "operator"` adds 1 to `outcomes.operator_steers`; below. |
 | `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |
 | `POST /sessions/:dir/agents/:name/stop` | | `AgentCommandResponse` | The transcript stays. |
 | `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
@@ -102,6 +102,10 @@ WebSockets below.
 | `GET /sessions/:dir/design/files/:name` | | `text/markdown` | One file of `<session>/design/`. 400 for a bad name, 404 when absent. |
 | `GET /sessions/:dir/design/reviews/:run/:name` | | `text/markdown` | One report of an archived review run. 400 for a bad run id or name, 404 when absent. |
 | `GET /sessions/:dir/design/doc` | | `text/markdown` | The design doc from the worktree of `design.repo`. 404 before `design_doc` and when the file is missing. |
+| `POST /sessions/:dir/design/approve` | `DesignApproveRequest` | `SessionResponse` | Approves the design doc and, with `build`, prompts the lead to build; below. 400 for a bad body, 409 with a `DesignApproveRefusal`. |
+| `DELETE /sessions/:dir/design/approve` | | `SessionResponse` | Removes the approval and `approved.md`. `design.approvals` keeps its history. |
+| `GET /sessions/:dir/design/approved` | | `text/markdown` | The doc as approved, `<session>/design/approved.md`. 404 before an approval. |
+| `GET /sessions/:dir/design/changes` | | `DesignChangesResponse` | The `## ` sections changed since the approval; an empty list without a change. |
 
 ## Events WebSocket
 
@@ -351,6 +355,57 @@ An absent file is 404.
 `GET /sessions/:dir/design/doc` answers the doc at `<worktree of design.repo>/<design.doc>` as `text/markdown`.
 It answers 404 before `design_doc` and when the file is missing.
 The daemon does not parse report findings.
+
+### Approval and the build
+
+`POST /sessions/:dir/design/approve` takes `{ build, blockers_confirmed? }` ([designs/egm-adoption.md](designs/egm-adoption.md), T10).
+It does these steps in order:
+
+1.  It refuses with 409 off the design track, without `design.doc`, at stage `resolving`, and with an open gate.
+2.  It counts the blockers that the newest report of the current run lists. The newest report is `goldfish_review_report.md`, else `consolidated_review_report.md`, else `implementation_readiness_report.md`. When the count N is above 0 and `blockers_confirmed` is not N, it refuses with 409.
+3.  It refuses with 409 when the doc is missing from the worktree, and when `build` is true while the lead is not running. No write happens before these checks.
+4.  It rewrites the doc's `*   **Status:**` line to `Approved`. A doc without that line is not changed.
+5.  It hashes the doc (normalized) and copies the text to `<session>/design/approved.md`.
+6.  It writes `design.approved` with the path, repo, hash, time, N and round, appends the same record to `design.approvals`, and clears `design.changed_after_approval`.
+7.  It appends the Log line `design approved: <path> (<sha12>, <N> listed blockers)` as author `spinner`.
+8.  With `build`, it prompts the lead with the build message.
+
+A 409 body is a `DesignApproveRefusal`: `{ error, blockers }`. `blockers` is N for the refusal of step 2 and null for the others.
+The blocker count reads only `##` to `####` headings outside code fences.
+Severity mode counts the headings with `Severity: Blocker` or `Severity: High`.
+When it finds none, section mode applies. A blocker section starts at a level-2 or level-3 heading with `🔴` or `Blockers` and ends at the next heading of that level or higher.
+Section mode counts the headings one level below the section heading.
+The count does not know which blockers a resolve pass fixed, so the UI calls them "listed".
+
+The build message names the absolute doc path and the first 12 characters of the hash.
+It tells the lead to add one `MISSION.md` Plan item per `##### n.n` entry of the doc's plan with `mission_plan add`.
+It also tells the lead to tick each item when its entry is done.
+The daemon does not parse the doc's plan.
+
+The design tracker hashes the doc on every change.
+When an approval exists and the hash differs, it sets `design.changed_after_approval`, and the guard locks the lead's code writes again.
+Once per new hash, it sends every running agent of the session the text "The design doc changed in <sections>; the approval is invalidated. Your code writes stay locked until the operator re-approves."
+An agent without `notify` (the rpc harness) gets the text as a steer.
+The daemon keeps the notified hash in memory, so a daemon restart sends the notice once more.
+
+`GET /sessions/:dir/design/changes` answers `{ changes }`.
+Each change is `{ heading, approved, current }` for one `## ` section of `approved.md` and the doc that differs by heading or body. A side without the section is null.
+Text above the first `## ` heading is not compared, so the status line never counts.
+`DELETE /sessions/:dir/design/approve` removes `design.approved`, `design.changed_after_approval` and `approved.md`. The lead's code writes are then locked until the next approval.
+
+### PR body and outcome counters
+
+With an approved design, `create PR` writes the PR body from the doc in the designs repo's worktree.
+The body holds the `## Overview` body, the `## Goals` section, the doc path and the session id.
+The Slack post's summary line is the first sentence of `## Overview`, at most 200 characters. A session without an approved doc keeps the mission-based body and line.
+The PR reviewers' brief names the approved doc and asks them to name each place where the code differs from it.
+
+`session.yaml` `outcomes` holds two counters: `fix_rounds` and `operator_steers`.
+A `fix` job adds 1 to `fix_rounds` when it starts.
+A steer through `POST /sessions/:dir/agents/lead/steer` adds 1 to `operator_steers` only when the body has `source: "operator"`. The UI's message box sets it; the extension tools do not.
+`source` with any other value answers 400.
+A text typed in the lead's terminal does not pass through the route, so the counter is a lower bound.
+`spinner outcomes` compares the counters per PR between the design and the direct track.
 
 ## Stack logs
 

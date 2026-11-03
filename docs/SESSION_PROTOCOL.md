@@ -177,6 +177,9 @@ design:
   approved: { path: docs/designs/csv-export.md, repo: web, sha256: 9f2c..., at: 2026-11-04T11:40:00+01:00, blockers: 0, round: 1 }
   approvals: [ ... ]       # every approval, oldest first, at most 100
   changed_after_approval: false
+outcomes:                  # absent before EGM build session 6
+  fix_rounds: 1
+  operator_steers: 3
 rounds:                    # appended by reset since the EGM design, at most 200
   - round: 1
     branch: feat/csv-export
@@ -194,6 +197,7 @@ rounds:                    # appended by reset since the EGM design, at most 200
 | `design.review_run` | The review run that `POST …/design/run` started: the id `r<n>`, the preset (null for `egm-review-loop`) and the start time. |
 | `design.approved`, `design.approvals` | The current approval and every approval, each with the normalized SHA-256 of the doc. |
 | `design.changed_after_approval` | True when the doc's hash no longer matches the approval: the approval is invalidated and the operator re-approves. |
+| `outcomes` | `fix_rounds`: one per `fix` job. `operator_steers`: one per steer that the operator sent to the lead from the UI's message box. Both count across rounds. |
 | `rounds` | One record per finished round. `merged_at` is the PR's `last_activity` when it merged, else null. Rounds before the EGM design are read from `## Previous rounds` in `MISSION.md`. |
 
 The design stage comes from these rules; the first match wins.
@@ -202,7 +206,7 @@ The design stage comes from these rules; the first match wins.
 | # | Stage | Fact |
 |---|---|---|
 | 1 | `approved` | `design.approved.sha256` equals the normalized hash of the doc now. |
-| 2 | `resolving` | `goldfish_review_report.md` exists, and its first non-empty line is not `Status: resolved`. |
+| 2 | `resolving` | `goldfish_review_report.md` exists, and none of its first 10 non-empty lines reads `Status: resolved` once the Markdown emphasis is removed. |
 | 3 | `design-ready` | `design.doc` is set, and `consolidated_review_report.md` or `implementation_readiness_report.md` exists, or `intermediate_zoom_out_report.md` exists while the review run's preset is `feature_spec` or no run is recorded. |
 | 4 | `design-review` | `design.doc` is set, and at least one review report exists. |
 | 5 | `drafted` | `design.doc` is set. |
@@ -238,6 +242,20 @@ The report files directly in `<session>/design/` move into `<session>/design/rev
 The new run gets the next free id and is recorded in `design.review_run`. A new run never takes the id of an archived one.
 Ids go up to `r99`. Past it the route answers 409 and asks the operator to move `reviews/` aside by hand.
 A review typed in the lead's terminal does not archive; EGM then overwrites the reports with the same names.
+
+#### Approval and the build
+
+The operator approves the design with one click, `approve and build` ([DAEMON_API.md](DAEMON_API.md#approval-and-the-build)).
+The approval pins the doc's normalized hash and copies the doc to `<session>/design/approved.md`.
+When the newest review report lists N blockers, the approval needs the confirmation "approve with N listed blockers", and the record keeps N.
+With the build, the lead gets a message that tells it to add one Plan item per `##### n.n` entry of the doc's plan.
+The message also tells it to tick each item when its entry is done.
+
+Before the first approval, a design-track lead can write only the design doc (the designs directory) and the session's own files.
+The extension's guard refuses its other `edit` and `write` calls. Workers and direct-track leads are not affected.
+An edit to the doc after approval invalidates the approval: `changed_after_approval` becomes true, and the guard locks the lead's code writes again.
+Every running agent of the session gets one notice per new doc hash that names the changed sections.
+The operator re-approves with the changed sections shown, or removes the approval.
 
 ## `MISSION.md`
 
@@ -450,7 +468,7 @@ So that agents follow the protocol without being told every turn, `spinnerd` loa
 
 - **System prompt section**: session id, hostnames, the agent's `BRIEF.md`, the full `MISSION.md`, and a one-line digest per other agent (`admin-ui: blocked on /refunds`).
 - **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. The lead's `ask_question(questions)` asks one EGM gate. `questions` is the JSON text of EGM's payload, `[{"question": "...", "options": ["...", "..."], "is_multi_select": false}]` or `{"questions": [...]}`, with exactly one single-select question and 2 to 6 options. The tool refuses any other payload and calls nothing. Otherwise it writes `design.gate` and tells the lead to end its turn. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
-- **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first.
+- **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first. On the design track it also refuses a lead's `edit`/`write` outside the designs directory and the session's files. The refusal holds until the design is approved, and again while a changed design waits for re-approval. `bash` is not covered.
 
 Until then, the brief carries these instructions, and the operator serializes by running only two or three agents at once.
 

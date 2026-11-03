@@ -394,6 +394,29 @@ A result reaches the lead without the daemon. An async launch returns a receipt 
 
 The global cap holds new skill starts only. The daemon cannot stop a launch inside pi, so a lead that is already in a skill can pass the cap by one stage's fan-out. Cost is shown, not enforced.
 
+Build session 6 closes the loop: approval, the build handoff, the PR body and the design-only guard ([DAEMON_API.md](DAEMON_API.md#approval-and-the-build)):
+
+```text
+UI approve ──POST …/design/approve──▶ daemon: status line, hash, approved.md, design.approved, Log ──prompt──▶ lead (build)
+doc edit ──watcher──▶ DesignTracker: hash differs ──▶ changed_after_approval, .state.json approved: false
+                                                   └──notify_all (steer fallback)──▶ every agent of the session
+lead write ──tool_call──▶ extension guard: .state.json ──▶ refused outside the designs dir until re-approval
+create PR ──▶ PR body from the approved doc's Overview and Goals
+```
+
+| Module | Role |
+| --- | --- |
+| `egm/approve.ts` | `approve_design` follows T10; `count_listed_blockers` reads the newest report's headings; `clear_approval` removes the approval and keeps the history. |
+| `egm/design.ts` | The tracker sends the change notice once per hash and computes the changed `## ` sections for `GET …/design/changes`. |
+| `agents/manager.ts` | `notify_all` with `steer_fallback` reaches an rpc agent by steer. |
+| `pi-extension/src/guard.ts` | A design-track lead whose `.state.json` reads `approved: false` writes only inside the designs directory and the session's own files. |
+| `egm/pr-body.ts` | The PR body and the Slack summary line from the approved doc. |
+| `pipeline/outcomes.ts` | The `fix_rounds` and `operator_steers` counters. |
+
+The guard covers `edit` and `write` only. A `bash` command can still write a file; the lead brief and EGM's design-only scope are the limit there.
+The guard reads `.state.json` before each check, so an approval, an invalidation or a switch to `direct` applies at the lead's next write.
+The worktrees live under `<session>/worktrees/`, so the design rule runs before the session-directory exemption and counts `worktrees/` as code, except the designs directory.
+
 ### Storage
 
 Files, no database. Every session is a directory of YAML, Markdown and JSONL under `~/.spinner/sessions/` ([layout](SESSION_PROTOCOL.md#where-everything-lives)); the daemon's only state is process handles and an in-memory index it rebuilds from the tree at start. Reasons: an agent reads and writes the same files with its ordinary tools; a person can `cat`, `grep` and `git`-archive a session; the pi transcripts are already JSONL files; there is no migration tooling beyond the `version` field; and a crashed daemon loses nothing.
