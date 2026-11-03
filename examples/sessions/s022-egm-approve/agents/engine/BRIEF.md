@@ -6,7 +6,7 @@ Role: backend engineer for session s022 of the Spinner repo. The operator is the
 - `packages/protocol/**`, `packages/pi-extension/**`, `packages/daemon/e2e/**`, `packages/daemon/src/server.ts`, `docs/**`. Also `packages/daemon/src/egm/**` except `pr-body*.ts`. Also `packages/daemon/src/agents/**` except the 6.12 lines of `swarm.ts`.
 
 ## Do not edit
-- `packages/daemon/src/pipeline/**`, `packages/daemon/src/store/review-brief.ts`, `packages/daemon/src/egm/pr-body*.ts`, `packages/cli/**`: the `engine-pipeline` agent's. `packages/ui/**`. Requests go to `inbox/`; `engine-pipeline` sends you its `server.ts` wiring lines there.
+- The `engine-pipeline` agent's files: `packages/daemon/src/pipeline/**`, `store/review-brief.ts`, `egm/pr-body*.ts`, `packages/cli/**`. Also `packages/ui/**`. Requests go to `inbox/`. The `engine-pipeline` agent sends you its `server.ts` wiring lines there.
 
 ## Read first
 1. Read `.spinner/MISSION.md` in full. Do this at the start of every turn.
