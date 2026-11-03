@@ -1,11 +1,13 @@
 // The session's actions, at the right end of the context bar: the local stack, the pipeline,
-// and behind a `⋯` menu the two that end a round or the session. It left the middle pane so
+// and behind a `⋯` menu the two that end a round or the session: `reset`, and `archive`, which
+// runs the `close` job after one in-place confirm (s038). It left the middle pane so
 // that a switch between the agents, mission and threads views changes the whole pane. On a
 // narrow window every button moves into the menu, so the bar keeps its title and pills.
 import { useEffect, useState } from "react";
 
 import type { SessionView } from "@spinner/protocol";
 
+import { ARCHIVE_QUESTION } from "./CardArchive.tsx";
 import { DesignActions } from "./DesignActions.tsx";
 import { IconButton } from "./PaneHead.tsx";
 import { PipelineActions } from "./PipelineActions.tsx";
@@ -28,6 +30,8 @@ export interface SessionToolbarProps {
     view?: SessionView | undefined;
     /** Where a refused design run goes: the drawer, as a failed job's error does. */
     onError?: ((message: string) => void) | undefined;
+    /** The confirmed `archive`: the caller runs `close` and moves the selection. */
+    onArchive: (dir: string) => void;
 }
 
 /** Under this window width the whole toolbar is the menu. */
@@ -38,8 +42,10 @@ const SESSION_TIPS = {
     up: "Start this session's stack on this machine.",
     down: "Stop the local stack; the database and the volumes stay.",
     reset: "Start the next round: a new branch from a fresh base, the facts cleared.",
-    close: "Remove the containers, the database and the worktrees, and archive the session.",
 } as const;
+
+const ARCHIVE_TIP =
+    "Archive the session: its agents stop; the containers, the database and the worktrees go.";
 
 type SessionAction = keyof typeof SESSION_TIPS;
 
@@ -58,6 +64,12 @@ export function SessionToolbar(props: SessionToolbarProps) {
     const { dir, busy, openPr, run, view } = props;
     const compact = useCompact();
     const [open, setOpen] = useState(false);
+    // The `archive` item asks once inside the menu; a closed menu forgets the question.
+    const [asking, setAsking] = useState(false);
+    const toggleMenu = () => {
+        setOpen(!open);
+        setAsking(false);
+    };
     const off = dir === undefined || busy;
     const post = (action: SessionAction) => () => {
         setOpen(false);
@@ -93,10 +105,38 @@ export function SessionToolbar(props: SessionToolbarProps) {
     const design = view?.design === undefined ? null : (
         <DesignActions view={view} inMenu={compact} onError={props.onError ?? (() => undefined)} />
     );
+    const archive = () => {
+        setOpen(false);
+        setAsking(false);
+        if (dir !== undefined) {
+            props.onArchive(dir);
+        }
+    };
     const end = (
         <span className="toolbar-group">
             {button("reset", "reset", true)}
-            {button("close", "close", true)}
+            {asking ? (
+                <span className="menu-confirm" role="group" aria-label="Confirm archive">
+                    <span className="menu-confirm-text">{ARCHIVE_QUESTION}</span>
+                    <span className="card-confirm-actions">
+                        <button type="button" className="danger" disabled={off} onClick={archive}>
+                            archive
+                        </button>
+                        <button type="button" onClick={() => setAsking(false)}>
+                            cancel
+                        </button>
+                    </span>
+                </span>
+            ) : (
+                <button
+                    disabled={off}
+                    title={ARCHIVE_TIP}
+                    className="danger"
+                    onClick={() => setAsking(true)}
+                >
+                    archive
+                </button>
+            )}
         </span>
     );
     return (
@@ -116,7 +156,7 @@ export function SessionToolbar(props: SessionToolbarProps) {
                     icon="more"
                     label="More session actions"
                     active={open}
-                    onClick={() => setOpen(!open)}
+                    onClick={toggleMenu}
                 />
                 {open && (
                     // The stack and end buttons close the menu themselves. The pipeline

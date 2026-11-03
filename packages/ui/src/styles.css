@@ -535,6 +535,30 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 }
 .compose-project { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .compose-actions button { height: var(--control-form); padding: 0 14px; }
+/* The card's `archive` (s038): a small pill at the top right that shows on hover and on
+   keyboard focus; its confirm takes the card's place with a red hairline. */
+.session-item, .rv-card { position: relative; }
+.card-archive {
+    position: absolute; top: var(--space-1); right: var(--space-1); display: inline-flex;
+    align-items: center; height: 20px; padding: 0 var(--space-2); opacity: 0;
+    font: inherit; font-size: var(--text-meta); font-weight: 500; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--line-soft); border-radius: 999px;
+    cursor: pointer; transition: opacity 0.1s;
+}
+.session-item:hover .card-archive, .rv-card:hover .card-archive,
+.card-archive:focus-visible { opacity: 1; }
+.card-archive:hover {
+    color: var(--fail); border-color: color-mix(in srgb, var(--fail) 50%, transparent);
+}
+.card-confirm {
+    display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-2);
+    box-sizing: border-box; min-height: 92px; margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3); font-size: var(--text-dense);
+    border: 1px solid color-mix(in srgb, var(--fail) 50%, transparent);
+    border-radius: var(--radius-box); background: var(--surface);
+}
+.rv-card .card-confirm { margin: 0; border: 0; background: none; }
+.card-confirm-actions { display: flex; gap: var(--space-2); }
 .session.session-selected {
     border-color: color-mix(in srgb, var(--accent) 50%, transparent);
     background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent);
@@ -605,6 +629,19 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .toolbar-menu .menu .toolbar-group > button:hover:not(:disabled) { background: var(--fill); }
 .toolbar-menu .menu .toolbar-group + .toolbar-group {
     margin-top: 2px; padding-top: 2px; border-top: 1px solid var(--line-soft);
+}
+/* The `archive` confirm in the menu (s038): the question, then the danger button and `cancel`
+   as real buttons, not menu rows. */
+.menu-confirm {
+    display: flex; flex-direction: column; gap: var(--space-2); width: 240px;
+    padding: var(--space-1) var(--space-2); font-size: var(--text-dense); white-space: normal;
+}
+.toolbar-menu .menu .menu-confirm button {
+    height: var(--control-row); padding: 0 10px; border: 1px solid var(--border);
+    border-radius: var(--radius-control); background: var(--fill-soft);
+}
+.toolbar-menu .menu .menu-confirm button.danger {
+    background: transparent; border-color: color-mix(in srgb, var(--fail) 50%, transparent);
 }
 .toolbar-sep { display: none; }
 .toolbar-group > button { position: relative; border-radius: 0; margin-left: -1px; }
@@ -1130,6 +1167,10 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .rv-card.rv-card-selected {
     border-color: color-mix(in srgb, var(--accent) 50%, transparent);
     background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent);
+}
+/* The archive confirm (s038) wins over the selection: a red hairline, no accent bar. */
+.rv-card:has(.card-confirm) {
+    border-color: color-mix(in srgb, var(--fail) 50%, transparent); box-shadow: none;
 }
 .rv-card-body {
     display: flex; flex-direction: column; gap: var(--space-1); width: 100%; min-width: 0;

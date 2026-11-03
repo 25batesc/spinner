@@ -3,6 +3,9 @@
 // (s038), where `Start review` posts the PR links and the daemon makes one review session per
 // PR. Below it, one card per review, the latest activity first, with the review's pills (s018:
 // the state and the draft's count among them).
+import { useState } from "react";
+
+import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
 import { ReviewPills } from "./PaneHead.tsx";
 import { swarmLine, type ReviewFacts } from "./review.ts";
 import type { RunAction } from "./SessionForms.tsx";
@@ -15,22 +18,39 @@ export interface ReviewsPaneProps {
     run: RunAction;
     /** True while a job runs on the selected review; its `review` button waits. */
     busy: boolean;
+    /** The confirmed `archive` of a card: the caller runs `close` and moves the selection. */
+    onArchive: (dir: string) => void;
     /** The pinned `+ New review` button opens the review composer in the working area. */
     onNew: () => void;
     /** True while the review composer shows; the button reads as pressed. */
     composing: boolean;
 }
 
-/** One review: the facts, the pills, and `review` and `open on GitHub`. */
+/** One review: the facts, the pills, `review` and `open on GitHub`, and `archive` on hover. */
 function ReviewCard(props: {
     facts: ReviewFacts;
     selected: boolean;
     busy: boolean;
     onSelect: (dir: string) => void;
+    onArchive: (dir: string) => void;
     run: RunAction;
 }) {
     const { facts, selected, busy, onSelect, run } = props;
+    const [asking, setAsking] = useState(false);
     const classes = ["rv-card", selected ? "rv-card-selected" : ""].join(" ").trim();
+    if (asking) {
+        return (
+            <li className={classes} data-dir={facts.dir}>
+                <ArchiveConfirm
+                    onArchive={() => {
+                        setAsking(false);
+                        props.onArchive(facts.dir);
+                    }}
+                    onCancel={() => setAsking(false)}
+                />
+            </li>
+        );
+    }
     return (
         <li className={classes} data-dir={facts.dir}>
             <button
@@ -69,6 +89,7 @@ function ReviewCard(props: {
                     </a>
                 )}
             </span>
+            <ArchiveButton onClick={() => setAsking(true)} />
         </li>
     );
 }
@@ -88,6 +109,7 @@ export function ReviewsPane(props: ReviewsPaneProps) {
                         selected={facts.dir === selected}
                         busy={busy}
                         onSelect={onSelect}
+                        onArchive={props.onArchive}
                         run={run}
                     />
                 ))}

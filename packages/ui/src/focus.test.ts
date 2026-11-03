@@ -10,6 +10,7 @@ import {
     FOCUS_KEY,
     focusedDir,
     loadFocus,
+    nextAfter,
     NO_FOCUS,
     pickFocus,
     saveFocus,
@@ -108,5 +109,21 @@ describe("activatePanel", () => {
         expect(reviews).toEqual({ panel: "reviews", session: "s001", review: "r051" });
         expect(activatePanel(reviews, "reviews")).toBe(reviews);
         expect(activatePanel(reviews, "sessions").panel).toBe("sessions");
+    });
+});
+
+describe("nextAfter", () => {
+    const dirs = ["s001", "s002", "s003"];
+
+    it("moves to the next row, or to the row before the last one", () => {
+        expect(nextAfter(dirs, "s001")).toBe("s002");
+        expect(nextAfter(dirs, "s002")).toBe("s003");
+        expect(nextAfter(dirs, "s003")).toBe("s002");
+    });
+
+    it("moves nowhere from the only row or from a row outside the list", () => {
+        expect(nextAfter(["s001"], "s001")).toBeUndefined();
+        expect(nextAfter(dirs, "s404")).toBeUndefined();
+        expect(nextAfter([], "s001")).toBeUndefined();
     });
 });

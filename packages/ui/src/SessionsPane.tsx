@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import type { SessionView } from "@spinner/protocol";
 
+import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
 import { designSteps, stepperText } from "./design.ts";
 import { CostFigure, PrBadge, RoundBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
@@ -15,6 +18,8 @@ export interface SessionsPaneProps {
     selected: string | undefined;
     onSelect: (dir: string) => void;
     run: RunAction;
+    /** The confirmed `archive` of a card: the caller runs `close` and moves the selection. */
+    onArchive: (dir: string) => void;
     /** The pinned `+ New session` button opens the composer in the working area. */
     onNew: () => void;
     /** True while the composer shows; the button reads as pressed. */
@@ -51,15 +56,30 @@ function SessionCard(props: {
     view: SessionView;
     selected: boolean;
     onSelect: (dir: string) => void;
+    onArchive: (dir: string) => void;
     usage: UsageSample | null;
 }) {
     const { dir, view, selected, onSelect, usage } = props;
+    const [asking, setAsking] = useState(false);
     const needs = needsHuman(view);
     const stack = stackUsageOf(view, usage);
     const prs = view.board?.prs ?? [];
     const detail = [dir, ...prs.map(prLine)].join("\n");
+    if (asking) {
+        return (
+            <li className="session-item" data-dir={dir}>
+                <ArchiveConfirm
+                    onArchive={() => {
+                        setAsking(false);
+                        props.onArchive(dir);
+                    }}
+                    onCancel={() => setAsking(false)}
+                />
+            </li>
+        );
+    }
     return (
-        <li>
+        <li className="session-item">
             <button
                 className={selected ? "session session-selected" : "session"}
                 onClick={() => onSelect(dir)}
@@ -81,6 +101,7 @@ function SessionCard(props: {
                 </span>
                 <span className="needs-human session-needs">{needs ?? ""}</span>
             </button>
+            <ArchiveButton onClick={() => setAsking(true)} />
         </li>
     );
 }
@@ -101,6 +122,7 @@ export function SessionsPane(props: SessionsPaneProps) {
                         usage={usage}
                         selected={dir === selected}
                         onSelect={onSelect}
+                        onArchive={props.onArchive}
                     />
                 ))}
                 {sessions.length === 0 && <li className="muted">No sessions yet.</li>}

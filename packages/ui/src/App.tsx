@@ -25,7 +25,7 @@ import { gateCard, type StepId } from "./design.ts";
 import { stepTab, type WorkspaceTab } from "./design-workspace.ts";
 import { diffJob } from "./diff-view.ts";
 import {
-    activatePanel, focusedDir, loadFocus, NO_FOCUS, pickFocus, saveFocus, type Focus,
+    activatePanel, focusedDir, loadFocus, nextAfter, NO_FOCUS, pickFocus, saveFocus, type Focus,
     type FocusPanel,
 } from "./focus.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
@@ -227,11 +227,26 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
         setWatched(undefined);
         setActionError(null);
     };
+    // The confirmed `archive` (s038) runs the `close` job. When the archived row is the one
+    // shown, the selection moves to the next row of its list at once, so the operator never
+    // looks at a session that is going away.
+    const archive = (panel: FocusPanel, dir: string) => {
+        if (dir === selected) {
+            const rows = panel === "reviews"
+                ? reviewsByActivity(sessions).map((facts) => facts.dir)
+                : ordinarySessions(sessions).map(([row]) => row);
+            const next = nextAfter(rows, dir);
+            if (next !== undefined) {
+                pick(panel, next);
+            }
+        }
+        void run(`/sessions/${dir}/close`);
+    };
     return {
         sessions, selected, view, feed, busy, run, unverify, job, actionError, dismiss,
         focus, pick, activate, setActionError, draft, setDraft, seen, middle, setMiddle,
         agentsShown, setAgentsShown, agentPicked, setAgentPicked, reviewText, setReviewText,
-        starting,
+        starting, archive,
     };
 }
 
@@ -427,6 +442,7 @@ export function App() {
             selected={selected}
             busy={busy}
             onSelect={(dir) => app.pick("reviews", dir)}
+            onArchive={(dir) => app.archive("reviews", dir)}
             run={run}
             onNew={() => setMiddle("new-review")}
             composing={composer === "review"}
@@ -438,6 +454,7 @@ export function App() {
             usage={state.usage}
             selected={selected}
             onSelect={(dir) => app.pick("sessions", dir)}
+            onArchive={(dir) => app.archive("sessions", dir)}
             run={run}
             onNew={() => setMiddle("new-session")}
             composing={composer === "session"}
@@ -626,6 +643,7 @@ export function App() {
                             revision={revisionsOf(state, selected).pipeline}
                             view={view}
                             onError={app.setActionError}
+                            onArchive={(dir) => app.archive("sessions", dir)}
                         />
                     )
                 }

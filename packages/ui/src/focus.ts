@@ -103,3 +103,16 @@ export function focusedDir(
     const own = sessions.find(([, view]) => panelOf(view) === focus.panel);
     return own?.[0] ?? sessions[0]?.[0];
 }
+
+/**
+ * The row the selection moves to when `dir` leaves `dirs` (an archive, s038): the next row,
+ * else the row before it when `dir` was last, else none. A `dir` outside the list moves
+ * nothing.
+ */
+export function nextAfter(dirs: readonly string[], dir: string): string | undefined {
+    const index = dirs.indexOf(dir);
+    if (index < 0) {
+        return undefined;
+    }
+    return dirs[index + 1] ?? dirs[index - 1];
+}
