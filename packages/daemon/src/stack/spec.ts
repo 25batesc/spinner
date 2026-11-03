@@ -122,6 +122,28 @@ export function check_spec_shape(value: unknown): string | null {
     if (database !== undefined && database["server"] === "external" && !database["external"]) {
         return "database.server is external but `database.external` is missing";
     }
+    return check_designs_shape(record["designs"], repos);
+}
+
+/** The `designs:` block (docs/designs/egm-adoption.md, D3, 2.5): optional, both keys optional. */
+function check_designs_shape(designs: unknown, repos: Record<string, unknown>): string | null {
+    if (designs === undefined) {
+        return null;
+    }
+    if (typeof designs !== "object" || designs === null || Array.isArray(designs)) {
+        return "designs must be a mapping";
+    }
+    const record = designs as Record<string, unknown>;
+    for (const key of ["repo", "dir"]) {
+        const value = record[key];
+        if (value !== undefined && (typeof value !== "string" || value.length === 0)) {
+            return `designs.${key} must be a non-empty string`;
+        }
+    }
+    const repo = record["repo"];
+    if (typeof repo === "string" && !(repo in repos)) {
+        return `designs.repo "${repo}" is not a repo of this project`;
+    }
     return null;
 }
 

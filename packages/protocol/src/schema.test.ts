@@ -30,6 +30,9 @@ describe("session.json schema", () => {
             tsconfig: resolve(package_root, "tsconfig.json"),
             type: "Session",
             additionalProperties: false,
+            // `session.ts` imports the `design` block from `egm.ts`; the generator's own
+            // program lists one root file, so its type check rejects the import (`tsc` checks).
+            skipTypeCheck: true,
         }).createSchema("Session");
         generated.$id = schema.$id as string;
         generated.title = schema.title as string;
@@ -95,6 +98,34 @@ describe("session.json schema", () => {
             agents: {
                 "backend-api": { harness: "pi", model: "x/y", process: "running", pid: 48213 },
             },
+            design: {
+                track: "design",
+                stage: "design-ready",
+                needs: "approve the design",
+                waiting: false,
+                doc: "docs/designs/refund-flow.md",
+                repo: "backend",
+                review_run: { id: "r1", preset: "uninterrupted", started: "2026-10-25T10:00:00Z" },
+                approvals: [],
+                changed_after_approval: false,
+            },
+            rounds: [
+                {
+                    round: 1,
+                    branch: "feat/refund-flow",
+                    prs: [
+                        {
+                            repo: "backend",
+                            number: 400,
+                            url: null,
+                            state: "merged",
+                            merged_at: null,
+                        },
+                    ],
+                    started: null,
+                    ended: "2026-10-24T17:00:00Z",
+                },
+            ],
         };
         expect(validate(full)).toBe(true);
         expect(validate.errors ?? []).toEqual([]);

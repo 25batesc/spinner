@@ -186,4 +186,16 @@ export interface StackSpec {
     pass_env?: string[];
     harness?: HarnessConfig;
     pipeline?: Record<string, unknown>;
+    /**
+     * Where the session's design doc lives (docs/designs/egm-adoption.md, D3). `repo` is a key
+     * of `repos` and defaults to the first repo; `dir` is relative to that repo and defaults
+     * to `docs/designs`.
+     */
+    designs?: StackDesigns;
+}
+
+/** The `designs:` block of `spinner.yaml`. */
+export interface StackDesigns {
+    repo?: string;
+    dir?: string;
 }

@@ -12,6 +12,7 @@ import type {
     HostProcess,
     PrState,
     ReviewDecision,
+    RoundRecord,
     SessionKind,
     SessionSummary,
     StackLastJob,
@@ -19,6 +20,7 @@ import type {
     SwarmState,
 } from "./session.js";
 import type { DiffView } from "./diff.js";
+import type { DesignView } from "./egm.js";
 import type { OperatorCost, SessionCost } from "./costs.js";
 import type { PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
@@ -214,6 +216,21 @@ export const ROUTES = {
     "GET /egm": "EgmResponse",
     /** Fetch or refetch EGM at the pin and regenerate the adapter. A job `egm`. */
     "POST /egm/fetch": "JobResponse",
+    /**
+     * Body: DesignTrackRequest. 409 once a repo has commits, and 409 for `design` when EGM is
+     * not available.
+     */
+    "PUT /sessions/:dir/design/track": "SessionResponse",
+    /**
+     * Body: DesignDocRequest. The lead's `design_doc` tool. 400 with the reason when the path
+     * is not a design doc; 409 while an approval stands.
+     */
+    "PUT /sessions/:dir/design/doc": "SessionResponse",
+    /**
+     * The Log of an earlier round, from `## Previous rounds` of MISSION.md. 400 unless
+     * `:round` is an integer from 1 to `ROUNDS_MAX`; 404 for a round without one.
+     */
+    "GET /sessions/:dir/rounds/:round/log": "text/markdown",
 } as const;
 
 export type Route = keyof typeof ROUTES;
@@ -461,6 +478,29 @@ export interface SessionView {
      * its swarm ran. Absent otherwise.
      */
     review?: ReviewFields;
+    /**
+     * The design facts (docs/designs/egm-adoption.md, T7, T12). Absent for a session without
+     * a `design` block in `session.yaml`.
+     */
+    design?: DesignView;
+    /**
+     * The round: `session.round`, else the `-r<n>` suffix of the branch, else 1. The daemon
+     * always sets it; optional so a fixture written before the EGM design still type-checks.
+     */
+    round?: number;
+    /**
+     * The earlier rounds, oldest first; empty in round 1. The daemon always sets it; optional
+     * so a fixture written before the EGM design still type-checks.
+     */
+    rounds?: RoundView[];
+}
+
+/**
+ * One earlier round. `record` comes from `session.yaml` `rounds`; `mission` is read from a
+ * `### Round` heading of MISSION.md, with `url`, `merged_at`, `started` and `ended` null.
+ */
+export interface RoundView extends RoundRecord {
+    source: "record" | "mission";
 }
 
 /** One reviewer of the swarm, as the chips show it: a tty agent of the session. */

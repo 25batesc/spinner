@@ -49,7 +49,7 @@ for (const entry of SCHEMAS) {
         additionalProperties: false,
         // `tsc` checks the sources; the generator's own program only lists the root file, so
         // its check rejects imports between files. Types that import skip it.
-        skipTypeCheck: entry.source === "index.ts",
+        skipTypeCheck: entry.source === "index.ts" || entry.source === "session.ts",
     });
     const schema = generator.createSchema(entry.type);
     schema.$id = `https://spinner.dev/schema/${entry.output}`;

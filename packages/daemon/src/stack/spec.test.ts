@@ -58,4 +58,25 @@ describe("check_spec_shape", () => {
         const external = { ...minimal, database: { mode: "template", server: "external" } };
         expect(check_spec_shape(external)).toMatch(/database.external/);
     });
+
+    it("accepts a valid designs block and names each designs fault (2.5)", () => {
+        const designs = { ...minimal, designs: { repo: "app", dir: "docs/rfcs" } };
+        expect(check_spec_shape(designs)).toBeNull();
+        expect(check_spec_shape({ ...minimal, designs: {} })).toBeNull();
+        expect(check_spec_shape({ ...minimal, designs: "docs" })).toBe(
+            "designs must be a mapping",
+        );
+        expect(check_spec_shape({ ...minimal, designs: ["app"] })).toBe(
+            "designs must be a mapping",
+        );
+        expect(check_spec_shape({ ...minimal, designs: { repo: "" } })).toBe(
+            "designs.repo must be a non-empty string",
+        );
+        expect(check_spec_shape({ ...minimal, designs: { dir: 3 } })).toBe(
+            "designs.dir must be a non-empty string",
+        );
+        expect(check_spec_shape({ ...minimal, designs: { repo: "web" } })).toBe(
+            'designs.repo "web" is not a repo of this project',
+        );
+    });
 });

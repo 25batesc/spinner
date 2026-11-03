@@ -3,6 +3,8 @@
 // docs/SESSION_PROTOCOL.md, section "session.yaml". The JSON schema in `schema/session.json`
 // is generated from this file; run `pnpm --filter @spinner/protocol schema` after an edit.
 
+import type { DesignState } from "./egm.js";
+
 /** The schema version this package understands. The daemon migrates older files forward. */
 export const SESSION_VERSION = 1 as const;
 
@@ -247,7 +249,36 @@ export interface Session {
     diff?: DiffState;
     /** The review swarm (s015). Absent until the first `review`. */
     review?: ReviewState;
+    /** Absent means a session from before the EGM design. `SESSION_VERSION` stays 1. */
+    design?: DesignState;
+    /**
+     * Earlier rounds, oldest first, appended by `reset` since the EGM design. Rounds before
+     * that are only in `## Previous rounds` of MISSION.md.
+     */
+    rounds?: RoundRecord[];
 }
+
+/** One PR of an earlier round. `merged_at` is the PR's `last_activity` when merged, else null. */
+export interface RoundPr {
+    repo: string;
+    number: number;
+    url: string | null;
+    state: PrState;
+    merged_at: string | null;
+}
+
+/** One earlier round of a session, as `reset` records it before it clears the PR facts. */
+export interface RoundRecord {
+    round: number;
+    branch: string;
+    prs: RoundPr[];
+    /** ISO 8601 start and end of the round; null for a round read from MISSION.md. */
+    started: string | null;
+    ended: string | null;
+}
+
+/** `session.rounds` keeps at most this many records; past it the oldest drops. */
+export const ROUNDS_MAX = 200;
 
 /** One `diffview` process per repo, by repo key, while it runs. Reattached by pid identity. */
 export interface DiffState {

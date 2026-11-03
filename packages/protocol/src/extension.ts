@@ -95,6 +95,7 @@ export const EXTENSION_TOOLS = [
     "adopt",
     "review_briefing",
     "review_draft",
+    "design_doc",
 ] as const;
 
 /** What `mission_plan` does; `mission_done_when` takes the first four. */
@@ -240,6 +241,8 @@ export interface ExtensionToolArgs {
      * and returns every fault instead of writing. The operator posts; the lead never does.
      */
     review_draft: { event: string; body: string; comments: string };
+    /** The lead names the design doc it wrote, by its absolute path (EGM, build session 2). */
+    design_doc: { path: string };
 }
 
 /** A tool's JSON-schema parameters, in the subset pi's `Type.Object` can express. */
@@ -678,6 +681,19 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["event", "body", "comments"],
             roles: LEAD,
             route: "PUT /sessions/:dir/review/draft",
+        },
+        {
+            name: "design_doc",
+            description:
+                "Name the design doc you just wrote, by its absolute path. Call it once the " +
+                "draft's final file is written in the designs directory. Spinner tracks, " +
+                "reviews and approves this file.",
+            parameters: {
+                path: { type: "string", description: "The absolute path of the design doc" },
+            },
+            required: ["path"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/design/doc",
         },
     ],
 };

@@ -102,6 +102,7 @@ describe("extension manifest", () => {
             "adopt",
             "review_briefing",
             "review_draft",
+            "design_doc",
         ]);
         // `session` is optional for the two shared tools: the lead acts on its own session.
         for (const name of ["agent_add", "agent_steer"]) {

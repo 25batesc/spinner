@@ -107,6 +107,10 @@ harness:
     trust_projects: true                     # pass --approve so project .pi/ skills and extensions load
 
 pipeline: {}                                 # see ARCHITECTURE → Pipeline tracker. Empty = plain GitHub.
+
+designs:                                     # where a session's EGM design doc lives (optional)
+  repo: backend                              # a key of repos; default: the first repo
+  dir: docs/designs                          # relative to that repo; default: docs/designs
 ```
 
 A monorepo needs one entry under `repos` and `path: .`. A single-service project needs one service and no `proxy` changes.
@@ -135,6 +139,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md#the-diff-tab-packagesdaemonsrcdiff).
 **Harness.** Which agent harness new agents use, and harness-specific options. For pi, `trust_projects: true` passes `--approve`, so the repo's `.pi/` skills, extensions and settings load. Your user-level pi configuration (`~/.pi/agent`: skills, extensions, `AGENTS.md`) always loads, because Spinner runs pi with your agent directory.
 
 **Pipeline.** Settings for the pipeline tracker: review-bot logins, the approval check and policy, merge-queue kind, Slack. See [ARCHITECTURE.md](ARCHITECTURE.md#pipeline-tracker-packagesdaemonsrcpipeline). An empty block means a plain GitHub repo: PR open → checks → reviews → merged, with no bot stage and no Slack.
+
+**Designs.** Where the design doc of a design-track session lives ([designs/egm-adoption.md](designs/egm-adoption.md), D3). `repo` is a key of `repos` and defaults to the first repo. `dir` is relative to that repo and defaults to `docs/designs`. The lead's `design_doc` tool accepts only a `.md` file directly in that directory of the repo's worktree. `spinner.yaml` is refused when `designs` is not a mapping, when a key is not a non-empty string, or when `repo` is not a key of `repos`.
 
 ## Commands this drives
 
