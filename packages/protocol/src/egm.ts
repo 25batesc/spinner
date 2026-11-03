@@ -295,8 +295,43 @@ export const DESIGN_DEFAULT_DIR = "docs/designs";
 /** The tracker lists at most this many files in `<session>/design/`; past it the newest win. */
 export const DESIGN_FILES_MAX = 200;
 
-/**
- * The track a new paste session gets when EGM is ready. Build session 3 changes it to
- * `design` (3.1), in the same release as the lead brief that knows the design track.
- */
-export const DESIGN_DEFAULT_TRACK: DesignTrack = "direct";
+/** The track a new paste session gets when EGM is ready and pi-subagents is installed. */
+export const DESIGN_DEFAULT_TRACK: DesignTrack = "design";
+
+// Gates and skills in the app (docs/designs/egm-adoption.md, build session 3, T8, T9).
+
+/** Body of `PUT /sessions/:dir/design/gate`: the lead's `ask_question` tool. */
+export interface DesignGateRequest {
+    question: string;
+    options: string[];
+}
+
+/** A gate has at most this many options; EGM's gates have 2 to 6. */
+export const DESIGN_GATE_OPTIONS_MAX = 6;
+/** The longest gate question, in characters. */
+export const DESIGN_GATE_QUESTION_MAX = 2000;
+/** The longest gate option, in characters. */
+export const DESIGN_GATE_OPTION_MAX = 300;
+
+/** Body of `POST /sessions/:dir/design/answer`: the text that answers the lead. */
+export interface DesignAnswerRequest {
+    text: string;
+}
+
+/** The longest answer, in characters. */
+export const DESIGN_ANSWER_MAX = 4000;
+
+/** Body of `POST /sessions/:dir/design/run`: an EGM skill to start in the lead. */
+export interface DesignRunRequest {
+    skill: EgmSkill;
+    args?: string;
+    /** Only with `egm-review`. */
+    preset?: ReviewPreset;
+}
+
+/** The longest argument text, given or composed, in characters. */
+export const DESIGN_RUN_ARGS_MAX = 4000;
+/** Review run ids go up to `r99`, because the archive route matches `^r\d{1,2}$`. */
+export const REVIEW_RUNS_MAX = 99;
+/** The replies that `egm-resolve` Step 4 interprets; the resolve card sends one. */
+export const RESOLVE_ANSWERS = ["Auto accept", "Continue", "Interactive breakdown"] as const;

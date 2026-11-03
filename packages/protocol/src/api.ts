@@ -227,6 +227,21 @@ export const ROUTES = {
      */
     "PUT /sessions/:dir/design/doc": "SessionResponse",
     /**
+     * Body: DesignGateRequest. The lead's `ask_question` tool writes `design.gate`. 400 with
+     * the first fault.
+     */
+    "PUT /sessions/:dir/design/gate": "OkResponse",
+    /**
+     * Body: DesignAnswerRequest. Clears the gate and prompts the lead with the text. 409 when
+     * the lead is not running; the gate then stays.
+     */
+    "POST /sessions/:dir/design/answer": "AgentCommandResponse",
+    /**
+     * Body: DesignRunRequest. Starts an EGM skill in the lead with the arguments the daemon
+     * composes (T9). 409 when the lead is not running.
+     */
+    "POST /sessions/:dir/design/run": "AgentCommandResponse",
+    /**
      * The Log of an earlier round, from `## Previous rounds` of MISSION.md. 400 unless
      * `:round` is an integer from 1 to `ROUNDS_MAX`; 404 for a round without one.
      */

@@ -416,12 +416,12 @@ describe("the EGM step of a lead start", () => {
         expect(lines.filter((line) => line.includes("EGM"))).toEqual([]);
     });
 
-    it("gives a ready EGM the default track, direct in build session 2 (2.23)", async () => {
-        expect(DESIGN_DEFAULT_TRACK).toBe("direct");
+    it("gives a ready EGM the design track (2.23, 3.1, 3.14)", async () => {
+        expect(DESIGN_DEFAULT_TRACK).toBe("design");
         fetched_home();
         const lines = await start(new EgmFetcher(home, pi_env(true), failing), true);
-        expect(lines).toContain("track: direct");
-        expect(last?.design?.track).toBe("direct");
+        expect(lines).toContain("track: design");
+        expect(last?.design?.track).toBe("design");
     });
 
     it("gives a failed fetch the direct track", async () => {

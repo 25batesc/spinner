@@ -96,6 +96,7 @@ export const EXTENSION_TOOLS = [
     "review_briefing",
     "review_draft",
     "design_doc",
+    "ask_question",
 ] as const;
 
 /** What `mission_plan` does; `mission_done_when` takes the first four. */
@@ -243,6 +244,11 @@ export interface ExtensionToolArgs {
     review_draft: { event: string; body: string; comments: string };
     /** The lead names the design doc it wrote, by its absolute path (EGM, build session 2). */
     design_doc: { path: string };
+    /**
+     * The lead asks one EGM gate (build session 3, T8): `questions` is the JSON text of EGM's
+     * gate payload, `[{ question, options, is_multi_select }]` or `{ questions: [...] }`.
+     */
+    ask_question: { questions: string };
 }
 
 /** A tool's JSON-schema parameters, in the subset pi's `Type.Object` can express. */
@@ -694,6 +700,25 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["path"],
             roles: LEAD,
             route: "PUT /sessions/:dir/design/doc",
+        },
+        {
+            name: "ask_question",
+            description:
+                "Ask the operator one single-select question. Pass EGM's gate payload as JSON " +
+                'text: [{"question": "...", "options": ["...", "..."], "is_multi_select": ' +
+                "false}]. Exactly one question with 2 to 6 options. Spinner shows the options " +
+                "as buttons. End your turn after this call.",
+            parameters: {
+                questions: {
+                    type: "string",
+                    description:
+                        "JSON array text of exactly one { question, options, is_multi_select } " +
+                        "object",
+                },
+            },
+            required: ["questions"],
+            roles: LEAD,
+            route: "PUT /sessions/:dir/design/gate",
         },
     ],
 };
