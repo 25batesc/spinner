@@ -310,6 +310,24 @@ describe("prompt section", () => {
         );
         expect(lead).toContain("read /home/egm/src/docs/harnesses.md once.");
         expect(lead).toContain("So use direct dispatch: launch each Goldfish yourself.");
+        const gate_line =
+            "For an EGM gate with options, call ask_question with the gate's JSON payload, " +
+            "then end your turn.";
+        expect(lead).toContain(gate_line);
+        // Without `.state.json` the two designs-directory lines stay out (3.6).
+        expect(lead).not.toContain("Designs directory:");
+        const state = join(session_dir, "design", ".state.json");
+        mkdirSync(join(session_dir, "design"), { recursive: true });
+        const designs = "/w/web/docs/designs";
+        writeFileSync(state, JSON.stringify({ track: "direct", designs_dir: designs }));
+        expect(await section_for({ ...env_for("lead", ""), ...egm })).not.toContain("Designs");
+        writeFileSync(state, JSON.stringify({ track: "design", designs_dir: designs }));
+        const design = await section_for({ ...env_for("lead", ""), ...egm });
+        expect(design).toContain(
+            `Designs directory: ${designs}. Save the design doc there, as an absolute path.\n` +
+                "When the draft's final file is written there, call design_doc with its " +
+                `absolute path.\n${gate_line}`,
+        );
         const worker = await section_for({ ...env_for("worker", ""), ...egm });
         expect(worker).not.toContain("EGM");
         const plain = await section_for(env_for("lead", ""));

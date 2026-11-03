@@ -136,6 +136,8 @@ describe("derive_design: the needs_human list", () => {
         const files = ["goldfish_review_report.md"];
         const busy = derive_design(named({ files, lead_busy: true }));
         expect(busy).toMatchObject({ stage: "resolving", needs: null });
+        const settled = derive_design(named({ files, waiting: true }));
+        expect(settled).toMatchObject({ stage: "resolving", needs: "resolve the review findings" });
     });
 
     it("3 the lead waits on a question, unless a Goldfish runs", () => {

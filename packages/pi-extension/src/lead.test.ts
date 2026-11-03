@@ -98,6 +98,8 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 } else {
                     answer(200, { session: { summary: { session: { title: "x" } } } });
                 }
+            } else if (path === `/sessions/${DIR}/design/gate`) {
+                answer(200, { ok: true });
             } else if (path === `/sessions/${DIR}/review/briefing`) {
                 answer(200, { ok: true });
             } else if (path === `/sessions/${DIR}/review/draft`) {
@@ -312,10 +314,58 @@ describe("the lead role", () => {
         }
     });
 
-    it("gives design_doc to the lead only, not to a worker (2.8)", () => {
+    it("sends one EGM gate from ask_question and refuses the rest (3.4, 3.5)", async () => {
+        const daemon = await fake_daemon();
+        try {
+            const pi = fake_pi();
+            register(pi, { env: env_for(daemon.url) });
+            const gate = {
+                question: "Anchored feature hypothesis: CSV export. Proceed?",
+                options: ["Review with Goldfishes", "Clarify additional constraints in chat"],
+            };
+            const array_form = JSON.stringify([{ ...gate, is_multi_select: false }]);
+            const answer = await run(pi, "ask_question", { questions: array_form });
+            expect(answer).toBe(
+                "The operator sees this question as buttons in Spinner and in your terminal. " +
+                    "End your turn now. The answer arrives as your next message.",
+            );
+            expect(daemon.requests.at(-1)).toEqual({
+                method: "PUT",
+                path: `/sessions/${DIR}/design/gate`,
+                body: gate,
+            });
+            // EGM's examples show the object form; `is_multi_select` may be absent.
+            await run(pi, "ask_question", { questions: JSON.stringify({ questions: [gate] }) });
+            expect(daemon.requests.at(-1)?.body).toEqual(gate);
+            const sent = daemon.requests.length;
+            const seven = ["1", "2", "3", "4", "5", "6", "7"];
+            const refusals: [string, RegExp][] = [
+                ["not json", /must be JSON text/],
+                [JSON.stringify([]), /exactly one question/],
+                [JSON.stringify([gate, gate]), /exactly one question/],
+                [JSON.stringify({ questions: "x" }), /exactly one question/],
+                [JSON.stringify([{ ...gate, question: "  " }]), /non-empty string/],
+                [JSON.stringify([{ ...gate, options: ["only"] }]), /2 to 6 strings/],
+                [JSON.stringify([{ ...gate, options: seven }]), /2 to 6 strings/],
+                [JSON.stringify([{ ...gate, options: ["a", 2] }]), /2 to 6 strings/],
+                [JSON.stringify([{ ...gate, is_multi_select: true }]), /are single-select\./],
+            ];
+            for (const [questions, fault] of refusals) {
+                await expect(run(pi, "ask_question", { questions }), questions).rejects.toThrow(
+                    fault,
+                );
+            }
+            expect(daemon.requests.length).toBe(sent);
+        } finally {
+            daemon.close();
+        }
+    });
+
+    it("gives design_doc and ask_question to the lead only, not to a worker (2.8, 3.5)", () => {
         const worker = fake_pi();
         register(worker, { env: { ...env_for(""), SPINNER_AGENT: "web", SPINNER_ROLE: "worker" } });
         expect(worker.tools.has("design_doc")).toBe(false);
+        expect(worker.tools.has("ask_question")).toBe(false);
         expect(worker.tools.has("mission_log")).toBe(true);
     });
 

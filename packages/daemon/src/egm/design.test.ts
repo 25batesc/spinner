@@ -1,7 +1,9 @@
 // Goal: the design tracker derives the design stage of a session from its files, names the
 // design doc through `set_doc` with every refusal of `check_design_doc`, writes
 // `.state.json` for the edit guard, and re-derives `session.needs_human` in the same write
-// (docs/designs/egm-adoption.md, entry 2.13, review v2 B-1 and M-4). Method: a scratch home
+// (docs/designs/egm-adoption.md, entry 2.13, review v2 B-1 and M-4). From build session 3
+// (3.11, 3.12) it clears a gate on the lead's later `agent_start` and keeps it on an earlier
+// one, and sets `waiting` when the lead settles on a question. Method: a scratch home
 // with one session made by `create_session`, a real clone of a bare origin as its `web`
 // worktree, and a real `MissionWriter`; each assertion reads `session.yaml` back from disk.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,6 +43,7 @@ let tracker: DesignTracker;
 let worktree: string;
 let designs: string;
 let refreshed: string[];
+let bus: EventBus;
 
 async function make_worktree(path: string): Promise<void> {
     const seed = join(root, "seed");
@@ -67,7 +70,7 @@ beforeEach(async () => {
     summary.session.repos = { web: { path: worktree, worktree: "worktrees/web", changed: false } };
     summary.session.design = { track: "design" };
     write_session(summary);
-    const bus = new EventBus();
+    bus = new EventBus();
     const rpc = new PiRpcHarness({ pi: () => "pi-is-not-started-here", extension: null });
     const agents = new AgentManager(home, { default: "rpc", rpc }, bus);
     refreshed = [];
@@ -255,6 +258,65 @@ describe("DesignTracker: approval, change and the track switch", () => {
         expect(state()).toMatchObject({ track: "direct", approved: false });
         expect(session().needs_human).toBeNull();
         expect(tracker.view(read_session_ok())?.stage).toBeNull();
+    });
+});
+
+describe("DesignTracker: the lead's gate and its questions (3.11)", () => {
+    const gate = {
+        question: "Anchored feature hypothesis: CSV export. Proceed?",
+        options: ["Review with Goldfishes", "Clarify in chat"],
+        asked: "2026-11-04T10:12:00.000Z",
+    };
+
+    function lead_start(ts: string): void {
+        const event = { type: "agent_start" } as const;
+        bus.publish({ type: "agent.event", ts, session: summary.dir, agent: "lead", event });
+    }
+
+    /** One assistant message in the lead's pi transcript, as pi writes it. */
+    function lead_said(text: string): void {
+        const dir = join(summary.path, "agents", "lead", "pi");
+        mkdirSync(dir, { recursive: true });
+        const message = { role: "assistant", content: [{ type: "text", text }] };
+        writeFileSync(join(dir, "lead.jsonl"), `${JSON.stringify({ type: "message", message })}\n`);
+    }
+
+    it("keeps a gate on an agent_start before it and clears it on a later one", async () => {
+        patch_design({ gate });
+        lead_start("2026-11-04T10:11:59.000Z");
+        await tracker.refresh(summary.dir);
+        expect(session().design?.gate).toEqual(gate);
+        expect(session().needs_human).toBe(`answer the lead: ${gate.question}`);
+        lead_start("2026-11-04T10:12:30.000Z");
+        await tracker.refresh(summary.dir);
+        expect(session().design?.gate).toBeUndefined();
+        expect(session().needs_human).toBeNull();
+    });
+
+    it("waits when the lead settles on a question, and stops waiting on agent_start", async () => {
+        design_file("concepts_brief.md");
+        lead_said("The brief is written.\n\nShall I draft now?  ");
+        bus.publish({ type: "agent.settled", ts: "x", session: summary.dir, agent: "lead" });
+        await tracker.refresh(summary.dir);
+        expect(session().design?.waiting).toBe(true);
+        expect(session().needs_human).toBe("reply to the lead (brainstorm)");
+        lead_start(new Date().toISOString());
+        await tracker.refresh(summary.dir);
+        expect(session().design?.waiting).toBe(false);
+        expect(session().needs_human).toBeNull();
+        lead_said("The brief is written.");
+        bus.publish({ type: "agent.settled", ts: "x", session: summary.dir, agent: "lead" });
+        await tracker.refresh(summary.dir);
+        expect(session().design?.waiting).toBe(false);
+    });
+
+    it("does not wait on a question while a gate is open", async () => {
+        patch_design({ gate });
+        lead_said("Proceed?");
+        bus.publish({ type: "agent.settled", ts: "x", session: summary.dir, agent: "lead" });
+        await tracker.refresh(summary.dir);
+        expect(session().design?.waiting).toBe(false);
+        expect(session().needs_human).toBe(`answer the lead: ${gate.question}`);
     });
 });
 

@@ -35,6 +35,7 @@ import type { AgentManager } from "../agents/manager.js";
 import type { EventBus } from "../event-bus.js";
 import { run, type Runner } from "../git/pinned-clone.js";
 import type { SpinnerHome } from "../home.js";
+import { last_assistant_text } from "../agents/swarm.js";
 import { config_for_session } from "../pipeline/poller.js";
 import { repo_base } from "../pipeline/pr.js";
 import { refresh_session } from "../pipeline/tracker.js";
@@ -43,6 +44,7 @@ import { SPEC_AUTHOR, type MissionWriter } from "../store/mission-writer.js";
 import { read_session, write_session } from "../store/session-store.js";
 import { check_design_doc } from "./design-doc.js";
 import { derive_design, normalized_doc_hash, type DesignResult } from "./derive-design.js";
+import { clear_gate } from "./gate.js";
 
 /** At most this many sessions get a doc watcher; past it a session refreshes on settle only. */
 export const DOC_WATCHERS_MAX = 100;
@@ -75,6 +77,16 @@ export class DesignDocRefused extends Error {}
 /** `set_doc` conflicts with an approval: the route answers 409 with the message. */
 export class DesignDocConflict extends Error {}
 
+/**
+ * What the lead did since the last refresh (3.11). `settled`: its turn ended, so `waiting` is
+ * derived again from its last text. `started`: the event time of its `agent_start`, which
+ * ends `waiting` and clears a gate asked before it.
+ */
+interface LeadChange {
+    settled?: boolean;
+    started?: string;
+}
+
 /** The facts `refresh` and `view` both read from disk. */
 interface DesignReads {
     files: DesignFileView[];
@@ -93,7 +105,14 @@ export class DesignTracker {
         this.runner = deps.runner ?? run;
         this.unsubscribe = deps.bus.subscribe((event) => {
             if (event.type === "agent.settled" && event.agent === LEAD_NAME) {
-                void this.refresh(event.session);
+                void this.refresh(event.session, { settled: true });
+            }
+            if (
+                event.type === "agent.event" &&
+                event.agent === LEAD_NAME &&
+                event.event.type === "agent_start"
+            ) {
+                void this.refresh(event.session, { started: event.ts });
             }
             if (event.type === "session.closed") {
                 void this.stop_watcher(event.session);
@@ -122,9 +141,9 @@ export class DesignTracker {
     }
 
     /** Re-derives the design fields of one session, one refresh at a time per session. */
-    refresh(dir: string): Promise<void> {
+    refresh(dir: string, change: LeadChange = {}): Promise<void> {
         const previous = this.chains.get(dir) ?? Promise.resolve();
-        const next = previous.then(() => this.refresh_now(dir));
+        const next = previous.then(() => this.refresh_now(dir, change));
         this.chains.set(
             dir,
             next.catch((error: unknown) => {
@@ -134,7 +153,12 @@ export class DesignTracker {
         return next;
     }
 
-    private async refresh_now(dir: string): Promise<void> {
+    private async refresh_now(dir: string, change: LeadChange): Promise<void> {
+        let published = false;
+        if (change.started !== undefined && this.gate_before(dir, change.started)) {
+            // A gate answered in the lead's terminal: the lead's next turn started after it.
+            published = clear_gate(this.deps.home, dir);
+        }
         const read = read_session(this.deps.home, dir);
         if (!read.ok || read.summary.session.design === undefined) {
             return;
@@ -144,11 +168,19 @@ export class DesignTracker {
         const copy: Session = structuredClone(before);
         const design = copy.design as DesignState;
         if (design.track === "design") {
-            const facts = this.reads(summary, true).result;
+            if (change.started !== undefined) {
+                design.waiting = false;
+            }
+            let facts = this.reads(summary, true, design.waiting === true).result;
+            if (change.settled === true) {
+                const text = last_assistant_text(summary.path, LEAD_NAME).trim();
+                design.waiting =
+                    text.endsWith("?") && design.gate === undefined && facts.stage !== "approved";
+                facts = this.reads(summary, true, design.waiting).result;
+            }
             design.stage = facts.stage;
             design.needs = facts.needs;
             design.changed_after_approval = facts.changed_after_approval;
-            design.waiting = false;
         }
         const config = config_for_session(summary, this.deps.home, this.deps.cwd, this.deps.log);
         const refreshed = refresh_session(before, copy, config, new Date());
@@ -160,9 +192,19 @@ export class DesignTracker {
         if (this.write_state(summary, refreshed.session.design as DesignState)) {
             wrote = true;
         }
-        if (wrote) {
+        if (wrote || published) {
             await this.deps.refresh(dir);
         }
+    }
+
+    /** True when the session has a gate asked before `time` (an ISO 8601 event time). */
+    private gate_before(dir: string, time: string): boolean {
+        const read = read_session(this.deps.home, dir);
+        const gate = read.ok ? read.summary.session.design?.gate : undefined;
+        if (gate === undefined) {
+            return false;
+        }
+        return Date.parse(time) > Date.parse(gate.asked);
     }
 
     /** `.state.json` on both tracks, only when its content changed. Returns whether it wrote. */
@@ -254,7 +296,7 @@ export class DesignTracker {
         if (design === undefined) {
             return undefined;
         }
-        const reads = this.reads(summary, false);
+        const reads = this.reads(summary, false, design.waiting === true);
         const on_design = design.track === "design";
         return {
             track: design.track,
@@ -277,7 +319,7 @@ export class DesignTracker {
     }
 
     /** Lists the design files, reads the resolve report and the doc, and derives. */
-    private reads(summary: SessionSummary, log_cap: boolean): DesignReads {
+    private reads(summary: SessionSummary, log_cap: boolean, waiting: boolean): DesignReads {
         const design = summary.session.design as DesignState;
         const files = this.design_files(summary, log_cap);
         const doc_path = this.doc_path(summary);
@@ -295,9 +337,10 @@ export class DesignTracker {
             approved: design.approved ?? null,
             review_run: design.review_run ?? null,
             gate: design.gate ?? null,
-            // Build sessions 3 and 4 fill these three from the lead and the Goldfish.
-            waiting: false,
-            lead_busy: false,
+            waiting,
+            // The manager's busy flag runs from the lead's `agent_start` to `agent_settled`.
+            lead_busy: this.deps.agents.is_busy(summary.dir, LEAD_NAME),
+            // Build session 4 fills this from the Goldfish.
             goldfish_running: 0,
         });
         return { files, result, doc_missing };

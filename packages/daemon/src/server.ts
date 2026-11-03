@@ -46,6 +46,7 @@ import {
     DAEMON_HOST,
     DAEMON_PORT,
     EVENTS_PATH,
+    LEAD_NAME,
     SETTINGS_DEFAULT,
     STACK_LOGS_LINES_DEFAULT,
     STACK_LOGS_LINES_MAX,
@@ -74,6 +75,7 @@ import { DiffManager } from "./diff/manager.js";
 import { mount_diff_routes } from "./diff/routes.js";
 import { DesignTracker } from "./egm/design.js";
 import { EgmFetcher } from "./egm/fetch.js";
+import { clear_gate } from "./egm/gate.js";
 import { mount_egm_routes } from "./egm/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
@@ -506,6 +508,12 @@ export function create_app(deps: AppDeps): Hono {
                 };
                 return c.json(body, 409);
             }
+            // A prompt or steer to the lead answers its open EGM gate (T8, 3.10).
+            if (name === LEAD_NAME && deps.design !== undefined) {
+                if (clear_gate(deps.home, summary.dir)) {
+                    await deps.design.refresh(summary.dir);
+                }
+            }
             try {
                 const disposition = await handle[command](request.text);
                 const body: AgentCommandResponse = { ok: true, disposition };
@@ -677,6 +685,8 @@ export function create_app(deps: AppDeps): Hono {
             ctx: deps.ctx,
             view: deps.view,
             writer: deps.writer,
+            agents: deps.agents,
+            home: deps.home,
         });
     }
     if (deps.writer !== undefined && deps.deliverer !== undefined) {

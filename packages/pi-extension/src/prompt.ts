@@ -6,7 +6,12 @@
 // has no YAML parser; the rest is read from disk.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { SESSION_VERSION, type SessionView } from "@spinner/protocol";
+import {
+    DESIGN_STATE_FILE,
+    EGM_ARTIFACT_DIR,
+    SESSION_VERSION,
+    type SessionView,
+} from "@spinner/protocol";
 import type { SpinnerEnv } from "./env.js";
 
 /** Upper bound on the mission text in the prompt; the protocol targets < 400 lines. */
@@ -21,6 +26,11 @@ export interface SessionFiles {
     mission: string;
     /** `name → URL` from the daemon's stack view; empty when the daemon did not answer. */
     hosts: Record<string, string>;
+    /**
+     * `designs_dir` of `<session>/design/.state.json` while its `track` is `design`, else null
+     * (3.6). The tracker writes that file; the extension reads JSON, not `session.yaml`.
+     */
+    designs_dir: string | null;
 }
 
 /** Reads the session files. `view` is the daemon's answer to `GET /sessions/:dir`, if any. */
@@ -42,6 +52,7 @@ export function load_session_files(env: SpinnerEnv, view: SessionView | null): S
         brief: read_or_empty(join(env.session_dir, "agents", env.agent, "BRIEF.md")),
         mission: read_or_empty(join(env.session_dir, "MISSION.md")).slice(0, MISSION_CHARS_MAX),
         hosts,
+        designs_dir: design_designs_dir(env.session_dir),
     };
 }
 
@@ -70,7 +81,7 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
             "operator pushes, posts, approves, lands, resets and closes; you do not.",
         );
         if (env.egm_root !== null) {
-            lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? ""));
+            lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? "", files.designs_dir));
         }
     }
     const hosts = Object.entries(files.hosts);
@@ -93,8 +104,43 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
     return lines.join("\n");
 }
 
-/** The lead's EGM lines (docs/designs/egm-adoption.md, 1.23). */
-function egm_lines(root: string, artifacts: string): string[] {
+/**
+ * The designs directory of a design-track session, from the tracker's `.state.json`. Null when
+ * the file is absent or unreadable, when its `track` is not `design`, or when the session has
+ * no worktree of the designs repo (`designs_dir: null`).
+ */
+function design_designs_dir(session_dir: string): string | null {
+    const text = read_or_empty(join(session_dir, EGM_ARTIFACT_DIR, DESIGN_STATE_FILE));
+    if (text.length === 0) {
+        return null;
+    }
+    let state: unknown;
+    try {
+        state = JSON.parse(text);
+    } catch {
+        return null;
+    }
+    if (typeof state !== "object" || state === null) {
+        return null;
+    }
+    const { track, designs_dir } = state as { track?: unknown; designs_dir?: unknown };
+    if (track !== "design") {
+        return null;
+    }
+    return typeof designs_dir === "string" && designs_dir.length > 0 ? designs_dir : null;
+}
+
+/** The lead's EGM lines (docs/designs/egm-adoption.md, 1.23, 3.6). */
+function egm_lines(root: string, artifacts: string, designs_dir: string | null): string[] {
+    const design_lines =
+        designs_dir === null
+            ? []
+            : [
+                  `Designs directory: ${designs_dir}. ` +
+                      "Save the design doc there, as an absolute path.",
+                  "When the draft's final file is written there, " +
+                      "call design_doc with its absolute path.",
+              ];
     return [
         "EGM (Elephant-Goldfish Model, Apache-2.0) is loaded. You are the Elephant.",
         `EGM plugin root: ${root}. EGM artifact directory: ${artifacts}.`,
@@ -107,6 +153,9 @@ function egm_lines(root: string, artifacts: string): string[] {
         'Launch them with context "fresh" and the default async launch. Each result arrives',
         "as a completion message. Wait for every Goldfish of a stage, with bg_wait if needed,",
         "before you consolidate.",
+        ...design_lines,
+        "For an EGM gate with options, call ask_question with the gate's JSON payload, " +
+            "then end your turn.",
     ];
 }
 

@@ -230,6 +230,18 @@ describe("POST /sessions with text", () => {
         expect(brief).toContain("You own the mission");
         expect(brief).toContain("session_title");
         expect(brief).toContain("Do not push, post, approve, land, reset or close");
+        // The design-track brief (3.13, 3.14): the new step 3 and the Design (EGM) section.
+        expect(brief).toContain(
+            "3. On the `direct` track, write the Goal with `mission_goal` (one paragraph), the " +
+                "Done\n   when list with `mission_done_when`",
+        );
+        expect(brief).toContain("`mission_plan` (one owner per item; yourself until the work");
+        expect(brief).toContain("On the `design`\n   track, skip this step");
+        expect(brief).toContain("## Design (EGM)\n1. In your first answer, propose a track");
+        expect(brief).toContain("the operator starts each EGM skill. You never start one on");
+        expect(brief).toContain("3. Ask each EGM gate that has options with `ask_question`");
+        expect(brief).toContain("write only the design doc and the session's files.");
+        expect(brief).not.toContain("3. Write the Goal with `mission_goal`");
         const mission = readFileSync(join(read.summary.path, "MISSION.md"), "utf8");
         expect(mission).toContain("the lead agent owns the mission");
         expect(mission).toContain(`- ${PR_URL}`);
