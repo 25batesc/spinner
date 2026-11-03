@@ -100,6 +100,9 @@ export class PiTtyHarness implements AgentHarness {
             "the tty harness needs the Spinner pi extension; it is the daemon's only channel",
         );
         assert.ok(existsSync(spawn.cwd), `agent cwd ${spawn.cwd} does not exist`);
+        if (!existsSync(spawn.pi)) {
+            throw new Error(`pi binary ${spawn.pi} does not exist`);
+        }
         const env: Record<string, string> = {
             ...child_env(spawn),
             SPINNER_HARNESS: "tty",

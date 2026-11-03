@@ -92,6 +92,9 @@ beforeEach(async () => {
         gh,
         notify: async () => undefined,
         ui_dir: null,
+        // A path that does not exist: the test asserts what the daemon does when pi cannot
+        // start, and the developer's machine has pi on PATH.
+        pi: join(root, "no-pi"),
         observe_interval_ms: 60_000,
         agents_harness: "rpc",
         extension: null,
@@ -184,8 +187,8 @@ describe("POST /reviews", () => {
             (await (await call("GET", `/sessions/${dir}`)).json()) as { session: SessionView }
         ).session;
         expect(view.kind).toBe("review");
-        // The paste starts the lead and the swarm (s016); this daemon has no pi, so each
-        // reviewer fails to start and the lead's failure is one job log line.
+        // The paste starts the lead and the swarm (s016); this daemon's pi does not exist,
+        // so each reviewer fails to start and the lead's failure is one job log line.
         expect(view.review).toEqual({
             checks: "red",
             failing: ["Independent approval"],
@@ -201,7 +204,7 @@ describe("POST /reviews", () => {
                 state: "failed",
                 usd: 0,
                 pr: "backend",
-                error: expect.stringMatching(/^did not start: pi is not on PATH/) as string,
+                error: expect.stringMatching(/^did not start: /) as string,
             })),
             briefing: false,
             draft: null,

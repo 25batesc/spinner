@@ -137,6 +137,11 @@ export function child_env(options: PiSpawnOptions): Record<string, string> {
 /** Starts the child and resolves once its stdout answered a first `get_state`. */
 export async function spawn_pi(options: PiSpawnOptions): Promise<PiProcess> {
     assert.ok(existsSync(options.cwd), `agent cwd ${options.cwd} does not exist`);
+    // A missing binary makes `spawn` emit `error` after it returns, with no pid; checking
+    // first turns that into a rejection the caller reports as "did not start".
+    if (!existsSync(options.pi)) {
+        throw new Error(`pi binary ${options.pi} does not exist`);
+    }
     const args = pi_args(options, "rpc");
     const child = spawn(options.pi, args, {
         cwd: options.cwd,

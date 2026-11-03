@@ -127,7 +127,7 @@ def analyse(path):
 
 
 # EGM design docs under docs/designs/ follow EGM's document standards, not WRITING.md, so the
-# checker skips that directory (docs/designs/README.md says why).
+# checker skips that directory (docs/designs/SITEMAP.md says why).
 DESIGNS_DIR = os.path.join("docs", "designs")
 
 
