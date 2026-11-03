@@ -642,6 +642,14 @@ describe("Goldfish routes and view (4.8, 4.9)", () => {
         );
         const response = await app.request(`/sessions/${summary.dir}/egm/goldfish/r-out/0/events`);
         expect(response.status).toBe(404);
+        // A step whose transcript file does not exist yet is a 404 too, not a 500.
+        const pi = join(summary.path, "agents", "lead", "pi");
+        const later = join(pi, "s", "r-out", "run-0", "session.jsonl");
+        const pending = [{ agent: "egm-design", status: "running", sessionFile: later }];
+        const status = { runId: "r-out", state: "running", steps: pending };
+        writeFileSync(join(dir, "status.json"), JSON.stringify(status));
+        const route = `/sessions/${summary.dir}/egm/goldfish/r-out/0/events`;
+        expect((await app.request(route)).status).toBe(404);
     });
 
     it("answers 409 for a skill start while 12 Goldfish run across sessions", async () => {
