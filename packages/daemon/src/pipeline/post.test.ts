@@ -74,17 +74,15 @@ beforeEach(() => {
 });
 
 describe("compose_post", () => {
-    it("lists the PRs, the Goal's first line and the tagged reviewer", () => {
+    it("is each PR's title with its link under it, then the tagged reviewer", () => {
         const summary = session_with_pr(true);
         const config = config_with({ channel: "C0TEST" });
-        const mission = "## Goal\nCustomers can request a refund.\nMore.";
         const fixture = { transport: "fixture" as const };
-        const view = compose_post(summary, mission, null, config, fixture, "U0REVIEWER1");
+        const view = compose_post(summary, config, fixture, "U0REVIEWER1");
         expect(view.text).toBe(
             [
-                "*Refund flow* (s001)",
-                "Customers can request a refund.",
-                "• backend: <https://github.com/acme/backend/pull/412|#412 Refund workflow>",
+                "Refund workflow",
+                "https://github.com/acme/backend/pull/412",
                 "<@U0REVIEWER1> could you review?",
             ].join("\n"),
         );
@@ -94,14 +92,13 @@ describe("compose_post", () => {
         expect(view.prs).toHaveLength(1);
     });
 
-    it("uses the approved doc's first sentence and names the doc (6.10)", () => {
+    it("keeps the design doc out of the message: the PR body names it (6.9)", () => {
         const created = session_with_pr(true);
         const worktree = "worktrees/backend";
         const doc_path = "docs/designs/refunds.md";
         const dir = join(created.path, worktree, "docs", "designs");
         mkdirSync(dir, { recursive: true });
-        const doc = "# Refunds\n\n## Overview\nCustomers refund in one click. More text.\n";
-        writeFileSync(join(dir, "refunds.md"), doc);
+        writeFileSync(join(dir, "refunds.md"), "# Refunds\n\n## Overview\nOne click.\n");
         const backend = created.session.repos["backend"];
         if (backend === undefined) {
             throw new Error("no backend");
@@ -128,38 +125,35 @@ describe("compose_post", () => {
         const config = config_with({ channel: "C0TEST" });
         const view = post_view(read.summary, config, fixture, undefined);
         expect(view.text).toBe(
-            [
-                "*Refund flow* (s001)",
-                "Customers refund in one click.",
-                "Design: `docs/designs/refunds.md`",
-                "• backend: <https://github.com/acme/backend/pull/412|#412 Refund workflow>",
-            ].join("\n"),
+            ["Refund workflow", "https://github.com/acme/backend/pull/412"].join("\n"),
         );
-        expect(view.text).not.toContain("Customers can request a refund.");
+        expect(view.text).not.toContain("refunds.md");
     });
 
-    it("keeps the Goal line for a session without a design block", () => {
+    it("keeps the Goal out of the message too, with or without a design block", () => {
         const summary = session_with_pr(true);
         const fixture = { transport: "fixture" as const };
         const view = post_view(summary, config_with({ channel: "C0TEST" }), fixture, undefined);
-        expect(view.text.split("\n")[1]).toBe("Customers can request a refund.");
-        expect(view.text).not.toContain("Design:");
+        expect(view.text.split("\n")).toEqual([
+            "Refund workflow",
+            "https://github.com/acme/backend/pull/412",
+        ]);
     });
 
     it("names what blocks the post", () => {
         const fixture = { transport: "fixture" as const };
         const unverified = session_with_pr(false);
         const no_channel = config_with({});
-        expect(compose_post(unverified, "", null, no_channel, fixture, undefined).blocked).toBe(
+        expect(compose_post(unverified, no_channel, fixture, undefined).blocked).toBe(
             "no pipeline.slack.channel configured",
         );
         const config = config_with({ channel: "C0TEST" });
-        expect(compose_post(unverified, "", null, config, fixture, undefined).blocked).toBe(
+        expect(compose_post(unverified, config, fixture, undefined).blocked).toBe(
             "not verified: run spinner verify first",
         );
         const never = config_with({ channel: "C0TEST", post: "never" });
         const verified = session_with_pr(true);
-        expect(compose_post(verified, "", null, never, fixture, undefined).blocked).toBe(
+        expect(compose_post(verified, never, fixture, undefined).blocked).toBe(
             "pipeline.slack.post is never",
         );
     });

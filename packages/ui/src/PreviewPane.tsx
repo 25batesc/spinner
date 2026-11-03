@@ -46,8 +46,9 @@ function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: Sess
     const [pending, setPending] = useState(false);
     const pipeline = view.summary.session.pipeline;
     const ticked = pipeline?.verified_locally === true;
-    // The daemon says when the operator can test: while the stack is up.
-    const canVerify = view.can_verify;
+    // The daemon says when the stack is up; the tick is the operator's word either way (a
+    // change verified another way, with the stack down, is still verified).
+    const stackUp = view.can_verify;
     const dir = view.summary.dir;
     const toggle = async () => {
         setPending(true);
@@ -57,13 +58,15 @@ function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: Sess
             setPending(false);
         }
     };
-    const title = ticked || canVerify ? "" : "Bring the stack up to verify.";
+    const title = ticked || stackUp
+        ? ""
+        : "The stack is down. Tick when you verified the change another way.";
     return (
         <label className="verified" title={title}>
             <input
                 type="checkbox"
                 checked={ticked}
-                disabled={busy || pending || (!ticked && !canVerify)}
+                disabled={busy || pending}
                 onChange={() => void toggle()}
             />
             verified

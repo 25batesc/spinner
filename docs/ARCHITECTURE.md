@@ -410,7 +410,7 @@ create PR ──▶ PR body from the approved doc's Overview and Goals
 | `egm/design.ts` | The tracker sends the change notice once per hash and computes the changed `## ` sections for `GET …/design/changes`. |
 | `agents/manager.ts` | `notify_all` with `steer_fallback` reaches an rpc agent by steer. |
 | `pi-extension/src/guard.ts` | A design-track lead whose `.state.json` reads `approved: false` writes only inside the designs directory and the session's own files. |
-| `egm/pr-body.ts` | The PR body and the Slack summary line from the approved doc. |
+| `egm/pr-body.ts` | The PR body from the approved doc. |
 | `pipeline/outcomes.ts` | The `fix_rounds` and `operator_steers` counters. |
 
 The guard covers `edit` and `write` only. A `bash` command can still write a file; the lead brief and EGM's design-only scope are the limit there.

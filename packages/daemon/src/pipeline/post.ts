@@ -16,10 +16,9 @@ import type {
     SessionSummary,
     SlackActivity,
 } from "@spinner/protocol";
-import { approved_doc_of, overview_line } from "../egm/pr-body.js";
 import type { SpinnerHome } from "../home.js";
 import { read_session, write_session } from "../store/session-store.js";
-import { append_log_line, mission_section } from "./mission-sections.js";
+import { append_log_line } from "./mission-sections.js";
 import { clock } from "./pr.js";
 import { parse_permalink, type SlackClient } from "./slack.js";
 import { refresh_session, session_prs } from "./tracker.js";
@@ -32,20 +31,15 @@ export interface PostDeps {
 }
 
 /** The approved design doc as `post` reads it: the repo-relative path and the text. */
-export interface PostDesign {
-    path: string;
-    text: string;
-}
 
 /**
- * Pure: what `post` would send, and why it would refuse. With an approved design doc, the
- * summary line is the doc's first Overview sentence and a line names the doc (6.10); else
- * the summary line is the Goal's first line.
+ * Pure: what `post` would send, and why it would refuse. The message is each PR's title
+ * with its link under it (the operator's ask of 2026-11-03), then the reviewer's mention
+ * when one is set. The design doc and the Goal stay out of the message: the PR body names
+ * the doc (6.9) and the reader opens the link.
  */
 export function compose_post(
     summary: SessionSummary,
-    mission: string,
-    design: PostDesign | null,
     config: PipelineConfig,
     slack: Pick<SlackClient, "transport">,
     to: string | undefined,
@@ -59,19 +53,12 @@ export function compose_post(
         state: pr.state,
     }));
     const reviewer = to ?? session.pipeline?.reviewer ?? null;
-    const goal =
-        design === null
-            ? first_line(mission_section(mission, "Goal"))
-            : overview_line(design.text);
-    const lines = [`*${session.title}* (${session.id})`];
-    if (goal.length > 0) {
-        lines.push(goal);
-    }
-    if (design !== null) {
-        lines.push(`Design: \`${design.path}\``);
-    }
+    const lines: string[] = [];
     for (const pr of prs) {
-        lines.push(`• ${pr.repo}: <${pr.url}|#${pr.number} ${pr.title}>`);
+        if (lines.length > 0) {
+            lines.push("");
+        }
+        lines.push(pr.title, pr.url);
     }
     if (reviewer !== null) {
         lines.push(`${mention(reviewer)} could you review?`);
@@ -115,31 +102,13 @@ function mention(reviewer: string): string {
     return reviewer.startsWith("@") ? reviewer : `@${reviewer}`;
 }
 
-function first_line(text: string): string {
-    return text.split("\n")[0]?.trim() ?? "";
-}
-
-export function read_mission(summary: SessionSummary): string {
-    const path = join(summary.path, "MISSION.md");
-    return existsSync(path) ? readFileSync(path, "utf8") : "";
-}
-
 export function post_view(
     summary: SessionSummary,
     config: PipelineConfig,
     slack: Pick<SlackClient, "transport">,
     to: string | undefined,
 ): PostView {
-    return compose_post(summary, read_mission(summary), read_design(summary), config, slack, to);
-}
-
-/** The approved doc from the designs repo's worktree; null without one or when it is missing. */
-export function read_design(summary: SessionSummary): PostDesign | null {
-    const doc = approved_doc_of(summary);
-    if (doc === null || !existsSync(doc.absolute)) {
-        return null;
-    }
-    return { path: doc.path, text: readFileSync(doc.absolute, "utf8") };
+    return compose_post(summary, config, slack, to);
 }
 
 /**

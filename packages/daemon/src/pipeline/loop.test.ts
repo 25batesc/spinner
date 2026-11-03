@@ -174,7 +174,8 @@ describe("the loop on fixtures", () => {
         const preview = (await get(`/sessions/${dir}/post`)) as PostResponse;
         expect(preview.post.blocked).toBeNull();
         expect(preview.post.transport).toBe("fixture");
-        expect(preview.post.text).toContain("Ship it.");
+        // The message is the PR's title with its link under it; the Goal stays out of it.
+        expect(preview.post.text).toMatch(/^feat: example feature[^\n]*\nhttps:\/\//);
         expect((await job(`/sessions/${dir}/post`, { confirm: true })).error).toBeNull();
         current = await session(dir);
         expect(current.pipeline?.slack_post).toMatch(/^https:\/\/fixture.slack.invalid\//);

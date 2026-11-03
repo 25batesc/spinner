@@ -397,7 +397,7 @@ Text above the first `## ` heading is not compared, so the status line never cou
 
 With an approved design, `create PR` writes the PR body from the doc in the designs repo's worktree.
 The body holds the `## Overview` body, the `## Goals` section, the doc path and the session id.
-The Slack post's summary line is the first sentence of `## Overview`, at most 200 characters. A session without an approved doc keeps the mission-based body and line.
+The Slack post is each PR's title with its link under it, then the reviewer's mention when one is set; the doc and the Goal stay out of it, because the PR body names the doc.
 The PR reviewers' brief names the approved doc and asks them to name each place where the code differs from it.
 
 `session.yaml` `outcomes` holds two counters: `fix_rounds` and `operator_steers`.
