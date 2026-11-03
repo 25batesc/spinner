@@ -512,6 +512,52 @@ describe("edit guard", () => {
         expect(call("edit", "web/src/page.tsx")).toBeUndefined();
     });
 
+    it("keeps a design-track lead to the design doc until approval (6.13, 6.14)", () => {
+        const designs = join(session_dir, "worktrees", "web", "docs", "designs");
+        const state_file = join(session_dir, "design", ".state.json");
+        mkdirSync(join(session_dir, "design"), { recursive: true });
+        const write_state = (state: unknown): void =>
+            writeFileSync(state_file, `${JSON.stringify(state)}\n`);
+        const call_as = (agent: string, role: string) => {
+            const pi = fake_pi();
+            const env = { ...env_for(role, ""), SPINNER_AGENT: agent };
+            register(pi, { env });
+            const handler = pi.handlers.get("tool_call")?.[0];
+            const cwd = join(session_dir, "worktrees", "web");
+            return (path: string): ToolCallResult | undefined => {
+                const event: ToolCallEvent = { toolName: "write", input: { path } };
+                const ctx = { cwd, hasUI: false, ui: { notify: () => undefined } };
+                return handler?.(event as never, ctx as never) as ToolCallResult | undefined;
+            };
+        };
+        const lead = call_as("lead", "lead");
+        const design = { track: "design", stage: "drafted", designs_dir: designs };
+        write_state({ ...design, approved: false });
+        const blocked = lead("src/a.ts");
+        expect(blocked).toMatchObject({ block: true });
+        expect(blocked?.reason).toContain("Under EGM's design-only scope");
+        expect(lead("docs/designs/x.md")).toBeUndefined();
+        expect(lead(join(session_dir, "design", "notes.md"))).toBeUndefined();
+        expect(lead(join(session_dir, "MISSION.md"))).toBeUndefined();
+
+        write_state({ ...design, stage: "approved", approved: true });
+        expect(lead("src/a.ts")).toBeUndefined();
+        write_state({ ...design, approved: false });
+        expect(lead("src/a.ts")).toMatchObject({ block: true });
+
+        // A worker is not affected; it falls through to its own globs (`alpha` owns api/**).
+        expect(call_as("alpha", "worker")("api/a.ts")).toBeUndefined();
+        // A stale state: the tracker rewrites `.state.json` at a switch to direct.
+        write_state({ track: "direct", stage: null, approved: false, designs_dir: designs });
+        expect(lead("src/a.ts")).toBeUndefined();
+        // Without a designs worktree only the session's files stay writable.
+        write_state({ ...design, approved: false, designs_dir: null });
+        expect(lead("docs/designs/x.md")).toMatchObject({ block: true });
+        // An absent or invalid state does not lock anything.
+        writeFileSync(state_file, "{not json");
+        expect(lead("src/a.ts")).toBeUndefined();
+    });
+
     it("parses globs from the brief and matches them", () => {
         expect(
             owned_globs(

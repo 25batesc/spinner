@@ -253,17 +253,31 @@ export class AgentManager {
 
     /**
      * Pushes a daemon notice (a failed stack job) to every running agent of `dir` whose
-     * harness can take one. Returns the names reached; a failed delivery is logged, not thrown.
+     * harness can take one. With `steer_fallback` (the design-change notice, 6.4), a handle
+     * without `notify` gets the text as a steer, so the rpc harness is reached too. Returns the
+     * names reached; a failed delivery is logged, not thrown.
      */
-    async notify_all(dir: string, text: string): Promise<string[]> {
+    async notify_all(
+        dir: string,
+        text: string,
+        options: { steer_fallback: boolean } = { steer_fallback: false },
+    ): Promise<string[]> {
         assert.ok(text.length > 0, "a notice must not be empty");
         const reached: string[] = [];
         for (const entry of this.hosted.values()) {
-            if (entry.dir !== dir || entry.handle.notify === undefined) {
+            if (entry.dir !== dir) {
+                continue;
+            }
+            const handle = entry.handle;
+            if (handle.notify === undefined && !options.steer_fallback) {
                 continue;
             }
             try {
-                await entry.handle.notify(text);
+                if (handle.notify === undefined) {
+                    await handle.steer(text);
+                } else {
+                    await handle.notify(text);
+                }
                 reached.push(entry.name);
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);

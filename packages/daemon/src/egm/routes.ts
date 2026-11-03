@@ -1,7 +1,8 @@
 // The EGM routes (docs/designs/egm-adoption.md, 1.12, 2.24, 3.9): the fetch state and a
 // refetch job, the design track, the lead's design doc, the lead's gate, the operator's
 // answer and the skill runs; the Goldfish transcripts and the live cap (4.9); the design
-// workspace's files, archived reports and doc (5.3). Build sessions 3 to 6 widen
+// workspace's files, archived reports and doc (5.3); approval, its removal, the approved
+// copy and the changes since approval (6.7). Build sessions 3 to 6 widen
 // `EgmRouteDeps`; each entry that does names the new fields. Mounted by one line in
 // `server.ts`.
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -10,6 +11,8 @@ import type { Context, Hono } from "hono";
 import type {
     AgentCommandResponse,
     AgentEventsResponse,
+    DesignApproveRefusal,
+    DesignChangesResponse,
     DesignFilesResponse,
     DesignTrack,
     EgmResponse,
@@ -22,6 +25,7 @@ import type {
     SessionSummary,
 } from "@spinner/protocol";
 import {
+    APPROVED_COPY,
     BRIEF_FILE,
     DESIGN_ANSWER_MAX,
     DESIGN_FILE_NAME_PATTERN,
@@ -44,6 +48,7 @@ import type { JobRunner, JobWork } from "../jobs/jobs.js";
 import type { MissionWriter } from "../store/mission-writer.js";
 import { read_session, write_session } from "../store/session-store.js";
 import type { ViewBuilder } from "../watcher.js";
+import { ApproveRefusal, approve_design, clear_approval } from "./approve.js";
 import { DesignDocConflict, DesignDocRefused, type DesignTracker } from "./design.js";
 import { type EgmFetcher, marker_path } from "./fetch.js";
 import { clear_gate, set_gate } from "./gate.js";
@@ -146,6 +151,93 @@ export function mount_egm_routes(app: Hono, deps: EgmRouteDeps): void {
 
     mount_gate_routes(app, deps);
     mount_workspace_routes(app, deps);
+    mount_approve_routes(app, deps);
+}
+
+/** `POST` and `DELETE …/design/approve`, `GET …/design/approved` and `…/changes` (6.7). */
+function mount_approve_routes(app: Hono, deps: EgmRouteDeps): void {
+    app.post("/sessions/:dir/design/approve", async (c) => {
+        const dir = c.req.param("dir");
+        const request = parse_approve(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const read = read_session(deps.home, dir);
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        if (read.summary.session.design?.track !== "design") {
+            const refusal: DesignApproveRefusal = {
+                error: "this session is not on the design track",
+                blockers: null,
+            };
+            return c.json(refusal, 409);
+        }
+        try {
+            await approve_design(deps, read.summary, request);
+        } catch (error) {
+            if (error instanceof ApproveRefusal) {
+                const refusal: DesignApproveRefusal = {
+                    error: error.message,
+                    blockers: error.blockers,
+                };
+                return c.json(refusal, 409);
+            }
+            throw error;
+        }
+        await deps.design.refresh(dir);
+        return session_response(c, deps, dir);
+    });
+
+    app.delete("/sessions/:dir/design/approve", async (c) => {
+        const dir = c.req.param("dir");
+        const read = read_session(deps.home, dir);
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        clear_approval(deps, read.summary);
+        await deps.design.refresh(dir);
+        return session_response(c, deps, dir);
+    });
+
+    app.get("/sessions/:dir/design/approved", (c) => {
+        const read = read_session(deps.home, c.req.param("dir"));
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        if (read.summary.session.design?.approved === undefined) {
+            return c.json(error_body("the design is not approved"), 404);
+        }
+        return markdown(c, join(read.summary.path, EGM_ARTIFACT_DIR, APPROVED_COPY));
+    });
+
+    app.get("/sessions/:dir/design/changes", (c) => {
+        const read = read_session(deps.home, c.req.param("dir"));
+        if (!read.ok) {
+            return c.json(error_body(read.error), 404);
+        }
+        const body: DesignChangesResponse = { changes: deps.design.changes(read.summary) };
+        return c.json(body);
+    });
+}
+
+/** The body of `POST …/design/approve`, or the 400 text. */
+function parse_approve(body: unknown): { build: boolean; blockers_confirmed?: number } | string {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        return "the body must be { build: boolean, blockers_confirmed?: number }";
+    }
+    const record = body as Record<string, unknown>;
+    if (typeof record["build"] !== "boolean") {
+        return "build must be a boolean";
+    }
+    const confirmed = record["blockers_confirmed"];
+    if (confirmed === undefined) {
+        return { build: record["build"] };
+    }
+    if (typeof confirmed !== "number" || !Number.isInteger(confirmed) || confirmed < 0) {
+        return "blockers_confirmed must be a non-negative integer";
+    }
+    return { build: record["build"], blockers_confirmed: confirmed };
 }
 
 /** The Goldfish transcripts (4.9) and the design workspace's reads (5.3). */

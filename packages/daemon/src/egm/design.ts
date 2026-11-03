@@ -17,6 +17,7 @@ import {
 import { join, relative } from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type {
+    DesignChange,
     DesignFileView,
     DesignState,
     DesignView,
@@ -26,6 +27,7 @@ import type {
     SessionSummary,
 } from "@spinner/protocol";
 import {
+    APPROVED_COPY,
     DESIGN_DEFAULT_DIR,
     DESIGN_FILES_MAX,
     DESIGN_STATE_FILE,
@@ -38,6 +40,7 @@ import type { EventBus } from "../event-bus.js";
 import { run, type Runner } from "../git/pinned-clone.js";
 import type { SpinnerHome } from "../home.js";
 import { last_assistant_text } from "../agents/swarm.js";
+import { split_mission } from "../pipeline/mission-sections.js";
 import { config_for_session } from "../pipeline/poller.js";
 import { repo_base } from "../pipeline/pr.js";
 import { refresh_session } from "../pipeline/tracker.js";
@@ -120,6 +123,8 @@ export class DesignTracker {
     private readonly watchers = new Map<string, { path: string; watcher: FSWatcher }>();
     private readonly chains = new Map<string, Promise<void>>();
     private readonly logged = new Set<string>();
+    /** The doc hash each session's agents were last told about (6.6); in memory only. */
+    private readonly notified = new Map<string, string>();
     private readonly unsubscribe: () => void;
     private readonly runner: Runner;
 
@@ -217,6 +222,52 @@ export class DesignTracker {
         if (wrote || published) {
             await this.deps.refresh(dir);
         }
+        await this.notify_change(summary, refreshed.session.design as DesignState);
+    }
+
+    /**
+     * Once per doc hash after the approval is invalidated (D7, 6.6): tells every running agent
+     * of the session which sections changed, by steer where the harness has no `notify`. A
+     * missing doc counts as changed and is told once as well.
+     */
+    private async notify_change(summary: SessionSummary, design: DesignState): Promise<void> {
+        const dir = summary.dir;
+        if (design.track !== "design" || design.changed_after_approval !== true) {
+            this.notified.delete(dir);
+            return;
+        }
+        const doc_path = this.doc_path(summary);
+        const present = doc_path !== null && existsSync(doc_path);
+        const key = present ? normalized_doc_hash(readFileSync(doc_path, "utf8")) : "missing";
+        if (this.notified.get(dir) === key) {
+            return;
+        }
+        this.notified.set(dir, key);
+        const headings = this.changes(summary).map((change) => change.heading);
+        const sections = headings.length === 0 ? "the doc" : headings.join(", ");
+        const text =
+            `The design doc changed in ${sections}; the approval is invalidated. ` +
+            "Your code writes stay locked until the operator re-approves.";
+        await this.deps.agents.notify_all(dir, text, { steer_fallback: true });
+    }
+
+    /**
+     * The `## ` sections that differ between `approved.md` and the doc now, by heading and
+     * body (6.6). Empty without an approval, without the copy, or when the hash matches.
+     */
+    changes(summary: SessionSummary): DesignChange[] {
+        const approval = summary.session.design?.approved;
+        const copy = join(summary.path, EGM_ARTIFACT_DIR, APPROVED_COPY);
+        if (approval === undefined || !existsSync(copy)) {
+            return [];
+        }
+        const doc_path = this.doc_path(summary);
+        const current =
+            doc_path !== null && existsSync(doc_path) ? readFileSync(doc_path, "utf8") : "";
+        if (current.length > 0 && normalized_doc_hash(current) === approval.sha256) {
+            return [];
+        }
+        return changed_sections(readFileSync(copy, "utf8"), current);
     }
 
     /** True when the session has a gate asked before `time` (an ISO 8601 event time). */
@@ -492,6 +543,59 @@ export class DesignTracker {
     }
 }
 
+/** `split_mission` asserts fewer than 100 sections; a doc past this is compared whole. */
+const DOC_SECTIONS_MAX = 98;
+
+/**
+ * The `## ` sections of two docs that differ, by heading (the n-th section of a repeated
+ * heading pairs with the n-th) and by body with trailing space trimmed. The approved order
+ * first, then the sections only the current doc has. Text above the first `## ` is not a
+ * section, so the status line never counts.
+ */
+export function changed_sections(approved: string, current: string): DesignChange[] {
+    const too_many = (text: string): boolean =>
+        text.split("\n").filter((line) => line.startsWith("## ")).length > DOC_SECTIONS_MAX;
+    if (too_many(approved) || too_many(current)) {
+        return [{ heading: "(the whole doc)", approved, current }];
+    }
+    const before = keyed_sections(approved);
+    const after = keyed_sections(current);
+    const changes: DesignChange[] = [];
+    for (const [key, section] of before) {
+        const now = after.get(key);
+        if (now === undefined || now.body !== section.body) {
+            changes.push({
+                heading: section.heading,
+                approved: section.body,
+                current: now?.body ?? null,
+            });
+        }
+    }
+    for (const [key, section] of after) {
+        if (!before.has(key)) {
+            changes.push({ heading: section.heading, approved: null, current: section.body });
+        }
+    }
+    return changes;
+}
+
+function keyed_sections(text: string): Map<string, { heading: string; body: string }> {
+    const sections = new Map<string, { heading: string; body: string }>();
+    const seen = new Map<string, number>();
+    for (const block of split_mission(text.replace(/\r\n/g, "\n"))) {
+        if (block.heading === "") {
+            continue;
+        }
+        const index = seen.get(block.heading) ?? 0;
+        seen.set(block.heading, index + 1);
+        sections.set(`${block.heading}#${index}`, {
+            heading: block.heading,
+            body: block.body.trimEnd(),
+        });
+    }
+    return sections;
+}
+
 function iso_or_null(ms: number | null): string | null {
     return ms === null ? null : new Date(ms).toISOString();
 }
@@ -511,7 +615,6 @@ function design_fields_differ(before: Session, after: Session): boolean {
     );
 }
 
-/** The first non-empty line of a file, trimmed; null when the file is absent. */
 /**
  * The resolve report's status line. `egm-resolve` Step 5 says "add a `Status: resolved` line at
  * the top"; a lead writes it as the first line, or in bold a few lines down under the title

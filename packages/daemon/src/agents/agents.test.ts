@@ -244,6 +244,32 @@ describe("AgentManager with PiRpcHarness", () => {
         delete process.env["FAKE_PI_ARGS_FILE"];
     });
 
+    it("notify_all steers a handle without notify only with steer_fallback (6.4)", async () => {
+        const summary = create_session(home, { title: "Notice" });
+        mkdirSync(join(summary.path, "agents", "backend"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "backend", "BRIEF.md"), "# backend\n");
+        // The rpc harness: its handle has `steer` and no `notify`.
+        const harness = new PiRpcHarness({ pi: () => FAKE_PI, extension: null });
+        const manager = new AgentManager(home, { default: "rpc", rpc: harness }, new EventBus());
+        const handle = await manager.add(summary, { name: "backend" });
+        expect(handle.notify).toBeUndefined();
+        const steered: string[] = [];
+        const steer = handle.steer;
+        handle.steer = async (text) => {
+            steered.push(text);
+            return steer(text);
+        };
+        expect(await manager.notify_all(summary.dir, "no options")).toEqual([]);
+        const off = { steer_fallback: false };
+        expect(await manager.notify_all(summary.dir, "off", off)).toEqual([]);
+        expect(steered).toEqual([]);
+        const on = { steer_fallback: true };
+        expect(await manager.notify_all(summary.dir, "the doc changed", on)).toEqual(["backend"]);
+        expect(steered).toEqual(["the doc changed"]);
+        expect(await manager.notify_all("other-session", "x", on)).toEqual([]);
+        await manager.stop_all();
+    });
+
     it("appends the brief itself without an extension; the fixer gets its role", async () => {
         const summary = create_session(home, { title: "Plain" });
         mkdirSync(join(summary.path, "agents", "fixer"), { recursive: true });

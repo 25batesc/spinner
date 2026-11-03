@@ -11,7 +11,9 @@
 // runs, so a test reads the exact text that would reach pi. Build sessions 4 and 5 (4.9,
 // 5.3, 5.4): the Goldfish events route and the live cap read real `status.json` files
 // through a real `GoldfishWatcher` and `CostLedger`; the workspace routes read real files
-// under `<session>/design/` and the doc in the worktree.
+// under `<session>/design/` and the doc in the worktree. Build session 6 (6.2, 6.3, 6.6,
+// 6.7): approval through the routes on the real doc in the worktree, with the lead's notices
+// recorded at `notify_all`, the manager's seam for the design-change notice.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -23,7 +25,12 @@ import type {
     SessionResponse,
     SessionSummary,
 } from "@spinner/protocol";
-import type { AgentEventsResponse, DesignFilesResponse } from "@spinner/protocol";
+import type {
+    AgentEventsResponse,
+    DesignApproveRefusal,
+    DesignChangesResponse,
+    DesignFilesResponse,
+} from "@spinner/protocol";
 import { EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES, GOLDFISH_LIVE_MAX } from "@spinner/protocol";
 import { CostLedger } from "../costs/ledger.js";
 import type { AgentHandle } from "../agents/harness.js";
@@ -58,6 +65,19 @@ let ledger: CostLedger;
 class RecordingAgents extends AgentManager {
     running_lead = true;
     sent: string[] = [];
+    /** The texts of `notify_all` with the steer fallback: the design-change notice (6.6). */
+    notices: string[] = [];
+
+    override async notify_all(
+        dir: string,
+        text: string,
+        options: { steer_fallback: boolean } = { steer_fallback: false },
+    ): Promise<string[]> {
+        if (options.steer_fallback) {
+            this.notices.push(text);
+        }
+        return super.notify_all(dir, text, options);
+    }
 
     override get(dir: string, name: string): AgentHandle | null {
         if (name !== "lead" || !this.running_lead) {
@@ -736,5 +756,166 @@ describe("design workspace routes (5.3, 5.4)", () => {
         expect(await doc.text()).toBe(DOC_TEXT);
         rmSync(join(designs, "csv.md"));
         expect((await get(app, "doc")).status).toBe(404);
+    });
+});
+
+describe("design approval routes (6.2, 6.3, 6.6, 6.7)", () => {
+    const DOC_STATUS = DOC_TEXT.replace("# CSV\n", "# CSV\n\n*   **Status:** Reviewed\n");
+    const report = (name: string, text: string): void => {
+        mkdirSync(join(summary.path, "design"), { recursive: true });
+        writeFileSync(join(summary.path, "design", name), text);
+    };
+    const approve = (app: Hono, body: unknown): Promise<Response> => post(app, "approve", body);
+    const state_file = (): { approved: boolean } =>
+        JSON.parse(readFileSync(join(summary.path, "design", ".state.json"), "utf8")) as {
+            approved: boolean;
+        };
+
+    /** A design-track app whose named doc carries a `Status:` line. */
+    async function status_app(): Promise<Hono> {
+        const app = app_with(true);
+        expect((await put(app, "track", { track: "design" })).status).toBe(200);
+        writeFileSync(join(designs, "csv.md"), DOC_STATUS);
+        expect((await put(app, "doc", { path: join(designs, "csv.md") })).status).toBe(200);
+        return app;
+    }
+
+    it("refuses with 409 without a doc, while resolving, and with an open gate", async () => {
+        const bare = app_with(true);
+        expect((await put(bare, "track", { track: "design" })).status).toBe(200);
+        const no_doc = await approve(bare, { build: true });
+        expect(no_doc.status).toBe(409);
+        expect(await no_doc.json()).toEqual({ error: "no design doc yet", blockers: null });
+        goldfish.close();
+        await tracker.close();
+
+        const app = await status_app();
+        report("goldfish_review_report.md", "# Report\n### [Issue 1] [x] - Severity: High\n");
+        await tracker.refresh(summary.dir);
+        const resolving = await approve(app, { build: true });
+        expect(resolving.status).toBe(409);
+        expect(await resolving.json()).toMatchObject({ blockers: null });
+        rmSync(join(summary.path, "design", "goldfish_review_report.md"));
+        expect((await put(app, "gate", GATE)).status).toBe(200);
+        const gated = await approve(app, { build: true });
+        expect(gated.status).toBe(409);
+        expect(await error_of(gated)).toBe("the lead asked a question; answer it first");
+        expect(stored().design?.approved).toBeUndefined();
+        expect(agents.sent).toEqual([]);
+        for (const body of [{}, { build: "yes" }, { build: true, blockers_confirmed: -1 }]) {
+            expect((await approve(app, body)).status, JSON.stringify(body)).toBe(400);
+        }
+    });
+
+    it("needs the blocker count confirmed, then pins the hash and starts the build", async () => {
+        const app = await status_app();
+        const blockers =
+            "# Consolidated\n## 🔴 Blockers\n### One\n### Two\n## 🟡 Majors\n### Three\n";
+        report("consolidated_review_report.md", blockers);
+        for (const body of [{ build: true }, { build: true, blockers_confirmed: 1 }]) {
+            const refused = await approve(app, body);
+            expect(refused.status).toBe(409);
+            const refusal = (await refused.json()) as DesignApproveRefusal;
+            expect(refusal).toEqual({
+                error: "The newest review report lists 2 blockers.",
+                blockers: 2,
+            });
+        }
+        expect(stored().design?.approved).toBeUndefined();
+
+        const approved = await approve(app, { build: true, blockers_confirmed: 2 });
+        expect(approved.status).toBe(200);
+        const doc = readFileSync(join(designs, "csv.md"), "utf8");
+        expect(doc).toContain("*   **Status:** Approved\n");
+        const sha256 = normalized_doc_hash(doc);
+        expect(sha256).toBe(normalized_doc_hash(DOC_STATUS));
+        const session = stored();
+        expect(session.design?.approved).toMatchObject({
+            path: "docs/designs/csv.md",
+            repo: "web",
+            sha256,
+            blockers: 2,
+            round: 1,
+        });
+        expect(session.design?.approvals).toHaveLength(1);
+        expect(session.design?.stage).toBe("approved");
+        expect(readFileSync(join(summary.path, "design", "approved.md"), "utf8")).toBe(doc);
+        const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
+        const sha12 = sha256.slice(0, 12);
+        const line = `design approved: docs/designs/csv.md (${sha12}, 2 listed blockers)`;
+        expect(mission).toContain(`spinner: ${line}`);
+        expect(agents.sent).toHaveLength(1);
+        expect(agents.sent[0]).toContain(`The design is approved: ${join(designs, "csv.md")}`);
+        expect(agents.sent[0]).toContain("mission_plan add");
+        expect(state_file().approved).toBe(true);
+        const copy = await app.request(`/sessions/${summary.dir}/design/approved`);
+        expect(copy.status).toBe(200);
+        expect(await copy.text()).toBe(doc);
+    });
+
+    it("approves without the build prompt; refuses a build while the lead is stopped", async () => {
+        const app = await status_app();
+        agents.running_lead = false;
+        const stopped = await approve(app, { build: true });
+        expect(stopped.status).toBe(409);
+        expect(stored().design?.approved).toBeUndefined();
+        const quiet = await approve(app, { build: false });
+        expect(quiet.status).toBe(200);
+        expect(stored().design?.approved?.blockers).toBe(0);
+        expect(agents.sent).toEqual([]);
+    });
+
+    it("an edit invalidates the approval once per hash; re-approval in round 2", async () => {
+        const app = await status_app();
+        expect((await approve(app, { build: false })).status).toBe(200);
+        const unchanged = await app.request(`/sessions/${summary.dir}/design/changes`);
+        expect(((await unchanged.json()) as DesignChangesResponse).changes).toEqual([]);
+
+        const edited = readFileSync(join(designs, "csv.md"), "utf8").replace(
+            "Rows.",
+            "Rows, quoted.",
+        );
+        writeFileSync(join(designs, "csv.md"), edited);
+        await tracker.refresh(summary.dir);
+        await tracker.refresh(summary.dir);
+        const changed = stored();
+        expect(changed.design?.changed_after_approval).toBe(true);
+        expect(changed.design?.stage).toBe("drafted");
+        expect(changed.needs_human).toBe("re-approve the design (changed since approval)");
+        expect(state_file().approved).toBe(false);
+        expect(agents.notices).toEqual([
+            "The design doc changed in Overview; the approval is invalidated. " +
+                "Your code writes stay locked until the operator re-approves.",
+        ]);
+        const response = await app.request(`/sessions/${summary.dir}/design/changes`);
+        const body = (await response.json()) as DesignChangesResponse;
+        expect(body.changes).toEqual([
+            { heading: "Overview", approved: "\nRows.", current: "\nRows, quoted." },
+        ]);
+
+        patch_session((session) => {
+            session.round = 2;
+        });
+        expect((await approve(app, { build: false })).status).toBe(200);
+        const again = stored();
+        expect(again.design?.changed_after_approval).toBe(false);
+        expect(again.design?.approvals?.map((entry) => entry.round)).toEqual([1, 2]);
+        expect(state_file().approved).toBe(true);
+    });
+
+    it("DELETE removes the approval and the copy and keeps the history", async () => {
+        const app = await status_app();
+        expect((await approve(app, { build: false })).status).toBe(200);
+        const removed = await app.request(`/sessions/${summary.dir}/design/approve`, {
+            method: "DELETE",
+        });
+        expect(removed.status).toBe(200);
+        const session = stored();
+        expect(session.design?.approved).toBeUndefined();
+        expect(session.design?.changed_after_approval).toBe(false);
+        expect(session.design?.approvals).toHaveLength(1);
+        expect(existsSync(join(summary.path, "design", "approved.md"))).toBe(false);
+        expect((await app.request(`/sessions/${summary.dir}/design/approved`)).status).toBe(404);
+        expect(state_file().approved).toBe(false);
     });
 });
