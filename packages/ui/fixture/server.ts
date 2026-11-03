@@ -44,6 +44,7 @@ import {
 import { ReviewFixture } from "./reviews.ts";
 import type { DiffRepoView, DiffView } from "@spinner/protocol";
 import { EchoPty } from "./tty.ts";
+import { WorkspaceFixture, withWorkspace } from "./workspace.ts";
 
 export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
 
@@ -208,6 +209,8 @@ class FixtureDaemon {
     reviews = new ReviewFixture(this);
     /** The design routes (entry 3.24): the gate, the answer, the skill runs. */
     design = new DesignFixture(this);
+    /** The design workspace's reads (entries 5.12, 5.14): files, reports, doc, round Logs. */
+    workspace = new WorkspaceFixture(this);
     /** The keys each fake viewer page received, per repo (`DIFF_VIEWER_ROUTE`). */
     diffKeys = new Map<string, string[]>();
     /** The port the server listens on, set once it does: the fake viewer URLs name it. */
@@ -215,7 +218,8 @@ class FixtureDaemon {
 
     constructor() {
         const seeds = [...initialSessions(), ...initialDesignSessions(), ...initialReviews()];
-        for (const item of seeds) {
+        for (const seed of seeds) {
+            const item = withWorkspace(seed);
             this.sessions.set(item.summary.dir, item);
             if (item.review !== undefined && "briefing" in item.review) {
                 this.reviews.seedBriefing(item.summary.dir);
@@ -828,6 +832,9 @@ class FixtureDaemon {
         const fish = /^\/sessions\/([^/]+)\/egm\//.exec(path)?.[1];
         const goldfish = this.sessions.get(fish ?? "")?.design?.goldfish;
         if (fish !== undefined && handleGoldfish(method, path, goldfish, response)) {
+            return;
+        }
+        if (this.workspace.handle(method, path, response)) {
             return;
         }
         if (await this.reviewRoute(request, response, method, path)) {

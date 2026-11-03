@@ -20,7 +20,8 @@ import {
     type PoppedOut,
     type PopOutRequest,
 } from "./Preview.tsx";
-import { gateCard } from "./design.ts";
+import { gateCard, type StepId } from "./design.ts";
+import { stepTab, type WorkspaceTab } from "./design-workspace.ts";
 import { diffJob } from "./diff-view.ts";
 import {
     focusedDir, loadFocus, NO_FOCUS, pickFocus, saveFocus, type Focus, type FocusPanel,
@@ -204,6 +205,23 @@ export function App() {
         setAgentsShown("agents");
         setAgentPicked("lead");
     };
+    // The design workspace's tab per session (entry 5.11): another session opens on its
+    // track's default tab. A stepper step or the round badge opens the workspace on a tab.
+    const [designPick, setDesignPick] = useState<{ dir: string; tab: WorkspaceTab } | null>(
+        null,
+    );
+    const designTab = designPick !== null && designPick.dir === selected ? designPick.tab : null;
+    const openDesign = (tab: WorkspaceTab) => {
+        if (selected === undefined) {
+            return;
+        }
+        setMiddle("agents");
+        setAgentsShown("design");
+        setDesignPick({ dir: selected, tab });
+    };
+    const hasDesign = view?.design !== undefined;
+    const onStep = hasDesign ? (step: StepId) => openDesign(stepTab(step)) : undefined;
+    const onRound = hasDesign ? () => openDesign("history") : undefined;
     const notice = operatorNotice(state.operator);
     // The link's failure lands where a job's does, in the drawer.
     const operatorBar =
@@ -385,6 +403,12 @@ export function App() {
             onShown={setAgentsShown}
             picked={agentPicked}
             onPicked={setAgentPicked}
+            designTab={designTab}
+            onDesignTab={(tab) => {
+                if (selected !== undefined) {
+                    setDesignPick({ dir: selected, tab });
+                }
+            }}
             onError={app.setActionError}
         >
             {drawer}
@@ -498,6 +522,8 @@ export function App() {
                 operator={operatorBar}
                 onError={app.setActionError}
                 onNeeds={openCard}
+                onStep={onStep}
+                onRound={onRound}
                 toolbar={
                     review !== null && selected !== undefined ? (
                         <ReviewToolbar dir={selected} busy={busy} run={run} />

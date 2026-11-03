@@ -14,6 +14,7 @@ import type {
     CostsResponse,
     DefaultBriefResponse,
     DesignAnswerRequest,
+    DesignFilesResponse,
     DesignRunRequest,
     DesignTrack,
     DesignTrackRequest,
@@ -323,6 +324,59 @@ export async function fetchGoldfishEvents(
         throw await failure("GET", path, response);
     }
     return ((await response.json()) as AgentEventsResponse).events;
+}
+
+// The design workspace's reads (entries 5.12 and 5.14). Each markdown route answers text.
+
+async function getText(path: string, signal: AbortSignal): Promise<string> {
+    const response = await fetch(path, { signal });
+    if (!response.ok) {
+        throw await failure("GET", path, response);
+    }
+    return response.text();
+}
+
+/** `GET /sessions/:dir/design/files`: the files of `<session>/design/` and the archived runs. */
+export async function fetchDesignFiles(
+    dir: string,
+    signal: AbortSignal,
+): Promise<DesignFilesResponse> {
+    return getJson<DesignFilesResponse>(`/sessions/${dir}/design/files`, signal);
+}
+
+/** `GET /sessions/:dir/design/files/:name`: one file of `<session>/design/`. */
+export async function fetchDesignFile(
+    dir: string,
+    name: string,
+    signal: AbortSignal,
+): Promise<string> {
+    return getText(`/sessions/${dir}/design/files/${encodeURIComponent(name)}`, signal);
+}
+
+/** `GET /sessions/:dir/design/reviews/:run/:name`: one report of an archived review run. */
+export async function fetchReviewFile(
+    dir: string,
+    run: string,
+    name: string,
+    signal: AbortSignal,
+): Promise<string> {
+    const path = `/sessions/${dir}/design/reviews/${encodeURIComponent(run)}/` +
+        encodeURIComponent(name);
+    return getText(path, signal);
+}
+
+/** `GET /sessions/:dir/design/doc`: the design doc from the worktree; 404 before `design.doc`. */
+export async function fetchDesignDoc(dir: string, signal: AbortSignal): Promise<string> {
+    return getText(`/sessions/${dir}/design/doc`, signal);
+}
+
+/** `GET /sessions/:dir/rounds/:round/log`: the Log of an earlier round, as markdown. */
+export async function fetchRoundLog(
+    dir: string,
+    round: number,
+    signal: AbortSignal,
+): Promise<string> {
+    return getText(`/sessions/${dir}/rounds/${round}/log`, signal);
 }
 
 /** `GET /costs` over a span of local-zone days, grouped. The Usage section's report. */

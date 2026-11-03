@@ -7,7 +7,7 @@ import { useState, type ReactNode } from "react";
 import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
 import { formatTokens, formatUsd } from "./costs.ts";
-import { trackChoices } from "./design.ts";
+import { trackChoices, type StepId } from "./design.ts";
 import { DesignStepper } from "./DesignStepper.tsx";
 import type { PaneName } from "./layout.ts";
 import {
@@ -323,6 +323,10 @@ export interface ContextBarProps {
      * button that opens the card, in the `agents` view with `lead` picked.
      */
     onNeeds?: (() => void) | undefined;
+    /** Set for a session with a `design` block (entry 5.11): a step opens its workspace tab. */
+    onStep?: ((step: StepId) => void) | undefined;
+    /** Set for a session with a `design` block (entry 5.11): the round badge opens History. */
+    onRound?: (() => void) | undefined;
 }
 
 /** The `needs you` pill: a button that opens the gate card when `onNeeds` is set. */
@@ -350,13 +354,28 @@ function NeedsPill({ needs, onNeeds }: { needs: string; onNeeds: (() => void) | 
  * `r3` after the title from round 2 on (entry 2.47), on every session; the tooltip lists the
  * PRs of each earlier round.
  */
-export function RoundBadge({ view }: { view: SessionView }) {
+export function RoundBadge(
+    { view, onRound }: { view: SessionView; onRound?: (() => void) | undefined },
+) {
     const badge = roundBadge(view);
     if (badge === null) {
         return null;
     }
+    const title = roundTooltip(view.rounds ?? []);
+    if (onRound !== undefined) {
+        return (
+            <button
+                type="button"
+                className="badge round-badge round-badge-button"
+                title={title}
+                onClick={onRound}
+            >
+                {badge}
+            </button>
+        );
+    }
     return (
-        <span className="badge round-badge" title={roundTooltip(view.rounds ?? [])}>
+        <span className="badge round-badge" title={title}>
             {badge}
         </span>
     );
@@ -485,7 +504,7 @@ export function ReviewPills({ facts }: { facts: ReviewFacts }) {
 }
 
 export function ContextBar(props: ContextBarProps) {
-    const { view, usage, operator, toolbar, onError, onNeeds } = props;
+    const { view, usage, operator, toolbar, onError, onNeeds, onStep, onRound } = props;
     if (view === undefined) {
         return (
             <div className="context-bar muted">
@@ -532,13 +551,14 @@ export function ContextBar(props: ContextBarProps) {
             <span className="context-title" title={view.summary.session.title}>
                 {view.summary.session.title}
             </span>
-            <RoundBadge view={view} />
+            <RoundBadge view={view} onRound={onRound} />
             {view.design?.track === "design" ? (
                 <DesignStepper
                     key={view.summary.dir}
                     design={view.design}
                     stage={stageOf(view)}
                     needs={needs}
+                    onStep={onStep}
                 />
             ) : (
                 <span className="badge">{stageOf(view)}</span>
