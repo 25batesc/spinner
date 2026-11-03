@@ -36,7 +36,8 @@ function EntryView({ entry }: { entry: Entry }) {
     }
 }
 
-function TranscriptView({ transcript }: { transcript: Transcript }) {
+/** The chat tab's message list; the Goldfish transcript (entry 4.15) shows it read-only. */
+export function TranscriptView({ transcript }: { transcript: Transcript }) {
     if (transcript.entries.length === 0) {
         return <p className="muted">No messages yet.</p>;
     }

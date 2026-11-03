@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import type {
     AgentCommandResponse,
+    AgentEventsResponse,
     ApproveResponse,
     ApproveView,
     ContextFileResponse,
@@ -25,6 +26,7 @@ import type {
     MissionSectionRequest,
     MissionView,
     MissionViewResponse,
+    PiEvent,
     PostResponse,
     PostView,
     ReviewDraft,
@@ -299,6 +301,28 @@ export async function postDesignAnswer(
 ): Promise<AgentCommandResponse> {
     const body: DesignAnswerRequest = { text };
     return send("POST", `/sessions/${dir}/design/answer`, body);
+}
+
+/**
+ * `GET /sessions/:dir/egm/goldfish/:run/:step/events` (entry 4.18): one Goldfish step's
+ * transcript events. Null on a 404, which the daemon answers while the step has no transcript
+ * file yet or after its run left the newest runs.
+ */
+export async function fetchGoldfishEvents(
+    dir: string,
+    run: string,
+    step: number,
+    signal: AbortSignal,
+): Promise<PiEvent[] | null> {
+    const path = `/sessions/${dir}/egm/goldfish/${encodeURIComponent(run)}/${step}/events`;
+    const response = await fetch(path, { signal });
+    if (response.status === 404) {
+        return null;
+    }
+    if (!response.ok) {
+        throw await failure("GET", path, response);
+    }
+    return ((await response.json()) as AgentEventsResponse).events;
 }
 
 /** `GET /costs` over a span of local-zone days, grouped. The Usage section's report. */

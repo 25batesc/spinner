@@ -1,6 +1,8 @@
 // The EGM stepper in the context bar (docs/designs/egm-adoption.md, entry 2.32, Technical Plan
 // T13): the `EGM` label with the attribution as its tooltip, the five steps with their state,
 // the five Review dots for `egm-review` stages 5 to 9, then the pipeline stage as a pill.
+// Each step's tooltip ends with its Goldfish cost; Brainstorm and Review carry their running
+// Goldfish as a superscript digit (entry 4.17).
 // Under `TOOLBAR_COMPACT_PX` it folds to `EGM 3/5 Review` with the whole stepper in the
 // tooltip, so the context bar keeps one line. It also folds while the full stepper would push
 // the bar past its width or cut the title under `TITLE_MIN_PX`: the toolbar's design group of
@@ -12,6 +14,7 @@ import { EGM_NOTICE, type DesignView } from "@spinner/protocol";
 import {
     compactLabel, designSteps, stepperText, stepTitle, type DesignStep, type StepId,
 } from "./design.ts";
+import { runningOn } from "./goldfish.ts";
 import { useCompact } from "./SessionToolbar.tsx";
 
 export interface DesignStepperProps {
@@ -82,6 +85,18 @@ function StepMark({ step, index }: { step: DesignStep; index: number }) {
     return <span className="egm-step-mark">{step.state === "done" ? "✓" : index + 1}</span>;
 }
 
+/** The step's `running` Goldfish as a superscript digit (entry 4.17); nothing at 0. */
+function RunningFish({ count }: { count: number }) {
+    if (count === 0) {
+        return null;
+    }
+    return (
+        <sup className="egm-fish" title={`${count} Goldfish running`}>
+            {count}
+        </sup>
+    );
+}
+
 function ReviewDots({ dots }: { dots: boolean[] }) {
     return (
         <span className="egm-dots" aria-hidden="true">
@@ -124,6 +139,7 @@ export function DesignStepper({ design, stage, needs, onStep }: DesignStepperPro
                         <StepMark step={step} index={index} />
                         {step.label}
                         {step.dots !== undefined && <ReviewDots dots={step.dots} />}
+                        <RunningFish count={runningOn(design.goldfish, step.id)} />
                     </>
                 );
                 const shared = {

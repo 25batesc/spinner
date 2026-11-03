@@ -99,11 +99,12 @@ describe("compactLabel", () => {
 });
 
 describe("stepTitle and stepperText", () => {
-    it("adds the Goldfish cost of the step when the view has one", () => {
+    it("ends each step but Approve with its Goldfish cost, $0.00 before any", () => {
         const view = design("design-review", { cost_by_stage: { review: 1.2 } });
-        const [, draft, review] = designSteps(view, null);
-        expect(stepTitle(review!, view)).toBe("Review: active · Goldfish $1.20");
-        expect(stepTitle(draft!, view)).toBe("Draft: done");
+        const [, draft, review, approve] = designSteps(view, null);
+        expect(stepTitle(review!, view)).toBe("Review: active · Goldfish: $1.20");
+        expect(stepTitle(draft!, view)).toBe("Draft: done · Goldfish: $0.00");
+        expect(stepTitle(approve!, view)).toBe("Approve: todo");
     });
 
     it("writes every step in one line for the folded tooltip", () => {

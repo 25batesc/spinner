@@ -83,12 +83,17 @@ export function compactLabel(steps: readonly DesignStep[]): string {
     return `EGM ${shown + 1}/${steps.length} ${steps[shown]?.label ?? ""}`.trim();
 }
 
-/** `Review: active · Goldfish $1.20`: a step's tooltip, with its Goldfish cost when known. */
+/**
+ * `Review: active · Goldfish: $1.20`: a step's tooltip ends with its Goldfish cost from
+ * `cost_by_stage`, `$0.00` before any (entry 4.17). Approve has no Goldfish, so no cost.
+ */
 export function stepTitle(step: DesignStep, design: DesignView): string {
     const id = step.id;
-    const usd = id === "approve" ? undefined : design.cost_by_stage[id];
-    const cost = usd === undefined ? "" : ` · Goldfish ${formatUsd(usd)}`;
-    return `${step.label}: ${step.state}${cost}`;
+    const base = `${step.label}: ${step.state}`;
+    if (id === "approve") {
+        return base;
+    }
+    return `${base} · Goldfish: ${formatUsd(design.cost_by_stage[id] ?? 0)}`;
 }
 
 /** The full stepper in one line, the tooltip of the folded form. */

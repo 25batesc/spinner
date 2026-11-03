@@ -29,6 +29,7 @@ import {
 } from "@spinner/protocol";
 
 import { sessionCost } from "./costs.ts";
+import { withGoldfish } from "./goldfish.ts";
 import { fixturePort } from "./port.ts";
 
 export const FIXTURE_PORT = fixturePort(process.env);
@@ -586,5 +587,5 @@ export function initialDesignSessions(): SessionView[] {
         design: designView("brainstorm", { gate: FIXTURE_GATE, ...designsOf("s211-csv-gate") }),
         round: 1, rounds: [],
     };
-    return [...designs, directView, thirdView, gatedView];
+    return [...designs, directView, thirdView, gatedView].map(withGoldfish);
 }

@@ -7,6 +7,9 @@ import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
 import { gateCard } from "./design.ts";
 import { DesignGate } from "./DesignGate.tsx";
+import { GoldfishChips, type GoldfishPick } from "./GoldfishChips.tsx";
+import { GoldfishTranscript } from "./GoldfishTranscript.tsx";
+import { capLine } from "./goldfish.ts";
 import { MissionWorkspace } from "./MissionWorkspace.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
 import { needsHuman, type Revisions } from "./state.ts";
@@ -163,6 +166,14 @@ export function AgentsPane(props: AgentsPaneProps) {
     const [agentTab, setAgentTab] = useState("chat");
     // The `+` chip at the end of the agent row: the add-agent form as the pane's view.
     const [adding, setAdding] = useState(false);
+    // The picked Goldfish chip (entry 4.16), per session: its transcript replaces the agent's
+    // tabs until an agent chip or `+` is picked.
+    const [fish, setFish] = useState<(GoldfishPick & { dir: string }) | null>(null);
+    const design = view?.design;
+    const fishView = fish === null || fish.dir !== view?.summary.dir
+        ? undefined
+        : design?.goldfish.find((item) => item.run === fish.run && item.step === fish.step);
+    const showsFish = !adding && fishView !== undefined;
     const session = view?.summary.session;
     const names = session === undefined ? [] : Object.keys(session.agents);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
@@ -181,8 +192,8 @@ export function AgentsPane(props: AgentsPaneProps) {
                       running={view.agents_running.includes(name)}
                       onResume={() => postAgent(`/sessions/${view.summary.dir}/agents`, { name })}
                       visible={
-                          shown === "agents" && !adding && agentTab !== "context" &&
-                          name === selected
+                          shown === "agents" && !adding && !showsFish &&
+                          agentTab !== "context" && name === selected
                       }
                   />
               ));
@@ -224,17 +235,35 @@ export function AgentsPane(props: AgentsPaneProps) {
                     {view !== undefined && (
                         <AgentChips
                             view={view}
-                            selected={selected}
+                            selected={showsFish ? undefined : selected}
                             adding={adding}
                             onPick={(name) => {
                                 setPicked(name);
                                 setAdding(false);
+                                setFish(null);
                             }}
-                            onAdd={() => setAdding(true)}
+                            onAdd={() => {
+                                setAdding(true);
+                                setFish(null);
+                            }}
                             onStop={(name) =>
                                 void postAgent(`${agentBase(view.summary.dir, name)}/stop`, {})
                             }
                         />
+                    )}
+                    {view !== undefined && design !== undefined &&
+                        (design.goldfish.length > 0 || capLine(design.goldfish_live) !== null) && (
+                        <GoldfishChips
+                            design={design}
+                            selected={showsFish ? fish : null}
+                            onPick={(pick) => {
+                                setFish({ ...pick, dir: view.summary.dir });
+                                setAdding(false);
+                            }}
+                        />
+                    )}
+                    {view !== undefined && !adding && fishView !== undefined && (
+                        <GoldfishTranscript dir={view.summary.dir} view={fishView} />
                     )}
                     {view !== undefined && adding && (
                         <AddAgent
@@ -247,7 +276,7 @@ export function AgentsPane(props: AgentsPaneProps) {
                             onCancel={() => setAdding(false)}
                         />
                     )}
-                    {!adding && (agent === undefined || view === undefined ||
+                    {!adding && !showsFish && (agent === undefined || view === undefined ||
                         selected === undefined ? (
                             <p className="muted">This session has no agents.</p>
                         ) : (

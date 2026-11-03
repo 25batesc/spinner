@@ -35,6 +35,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { costsReport, OPERATOR_COST } from "./costs.ts";
 import { DESIGN_ROUTE, DesignFixture } from "./design.ts";
 import { extract } from "./extract.ts";
+import { handleGoldfish } from "./goldfish.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
     FIXTURE_PORT, designView, diffRepoStopped, diffViewerUrl, egmStatus, initialDesignSessions,
@@ -823,6 +824,11 @@ class FixtureDaemon {
             if (this.design.handle(method, path, body, response)) {
                 return;
             }
+        }
+        const fish = /^\/sessions\/([^/]+)\/egm\//.exec(path)?.[1];
+        const goldfish = this.sessions.get(fish ?? "")?.design?.goldfish;
+        if (fish !== undefined && handleGoldfish(method, path, goldfish, response)) {
+            return;
         }
         if (await this.reviewRoute(request, response, method, path)) {
             return;

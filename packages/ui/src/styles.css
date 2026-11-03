@@ -265,6 +265,8 @@ button.egm-step:hover { background: var(--fill-soft); }
 .egm-compact { padding: 0 7px; }
 .egm-compact[data-state="todo"] { background: var(--fill-soft); }
 .egm-pipeline { margin-left: var(--space-1); }
+/* The running Goldfish of a step (entry 4.17): a small digit after the label. */
+.egm-fish { font-size: 9px; font-weight: 600; line-height: 1; align-self: flex-start; }
 /* The session's track, after the needs-you pill; its menu opens under it to the right. */
 .track-menu { position: relative; display: flex; flex: none; }
 .track-menu .menu { left: 0; right: auto; top: 24px; min-width: 100px; }
@@ -1154,6 +1156,18 @@ a.rv-head-title:hover { text-decoration: underline; }
     animation: rv-pulse 1.2s ease-in-out infinite;
 }
 @keyframes rv-pulse { 50% { opacity: 0.35; } }
+/* The Goldfish chips (entry 4.14): a fact like a review chip (the mark, the dot, the persona,
+   the tokens, `$`), but a click shows the transcript, so they keep the agent chips' pointer.
+   A running dot pulses; a failed persona is red, a stopped one muted. */
+.gf-block { display: flex; flex-direction: column; gap: var(--space-1); }
+.gf-chips { font-size: var(--text-dense); }
+.gf-chip .chip-name { gap: 5px; }
+.gf-mark { font-size: 12px; line-height: 1; }
+.gf-fact { font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
+.gf-chip-running .chip-dot { animation: rv-pulse 1.2s ease-in-out infinite; }
+.gf-chip-failed .gf-name { color: var(--fail); }
+.gf-chip-stopped .gf-name, .gf-chip-queued .gf-name { color: var(--muted); }
+.gf-cap { margin: 0; font-size: var(--text-dense); }
 /* The lead's blocks (s016), above the threads: the briefing as markdown, the draft with its
    event pill, the summary and one row per line comment, each a textarea that saves on blur;
    `post` is the one primary action, `drop` the danger one. The posted URL takes the draft's

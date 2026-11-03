@@ -468,3 +468,26 @@ it("the design routes open, answer and clear a gate and record runs as the daemo
     });
     expect((await call("POST", "no-such-session", "run", review)).status).toBe(404);
 });
+
+it("serves six Goldfish, one transcript and a session at the cap (entry 4.18)", async () => {
+    // The design-review session carries the chips; only the critic step has a transcript, so
+    // the other steps and an unknown run answer 404 as the daemon does.
+    const base = `http://127.0.0.1:${await start()}`;
+    const read = async (dir: string) =>
+        ((await (await fetch(`${base}/sessions/${dir}`)).json()) as SessionResponse).session;
+    const design = (await read("s205-csv-design-review")).design;
+    expect(design?.goldfish.map((item) => item.state)).toEqual([
+        "done", "stopped", "running", "running", "failed", "queued",
+    ]);
+    expect((await read("s202-csv-brainstorm")).design?.goldfish_live).toBe(12);
+    const events = (step: string, run = "e5f6a7b8") =>
+        fetch(`${base}/sessions/s205-csv-design-review/egm/goldfish/${run}/${step}/events`);
+    const found = await events("0");
+    expect(found.status).toBe(200);
+    const body = (await found.json()) as { events: { type: string }[] };
+    expect(body.events.map((event) => event.type)).toEqual([
+        "message_end", "message_end", "message_end", "message_end",
+    ]);
+    expect((await events("1")).status).toBe(404);
+    expect((await events("0", "unknown")).status).toBe(404);
+});

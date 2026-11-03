@@ -23,7 +23,10 @@
 // the needs-you badges, walks the three width levels and snaps the panel shut with the rail
 // in place; `reload` reloads a session
 // view and a review view and checks each comes back (s020). Both read the fixture's
-// sessions. The other flows work against the fixture server or the real daemon.
+// sessions. The flow `goldfish` reads the Goldfish chips of the fixture's design-review
+// session, opens a transcript and watches it reload, returns to the lead, and reads the cap
+// line and the stepper's running count and cost tooltip; it runs against the fixture only.
+// The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
 import {
@@ -2792,7 +2795,7 @@ if (flow === "design-stepper") {
     const wanted = {
         steps: [
             ["brainstorm", "done", "\u2713Brainstorm"], ["draft", "done", "\u2713Draft"],
-            ["review", "active", "3Review"], ["approve", "todo", "4Approve"],
+            ["review", "active", "3Review2"], ["approve", "todo", "4Approve"],
             ["build", "todo", "5Build"],
         ],
         dots: [true, true, true, false, false],
@@ -3147,6 +3150,117 @@ if (flow === "design-gate") {
         answers: ["Background job with a mailed link", "Only id, total and date"], runs: [],
     });
     console.log("design-gate ok");
+    await finish();
+}
+
+if (flow === "goldfish") {
+    // The Goldfish chips (docs/designs/egm-adoption.md, entries 4.14 to 4.18) against the
+    // fixture. The design-review session shows six chips under the agent chips, the review run
+    // first: the 🐟 mark, a dot per state, the persona, the tokens and `$`; a failed chip's
+    // tooltip says `not run`. A click shows that Goldfish's transcript in place of the lead's
+    // tabs, read-only, and reloads it every 2 s while it runs; a step without a transcript says
+    // so; the lead chip returns. The stepper's Review step carries `2` running Goldfish and each
+    // keyed step's tooltip ends with its Goldfish cost. The brainstorm session is at the cap.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    const chips = `[...document.querySelectorAll(".agents-pane .gf-chips .gf-chip")]`;
+    const transcript = `document.querySelector(".agents-pane .gf-transcript")`;
+    const pickChip = (persona: string) => click(".gf-chip .chip-name", persona);
+    await click(".session", "CSV export \u00b7 design-review");
+    await until("six Goldfish chips", `${chips}.length === 6`);
+    await expectSame("chips", await evaluate(`${chips}.map((c) => [
+        c.dataset.state, c.querySelector(".gf-name").textContent,
+        [...c.querySelectorAll(".gf-fact")].map((f) => f.textContent).join(" "),
+        c.querySelector(".gf-mark").textContent,
+        c.querySelector(".chip-dot").className.replace(/.*dot-/, ""),
+    ])`), [
+        ["running", "critic", "25k $0.45", "\u{1F41F}", "working"],
+        ["running", "design", "9.3k $0.38", "\u{1F41F}", "working"],
+        ["failed", "security", "15k $0.37", "\u{1F41F}", "failed"],
+        ["queued", "readiness", "0.0k $0.00", "\u{1F41F}", "idle"],
+        ["done", "zoom_out", "18k $0.30", "\u{1F41F}", "up"],
+        ["stopped", "comprehension", "6.4k $0.12", "\u{1F41F}", "off"],
+    ]);
+    await expectSame("under the agent chips", await evaluate(`document.querySelector(
+        ".agents-pane .gf-block").previousElementSibling?.getAttribute("aria-label")`), "Agents");
+    await expectSame("failed tooltip", await evaluate(`${chips}[2]
+        .querySelector(".chip-name").title`),
+    "egm-security \u00b7 anthropic/claude-opus-5-5 \u00b7 failed, not run \u00b7 15k tokens " +
+        "\u00b7 $0.37");
+    await expectSame("stepper", await evaluate(`[...document.querySelectorAll(
+        ".context-bar .egm-step")].map((s) => [s.dataset.step,
+        s.querySelector(".egm-fish")?.textContent ?? null, s.title])`), [
+        ["brainstorm", null, "Brainstorm: done \u00b7 Goldfish: $0.42"],
+        ["draft", null, "Draft: done \u00b7 Goldfish: $0.18"],
+        ["review", "2", "Review: active \u00b7 Goldfish: $1.20"],
+        ["approve", null, "Approve: todo"],
+        ["build", null, "Build: todo \u00b7 Goldfish: $0.00"],
+    ]);
+    await expectSame("no cap line", await evaluate(
+        `document.querySelector(".agents-pane .gf-cap")`), null);
+    await shot("A0-goldfish-chips");
+
+    // The critic's transcript replaces the lead's tabs and its terminal; no prompt form.
+    await pickChip("critic");
+    await until("critic transcript", `${transcript}?.innerText
+        .includes("Finding 1: the export has no row limit.") === true`);
+    await expectSame("transcript view", await evaluate(`({
+        selected: document.querySelector(".gf-chip.chip-selected .gf-name")?.textContent,
+        agentSelected: document.querySelector(
+            ".agents-pane .chips .chip-selected .chip-name[data-name]")?.dataset.name ?? null,
+        subTabs: document.querySelectorAll(".agents-view .tabs-sub").length,
+        prompt: document.querySelectorAll(".agents-view .prompt-form").length,
+        terminal: [...document.querySelectorAll(".agents-view .agent-terminal")]
+            .some((t) => !t.hidden),
+        entries: ${transcript}.querySelectorAll(".transcript .entry").length,
+        tool: ${transcript}.querySelector(".entry-tool code")?.textContent,
+    })`), {
+        selected: "critic", agentSelected: null, subTabs: 0, prompt: 0, terminal: false,
+        entries: 4, tool: "read",
+    });
+    await shot("A1-goldfish-transcript");
+    // A running Goldfish reloads every 2 s: at least two more requests within 5 s.
+    const loads = `performance.getEntriesByType("resource")
+        .filter((e) => e.name.includes("/egm/goldfish/e5f6a7b8/0/events")).length`;
+    const first = Number(await evaluate(loads));
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const later = Number(await evaluate(loads));
+    console.log(`transcript loads: ${first} then ${later}`);
+    if (later - first < 2) {
+        await shot("failure");
+        await closeTarget();
+        throw new Error(`the running transcript did not reload: ${first} then ${later}`);
+    }
+
+    // A step without a transcript says so; a done one does not reload.
+    await pickChip("security");
+    await until("no transcript line", `${transcript}?.innerText
+        .includes("This Goldfish has no transcript yet.") === true`);
+    await shot("A2-goldfish-no-transcript");
+
+    // The lead chip returns to its tabs.
+    await click(".agents-pane .chips .chip-name[data-name=lead]");
+    await until("lead tabs back", `${transcript} === null
+        && document.querySelectorAll(".agents-view .tabs-sub").length === 1`);
+    await expectSame("after lead", await evaluate(`({
+        fish: document.querySelectorAll(".gf-chip.chip-selected").length,
+        lead: document.querySelector(".agents-pane .chip-selected .chip-name")?.dataset.name,
+    })`), { fish: 0, lead: "lead" });
+
+    // The cap: 12 live Goldfish across sessions; the session has no chips of its own.
+    await click(".session", "CSV export \u00b7 brainstorm");
+    await until("cap line", `${text(".agents-pane .gf-cap")} ===
+        "12 Goldfish running across sessions; new skill starts wait"`);
+    await expectSame("cap chips", await evaluate(`${chips}.length`), 0);
+    await shot("A3-goldfish-cap");
+    await click(".session", "CSV export \u00b7 intake");
+    await until("no Goldfish block", `${text(".context-title")} === "CSV export \u00b7 intake"
+        && document.querySelector(".agents-pane .gf-block") === null`);
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("goldfish ok");
     await finish();
 }
 
