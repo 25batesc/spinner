@@ -440,20 +440,19 @@ async function probe_p11(first_reply: string): Promise<void> {
     }
 }
 
-/** The answer table's rows: a needle in the question, and the prefix of the option to pick. */
-const GATE_ROWS: Array<[string, string]> = [
-    ["Anchored feature hypothesis", "Review with Goldfishes"],
-    ["Select next step", "Proceed to /egm-draft"],
-    ["Where should the design be saved?", "Save to detected directory"],
-];
-
 /**
  * The full option of an open gate that starts with the prefix of its row (3.15). In the draft
  * a "How would you like to proceed?" gate takes `Approve`. A gate that no row names takes its
  * first option, which EGM's gates use for "proceed" (a driver variant, in the evidence).
  */
 function gate_answer(gate: { question: string; options: string[] }, phase: Phase): string {
-    const rows = [...GATE_ROWS];
+    // Each row: a needle in the question, and the prefix of the option to pick. Declared
+    // here, not at the top level, because `main` runs before the module's later constants.
+    const rows: Array<[string, string]> = [
+        ["Anchored feature hypothesis", "Review with Goldfishes"],
+        ["Select next step", "Proceed to /egm-draft"],
+        ["Where should the design be saved?", "Save to detected directory"],
+    ];
     if (phase === "draft") {
         rows.push(["How would you like to proceed?", "Approve"]);
     }
@@ -470,12 +469,14 @@ function gate_answer(gate: { question: string; options: string[] }, phase: Phase
 
 /**
  * The design's rule is "text that ends with `?`". EGM's questions end a paragraph that goes
- * on after the question mark ("Describe who runs it ... say that, because ..."), so the
- * driver reads a question when the last paragraph has a `?` (recorded in the evidence).
+ * on after the question mark ("Describe who runs it ... say that, because ..."), and a list
+ * of questions can end with a line such as "Answer in whatever order you like". So the
+ * driver reads a question when one of the last 2 paragraphs has a `?` (recorded in the
+ * evidence; session 3 widened it from the last paragraph).
  */
 function asks_question(text: string): boolean {
     const paragraphs = text.trim().split(/\n\s*\n/);
-    return (paragraphs[paragraphs.length - 1] ?? "").includes("?");
+    return paragraphs.slice(-2).some((paragraph) => paragraph.includes("?"));
 }
 
 /**
