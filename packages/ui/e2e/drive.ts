@@ -20,11 +20,11 @@
 // the `needs you` pill, the resolve card, and a gate the lead asks while the page is open.
 // Both read the fixture's `GET …/design/received`, so they run against the fixture only, as
 // does `design-workspace`: the five tabs of the design view, the stepper and the round badge
-// that open them, and a revision request (build session 5). The flow `sidebar` opens each view from the rail, collapses the panel from the lit icon, reads
-// the needs-you badges, walks the three width levels and snaps the panel shut with the rail
-// in place; `reload` reloads a session
-// view and a review view and checks each comes back (s020). Both read the fixture's
-// sessions. The flow `goldfish` reads the Goldfish chips of the fixture's design-review
+// that open them, and a revision request (build session 5). The flow `sidebar` opens each
+// view from the rail, collapses the panel from the lit icon, reads the needs-you badges,
+// walks the three width levels and snaps the panel shut with the rail in place; `reload`
+// reloads a session view and a review view and checks each comes back (s020). Both read the
+// fixture's sessions. The flow `goldfish` reads the Goldfish chips of the fixture's design-review
 // session, opens a transcript and watches it reload, returns to the lead, and reads the cap
 // line and the stepper's running count and cost tooltip; it runs against the fixture only.
 // The other flows work against the fixture server or the real daemon.
