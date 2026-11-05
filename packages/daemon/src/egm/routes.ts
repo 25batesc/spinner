@@ -12,6 +12,7 @@ import type {
     AgentCommandResponse,
     AgentEventsResponse,
     DesignApproveRefusal,
+    DesignApproveResponse,
     DesignChangesResponse,
     DesignFilesResponse,
     DesignTrack,
@@ -21,6 +22,7 @@ import type {
     JobResponse,
     OkResponse,
     ReviewPreset,
+    SeedResult,
     SessionResponse,
     SessionSummary,
 } from "@spinner/protocol";
@@ -173,8 +175,9 @@ function mount_approve_routes(app: Hono, deps: EgmRouteDeps): void {
             };
             return c.json(refusal, 409);
         }
+        let seed: SeedResult;
         try {
-            await approve_design(deps, read.summary, request);
+            seed = (await approve_design(deps, read.summary, request)).seed;
         } catch (error) {
             if (error instanceof ApproveRefusal) {
                 const refusal: DesignApproveRefusal = {
@@ -186,7 +189,12 @@ function mount_approve_routes(app: Hono, deps: EgmRouteDeps): void {
             throw error;
         }
         await deps.design.refresh(dir);
-        return session_response(c, deps, dir);
+        const after = read_session(deps.ctx.home, dir);
+        if (!after.ok) {
+            return c.json(error_body(after.error), 404);
+        }
+        const body: DesignApproveResponse = { session: deps.view(after.summary), seed };
+        return c.json(body);
     });
 
     app.delete("/sessions/:dir/design/approve", async (c) => {
