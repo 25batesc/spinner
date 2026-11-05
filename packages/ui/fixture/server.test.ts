@@ -9,9 +9,11 @@ import {
     type CostsResponse,
     type DesignApproveRefusal,
     type DesignApproveRequest,
+    type DesignApproveResponse,
     type DesignChangesResponse,
     type EgmResponse,
     type JobResponse,
+    type MissionView,
     type OperatorView,
     type SessionResponse,
     type SessionsResponse,
@@ -490,10 +492,21 @@ it("the approve routes confirm the listed blockers, approve, show changes and re
     expect((await call("GET", ready, "approved")).status).toBe(404);
     const second = await call("POST", ready, "approve", { build: true, blockers_confirmed: 1 });
     expect(second.status).toBe(200);
-    const approved = ((await second.json()) as SessionResponse).session.design;
+    const response = (await second.json()) as DesignApproveResponse;
+    const approved = response.session.design;
     expect(approved?.stage).toBe("approved");
     expect(approved?.approved?.blockers).toBe(1);
     expect(approved?.approvals).toHaveLength(1);
+    // The seed (session-workspace.md T4, entry 2.29): the fixture doc has 7 entries and the
+    // default Plan 3 free items, so 7 are added and 3 kept; the view then carries the tokens.
+    expect(response.seed).toMatchObject({ added: 7, kept: 3, stale: [], orphaned: [] });
+    const seeded = (await (await fetch(`${base}/sessions/${ready}/mission/view`)).json()) as {
+        view: MissionView;
+    };
+    expect(seeded.view.plan.map((item) => item.entry)).toEqual(
+        [null, null, null, "1.1", "1.2", "1.3", "2.1", "2.2", "3.1", "3.2"],
+    );
+    expect(seeded.view.plan[3]).toMatchObject({ id: 4, text: "`api/src/exports.ts`", owner: null });
     expect((await call("GET", ready, "approved")).status).toBe(200);
     const bodies = (await (await call("GET", ready, "approve-received")).json()) as {
         approves: DesignApproveRequest[];

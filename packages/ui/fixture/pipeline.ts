@@ -13,6 +13,7 @@ import type {
     ThreadView,
 } from "@spinner/protocol";
 
+import { DESIGN_MISSIONS } from "./data.ts";
 import { applyItem, missionView } from "./mission-view.ts";
 
 /** The part of the fixture daemon these routes use. */
@@ -94,7 +95,18 @@ export class PipelineFixture {
     }
 
     mission(dir: string): string {
-        return this.missions.get(dir) ?? MISSION;
+        return this.missions.get(dir) ?? DESIGN_MISSIONS[dir] ?? MISSION;
+    }
+
+    /**
+     * As the daemon's `MissionWriter.rewrite` (session-workspace.md T4): applies `change` to
+     * the session's MISSION.md and publishes one `mission.changed` with the whole view.
+     */
+    rewrite(dir: string, author: string, change: (text: string) => string): void {
+        const next = change(this.mission(dir));
+        this.missions.set(dir, next);
+        const view = missionView(next);
+        this.event(dir, { type: "mission.changed", author, sections: ["plan"], view });
     }
 
     private threadsView(dir: string) {

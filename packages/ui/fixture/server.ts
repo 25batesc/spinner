@@ -373,6 +373,19 @@ class FixtureDaemon {
         sendJson(response, this.settingsResponse());
     }
 
+    /** The design doc of a session, for the approve route's seed (entry 2.29). */
+    doc(dir: string): string {
+        return this.workspace.doc(dir);
+    }
+
+    mission(dir: string): string {
+        return this.pipeline.mission(dir);
+    }
+
+    rewrite(dir: string, author: string, change: (text: string) => string): void {
+        this.pipeline.rewrite(dir, author, change);
+    }
+
     emit(event: SpinnerEvent): void {
         for (const socket of this.sockets) {
             socket.send(JSON.stringify(event));

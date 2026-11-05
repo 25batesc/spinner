@@ -420,6 +420,77 @@ export function initialSessions(): SessionView[] {
 /** The doc every fixture design session names once it is drafted. */
 export const DESIGN_DOC = "docs/designs/csv-export.md";
 
+/**
+ * The plan section of the fixture doc (session-workspace.md, T2): three phases and seven
+ * entries, in the layout Spinner's docs use, so the seed and the Implement view have phases.
+ */
+export const PLAN_SECTION = [
+    "## Detailed Implementation Plan",
+    "",
+    "#### Build session 1: the route",
+    "",
+    "##### 1.1 `api/src/exports.ts` (Create)",
+    "",
+    "*   **Proposed Changes**: The streaming route.",
+    "",
+    "##### 1.2 `api/src/exports.test.ts` (Create)",
+    "",
+    "##### 1.3 `api/src/filters.ts` (Modify)",
+    "",
+    "#### Build session 2: the button",
+    "",
+    "##### 2.1 `web/src/ExportButton.tsx` (Create)",
+    "",
+    "##### 2.2 `web/src/list.ts` (Modify)",
+    "",
+    "#### Build session 3: the docs",
+    "",
+    "##### 3.1 `docs/exports.md` (Create)",
+    "",
+    "##### 3.2 `CHANGELOG.md` (Modify)",
+    "",
+].join("\n");
+
+/** The seeded session of the Implement flows (entry 2.30). */
+export const SEEDED_DIR = "s213-csv-seeded";
+
+/**
+ * The MISSION.md of the seeded session: two free items, then one item per entry with the
+ * `[n.n]` token, one stale (`[2.2]` carries another title) and one orphan (`[4.1]` is not in
+ * the doc); `engine` is on item 5 through its Roster cell, `ui` is blocked.
+ */
+export const SEEDED_MISSION = [
+    "# s213 \u00b7 CSV export \u00b7 seeded", "",
+    "## Goal", "The design doc holds the goal: `docs/designs/csv-export.md`.", "",
+    "## Done when", "- [ ] The design is approved and every Plan item is ticked.", "",
+    "## Plan",
+    "- [x] 1. pin the row cap (lead, 10:05)",
+    "- [ ] 2. write the e2e row (lead)",
+    "- [x] 3. [1.1] `api/src/exports.ts` (engine, 10:20)",
+    "- [x] 4. [1.2] `api/src/exports.test.ts` (engine, 10:30)",
+    "- [ ] 5. [1.3] `api/src/filters.ts` (engine)",
+    "- [ ] 6. [2.1] `web/src/ExportButton.tsx` (ui)",
+    "- [ ] 7. [2.2] `web/src/list-old.ts` (ui)",
+    "- [ ] 8. [3.1] `docs/exports.md`",
+    "- [ ] 9. [3.2] `CHANGELOG.md`",
+    "- [ ] 10. [4.1] `web/src/gone.ts`",
+    "",
+    "## Roster", "| Agent | Owns | Doing | Blocked? | Updated |",
+    "|-------|------|-------|----------|---------|",
+    "| lead | docs/designs/** | coordinating | no | 10:00 |",
+    "| engine | api/** | #5 filters.ts | no | 10:31 |",
+    "| ui | web/** | #6 ExportButton.tsx | yes: waiting for 1.3 | 10:32 |", "",
+    "## Contracts & decisions", "- 10:00 lead: the row cap is 50,000", "",
+    "## Open questions", "- ui: does the button show on an empty list?", "",
+    "## Log", "- 10:00 operator: session created",
+    "- 10:01 spinner: plan seeded from docs/designs/csv-export.md (9f2c4be1d0a7): " +
+        "7 added, 2 kept, 0 stale, 0 orphaned",
+    "- 10:20 engine: 1.1 done", "",
+].join("\n");
+
+/** The MISSION.md of each design session that has its own; the others take the default. */
+export const DESIGN_MISSIONS: Record<string, string> = { [SEEDED_DIR]: SEEDED_MISSION };
+
 /** A file of `<session>/design/`, as `DesignView.files` lists it. */
 function designFile(name: string, mtime: string) {
     return { name, bytes: 4096, mtime };
@@ -599,7 +670,29 @@ export function initialDesignSessions(): SessionView[] {
         design: designView("brainstorm", { gate: FIXTURE_GATE, ...designsOf("s211-csv-gate") }),
         round: 1, rounds: [],
     };
-    return [...designs, directView, thirdView, gatedView, changedView(lead)].map(withGoldfish);
+    return [
+        ...designs, directView, thirdView, gatedView, changedView(lead), seededView(),
+    ].map(withGoldfish);
+}
+
+/**
+ * The approved session whose Plan is seeded (entry 2.30): three agents, `engine` in a turn,
+ * `ui` idle, so the Implement rail shows working, idle and blocked.
+ */
+function seededView(): SessionView {
+    const agents: Session["agents"] = {
+        lead: { harness: "tty", model: "anthropic/claude-opus-5-5", process: "idle" },
+        engine: { harness: "tty", model: "anthropic/claude-opus-5-5", process: "running" },
+        ui: { harness: "tty", model: "anthropic/claude-opus-5-5", process: "idle" },
+    };
+    const base = session({
+        id: "s213", slug: "csv-seeded", title: "CSV export \u00b7 seeded",
+        created: "2026-10-20T10:11:00Z", stage: "building", agents,
+        repos: { web: { path: "~/src/web", worktree: "web", changed: true } },
+    });
+    const plain = view(SEEDED_DIR, base, stackView("s213", "none"), [], ["lead", "engine", "ui"]);
+    const design = designView("approved", designsOf(SEEDED_DIR));
+    return { ...plain, design, round: 1, rounds: [] };
 }
 
 /**

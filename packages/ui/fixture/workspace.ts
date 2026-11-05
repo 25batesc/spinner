@@ -21,7 +21,7 @@ import {
     type SessionView,
 } from "@spinner/protocol";
 
-import { DESIGN_DOC, designView } from "./data.ts";
+import { DESIGN_DOC, designView, PLAN_SECTION } from "./data.ts";
 
 /** The part of the fixture daemon these routes use. */
 export interface WorkspaceHost {
@@ -79,10 +79,11 @@ const DRAFT = [
     "",
     "*   A 50,000-row export in the e2e suite.",
     "",
+    PLAN_SECTION,
 ].join("\n");
 
 /** The doc in the worktree: the draft, reviewed. */
-const DOC = DRAFT.replace("**Status:** Draft", "**Status:** Reviewed");
+export const DOC = DRAFT.replace("**Status:** Draft", "**Status:** Reviewed");
 
 /** `approved.md` of the changed session: the doc before its Technical Plan changed. */
 const APPROVED_DOC = DOC.replace(PLAN_NOW, PLAN_APPROVED);
@@ -206,6 +207,11 @@ function validName(name: string): boolean {
 }
 
 export class WorkspaceFixture {
+    /** The doc of a session: one text for every design session, so `dir` is not read. */
+    doc(dir: string): string {
+        return dir === "" ? "" : DOC;
+    }
+
     readonly host: WorkspaceHost;
 
     constructor(host: WorkspaceHost) {
@@ -240,7 +246,8 @@ export class WorkspaceFixture {
             };
             sendJson(response, body);
         } else if (DOC_ROUTE.test(path)) {
-            sendMarkdown(response, design.doc === null ? undefined : DOC, "design doc yet");
+            const text = design.doc === null ? undefined : this.doc(dir);
+            sendMarkdown(response, text, "design doc yet");
         } else if (APPROVED_ROUTE.test(path)) {
             const copy = design.changed_after_approval ? APPROVED_DOC : DOC;
             sendMarkdown(response, design.approved === null ? undefined : copy, "approval yet");
