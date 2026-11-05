@@ -21,7 +21,7 @@ import {
     shared_use_lines,
 } from "./docker.js";
 import { homes_in_route_files, session_numbers_in_route_files } from "./host-service.js";
-import { copy_seed_files, link_seed_dirs } from "./runner.js";
+import { copy_seed_files, link_seed_dirs, stack_has_database } from "./runner.js";
 
 describe("link_seed_dirs", () => {
     it("links when the lockfile matches and skips when it differs", () => {
@@ -51,19 +51,49 @@ describe("link_seed_dirs", () => {
         expect(lstatSync(join(worktree, "apps", "api", ".venv")).isSymbolicLink()).toBe(true);
     });
 
-    it("lists each link in the worktree's git exclude file, so git status stays clean", () => {
+    // Git reads `info/exclude` from the common dir, never from `.git/worktrees/<name>/info`.
+    it("lists each link in the common dir's exclude file of a linked worktree", () => {
         const root = mkdtempSync(join(tmpdir(), "spinner-links-"));
         const primary = join(root, "primary");
         const worktree = join(root, "worktree");
-        const git_dir = join(root, "repo.git", "worktrees", "wt");
+        const common = join(root, "repo.git");
+        const git_dir = join(common, "worktrees", "wt");
         mkdirSync(join(primary, "node_modules"), { recursive: true });
         mkdirSync(worktree, { recursive: true });
         mkdirSync(git_dir, { recursive: true });
         writeFileSync(join(worktree, ".git"), `gitdir: ${git_dir}\n`);
+        writeFileSync(join(git_dir, "commondir"), "../..\n");
 
         const outcome = link_seed_dirs(primary, worktree, ["node_modules"]);
         expect(outcome.linked).toEqual(["node_modules"]);
-        expect(readFileSync(join(git_dir, "info", "exclude"), "utf8")).toBe("/node_modules\n");
+        expect(readFileSync(join(common, "info", "exclude"), "utf8")).toBe("/node_modules\n");
+        expect(existsSync(join(git_dir, "info", "exclude"))).toBe(false);
+    });
+
+    it("lists the link in .git/info/exclude of a plain checkout", () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-links-"));
+        const primary = join(root, "primary");
+        const worktree = join(root, "worktree");
+        mkdirSync(join(primary, "node_modules"), { recursive: true });
+        mkdirSync(join(worktree, ".git"), { recursive: true });
+
+        link_seed_dirs(primary, worktree, ["node_modules"]);
+        const exclude = readFileSync(join(worktree, ".git", "info", "exclude"), "utf8");
+        expect(exclude).toBe("/node_modules\n");
+    });
+});
+
+// Goal: a spec without a `database` block has no database, so `up` clones nothing and `close`
+// drops nothing; a block of any shape means one.
+describe("stack_has_database", () => {
+    const base = { name: "p", base: "main", repos: {}, services: {} };
+    it("is false without a database block and true with one", () => {
+        expect(stack_has_database(base)).toBe(false);
+        expect(stack_has_database({ ...base, database: { mode: "template" } })).toBe(true);
+        expect(stack_has_database({
+            ...base,
+            database: { mode: "template", server: "external" },
+        })).toBe(true);
     });
 });
 

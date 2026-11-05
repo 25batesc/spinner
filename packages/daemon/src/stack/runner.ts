@@ -20,7 +20,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { request as http_request } from "node:http";
-import { dirname, join, normalize, relative } from "node:path";
+import { dirname, join, normalize, relative, resolve } from "node:path";
 import { stringify } from "yaml";
 import type {
     DatabaseSeed,
@@ -124,6 +124,16 @@ export function session_db(session_id: string): string {
 
 export function template_name(spec: StackSpec): string {
     return spec.database?.template ?? `${spec.name}_seed`;
+}
+
+/**
+ * True when the stack has a database: the spec has a `database` block. Without one, `up` runs
+ * no Postgres container, clones no template and joins no database to the network, and
+ * `close` and `reset` drop nothing. A project whose checks are its tests (Spinner itself) needs
+ * no seed to exist.
+ */
+export function stack_has_database(spec: StackSpec): boolean {
+    return spec.database !== undefined;
 }
 
 /** Reads the session's own spec copy. Throws when the session has no project. */
@@ -330,9 +340,12 @@ export function link_seed_dirs(repo_path: string, worktree: string, dirs: string
 }
 
 /**
- * Lists the link in the worktree's `.git/info/exclude`. A `.gitignore` entry with a trailing
+ * Lists the link in the repository's `info/exclude`. A `.gitignore` entry with a trailing
  * slash (`node_modules/`) matches directories only, and git reports a symlink as a file, so
- * without this the link shows as untracked and the reset's clean-tree check refuses.
+ * without this the link shows as untracked and the reset's clean-tree check refuses. Git reads
+ * `info/exclude` from the common dir, which a linked worktree names in its `commondir` file
+ * (`git rev-parse --git-path info/exclude`); the worktree's own `.git/worktrees/<name>/info`
+ * is never read.
  */
 function exclude_from_git(worktree: string, dir: string): void {
     const dot_git = join(worktree, ".git");
@@ -345,8 +358,12 @@ function exclude_from_git(worktree: string, dir: string): void {
     if (git_dir.length === 0) {
         return;
     }
-    mkdirSync(join(git_dir, "info"), { recursive: true });
-    appendFileSync(join(git_dir, "info", "exclude"), `/${dir}\n`);
+    const commondir = join(git_dir, "commondir");
+    const common = existsSync(commondir)
+        ? resolve(git_dir, readFileSync(commondir, "utf8").trim())
+        : git_dir;
+    mkdirSync(join(common, "info"), { recursive: true });
+    appendFileSync(join(common, "info", "exclude"), `/${dir}\n`);
 }
 
 function same_file(a: string, b: string): boolean {
@@ -439,6 +456,41 @@ interface Started {
     processes: Record<string, HostProcess>;
 }
 
+/** Drops the session database at `close`; a stack without a database has none to drop. */
+async function drop_session_database(spec: StackSpec, session: Session, log: Log): Promise<void> {
+    if (!stack_has_database(spec)) {
+        return;
+    }
+    if (spec.database?.server !== "external") {
+        // After `down --shared` the managed server is gone but its data volume, and the
+        // session database in it, remain; start it again to drop the database.
+        await ensure_postgres_container(spec.database?.version ?? POSTGRES_VERSION_DEFAULT);
+    }
+    const server = new DatabaseServer(server_address(spec.database));
+    await server.wait_ready(spec.database?.server !== "external");
+    const db = session_db(session.id);
+    log(`database ${db}: ${await server.drop_database(db)}`);
+}
+
+/** Clones the session database from the template; a stack without a database has none. */
+async function clone_session_database(
+    spec: StackSpec,
+    session: Session,
+    db: string,
+    log: Log,
+): Promise<string> {
+    if (!stack_has_database(spec)) {
+        return "none (the spec has no database block)";
+    }
+    const server = new DatabaseServer(server_address(spec.database));
+    await server.wait_ready(spec.database?.server !== "external");
+    if (session.stack.db_stale === true) {
+        // A reset ran while the stack was down; the clone holds the previous round.
+        log(`database ${db}: ${await server.drop_database(db)} (stale after reset)`);
+    }
+    return server.clone_from_template(db, template_name(spec));
+}
+
 async function start_stack(
     home: SpinnerHome,
     summary: SessionSummary,
@@ -454,16 +506,8 @@ async function start_stack(
     const proxy_dir = await ensure_shared_containers(home, spec, log);
     // The clone, the image builds and the network do not depend on each other. The connects
     // do: the proxy and Postgres must be on the network before compose starts the services.
-    const server = new DatabaseServer(server_address(spec.database));
     const [cloned] = await Promise.all([
-        (async () => {
-            await server.wait_ready(spec.database?.server !== "external");
-            if (session.stack.db_stale === true) {
-                // A reset ran while the stack was down; the clone holds the previous round.
-                log(`database ${db}: ${await server.drop_database(db)} (stale after reset)`);
-            }
-            return server.clone_from_template(db, template_name(spec));
-        })(),
+        clone_session_database(spec, session, db, log),
         ensure_images(spec, options.build === true, log),
         (async () => {
             if (!(await network_exists(network))) {
@@ -473,7 +517,7 @@ async function start_stack(
     ]);
     log(`database ${db}: ${cloned}`);
     await connect_network(network, PROXY_CONTAINER);
-    if (spec.database?.server !== "external") {
+    if (stack_has_database(spec) && spec.database?.server !== "external") {
         await connect_network(network, POSTGRES_CONTAINER, POSTGRES_ALIAS);
     }
 
@@ -717,7 +761,7 @@ async function ensure_shared_containers(
     if (proxy.note !== null) {
         log(proxy.note);
     }
-    if (spec.database?.server !== "external") {
+    if (stack_has_database(spec) && spec.database?.server !== "external") {
         const version = spec.database?.version ?? POSTGRES_VERSION_DEFAULT;
         if (await ensure_postgres_container(version)) {
             log(`started ${POSTGRES_CONTAINER} (postgres:${version})`);
@@ -996,16 +1040,7 @@ export async function stack_close(
         await run_ok("docker", ["network", "rm", network]);
     }
     if (existsSync(join(summary.path, SESSION_SPEC))) {
-        const { spec } = read_session_spec(summary);
-        if (spec.database?.server !== "external") {
-            // After `down --shared` the managed server is gone but its data volume, and the
-            // session database in it, remain; start it again to drop the database.
-            await ensure_postgres_container(spec.database?.version ?? POSTGRES_VERSION_DEFAULT);
-        }
-        const server = new DatabaseServer(server_address(spec.database));
-        await server.wait_ready(spec.database?.server !== "external");
-        const db = session_db(session.id);
-        log(`database ${db}: ${await server.drop_database(db)}`);
+        await drop_session_database(read_session_spec(summary).spec, session, log);
     }
     for (const [name, repo] of Object.entries(session.repos)) {
         if (repo.worktree !== undefined) {
