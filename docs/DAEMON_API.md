@@ -356,6 +356,10 @@ An absent file is 404.
 It answers 404 before `design_doc` and when the file is missing.
 The daemon does not parse report findings.
 
+The UI reads these routes from the views of its agents pane: Brainstorm (the brief and the gate line), Draft (the doc), Review (the reports and the approve button), Files and History ([designs/session-workspace.md](designs/session-workspace.md), T5).
+A session on the design track shows those views beside Agents, Implement, Threads and Services; a direct-track session and a session without a `design` block show Agents, Implement, Files, History, Threads and Services and open on Implement.
+The pane fetches the doc once per change of `design.files` or `design.doc` and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
+
 ### Approval and the build
 
 `POST /sessions/:dir/design/approve` takes `{ build, blockers_confirmed? }` ([designs/egm-adoption.md](designs/egm-adoption.md), T10).
@@ -589,6 +593,15 @@ truth. `mission.changed` carries the same `view` after a tool write and after a 
 A Plan item is `doing` when it is unticked and its owner's Roster `Doing` names `#id` or
 `item id`. An owner whose `Doing` is active (not `—`, empty or `done`) and names no item is
 `doing` on its lowest unticked item.
+
+The UI's Implement view renders this view as a phase-first list ([designs/session-workspace.md](designs/session-workspace.md), T6):
+it scans the design doc with the same `scan` the seed uses and groups the Plan by the number
+before the dot of each item's `entry` (`[2.3]` goes under `#### Build session 2`); an item
+without an entry, or whose entry is not in the doc, goes under `Other`; an item whose entry
+has another title in the doc shows a `stale` badge. The Draft view marks each entry heading
+`done`, `doing`, `partial` or `none` from the states of the items linked to it. On the design
+track with a named doc the goal block shows the first paragraph of the doc's `## Overview`,
+read-only; otherwise it shows the Goal section, editable.
 
 The `item` mode of `PUT /sessions/:dir/mission/section` edits one item of `plan` or
 `done_when`: `item: { command, id?, text?, owner?, entry?, order? }`. `add` appends `- [ ] N.
