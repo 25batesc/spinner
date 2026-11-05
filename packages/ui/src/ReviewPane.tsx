@@ -129,7 +129,7 @@ export function ReviewPane(props: ReviewPaneProps) {
     return (
         <section className="pane agents-pane rv-pane" aria-label="Review">
             <ViewTabs
-                labels={["review"]}
+                tabs={[{ id: "review", label: "review" }]}
                 shown="review"
                 onSelect={() => undefined}
                 controls={controls}

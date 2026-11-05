@@ -227,46 +227,6 @@ html, body, #root { height: 100%; margin: 0; }
 .context-bar .operator-notice { margin-left: auto; }
 .context-bar .context-needs ~ .operator-notice { margin-left: 0; }
 .context-stack { color: var(--text); }
-/* The EGM stepper (docs/designs/egm-adoption.md, T13): five step pills joined by hairlines,
-   in place of the stage pill. A step is a hollow ring to do, accent while active, warn while
-   it waits on the operator, a green check once done. The Review step carries five dots for
-   the review stages 5 to 9. It never wraps the bar; under 1200 px it folds to one pill. */
-.egm-stepper { display: inline-flex; align-items: center; gap: 2px; flex: none; }
-.egm-label {
-    margin-right: var(--space-1); font-size: var(--text-meta); font-weight: 600;
-    color: var(--muted); cursor: help;
-}
-.egm-step {
-    display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px 0 2px;
-    box-sizing: border-box; border: 0; border-radius: 999px; background: transparent;
-    color: var(--muted); font: inherit; font-size: var(--text-meta); font-weight: 500;
-    line-height: 1; white-space: nowrap;
-}
-button.egm-step { cursor: pointer; }
-button.egm-step:hover { background: var(--fill-soft); }
-.egm-step-mark {
-    display: inline-flex; align-items: center; justify-content: center; width: 14px;
-    height: 14px; box-sizing: border-box; border: 1px solid currentColor; border-radius: 50%;
-    font-size: 9px; font-variant-numeric: tabular-nums;
-}
-.egm-step[data-state="active"] { background: var(--accent-tint); color: var(--accent); }
-.egm-step[data-state="waiting"] { background: var(--warn-tint); color: var(--warn); }
-.egm-step[data-state="active"] .egm-step-mark { background: var(--accent); color: #fff; }
-.egm-step[data-state="waiting"] .egm-step-mark { background: var(--warn); color: #fff; }
-.egm-step[data-state="done"] { color: var(--text); }
-.egm-step[data-state="done"] .egm-step-mark { border-color: transparent; color: var(--ok); }
-.egm-sep { width: 8px; height: 1px; flex: none; background: var(--border); }
-.egm-dots { display: inline-flex; gap: 2px; margin-left: 2px; }
-.egm-dot {
-    width: 5px; height: 5px; box-sizing: border-box; border: 1px solid currentColor;
-    border-radius: 50%;
-}
-.egm-dot-on { background: currentColor; }
-.egm-compact { padding: 0 7px; }
-.egm-compact[data-state="todo"] { background: var(--fill-soft); }
-.egm-pipeline { margin-left: var(--space-1); }
-/* The running Goldfish of a step (entry 4.17): a small digit after the label. */
-.egm-fish { font-size: 9px; font-weight: 600; line-height: 1; align-self: flex-start; }
 /* The session's track, after the needs-you pill; its menu opens under it to the right. */
 .track-menu { position: relative; display: flex; flex: none; }
 .track-menu .menu { left: 0; right: auto; top: 24px; min-width: 100px; }
@@ -346,6 +306,13 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 }
 .design-gate-other { display: flex; gap: var(--space-2); }
 .design-gate-other input { flex: 1; min-width: 0; }
+/* The compact form on the Brainstorm and Review tabs (session-workspace.md, K1): one warn
+   line, the question's first characters, then the link that opens Agents. */
+.design-gate.design-gate-compact {
+    display: block; margin: 0; padding: var(--space-2) var(--space-3);
+    font-size: var(--text-dense); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.design-gate-compact-text { color: var(--text); }
 /* The round badge from round 2 on: accent, so a long-lived session stands out. */
 .badge.round-badge { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
 /* The card's five EGM dots, without labels. */
@@ -606,6 +573,28 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 }
 .view-tabs .pane-controls, .view-tabs > .icon-button { align-self: center; }
 .view-tabs .pane-controls { margin-left: auto; }
+/* The step mark of an EGM tab (docs/designs/session-workspace.md, T5): a dot before the label,
+   hollow to do, accent while active, warn while the step waits on the operator, green once
+   done; the state is in the tab's accessible name too. A suffix (`2/5`, `1 live`) follows the
+   label in the meta size. When the row overflows, the four EGM tabs fold into one tab labelled
+   `EGM 3/5 Review` with a chevron that opens a menu of the four. */
+.view-tab-mark {
+    display: inline-block; width: 8px; height: 8px; margin-right: 6px; box-sizing: border-box;
+    border: 1px solid currentColor; border-radius: 50%; vertical-align: 0;
+}
+.view-tab-mark-active { background: var(--accent); border-color: var(--accent); }
+.view-tab-mark-waiting { background: var(--warn); border-color: var(--warn); }
+.view-tab-mark-done { background: var(--ok); border-color: var(--ok); }
+.view-tabs .view-tab[data-state="active"] { color: var(--accent); }
+.view-tabs .view-tab[data-state="waiting"] { color: var(--warn); }
+.view-tab-suffix {
+    margin-left: 4px; font-size: var(--text-meta); font-weight: 500; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+.view-tab-fold { position: relative; display: inline-flex; flex: none; }
+.view-tabs .view-tab-fold-toggle { padding: 0 4px; }
+.view-tab-fold .menu { left: 0; right: auto; top: 34px; min-width: 140px; }
+.view-tab-fold .menu button { justify-content: flex-start; }
 /* The session toolbar, at the right end of the context bar: the local stack, the pipeline,
    and the ellipsis menu with the two that end a round or the session. Each group is one joined
    control; the gap between groups replaces the separators. */
@@ -1324,6 +1313,12 @@ button.badge.round-badge-button:hover { background: var(--accent-fill); }
 .dw-review-head {
     display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-dense);
 }
+/* The Review tab's approve header (session-workspace.md, T5): the one filled primary that
+   opens the approve dialog, after the reason it shows. */
+.dw-approve-head {
+    display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-dense);
+}
+.dw-approve-head .dw-approve { margin-left: auto; }
 .dw-run { display: inline-flex; align-items: center; gap: var(--space-2); }
 .dw-run select { min-height: var(--control-row); font-size: var(--text-dense); }
 .dw-goldfish-row {

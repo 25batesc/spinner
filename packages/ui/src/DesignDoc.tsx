@@ -1,5 +1,6 @@
-// The Design tab of the design workspace (docs/designs/egm-adoption.md, entry 5.8): the doc
-// once the lead named it with `design_doc`, else `design_draft.md`. A left outline lists the
+// The Draft tab (docs/designs/session-workspace.md, T7; docs/designs/egm-adoption.md, entry
+// 5.8): the doc once the lead named it with `design_doc`, else `design_draft.md`, fetched by
+// the agents pane once per reload key (D15). A left outline lists the
 // `## ` headings; a click scrolls to the section. Under each section, `request revision` opens
 // a text box whose `send` answers the lead through `POST …/design/answer`. `source` shows the
 // raw text. The doc renders section by section with the mission's markdown renderer. While
@@ -14,28 +15,21 @@ import {
     docSections, docSource, outline, revisionText, type DocSection,
 } from "./design-workspace.ts";
 import { renderMarkdown } from "./markdown.ts";
-import { fetchDesignDoc, fetchDesignFile, postDesignAnswer, useLoaded } from "./remote.ts";
+import { postDesignAnswer, type Loaded } from "./remote.ts";
 
 import "./markdown.css";
 
 export interface DesignDocProps {
     view: SessionView;
-    /** The workspace's reload key (entry 5.6). */
-    reload: string;
+    /** The doc's text, fetched by the agents pane once per reload key (D15). */
+    doc: Loaded<string>;
     onError: (message: string) => void;
 }
 
-export function DesignDoc({ view, reload, onError }: DesignDocProps) {
+export function DesignDoc({ view, doc, onError }: DesignDocProps) {
     const dir = view.summary.dir;
     const source = view.design === undefined ? null : docSource(view.design);
-    const loaded = useLoaded(`${reload}#doc#${source?.kind ?? "none"}`, (signal) => {
-        if (source === null) {
-            return Promise.resolve("");
-        }
-        return source.kind === "doc"
-            ? fetchDesignDoc(dir, signal)
-            : fetchDesignFile(dir, source.name, signal);
-    });
+    const loaded = doc;
     if (source === null) {
         return (
             <p className="muted dw-empty">

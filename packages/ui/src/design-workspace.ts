@@ -1,7 +1,8 @@
-// The rules of the design workspace (docs/designs/egm-adoption.md, build session 5, Technical
-// Plan T13): the tabs and which one opens, the sections and the outline of a doc, the rows of
-// the Review tab, and the rows of the History tab. The components render what these return;
-// the daemon sends the facts in `SessionView.design`, `round` and `rounds`.
+// The rules of the session workspace (docs/designs/session-workspace.md, T5; the doc and
+// History rules from docs/designs/egm-adoption.md, build session 5, T13): the view tabs per
+// track and which one opens, the step mark of each EGM tab, the sections and the outline of a
+// doc, the rows of the Review tab, and the rows of the History tab. The components render
+// what these return; the daemon sends the facts in `SessionView.design`, `round` and `rounds`.
 import {
     BRIEF_FILE,
     CONSOLIDATED_REPORT,
@@ -15,47 +16,123 @@ import {
     type SessionView,
 } from "@spinner/protocol";
 
-import type { StepId } from "./design.ts";
+import { stepTitle, type DesignStep, type StepId, type StepState } from "./design.ts";
+import { runningOn } from "./goldfish.ts";
 
-/** The workspace tabs, in order (entry 5.6). */
-export const WORKSPACE_TABS = ["brief", "design", "review", "files", "history"] as const;
+/** The views of the agents pane, in row order (T5). */
+export const VIEW_IDS = [
+    "agents", "brainstorm", "draft", "review", "implement", "files", "history", "threads",
+    "services",
+] as const;
 
-export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
+export type ViewId = (typeof VIEW_IDS)[number];
 
-/** The tab labels the workspace shows. */
-export const TAB_LABELS: Record<WorkspaceTab, string> = {
-    brief: "Brief", design: "Design", review: "Review", files: "Files", history: "History",
+/** The Title-case label of each view (D13). */
+export const TAB_LABELS: Record<ViewId, string> = {
+    agents: "Agents", brainstorm: "Brainstorm", draft: "Draft", review: "Review",
+    implement: "Implement", files: "Files", history: "History", threads: "Threads",
+    services: "Services",
 };
 
-/** The view tabs of a session with a `design` block, and of one without (entry 5.11). */
-export const DESIGN_VIEWS = ["agents", "design", "mission", "threads", "services"];
-export const PLAIN_VIEWS = ["agents", "mission", "threads", "services"];
+/** The four EGM tabs, which carry a step mark and fold into one tab on a narrow row (T5). */
+export const EGM_VIEWS: readonly ViewId[] = ["brainstorm", "draft", "review", "implement"];
 
-/** The view tabs of the agents pane: `design` only for a session with a `design` block. */
-export function viewTabs(view: SessionView | undefined): string[] {
-    return view?.design === undefined ? PLAIN_VIEWS : DESIGN_VIEWS;
+/** The two rows of T5: the design track, and the direct track or a legacy session (R3). */
+const DESIGN_VIEWS: readonly ViewId[] = VIEW_IDS;
+const DIRECT_VIEWS: readonly ViewId[] = [
+    "agents", "implement", "files", "history", "threads", "services",
+];
+
+/** True for a session on the design track; a legacy session has no `design` block (D5). */
+function onDesignTrack(view: SessionView | undefined): boolean {
+    return view?.design?.track === "design";
 }
 
-/** The shown view: `shown` when the session offers it, else `agents`. */
-export function shownView(view: SessionView | undefined, shown: string): string {
-    return viewTabs(view).includes(shown) ? shown : "agents";
+/** The view tabs of the agents pane: the EGM tabs only on the design track (D5, R3). */
+export function viewTabs(view: SessionView | undefined): readonly ViewId[] {
+    return onDesignTrack(view) ? DESIGN_VIEWS : DIRECT_VIEWS;
 }
 
-/** The tab the workspace opens on when nobody picked one: Files on the direct track. */
-export function defaultTab(design: DesignView): WorkspaceTab {
-    return design.track === "direct" ? "files" : "brief";
+/** The view a session opens on when nobody picked one: Agents on the design track (T5). */
+export function defaultView(view: SessionView | undefined): ViewId {
+    return onDesignTrack(view) ? "agents" : "implement";
 }
 
-/** The workspace tab of a stepper step (entry 5.11): approve and build read the doc. */
-export function stepTab(step: StepId): WorkspaceTab {
+/** The shown view: `shown` when the session offers it, else the session's default view. */
+export function shownView(view: SessionView | undefined, shown: string): ViewId {
+    const tabs = viewTabs(view);
+    return tabs.includes(shown as ViewId) ? (shown as ViewId) : defaultView(view);
+}
+
+/** The tab of each EGM step (D12): Approve is a state of the Review tab; Build is Implement. */
+export function stepTab(step: StepId): ViewId {
     switch (step) {
         case "brainstorm":
-            return "brief";
+            return "brainstorm";
+        case "draft":
+            return "draft";
         case "review":
+        case "approve":
             return "review";
-        default:
-            return "design";
+        case "build":
+            return "implement";
     }
+}
+
+/** The mark an EGM tab carries: a state dot before the label, a tooltip, an optional suffix. */
+export interface TabMark {
+    state: StepState;
+    title: string;
+    suffix?: string;
+}
+
+/** `2 live`: the running Goldfish of a step as a tab suffix. */
+function liveSuffix(count: number): string | undefined {
+    return count === 0 ? undefined : `${count} live`;
+}
+
+/**
+ * The marks of the four EGM tabs (T5). Review carries two steps: its state is Approve's while
+ * Approve is active or waiting, else Review's; its tooltip is both step titles; its suffix is
+ * `n/5` (the written review stages) while the review runs. Brainstorm and Review add their
+ * running Goldfish as a suffix while a run is live.
+ */
+export function tabMarks(
+    steps: readonly DesignStep[],
+    design: DesignView,
+): Partial<Record<ViewId, TabMark>> {
+    const marks: Partial<Record<ViewId, TabMark>> = {};
+    const review = steps.find((step) => step.id === "review");
+    const approve = steps.find((step) => step.id === "approve");
+    for (const step of steps) {
+        if (step.id === "approve") {
+            continue;
+        }
+        const mark: TabMark = { state: step.state, title: stepTitle(step, design) };
+        const live = liveSuffix(runningOn(design.goldfish, step.id));
+        if (live !== undefined) {
+            mark.suffix = live;
+        }
+        marks[stepTab(step.id)] = mark;
+    }
+    if (review !== undefined && approve !== undefined) {
+        const approving = approve.state === "active" || approve.state === "waiting";
+        const reviewing = review.state === "active" || review.state === "waiting";
+        const written = (review.dots ?? []).filter(Boolean).length;
+        const mark: TabMark = {
+            state: approving ? approve.state : review.state,
+            title: `${stepTitle(review, design)}\n${stepTitle(approve, design)}`,
+        };
+        const parts = [
+            reviewing ? `${written}/${review.dots?.length ?? 0}` : undefined,
+            liveSuffix(runningOn(design.goldfish, "review")),
+        ].filter((part): part is string => part !== undefined);
+        if (parts.length > 0) {
+            mark.suffix = parts.join(" ");
+        }
+        marks.review = mark;
+    }
+    return marks;
 }
 
 /**

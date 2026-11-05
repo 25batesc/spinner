@@ -1,28 +1,41 @@
-import { useState, type ReactNode } from "react";
+// The middle pane of a session (docs/designs/session-workspace.md, T5, D15): one row of view
+// tabs in EGM step order, each EGM tab marked with its step's state, and one view at a time:
+// Agents (the chips, the gate card, the chat or terminal), Brainstorm, Draft, Review, Files,
+// History, Implement, Threads, Services. The pane fetches the design doc once per reload key
+// and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
+import { useMemo, useState, type ReactNode } from "react";
 
 import { showsTerminal } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
-import { gateCard } from "./design.ts";
+import { compactLabel, designSteps, gateCard, stepperText } from "./design.ts";
+import { DesignBrief } from "./DesignBrief.tsx";
+import { DesignDoc } from "./DesignDoc.tsx";
+import { DesignFiles } from "./DesignFiles.tsx";
 import { DesignGate } from "./DesignGate.tsx";
-import { DesignWorkspace } from "./DesignWorkspace.tsx";
-import { shownView, viewTabs, type WorkspaceTab } from "./design-workspace.ts";
+import { DesignHistory } from "./DesignHistory.tsx";
+import { DesignReview } from "./DesignReview.tsx";
+import {
+    docSource, EGM_VIEWS, reloadKey, shownView, stepTab, TAB_LABELS, tabMarks, viewTabs,
+    type ViewId,
+} from "./design-workspace.ts";
 import { GoldfishChips, type GoldfishPick } from "./GoldfishChips.tsx";
 import { GoldfishTranscript } from "./GoldfishTranscript.tsx";
 import { capLine } from "./goldfish.ts";
 import { MissionWorkspace } from "./MissionWorkspace.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
+import { fetchDesignDoc, fetchDesignFile, useLoaded } from "./remote.ts";
 import { needsHuman, type Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
-import { ViewTabs } from "./ViewTabs.tsx";
+import { ViewTabs, type ViewTabFold } from "./ViewTabs.tsx";
 import {
-    tty_path, type AgentCost, type AgentSpec, type MissionView, type SessionView,
+    EGM_NOTICE, tty_path, type AgentCost, type AgentSpec, type MissionView, type SessionView,
 } from "@spinner/protocol";
 
 import { formatUsd } from "./costs.ts";
@@ -55,12 +68,10 @@ export interface AgentsPaneProps {
     onShown: (view: string) => void;
     picked: string | undefined;
     onPicked: (name: string | undefined) => void;
-    /**
-     * The design workspace's tab, held by the App (entry 5.11): a stepper step or the round
-     * badge opens the `design` view on a tab. Null opens the track's default tab.
-     */
-    designTab: WorkspaceTab | null;
-    onDesignTab: (tab: WorkspaceTab) => void;
+    /** Opens the Agents view with `name` picked: the compact gate line, a rail chip. */
+    onOpenAgent: (name: string) => void;
+    /** Opens another view: `open in Draft` on Implement, the round badge. */
+    onOpenView: (id: ViewId) => void;
     /** Where a refused gate answer goes: the drawer, as a failed job's error does. */
     onError: (message: string) => void;
 }
@@ -164,10 +175,29 @@ function agentBase(dir: string, agent: string): string {
     return `/sessions/${dir}/agents/${agent}`;
 }
 
+/**
+ * The doc the Draft and Implement views read (D15): the named doc, else the draft, fetched
+ * once per reload key. The key never carries the mission revision, so a tick does not refetch.
+ */
+function useDesignDoc(view: SessionView | undefined) {
+    const design = view?.design;
+    const source = design === undefined ? null : docSource(design);
+    const dir = view?.summary.dir ?? "";
+    const reload = design === undefined ? dir : reloadKey(dir, design);
+    return useLoaded(`${reload}#doc#${source?.kind ?? "none"}`, (signal) => {
+        if (source === null) {
+            return Promise.resolve("");
+        }
+        return source.kind === "doc"
+            ? fetchDesignDoc(dir, signal)
+            : fetchDesignFile(dir, source.name, signal);
+    });
+}
+
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
-    const { controls, leading, picked } = props;
-    // A session without a `design` block has no `design` view; its pick falls back to agents.
+    const { controls, leading, picked, onOpenAgent } = props;
+    // A session off the design track has no EGM views; its pick falls back to the default.
     const shown = shownView(view, props.shown);
     const setShown = props.onShown;
     const setPicked = props.onPicked;
@@ -206,27 +236,71 @@ export function AgentsPane(props: AgentsPaneProps) {
                   />
               ));
     const mainTab = selected !== undefined && terminalFor(selected) ? "terminal" : "chat";
+    const needs = view === undefined ? null : needsHuman(view);
+    const reload = view === undefined || design === undefined
+        ? ""
+        : reloadKey(view.summary.dir, design);
+    const doc = useDesignDoc(view);
+    // The step marks and the fold of the EGM tabs (T5): only on the design track.
+    const steps = useMemo(
+        () => (design?.track === "design" ? designSteps(design, needs) : null),
+        [design, needs],
+    );
+    const marks = useMemo(() => {
+        if (steps === null || design === undefined) {
+            return undefined;
+        }
+        const egm = tabMarks(steps, design);
+        const brainstorm = egm.brainstorm;
+        if (brainstorm !== undefined) {
+            brainstorm.title = `${EGM_NOTICE}\n${brainstorm.title}`;
+        }
+        return egm;
+    }, [steps, design]);
+    let fold: ViewTabFold | undefined;
+    if (steps !== null) {
+        const current = steps.find((step) => step.state !== "done") ?? steps[steps.length - 1];
+        fold = {
+            ids: EGM_VIEWS,
+            label: compactLabel(steps),
+            opens: stepTab(current?.id ?? "build"),
+            title: `${EGM_NOTICE}\n${stepperText(steps)}`,
+        };
+    }
+    const tabs = viewTabs(view).map((id) => ({ id, label: TAB_LABELS[id] }));
 
     return (
         <section className="pane agents-pane" aria-label="Agents">
             <ViewTabs
-                labels={viewTabs(view)}
+                key={view?.summary.dir ?? ""}
+                tabs={tabs}
                 shown={shown}
                 onSelect={setShown}
                 controls={controls}
                 leading={leading}
+                marks={marks}
+                fold={fold}
             />
             <div className="chat">
-                {view !== undefined && shown === "design" && (
-                    <DesignWorkspace
-                        key={view.summary.dir}
+                {view !== undefined && shown === "brainstorm" && (
+                    <DesignBrief view={view} reload={reload} onOpenAgent={onOpenAgent} />
+                )}
+                {view !== undefined && shown === "draft" && (
+                    <DesignDoc view={view} doc={doc} onError={props.onError} />
+                )}
+                {view !== undefined && shown === "review" && (
+                    <DesignReview
                         view={view}
-                        tab={props.designTab}
-                        onTab={props.onDesignTab}
-                        onError={props.onError}
+                        reload={reload}
+                        needs={needs}
+                        onOpenAgent={onOpenAgent}
                     />
                 )}
-                {view !== undefined && shown === "mission" && (
+                {view !== undefined && shown === "files" && (
+                    <DesignFiles view={view} reload={reload} />
+                )}
+                {view !== undefined && shown === "history" && <DesignHistory view={view} />}
+                {view !== undefined && shown === "implement" && (
                     <MissionWorkspace
                         dir={view.summary.dir}
                         revision={revisions.mission}

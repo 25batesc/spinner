@@ -3,13 +3,17 @@
 // the resolve report, and the Goldfish of the review step with their cost. A click renders a
 // report as markdown; the daemon does not parse findings, and neither does the UI. A run
 // selector reads an archived run through `…/design/reviews/:run/:name`. While the resolve card
-// shows (entry 3.21), it sits above the report.
+// shows (entry 3.21), one line above the report opens Agents, where the card is
+// (session-workspace.md, K1). The tab's header carries the `approve` primary at
+// `design-ready` or after a doc change invalidated the approval (T5), so Approve is a state
+// of this tab and not a tab of its own (D12).
 import { useState } from "react";
 
 import type { SessionView } from "@spinner/protocol";
 
+import { ApproveDesign } from "./ApproveDesign.tsx";
 import { formatUsd } from "./costs.ts";
-import { showResolveCard } from "./design.ts";
+import { primaryAction, showResolveCard } from "./design.ts";
 import { stageRows, type StageRow } from "./design-workspace.ts";
 import { MarkdownFile } from "./DesignFiles.tsx";
 import { DesignGate } from "./DesignGate.tsx";
@@ -21,7 +25,45 @@ export interface DesignReviewProps {
     reload: string;
     /** The session's `needs_human`: the resolve card shows on its resolve line. */
     needs: string | null;
-    onError: (message: string) => void;
+    /** Opens the Agents view with the lead picked, where the resolve card is. */
+    onOpenAgent: (name: string) => void;
+}
+
+/** The approve primary's tooltip (egm-adoption.md D2, D5). */
+const APPROVE_TIP = "Approve the design doc; the dialog starts the build by default.";
+
+/**
+ * The header's `approve design` primary, which opens the approve dialog (entry 6.16), at
+ * `design-ready` and after a doc change invalidated the approval.
+ */
+function ApproveHeader({ view }: { view: SessionView }) {
+    const [open, setOpen] = useState(false);
+    const design = view.design;
+    if (design === undefined) {
+        return null;
+    }
+    const primary = primaryAction(design);
+    const changed = design.changed_after_approval;
+    if (primary?.kind !== "approve" && !changed) {
+        return null;
+    }
+    const label = primary?.kind === "approve" ? primary.label : "re-approve design";
+    return (
+        <div className="dw-approve-head">
+            <span className="muted">
+                {changed ? "Changed since approval" : "The review is done"}
+            </span>
+            <button
+                type="button"
+                className="primary dw-approve"
+                title={APPROVE_TIP}
+                onClick={() => setOpen(true)}
+            >
+                {label}
+            </button>
+            {open && <ApproveDesign view={view} onClose={() => setOpen(false)} />}
+        </div>
+    );
 }
 
 /** The run selector's value for the current run, which reads `<session>/design/`. */
@@ -46,7 +88,7 @@ function statusOf(row: StageRow): { label: string; className: string } {
         : { label: "not yet", className: "pill" };
 }
 
-export function DesignReview({ view, reload, needs, onError }: DesignReviewProps) {
+export function DesignReview({ view, reload, needs, onOpenAgent }: DesignReviewProps) {
     const design = view.design;
     const dir = view.summary.dir;
     const [run, setRun] = useState(CURRENT);
@@ -69,8 +111,9 @@ export function DesignReview({ view, reload, needs, onError }: DesignReviewProps
     };
     return (
         <div className="dw-tab-body">
+            <ApproveHeader view={view} />
             {showResolveCard(design, needs) && (
-                <DesignGate key="resolve" kind="resolve" dir={dir} onError={onError} />
+                <DesignGate key="resolve" kind="resolve" compact onOpenAgent={onOpenAgent} />
             )}
             <div className="dw-review-head">
                 <label className="dw-run">
