@@ -685,6 +685,22 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     color: var(--muted); font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
 }
 .chip-stop:hover { color: var(--fail); background: var(--fail-fill); }
+/* The agent's context use on its chip and the compact action beside it (r4.2, row 45): a small
+   tabular pill inside the 24 px chip, amber from 50 %, red from 75 %; the compact button is a
+   quiet text button that turns accent under the pointer. */
+.chip .chip-context {
+    margin: 0 2px; padding: 0 6px; font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums; line-height: 16px;
+}
+.chip-compact {
+    display: inline-flex; align-items: center; height: 18px; margin-right: 3px;
+    padding: 0 8px 0 4px; border: 0; border-radius: 999px; background: transparent;
+    color: var(--muted); font: inherit; font-size: 11px; line-height: 1; cursor: pointer;
+}
+.chip-compact:hover:not(:disabled) { color: var(--accent); background: var(--accent-tint); }
+.chip-compact:disabled { opacity: 0.5; cursor: default; }
+/* The fullest agent's figure on the session card and the context bar (r4.2). */
+.context-figure { font-variant-numeric: tabular-nums; flex: none; }
 .tab-add {
     display: inline-flex; align-items: center; justify-content: center; width: 24px;
     height: 24px; padding: 0; box-sizing: border-box; border: 1px dashed var(--border);

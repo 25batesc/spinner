@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 
 import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
+import { contextLabel, contextTitle, contextTone, fullestContext } from "./agent-view.ts";
 import { formatTokens, formatUsd } from "./costs.ts";
 import { trackChoices } from "./design.ts";
 import type { PaneName } from "./layout.ts";
@@ -276,6 +277,30 @@ export function CostFigure({ cost }: { cost: CostTotals | undefined }) {
     return (
         <span className="muted usage-cost" title={tokens}>
             {formatUsd(cost.usd)}
+        </span>
+    );
+}
+
+/**
+ * The session's fullest agent's context use (dogfood row 45, r4.2): `engine 52 %` from 40 %,
+ * amber from 50 %, red from 75 %, the same bands and tooltip as the agent chip
+ * (`agent-view.ts`). Nothing under 40 % or without a known window.
+ */
+export function ContextFigure({ view }: { view: SessionView }) {
+    const fullest = fullestContext(view);
+    const tone = contextTone(fullest?.context);
+    if (fullest === null || tone === null) {
+        return null;
+    }
+    const toneClass = tone === "plain" ? "" : ` pill-${tone}`;
+    return (
+        <span
+            className={`pill context-figure${toneClass}`}
+            data-tone={tone}
+            data-agent={fullest.name}
+            title={`${fullest.name}: ${contextTitle(fullest.context)}`}
+        >
+            {fullest.name} {contextLabel(fullest.context)}
         </span>
     );
 }
@@ -557,6 +582,7 @@ export function ContextBar(props: ContextBarProps) {
             </span>
             {stack !== null && <span className="muted usage-line">{stackLine(stack)}</span>}
             <CostFigure cost={view.cost} />
+            <ContextFigure view={view} />
             <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
             {needs !== null && <NeedsPill needs={needs} onNeeds={onNeeds} />}

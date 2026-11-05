@@ -38,7 +38,9 @@
 // reads the empty state (s038). Both run against the fixture only. The flow `questions` reads
 // the Open questions of the Implement rail, answers one under it and resolves one through the
 // route (#43); it runs against the fixture only. The flow `menus` opens the EGM ▾, ⋯ and
-// Track menus and closes each with an outside press and with Escape (r4.3); fixture only.
+// Track menus and closes each with an outside press and with Escape (r4.3); `context` reads
+// the agents' context figures on the chips, the card and the context bar, and compacts two
+// agents (r4.2); both fixture only.
 // The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
@@ -551,6 +553,72 @@ if (flow === "menus") {
         width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
     });
     console.log("menus ok");
+    await finish();
+}
+
+if (flow === "context") {
+    // Each agent's context use (dogfood row 45, r4.2) against the fixture's seeded session
+    // (lead 30 %, engine 52 %, ui 81 % of a 1M window) and the Refund flow (backend 45 %,
+    // frontend unknown). The chip shows the figure from 40 %: plain, amber from 50 %, red from
+    // 75 %, with the tooltip; under 40 % or unknown it shows none. The session card and the
+    // context bar carry the fullest agent's figure. `compact` on a chip posts the route; the
+    // fixture drops that agent to 6 %, so its chip figure goes and the card follows the next
+    // fullest agent, and none once every agent is under 40 %. Fixture only.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    const chips = `Object.fromEntries([...document.querySelectorAll(".agents-pane .chip")].map(
+        (c) => [c.querySelector(".chip-name").dataset.name, (() => {
+            const f = c.querySelector(".chip-context");
+            return f === null ? null : [f.textContent, f.dataset.tone, f.title,
+                c.querySelector(".chip-compact") !== null];
+        })()]))`;
+    const figure = (where: string) => `(() => {
+        const f = document.querySelector(${JSON.stringify(where)} + " .context-figure");
+        return f === null ? null : [f.textContent, f.dataset.tone, f.title];
+    })()`;
+    const card = ".session-selected";
+    await click(".session", "CSV export \u00b7 seeded");
+    await until("seeded selected", `${text(".context-title")} === "CSV export \u00b7 seeded"`);
+    await click(".agents-pane .view-tab", "Agents");
+    await until("chips", `document.querySelectorAll(".agents-pane .chip-context").length === 2`);
+    await expectSame("seeded chips", await evaluate(chips), {
+        lead: null,
+        engine: ["52 %", "warn", "52 % of 1M context (520k tokens)", true],
+        ui: ["81 %", "fail", "81 % of 1M context (810k tokens)", true],
+    });
+    await expectSame("seeded card and bar", await evaluate(`[${figure(card)}, ${figure(
+        ".context-bar")}]`), [
+        ["ui 81 %", "fail", "ui: 81 % of 1M context (810k tokens)"],
+        ["ui 81 %", "fail", "ui: 81 % of 1M context (810k tokens)"],
+    ]);
+    await shot("context-seeded");
+    await click(".chip-compact[aria-label='Compact engine']");
+    await until("engine compacted", `${chips}.engine === null`);
+    await click(".chip-compact[aria-label='Compact ui']");
+    await until("ui compacted", `${chips}.ui === null`);
+    await until("card and bar empty", `${figure(card)} === null && ${figure(".context-bar")}
+        === null`);
+    await shot("context-compacted");
+
+    await click(".session", "Refund flow");
+    await until("refund selected", `${text(".context-title")} === "Refund flow"`);
+    await click(".agents-pane .view-tab", "Agents");
+    await until("refund chips", `document.querySelectorAll(".agents-pane .chip-context").length
+        === 1`);
+    await expectSame("refund chips", await evaluate(chips), {
+        backend: ["45 %", "plain", "45 % of 1M context (450k tokens)", true],
+        frontend: null,
+    });
+    await expectSame("refund card and bar", await evaluate(`[${figure(card)}, ${figure(
+        ".context-bar")}]`), [
+        ["backend 45 %", "plain", "backend: 45 % of 1M context (450k tokens)"],
+        ["backend 45 %", "plain", "backend: 45 % of 1M context (450k tokens)"],
+    ]);
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("context ok");
     await finish();
 }
 
