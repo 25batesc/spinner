@@ -2,8 +2,8 @@
 // operator reads the tasks and their status. A goal block (the doc's first Overview paragraph
 // on the design track, the editable goal otherwise), a sticky header with the entry counts
 // and the `doing` filter, the Plan as a phase-first list (one collapsible section per phase,
-// one row per item with a state dot), a rail with the roster's live dots, the questions and
-// the contracts, then the Log across the width. The view never fetches and never writes:
+// one row per item with a state dot) and the Log in the main column, and a rail with the
+// roster's live dots, the questions and the contracts. The view never fetches and never writes:
 // `MissionWorkspace` owns the data; `implement.ts` holds the rules.
 import { useMemo, useState, type ReactNode } from "react";
 
@@ -81,6 +81,14 @@ export function ImplementView(props: ImplementViewProps) {
                         </div>
                         <PlanList groups={groups} rows={rows} doingOnly={doingOnly} />
                         {source === "mission" && <DoneWhen items={mission.done_when} rows={rows} />}
+                        {/* The Log sits in the main column, not across both: a grid row after
+                            the rail took the rail's height, and the sticky rail slid over it. */}
+                        <LogFeed
+                            log={mission.log}
+                            agents={authors}
+                            filter={props.filter}
+                            onFilter={props.onFilter}
+                        />
                     </div>
                     <aside className="im-rail" aria-label="Roster">
                         <RosterRail {...props} />
@@ -91,12 +99,6 @@ export function ImplementView(props: ImplementViewProps) {
                         />
                         <Contracts contracts={mission.contracts} rows={rows} />
                     </aside>
-                    <LogFeed
-                        log={mission.log}
-                        agents={authors}
-                        filter={props.filter}
-                        onFilter={props.onFilter}
-                    />
                 </div>
             </div>
         </AgentOrder.Provider>

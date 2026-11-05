@@ -3,7 +3,7 @@
 // Agents (the chips, the gate card, the chat or terminal), Brainstorm, Draft, Review, Files,
 // History, Implement, Threads, Services. The pane fetches the design doc once per reload key
 // and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { agentState, showsTerminal } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
@@ -19,7 +19,7 @@ import { DesignHistory } from "./DesignHistory.tsx";
 import { DesignReview } from "./DesignReview.tsx";
 import {
     docSource, EGM_VIEWS, reloadKey, shownView, stepTab, TAB_LABELS, tabMarks, viewTabs,
-    type ViewId,
+    WORKSPACE_VIEWS, type ViewId,
 } from "./design-workspace.ts";
 import { GoldfishChips, type GoldfishPick } from "./GoldfishChips.tsx";
 import { GoldfishTranscript } from "./GoldfishTranscript.tsx";
@@ -196,6 +196,12 @@ export function AgentsPane(props: AgentsPaneProps) {
     // A session off the design track has no EGM views; its pick falls back to the default.
     const shown = shownView(view, props.shown);
     const setShown = props.onShown;
+    // The views share one scroll box; a view change starts at its top, so a long Review does
+    // not open at the depth the Implement list was read at.
+    const chat = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        chat.current?.scrollTo({ top: 0 });
+    }, [shown, view?.summary.dir]);
     const setPicked = props.onPicked;
     const [agentTab, setAgentTab] = useState("chat");
     // The `+` chip at the end of the agent row: the add-agent form as the pane's view.
@@ -277,25 +283,34 @@ export function AgentsPane(props: AgentsPaneProps) {
                 marks={marks}
                 fold={fold}
             />
-            <div className="chat">
-                {view !== undefined && shown === "brainstorm" && (
-                    <DesignBrief view={view} reload={reload} onOpenAgent={onOpenAgent} />
+            <div className="chat" ref={chat}>
+                {/* `.dw` is the container the design views' split layout queries (styles.css
+                    `@container dw`): without it the outline stacks above the doc. */}
+                {view !== undefined && WORKSPACE_VIEWS.has(shown) && (
+                    <div className="dw" aria-label="Design workspace" data-tab={shown}>
+                        {shown === "brainstorm" && (
+                            <DesignBrief view={view} reload={reload} onOpenAgent={onOpenAgent} />
+                        )}
+                        {shown === "draft" && (
+                            <DesignDoc
+                                view={view}
+                                doc={doc}
+                                mission={mission}
+                                onError={props.onError}
+                            />
+                        )}
+                        {shown === "review" && (
+                            <DesignReview
+                                view={view}
+                                reload={reload}
+                                needs={needs}
+                                onOpenAgent={onOpenAgent}
+                            />
+                        )}
+                        {shown === "files" && <DesignFiles view={view} reload={reload} />}
+                        {shown === "history" && <DesignHistory view={view} />}
+                    </div>
                 )}
-                {view !== undefined && shown === "draft" && (
-                    <DesignDoc view={view} doc={doc} mission={mission} onError={props.onError} />
-                )}
-                {view !== undefined && shown === "review" && (
-                    <DesignReview
-                        view={view}
-                        reload={reload}
-                        needs={needs}
-                        onOpenAgent={onOpenAgent}
-                    />
-                )}
-                {view !== undefined && shown === "files" && (
-                    <DesignFiles view={view} reload={reload} />
-                )}
-                {view !== undefined && shown === "history" && <DesignHistory view={view} />}
                 {view !== undefined && shown === "implement" && (
                     <MissionWorkspace
                         dir={view.summary.dir}

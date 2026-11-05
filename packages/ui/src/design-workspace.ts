@@ -37,6 +37,11 @@ export const TAB_LABELS: Record<ViewId, string> = {
 /** The four EGM tabs, which carry a step mark and fold into one tab on a narrow row (T5). */
 export const EGM_VIEWS: readonly ViewId[] = ["brainstorm", "draft", "review", "implement"];
 
+/** The views that render inside the `.dw` design workspace container, with its split layout. */
+export const WORKSPACE_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
+    "brainstorm", "draft", "review", "files", "history",
+]);
+
 /** The two rows of T5: the design track, and the direct track or a legacy session (R3). */
 const DESIGN_VIEWS: readonly ViewId[] = VIEW_IDS;
 const DIRECT_VIEWS: readonly ViewId[] = [
