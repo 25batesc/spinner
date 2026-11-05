@@ -11,7 +11,7 @@
 export const DOC_LINES_MAX = 100_000;
 /** A doc has at most this many `#### Build session N` phases; past it the scan throws. */
 export const PHASES_MAX = 50;
-/** A doc has at most this many entries, equal to the Plan's `ITEMS_MAX`; past it the scan throws. */
+/** A doc has at most this many entries (the Plan's `ITEMS_MAX`); past it the scan throws. */
 export const ENTRIES_MAX = 500;
 /** An entry id in a token is at most this many characters of `[0-9.]`. */
 export const ENTRY_TOKEN_MAX = 16;
@@ -52,7 +52,7 @@ export interface PlanScan {
     empty_titles: string[];
 }
 
-/** Three or more backticks or tildes open a fence; the same character at the same or greater length closes it. */
+/** 3 or more backticks or tildes open a fence; the same character, as long or longer, closes it. */
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
 

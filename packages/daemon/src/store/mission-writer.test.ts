@@ -192,7 +192,7 @@ describe("apply_mission_write", () => {
         ).toContain("item.id");
     });
 
-    it("item mode: the entry token is written first, kept by edit and tick, moved by a token", () => {
+    it("item mode: the entry token is written first, kept by edit and tick, moved", () => {
         const item = (text: string, request: MissionSectionRequest["item"]): string =>
             apply_mission_write(
                 text,
@@ -204,7 +204,9 @@ describe("apply_mission_write", () => {
         text = item(text, { command: "edit", id: 1, text: "`a.ts` and `b.ts`" });
         expect(mission_section(text, "Plan")).toBe("- [ ] 1. [2.3] `a.ts` and `b.ts` (lead)");
         text = item(text, { command: "tick", id: 1 });
-        expect(mission_section(text, "Plan")).toBe("- [x] 1. [2.3] `a.ts` and `b.ts` (lead, 10:05)");
+        expect(mission_section(text, "Plan")).toBe(
+            "- [x] 1. [2.3] `a.ts` and `b.ts` (lead, 10:05)",
+        );
         text = item(text, { command: "edit", id: 1, text: "[2.4] `c.ts`" });
         expect(mission_section(text, "Plan")).toBe("- [x] 1. [2.4] `c.ts` (lead, 10:05)");
         const refused = (request: MissionSectionRequest["item"]): string | null =>

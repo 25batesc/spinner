@@ -88,10 +88,10 @@ describe("parse_item and render_item", () => {
     });
 
     it("reads the entry token on every form and round-trips it first (T3)", () => {
-        expect(parse_item("- [ ] 7. [1.5] packages/protocol/src/plan-entries.ts (engine)")).toEqual({
+        expect(parse_item("- [ ] 7. [1.5] packages/protocol/plan-entries.ts (engine)")).toEqual({
             checked: false,
             id: 7,
-            text: "packages/protocol/src/plan-entries.ts",
+            text: "packages/protocol/plan-entries.ts",
             owner: "engine",
             entry: "1.5",
             ticked_at: null,

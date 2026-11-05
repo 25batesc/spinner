@@ -87,7 +87,8 @@ describe("scan on egm-adoption.md", () => {
 
 describe("scan rules", () => {
     it("reads EGM's flat `#### 1.` layout with no phase", () => {
-        const result = scan(doc(["#### 1. `src/a.ts` (Create)", "", "#### 2. `src/b.ts`"].join("\n")));
+        const plan = ["#### 1. `src/a.ts` (Create)", "", "#### 2. `src/b.ts`"].join("\n");
+        const result = scan(doc(plan));
         expect(result.phases).toEqual([]);
         expect(result.entries).toEqual([
             { id: "1", phase: null, title: "`src/a.ts`", kind: "Create", line: 9 },
@@ -96,7 +97,8 @@ describe("scan rules", () => {
     });
 
     it("accepts the `## Implementation Plan` synonym and stops at the next `## `", () => {
-        const text = `${doc("##### 1.1 one", "## Implementation Plan")}\n## Notes\n\n##### 1.2 two\n`;
+        const synonym = doc("##### 1.1 one", "## Implementation Plan");
+        const text = `${synonym}\n## Notes\n\n##### 1.2 two\n`;
         expect(scan(text).entries.map((entry) => entry.id)).toEqual(["1.1"]);
     });
 

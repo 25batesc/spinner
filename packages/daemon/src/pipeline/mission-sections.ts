@@ -113,7 +113,7 @@ const TIME = /^\d\d:\d\d$/;
 const OWNER = /^(?:the )?[A-Za-z0-9_.-]+$/;
 
 /** Upper bound on items in one section; a mission is meant to stay under 400 lines. */
-const ITEMS_MAX = 500;
+export const ITEMS_MAX = 500;
 
 /**
  * Reads `- [ ] 3. text (owner)`, `- [x] 3. text (owner, 14:02)` and the older forms without
