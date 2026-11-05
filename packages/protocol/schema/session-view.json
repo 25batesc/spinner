@@ -810,6 +810,10 @@
                         "null"
                     ],
                     "description": "The posted review's URL (s016), null until `post`."
+                },
+                "cancelled": {
+                    "type": "boolean",
+                    "description": "True after the operator's `cancel review` (dogfood #22), until the next start, draft, approve or post. Absent means false."
                 }
             },
             "required": [
@@ -1746,6 +1750,10 @@
                         }
                     ],
                     "description": "The draft's event (`APPROVE` when the lead found nothing); null without a draft."
+                },
+                "cancelled": {
+                    "type": "boolean",
+                    "description": "True after the operator cancelled the review (dogfood #22) and `state` is `idle`; the card says `cancelled` until the next action. Optional, as `state`."
                 }
             },
             "required": [

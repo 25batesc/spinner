@@ -714,6 +714,10 @@
                         "null"
                     ],
                     "description": "The posted review's URL (s016), null until `post`."
+                },
+                "cancelled": {
+                    "type": "boolean",
+                    "description": "True after the operator's `cancel review` (dogfood #22), until the next start, draft, approve or post. Absent means false."
                 }
             },
             "required": [

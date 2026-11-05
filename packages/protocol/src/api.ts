@@ -112,6 +112,20 @@ export const ROUTES = {
      * a draft; 502 when GitHub refuses. The URL lands in `session.yaml` and the Log.
      */
     "POST /sessions/:dir/review/post": "ReviewPostResponse",
+    /**
+     * The operator's one-click approve (dogfood #22): one APPROVE review with the body "LGTM"
+     * on the session's PR at its head, through the operator's `gh`, no swarm and no draft.
+     * GitHub's refusal of APPROVE on the author's own PR reposts it as COMMENT, as `post`
+     * does. 409 without a PR; 502 when GitHub refuses. One Log line names the URL.
+     */
+    "POST /sessions/:dir/review/approve": "ReviewPostResponse",
+    /**
+     * The operator's `cancel review` (dogfood #22): drops the queued reviewers, stops the
+     * running ones, stops the lead of a review session (an ordinary session's lead stays),
+     * moves the verdict files under `artifacts/reviews-cancelled/<stamp>/`, and sets
+     * `review.cancelled`. 409 when the session has no review. One Log line.
+     */
+    "POST /sessions/:dir/review/cancel": "ReviewCancelResponse",
     /** The review threads of every PR, from the last render. 404 without a session. */
     "GET /sessions/:dir/threads": "ThreadsResponse",
     /** Re-render `threads/` from GitHub now and return it. */
@@ -610,6 +624,20 @@ export interface ReviewFields {
     comment_count?: number;
     /** The draft's event (`APPROVE` when the lead found nothing); null without a draft. */
     event?: ReviewEvent | null;
+    /**
+     * True after the operator cancelled the review (dogfood #22) and `state` is `idle`; the
+     * card says `cancelled` until the next action. Optional, as `state`.
+     */
+    cancelled?: boolean;
+}
+
+/** `POST /sessions/:dir/review/cancel`. */
+export interface ReviewCancelResponse {
+    ok: true;
+    /** The reviewers and the lead that were stopped or taken off the queue. */
+    stopped: string[];
+    /** The verdict files moved, relative to the session directory. */
+    archived: string[];
 }
 
 /** The review events of a PR review, as GitHub names them (s016). */

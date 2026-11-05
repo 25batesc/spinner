@@ -218,6 +218,11 @@ export interface ReviewState {
     draft?: boolean;
     /** The posted review's URL (s016), null until `post`. */
     posted_url?: string | null;
+    /**
+     * True after the operator's `cancel review` (dogfood #22), until the next start, draft,
+     * approve or post. Absent means false.
+     */
+    cancelled?: boolean;
 }
 
 /** The whole of `session.yaml`. */
