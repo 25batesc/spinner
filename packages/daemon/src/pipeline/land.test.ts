@@ -289,14 +289,16 @@ describe("land", () => {
         // refresh_facts, then the watch: popped → (wait_green reads once) → merged.
         fake.responses = [green, popped, rebased, merged, merged];
         const banners: string[] = [];
+        const sessions: (string | null)[] = [];
         const log: string[] = [];
         const result = await land_prs(home, summary, {}, {
             gh: fake.reads,
             writer: fake,
             config,
             log: (line) => log.push(line),
-            notify: async (_t, message) => {
+            notify: async (_t, message, session) => {
                 banners.push(message);
+                sessions.push(session);
             },
             sleep: async () => {},
             poll_ms: 1,
@@ -316,6 +318,7 @@ describe("land", () => {
         const rebase = fake.git_calls.find((call) => call.args[0] === "rebase");
         expect(rebase?.args).toEqual(["rebase", "origin/develop"]);
         expect(banners).toEqual([`${summary.session.id}: backend#4812 merged`]);
+        expect(sessions).toEqual([summary.dir]);
         expect(log.some((line) => line.includes("popped out of the queue (CI_FAILED)"))).toBe(true);
         expect(read_yaml(summary.dir).stage).toBe("merged");
         const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");

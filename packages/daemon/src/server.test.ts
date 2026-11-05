@@ -29,6 +29,8 @@ import { create_session, read_session } from "./store/session-store.js";
 let home: SpinnerHome;
 let daemon: Daemon;
 let base: string;
+/** The fallback banners the daemon ran: title, message and session of each. */
+let banners: [string, string, string | null][];
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = resolve(here, "..", "test", "fixtures", "fake-pi.ts");
@@ -42,7 +44,9 @@ function test_options(ui_dir: string | null = null): DaemonOptions {
         log: () => undefined,
         poll_seconds: 0,
         gh: () => Promise.reject(new Error("no gh in tests")),
-        notify: async () => undefined,
+        notify: async (title, message, session) => {
+            banners.push([title, message, session]);
+        },
         ui_dir,
         observe_interval_ms: 60_000,
         pi: FAKE_PI,
@@ -52,6 +56,7 @@ function test_options(ui_dir: string | null = null): DaemonOptions {
 
 beforeEach(async () => {
     chmodSync(FAKE_PI, 0o755);
+    banners = [];
     home = resolve_home({ SPINNER_HOME: mkdtempSync(join(tmpdir(), "spinner-daemon-")) });
     daemon = await start_daemon(test_options());
     base = `http://127.0.0.1:${daemon.port}`;
@@ -63,9 +68,9 @@ afterEach(async () => {
 });
 
 /** Opens a WebSocket client and resolves once the connection is open. */
-function connect(origin: string): Promise<WebSocket> {
+function connect(origin: string, query = ""): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
-        const client = new WebSocket(`ws://127.0.0.1:${daemon.port}/events`, {
+        const client = new WebSocket(`ws://127.0.0.1:${daemon.port}/events${query}`, {
             headers: { origin },
         });
         client.once("open", () => resolve(client));
@@ -328,6 +333,8 @@ describe("agents", () => {
         expect((await added.json()) as AgentResponse).toEqual({
             name: "backend",
             pi_session_id: "backend",
+            // r3.1 (#37): a new agent gets its first turn from the daemon.
+            first_turn: "started",
         });
         const view = (await (await fetch(`${base}/sessions/s001-alpha`)).json()) as SessionResponse;
         expect(view.session.agents_running).toEqual(["backend"]);
@@ -413,6 +420,28 @@ describe("WebSocket /events", () => {
         rmSync(file);
         expect((await closed).type).toBe("session.closed");
         client.close();
+    });
+
+    it("sends notify to every client; the banner runs only without a desktop app", async () => {
+        const page = await connect("http://localhost:5173");
+        const app = await connect("http://localhost", "?client=desktop");
+        const to_page = next_event(page);
+        const to_app = next_event(app);
+        await daemon.notify("Spinner", "s7: merged", "s007-pay");
+        const expected = { type: "notify", session: "s007-pay", message: "s7: merged" };
+        expect(await to_page).toMatchObject(expected);
+        expect(await to_app).toMatchObject(expected);
+        // The UI's socket is not a desktop app: with the app connected, no banner ran.
+        expect(banners).toEqual([]);
+
+        app.close();
+        // The daemon counts the close when its socket sees it; notify until the banner runs.
+        await until(() => {
+            void daemon.notify("Spinner", "s7: merged", "s007-pay");
+            return banners.length > 0;
+        });
+        expect(banners[0]).toEqual(["Spinner", "s7: merged", "s007-pay"]);
+        page.close();
     });
 
     it("rejects an upgrade on any other path", async () => {

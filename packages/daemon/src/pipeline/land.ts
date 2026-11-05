@@ -164,7 +164,8 @@ async function land_one(
         current = apply_pr_facts(current, pr.repo, with_flagged(facts, pr.threads.flagged ?? 0));
         if (facts.state === "merged") {
             deps.log?.(`${label}: merged`);
-            await deps.notify?.("Spinner", `${summary.session.id}: ${label} merged`);
+            const text = `${summary.session.id}: ${label} merged`;
+            await deps.notify?.("Spinner", text, summary.dir);
             log_line(summary, deps, `land: ${label} merged`);
             return current;
         }

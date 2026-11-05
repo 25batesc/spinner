@@ -261,6 +261,28 @@ export interface ReviewUpdatedEvent extends EventBase {
     data: ReviewFields;
 }
 
+/**
+ * One local notification: a pipeline transition or a landed PR (#12). The desktop app posts it
+ * as its own banner, so macOS shows Spinner's name and icon and a click opens the session.
+ * The daemon runs its `osascript` banner only while no desktop client is connected to
+ * `/events` (`?client=desktop`). `session` is the session directory, or null when the
+ * notification belongs to no session.
+ */
+export interface NotifyEvent {
+    type: "notify";
+    ts: string;
+    session: string | null;
+    title: string;
+    message: string;
+}
+
+/**
+ * The query the desktop app's main process adds to the `/events` URL. The daemon counts the
+ * sockets that carry it: while one is open, a notification is the `notify` event alone.
+ */
+export const EVENTS_CLIENT_PARAM = "client";
+export const EVENTS_CLIENT_DESKTOP = "desktop";
+
 export type SpinnerEvent =
     | JobStartedEvent
     | JobLogEvent
@@ -287,7 +309,8 @@ export type SpinnerEvent =
     | SettingsEvent
     | OperatorUpdatedEvent
     | CostsEvent
-    | ReviewUpdatedEvent;
+    | ReviewUpdatedEvent
+    | NotifyEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
 
@@ -319,4 +342,5 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "operator.updated",
     "costs",
     "review.updated",
+    "notify",
 ];

@@ -45,6 +45,8 @@ import type {
 import {
     DAEMON_HOST,
     DAEMON_PORT,
+    EVENTS_CLIENT_DESKTOP,
+    EVENTS_CLIENT_PARAM,
     EVENTS_PATH,
     LEAD_NAME,
     SETTINGS_DEFAULT,
@@ -80,7 +82,7 @@ import { GoldfishWatcher } from "./egm/goldfish.js";
 import { mount_egm_routes } from "./egm/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import type { GithubWriter } from "./pipeline/github-write.js";
-import { macos_notifier, type Notifier } from "./pipeline/notify.js";
+import { event_notifier, macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
 import { count_outcome, counts_as_operator_steer } from "./pipeline/outcomes.js";
 import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
@@ -138,6 +140,10 @@ export interface DaemonOptions {
     writer?: GithubWriter;
     /** `land`'s wait between looks at the merge queue; tests shorten it. */
     land_poll_ms?: number;
+    /**
+     * The banner the daemon shows while no desktop app is connected; `macos_notifier` when
+     * absent. Every notification is also a `notify` event (`pipeline/notify.ts`).
+     */
     notify?: Notifier;
     /** GitHub poll interval. 0 disables the poller. */
     poll_seconds?: number;
@@ -186,6 +192,11 @@ export interface Daemon {
     /** The operator agent's host, so a test can look at its pty and its view. */
     operator: OperatorHost;
     watcher: SessionWatcher;
+    /**
+     * The notifier the poller and `land` call: the `notify` event, and the fallback banner
+     * while no desktop app is connected. Exposed so a test can drive the choice.
+     */
+    notify: Notifier;
     close(): Promise<void>;
 }
 
@@ -807,12 +818,19 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const started = new Date().toISOString();
     const bus = new EventBus();
     const jobs = new JobRunner(bus);
+    // The open `/events` sockets of the desktop app; the notifier asks it on every call.
+    const desktop: DesktopClients = { count: 0 };
+    const notify = event_notifier({
+        publish: (event) => bus.publish(event),
+        desktop_clients: () => desktop.count,
+        fallback: options.notify ?? macos_notifier,
+    });
     const ctx: ActionContext = {
         home,
         cwd,
         gh: options.gh ?? gh_runner,
         ...(options.writer === undefined ? {} : { writer: options.writer }),
-        ...(options.notify === undefined ? {} : { notify: options.notify }),
+        notify,
         ...(options.land_poll_ms === undefined ? {} : { land_poll_ms: options.land_poll_ms }),
     };
 
@@ -969,7 +987,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     // The poller starts after the port opens; a posted review asks it for a round through
     // this closure, or runs one round itself when polling is off.
     let poller: Poller | null = null;
-    const poll_options = poll_options_for(options, ctx, log);
+    const poll_options = poll_options_for(ctx, notify, log);
     const poll = async (): Promise<void> => {
         if (poller !== null) {
             await poller.round();
@@ -1042,7 +1060,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
     bound_port = address.port;
     const ttys = tty_upgrader({ home, agents, tty, operator, log });
-    const sockets = attach_events_socket(server, bus, log, ttys.handle);
+    const sockets = attach_events_socket(server, bus, desktop, log, ttys.handle);
     poller = start_github_poller(options, poll_options, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
     for (const resumed of await agents.adopt_all()) {
@@ -1065,6 +1083,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         tty,
         operator,
         watcher,
+        notify,
         close: async () => {
             unwatch_stack_jobs();
             swarm.close();
@@ -1096,7 +1115,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
 
 /**
  * The GitHub poller as a daemon loop. A transition writes `session.yaml`, which the watcher
- * turns into `session.updated`; the notifier shows the macOS banner. `poll_seconds: 0` is
+ * turns into `session.updated`; the notifier publishes `notify`. `poll_seconds: 0` is
  * off, for tests and for a machine without `gh`.
  */
 function start_github_poller(
@@ -1125,13 +1144,13 @@ function start_github_poller(
 
 /** What one poll round needs: the read-only `gh`, the notifier and the Slack client. */
 function poll_options_for(
-    options: DaemonOptions,
     ctx: ActionContext,
+    notify: Notifier,
     log: (line: string) => void,
 ): PollOptions {
     return {
         gh: ctx.gh,
-        notify: options.notify ?? macos_notifier,
+        notify,
         cwd: ctx.cwd,
         log,
         slack: (summary) => actions.slack_of(ctx, summary),
@@ -1149,15 +1168,22 @@ function listen(app: Hono, hostname: string, port: number): Promise<Server> {
 /** The daemon's second WebSocket path: a tty agent's pty. True when `other` took the upgrade. */
 type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => boolean;
 
+/** The count of open `/events` sockets that the desktop app's main process holds. */
+interface DesktopClients {
+    count: number;
+}
+
 /**
  * Upgrades requests for `EVENTS_PATH` to WebSockets and forwards bus events to each client.
  * Any `Origin` is accepted: the UI dev server and the built UI run on different origins and
- * the daemon only listens on loopback. Every other path is offered to `other` (the tty route)
- * and is a 404 when it declines.
+ * the daemon only listens on loopback. A socket opened with `?client=desktop` counts in
+ * `desktop` until it closes, so a notification skips the `osascript` banner meanwhile. Every
+ * other path is offered to `other` (the tty route) and is a 404 when it declines.
  */
 function attach_events_socket(
     server: Server,
     bus: EventBus,
+    desktop: DesktopClients,
     log: (line: string) => void,
     other: UpgradeHandler,
 ): WebSocketServer {
@@ -1175,13 +1201,24 @@ function attach_events_socket(
             sockets.emit("connection", client, request);
         });
     });
-    sockets.on("connection", (client: WebSocket) => {
+    sockets.on("connection", (client: WebSocket, request: IncomingMessage) => {
         const unsubscribe = bus.subscribe((event) => {
             if (client.readyState === client.OPEN) {
                 client.send(JSON.stringify(event));
             }
         });
-        client.on("close", unsubscribe);
+        const query = new URL(request.url ?? "/", "http://localhost").searchParams;
+        const is_desktop = query.get(EVENTS_CLIENT_PARAM) === EVENTS_CLIENT_DESKTOP;
+        if (is_desktop) {
+            desktop.count += 1;
+        }
+        client.on("close", () => {
+            unsubscribe();
+            if (is_desktop) {
+                desktop.count -= 1;
+                assert.ok(desktop.count >= 0, "desktop client count went negative");
+            }
+        });
         client.on("error", (error) => log(`ws client error: ${error.message}`));
     });
     return sockets;
