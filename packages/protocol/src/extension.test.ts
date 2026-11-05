@@ -42,6 +42,16 @@ describe("extension manifest", () => {
         }
     });
 
+    it("takes `entry` on mission_plan and answers the approve route with the seed", () => {
+        const plan = EXTENSION_MANIFEST.tools.find((tool) => tool.name === "mission_plan");
+        expect(plan).toBeDefined();
+        expect(Object.keys(plan?.parameters ?? {})).toContain("entry");
+        expect(plan?.required).not.toContain("entry");
+        const args: ExtensionToolArgs["mission_plan"] = { command: "add", text: "x", entry: "2.3" };
+        expect(args.entry).toBe("2.3");
+        expect(ROUTES["POST /sessions/:dir/design/approve"]).toBe("DesignApproveResponse");
+    });
+
     it("types the fixer tools' arguments", () => {
         const args: ExtensionToolArgs["thread_resolve"] = { thread: "T1", pr: "backend" };
         expect(args.thread).toBe("T1");
