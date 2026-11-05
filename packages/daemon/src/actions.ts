@@ -22,6 +22,7 @@ import type {
     PrRequest,
     SessionAdoptRequest,
     SessionSummary,
+    SessionTitleRequest,
     StackSpec,
     ThreadResponse,
     ThreadsView,
@@ -210,6 +211,53 @@ export async function adopt_refs(
     const names = Object.fromEntries(repos.map((repo) => [repo.key, repo.name]));
     await adopt_into_session(ctx.home, summary, { urls, loaded, names, gh: ctx.gh, log });
     return urls;
+}
+
+/** The author of an operator's own write, as the routes default it. */
+export const OPERATOR_AUTHOR = "operator";
+
+/** An agent's title write while the operator's title is pinned: the route answers 409. */
+export class TitlePinned extends Error {}
+
+/**
+ * `PUT /sessions/:dir/title` (dogfood #27). The operator's title renames and pins it
+ * (`pinned` defaults to true); `pinned` alone pins or unpins. An agent may only send a
+ * title, refused with `TitlePinned` while the title is pinned. Answers the session and the
+ * old title when the title changed, else null, for the route's Log line.
+ */
+export function retitle(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    request: SessionTitleRequest,
+    author: string,
+): { summary: SessionSummary; was: string | null } {
+    assert.ok(request.title !== undefined || request.pinned !== undefined, "an empty request");
+    const operator = author === OPERATOR_AUTHOR;
+    const fresh = read_session(ctx.home, summary.dir);
+    assert.ok(fresh.ok, `${summary.dir} must exist to set its title`);
+    const old = fresh.summary.session.title;
+    if (!operator && request.pinned !== undefined) {
+        throw new Error("only the operator pins or unpins a title");
+    }
+    if (!operator && fresh.summary.session.title_pinned === true) {
+        throw new TitlePinned(
+            `the operator pinned the title "${old}"; keep it, or ask the operator to unpin it`,
+        );
+    }
+    let current = fresh.summary;
+    if (request.title !== undefined && request.title !== old) {
+        current = set_title(ctx, summary, request.title);
+    }
+    const pin = request.pinned ?? (operator && request.title !== undefined ? true : undefined);
+    if (pin !== undefined) {
+        if (pin) {
+            current.session.title_pinned = true;
+        } else {
+            delete current.session.title_pinned;
+        }
+        write_session(current);
+    }
+    return { summary: current, was: current.session.title === old ? null : old };
 }
 
 /**

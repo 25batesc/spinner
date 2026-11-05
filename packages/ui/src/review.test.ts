@@ -1,7 +1,9 @@
 // The Reviews panel's rules: a review session never shows among the ordinary sessions and
 // the reverse; the cards order by last activity; the CI pill names the failing checks; the
 // swarm line counts; the lead's fields and chip (s016) read from the view. Checked through
-// the functions the components call.
+// the functions the components call; the approve and cancel buttons (#22) through markup.
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 
 import type { PrFacts, ReviewFields, SessionView } from "@spinner/protocol";
@@ -13,12 +15,14 @@ import {
     leadChip,
     leadDot,
     ordinarySessions,
+    prRef,
     reviewFacts,
     reviewStatePill,
     reviewsByActivity,
     swarmDot,
     swarmLine,
 } from "./review.ts";
+import { ReviewActions } from "./ReviewPane.tsx";
 
 function pr(partial: Partial<PrFacts> = {}): PrFacts {
     return {
@@ -120,8 +124,25 @@ it("reads the review fields over the PR facts, and falls back to the PR facts", 
     expect(posted).toMatchObject({ state: "posted", comment_count: 0, event: null });
 });
 
+it("names the PR as owner/repo#n for the approve question and reads `cancelled` (#22)", () => {
+    const facts = reviewFacts(view("r1", "review", [pr()], fields));
+    expect(facts).toMatchObject({ pr_ref: "example/peanut#51", cancelled: false });
+    const stopped = reviewFacts(view("r2", "review", [pr()], {
+        ...fields, swarm: [], draft: null, state: "idle", cancelled: true,
+    }));
+    expect(stopped).toMatchObject({ state: "idle", cancelled: true });
+    expect(prRef("https://github.com/acme/peanut/pull/9#pullrequestreview-1")).toBe(
+        "acme/peanut#9",
+    );
+    expect(prRef("https://gitlab.com/acme/peanut/-/merge_requests/9")).toBeNull();
+    expect(prRef(null)).toBeNull();
+});
+
 it("pills the review state and the draft: a count, or approve with no comment", () => {
     expect(reviewStatePill("idle")).toBeNull();
+    expect(reviewStatePill("idle", true)).toMatchObject({ text: "cancelled", tone: "" });
+    // A later run, draft or post is the next action: the word goes with it.
+    expect(reviewStatePill("reviewing", true)?.text).toBe("reviewing");
     expect(reviewStatePill("reviewing")?.tone).toBe("pill-accent");
     expect(reviewStatePill("drafted")?.tone).toBe("pill-warn");
     expect(reviewStatePill("posted")).toMatchObject({ text: "posted", tone: "pill-ok" });
@@ -176,4 +197,20 @@ it("gives each swarm state its dot and counts the swarm in one line", () => {
     expect(swarmDot("failed")).toBe("dot-failed");
     expect(swarmLine(fields.swarm)).toBe("1 of 3 done, 1 failed");
     expect(swarmLine([])).toBe("no reviewers yet");
+});
+
+it("offers approve on a PR and cancel review only while reviewing (#22)", () => {
+    const actions = (overrides: Partial<ReviewFields>) => {
+        const facts = reviewFacts(view("r1", "review", [pr()], { ...fields, ...overrides }));
+        if (facts === null) {
+            throw new Error("a review session has facts");
+        }
+        return renderToStaticMarkup(createElement(ReviewActions, { facts }));
+    };
+    const running = actions({ draft: null, state: "reviewing" });
+    expect(running).toContain("Post APPROVE &quot;LGTM&quot; on example/peanut#51 as you");
+    expect(running).toContain(">cancel review</button>");
+    const drafted = actions({ state: "drafted" });
+    expect(drafted).toContain(">approve</button>");
+    expect(drafted).not.toContain("cancel review");
 });

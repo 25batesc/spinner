@@ -52,7 +52,11 @@ export const ROUTES = {
     "POST /sessions/extract": "ExtractResponse",
     /** Adopt PR references into an existing session. Body: SessionAdoptRequest. */
     "POST /sessions/:dir/adopt": "JobResponse",
-    /** Set the title in `session.yaml` and the mission heading. Body: SessionTitleRequest. */
+    /**
+     * Set the title in `session.yaml` and the mission heading, or pin and unpin it. Body:
+     * SessionTitleRequest; `?author=<agent>` for an agent's write, the operator otherwise.
+     * 409 for an agent's write while the title is pinned (dogfood #27).
+     */
     "PUT /sessions/:dir/title": "SessionResponse",
     /** The structured mission (s014): the sections of MISSION.md parsed, derived on each read. */
     "GET /sessions/:dir/mission/view": "MissionViewResponse",
@@ -108,6 +112,20 @@ export const ROUTES = {
      * a draft; 502 when GitHub refuses. The URL lands in `session.yaml` and the Log.
      */
     "POST /sessions/:dir/review/post": "ReviewPostResponse",
+    /**
+     * The operator's one-click approve (dogfood #22): one APPROVE review with the body "LGTM"
+     * on the session's PR at its head, through the operator's `gh`, no swarm and no draft.
+     * GitHub's refusal of APPROVE on the author's own PR reposts it as COMMENT, as `post`
+     * does. 409 without a PR; 502 when GitHub refuses. One Log line names the URL.
+     */
+    "POST /sessions/:dir/review/approve": "ReviewPostResponse",
+    /**
+     * The operator's `cancel review` (dogfood #22): drops the queued reviewers, stops the
+     * running ones, stops the lead of a review session (an ordinary session's lead stays),
+     * moves the verdict files under `artifacts/reviews-cancelled/<stamp>/`, and sets
+     * `review.cancelled`. 409 when the session has no review. One Log line.
+     */
+    "POST /sessions/:dir/review/cancel": "ReviewCancelResponse",
     /** The review threads of every PR, from the last render. 404 without a session. */
     "GET /sessions/:dir/threads": "ThreadsResponse",
     /** Re-render `threads/` from GitHub now and return it. */
@@ -154,6 +172,13 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/abort": "AgentCommandResponse",
     /** Stop the agent's process. Its transcript stays and `resume` picks it up. */
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
+    /**
+     * Compact the agent's context (dogfood #45): pi's `/compact`, typed into a tty agent
+     * through its extension, or the rpc `compact` command. Writes the `spinner` Log line
+     * `compacted <agent> at NN %` (`at ? %` while the window is unknown). 409 with an
+     * AgentNotRunningResponse when the daemon does not host the agent.
+     */
+    "POST /sessions/:dir/agents/:name/compact": "AgentCommandResponse",
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
     /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
@@ -599,6 +624,20 @@ export interface ReviewFields {
     comment_count?: number;
     /** The draft's event (`APPROVE` when the lead found nothing); null without a draft. */
     event?: ReviewEvent | null;
+    /**
+     * True after the operator cancelled the review (dogfood #22) and `state` is `idle`; the
+     * card says `cancelled` until the next action. Optional, as `state`.
+     */
+    cancelled?: boolean;
+}
+
+/** `POST /sessions/:dir/review/cancel`. */
+export interface ReviewCancelResponse {
+    ok: true;
+    /** The reviewers and the lead that were stopped or taken off the queue. */
+    stopped: string[];
+    /** The verdict files moved, relative to the session directory. */
+    archived: string[];
 }
 
 /** The review events of a PR review, as GitHub names them (s016). */
@@ -797,9 +836,14 @@ export interface SessionAdoptRequest {
     refs: string[];
 }
 
-/** `PUT /sessions/:dir/title`. */
+/**
+ * `PUT /sessions/:dir/title` (dogfood #27). At least one field. The operator's `title` renames
+ * and pins (`pinned` defaults to true); `{ pinned: false }` alone unpins and keeps the title.
+ * An agent sends `title` only; a changed title writes the Log line `title: <new> (was <old>)`.
+ */
 export interface SessionTitleRequest {
-    title: string;
+    title?: string;
+    pinned?: boolean;
 }
 
 /** Upper bound on a session title; the provisional one from a paste is cut to this. */
@@ -1145,7 +1189,8 @@ export interface PiCommandInfo {
  */
 export interface AgentExtensionCommand {
     id: string;
-    type: "prompt" | "steer" | "abort" | "notify";
+    /** `compact` (dogfood #45) runs pi's compaction; like `abort`, it carries no text. */
+    type: "prompt" | "steer" | "abort" | "notify" | "compact";
     text?: string;
 }
 

@@ -25,7 +25,7 @@ WebSockets below.
 | `POST /sessions/adopt` | `AdoptRequest` | `JobResponse` | PRs opened outside Spinner. |
 | `POST /reviews` | `ReviewsRequest` | `JobResponse` | One session of `kind: review` per PR reference in `text`, with its `lead` and its swarm started; below. 409 without a reference. |
 | `POST /sessions/:dir/adopt` | `SessionAdoptRequest` | `JobResponse` | PR references into an existing session; the lead's `adopt` tool. 409 without a project. |
-| `PUT /sessions/:dir/title` | `SessionTitleRequest` | `SessionResponse` | `session.yaml` and the mission heading. Query `author`, default `operator`. |
+| `PUT /sessions/:dir/title` | `SessionTitleRequest` | `SessionResponse` | `session.yaml` and the mission heading. Query `author`, default `operator`. The operator's `title` pins it (`title_pinned`), `{ pinned: false }` unpins; an agent's write is a 409 while pinned and a 400 with `pinned`. A changed title writes the Log line `title: <new> (was <old>)` by its author. |
 | `GET /sessions/:dir/mission/view` | | `MissionViewResponse` | The structured mission; below. |
 | `POST /sessions/:dir/attach` | `AttachRequest` | `JobResponse` | Worktrees on the PR branches. |
 | `POST /sessions/:dir/up` | `UpRequest`, optional | `JobResponse` | `build: true` rebuilds the dev images. |
@@ -41,6 +41,8 @@ WebSockets below.
 | `PUT /sessions/:dir/review/draft` | `ReviewDraft` | `ReviewDraftResponse` | The lead's `review_draft` tool and the operator's edits; validated against the PR diff, below. 400 with every fault; 409 without a PR. |
 | `DELETE /sessions/:dir/review/draft` | | `OkResponse` | Drops the draft. 404 without one. |
 | `POST /sessions/:dir/review/post` | | `ReviewPostResponse` | Posts the draft as one PR review through the operator's `gh`; below. 409 without a draft; 502 when GitHub refuses. |
+| `POST /sessions/:dir/review/approve` | | `ReviewPostResponse` | Posts one APPROVE review with the body "LGTM", no swarm and no draft; below. 409 without a PR; 502 when GitHub refuses. |
+| `POST /sessions/:dir/review/cancel` | | `ReviewCancelResponse` | Stops a running review: the swarm, a review session's lead, the verdict files; below. 409 without a review. |
 | `GET /sessions/:dir/threads` | | `ThreadsResponse` | From the last render. |
 | `POST /sessions/:dir/threads/refresh` | | `ThreadsResponse` | Re-renders from GitHub now. |
 | `POST /sessions/:dir/threads/:id/reply` | `ThreadReplyRequest` | `ThreadResponse` | As the operator. |
@@ -60,6 +62,7 @@ WebSockets below.
 | `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. A steer to `lead` with `source: "operator"` adds 1 to `outcomes.operator_steers`; below. |
 | `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |
 | `POST /sessions/:dir/agents/:name/stop` | | `AgentCommandResponse` | The transcript stays. |
+| `POST /sessions/:dir/agents/:name/compact` | | `AgentCommandResponse` | Starts pi's compaction and answers `started` at once; writes the `spinner` Log line `compacted <agent> at NN %`. 409 with the process state for a listed agent that is not running. |
 | `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
 | `GET /sessions/:dir/agents/:name/context` | | `ContextResponse` | The context chain and the loaded commands. |
 | `PUT /sessions/:dir/agents/:name/context` | `ContextFileRequest` | `ContextFileResponse` | Writes one file of the chain. |
@@ -228,6 +231,14 @@ A viewer runs in the repo's worktree as a Spinner-managed host process: `session
 records it under `diff.repos.<repo>` with `pid`, `started`, `port` and `log`
 (`diff/<repo>.log`). A port comes from the top of the session's host half, `base + 49`
 downward. `down` and `close` stop the viewers; a daemon restart reattaches them by pid identity.
+
+A viewer stops on its own in three cases (dogfood #15); the next `diff/start` starts it again.
+The daemon stops every live viewer when it stops, so no viewer outlives it.
+It stops a viewer that had no activity for 30 minutes (`DIFF_IDLE_MS`); a sweep checks each minute.
+Activity is what the daemon sees: a `diff/start`, an agent's `diff_comments` or `diff_reply`, and a change in the recorded threads.
+The viewer serves the browser directly, so reading the diff without a comment is not activity.
+At most 6 viewers run across sessions (`DIFF_VIEWERS_MAX`); a start past that stops the least recently active one first.
+Each stop is a line in the job log or the daemon log that names the reason.
 
 The daemon watches each viewer with `diffview comments wait` in 30 s rounds. A new thread
 waiting on the agent is one `notify` to every running tty agent of the session, at most 2
@@ -502,9 +513,15 @@ every `agent.settled`, and every 60 s. The daemon writes no cost file; a closed 
 transcripts in the archive stay the record.
 
 `SessionView.cost` is `SessionCost { usd, tokens_in, tokens_out, agents }`, where `agents`
-maps each agent to `{ usd, tokens_in, tokens_out, model }` and `model` is that of its latest
+maps each agent to `{ usd, tokens_in, tokens_out, model, context }` and `model` is that of its latest
 message. `OperatorView.cost` is the same without `agents`. Token counts leave the cache
 counts out.
+
+`context` (dogfood #45) is `{ tokens, window, pct }` or null. `tokens` is `input + cacheRead + cacheWrite` of the agent's latest assistant message: the size of the prompt that message answered.
+`window` is that model's `contextWindow` from the daemon's model list, and `pct` is the whole percent, rounded down.
+`context` is null before the agent's first message and while the window is unknown.
+The model list loads in the background the first time a view asks for a window; the sessions then republish.
+After a failed load the daemon asks pi again after 5 minutes, not on every view.
 
 The ledger also folds the transcripts of the lead's Goldfish. Each run's `status.json`
 under `<session>/egm-runs/` names a transcript per step (`steps[].sessionFile`). A
@@ -734,6 +751,19 @@ review session's PR repo is allowed; an ordinary session's PR must be on its pro
 `pipeline.github.write_repos`. 409 without a draft; 502 with GitHub's reason when it
 refuses. The lead role's bash guard refuses `gh pr review`, `gh pr comment` and `gh api`
 writes, so the lead cannot post by hand.
+
+`POST /sessions/:dir/review/approve` (dogfood #22) is the operator's one-click approve.
+It posts one review with `event: APPROVE`, the body "LGTM" and no comments, at the PR head, through the same writer and the same allow-list as `post`.
+It needs no swarm and no draft; a draft that exists stays.
+GitHub's refusal of APPROVE on the author's own PR reposts it as `COMMENT`, as `post` does.
+The URL lands in `review.posted_url` and `artifacts/review-posted.json`, and one Log line by `operator` reads `approved <owner/repo>#<n> as <event>: <url>`.
+
+`POST /sessions/:dir/review/cancel` (dogfood #22) stops a running review as one.
+The swarm drops its queued reviewers, clears `review.swarm` and sets `review.cancelled`, then stops the running reviewers; a stopped reviewer is therefore not recorded as failed.
+In a review session the lead stops too; in an ordinary session the lead is the session's own and stays.
+The verdict files under `artifacts/reviews/` move to `artifacts/reviews-cancelled/<stamp>/`.
+The answer is `ReviewCancelResponse { ok, stopped, archived }`, and one Log line by `operator` names what stopped.
+`ReviewFields.cancelled` is true while the review is `idle` after a cancel; the next start, draft, drop, approve or post clears it.
 
 ## The operator agent
 

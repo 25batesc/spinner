@@ -37,7 +37,11 @@
 // `archive` archives from a card, from the context bar's menu and from a review card, and
 // reads the empty state (s038). Both run against the fixture only. The flow `questions` reads
 // the Open questions of the Implement rail, answers one under it and resolves one through the
-// route (#43); it runs against the fixture only.
+// route (#43); it runs against the fixture only. The flow `menus` opens the EGM ▾, ⋯ and
+// Track menus and closes each with an outside press and with Escape (r4.3); `context` reads
+// the agents' context figures on the chips, the card and the context bar, and compacts two
+// agents (r4.2); `review-actions` cancels a running review and approves it from the PR
+// header (r4.10); all fixture only.
 // The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
@@ -146,6 +150,15 @@ const fill = (selector: string, value: string) =>
 
 const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
+
+// The Activity drawer starts collapsed and opens itself only for a failure or a new needs-you
+// (r4.4); a routine job's line shows on the bar. `drawerText` reads the drawer or its bar;
+// `openDrawer` clicks the bar where a flow needs the job log or the events.
+const drawerText = `(${text(".drawer")} + ${text(".drawer-bar")})`;
+async function openDrawer(): Promise<void> {
+    await click(".drawer-bar");
+    await until("drawer open", `document.querySelector(".drawer") !== null`);
+}
 
 // `reset` and `archive` sit behind the toolbar's `⋯` menu in the context bar; `archive` asks
 // once inside the menu before it runs the `close` job (s038).
@@ -403,6 +416,7 @@ if (flow === "workspace") {
     await click(".mw-item[data-id='plan:3'] .mw-item-actions button", "note");
     await fill(".mw-item[data-id='plan:3'] textarea", "Use the idempotency key.");
     await click(".mw-item[data-id='plan:3'] .mw-inline .primary", "send");
+    await openDrawer();
     await until("note reached backend", `${text(".drawer")}.includes("operator → backend")`);
     // The filter narrows the feed to one agent.
     await click(".mw-filter-chip", "frontend");
@@ -486,6 +500,184 @@ if (flow === "questions") {
     await finish();
 }
 
+if (flow === "menus") {
+    // The toolbar menus close on an outside press and on Escape (dogfood row 8, r4.3): the
+    // EGM ▾ menu of the design group, the ⋯ menu and the Track menu of a design-track session.
+    // Each opens on its button, stays open on a pointerdown inside, closes on a real press on
+    // the sessions list (CDP Input events, so the browser fires pointerdown), opens again and
+    // closes on Escape. Fixture only.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".session", "CSV export \u00b7 design-review");
+    await until("design-review selected",
+        `${text(".context-title")} === "CSV export \u00b7 design-review"`);
+    const pressAt = async (selector: string) => {
+        const at = (await evaluate(`(() => {
+            const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        })()`)) as { x: number; y: number };
+        for (const type of ["mousePressed", "mouseReleased"]) {
+            await send("Input.dispatchMouseEvent", {
+                type, x: at.x, y: at.y, button: "left", buttons: 1, clickCount: 1,
+            });
+        }
+    };
+    const escape = async () => {
+        await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+        await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+    };
+    const menus: { name: string; button: string; menu: string; inside: string }[] = [
+        {
+            name: "EGM", button: ".context-bar .design-menu > button",
+            menu: ".context-bar .design-menu .menu", inside: ".context-bar .design-menu .menu",
+        },
+        {
+            name: "more", button: ".context-bar .toolbar-menu .icon-button",
+            menu: ".context-bar .toolbar-menu .menu", inside: ".context-bar .toolbar-menu .menu",
+        },
+        {
+            name: "track", button: ".context-bar .track-menu > button",
+            menu: ".context-bar .track-menu .menu", inside: ".context-bar .track-menu .menu",
+        },
+    ];
+    const shown = (selector: string) => `document.querySelector(${JSON.stringify(selector)})`;
+    for (const entry of menus) {
+        await pressAt(entry.button);
+        await until(`${entry.name} menu open`, `${shown(entry.menu)} !== null`);
+        // A pointerdown on the menu itself, without the click that would run an item.
+        await evaluate(`${shown(entry.inside)}.dispatchEvent(
+            new PointerEvent("pointerdown", { bubbles: true }))`);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await expectSame(`${entry.name} open after a press inside`,
+            await evaluate(`${shown(entry.menu)} !== null`), true);
+        await shot(`menus-${entry.name}-open`);
+        await pressAt(".side-title");
+        await until(`${entry.name} menu closed by an outside press`,
+            `${shown(entry.menu)} === null`);
+        await pressAt(entry.button);
+        await until(`${entry.name} menu open again`, `${shown(entry.menu)} !== null`);
+        await escape();
+        await until(`${entry.name} menu closed by Escape`, `${shown(entry.menu)} === null`);
+    }
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("menus ok");
+    await finish();
+}
+
+if (flow === "context") {
+    // Each agent's context use (dogfood row 45, r4.2) against the fixture's seeded session
+    // (lead 30 %, engine 52 %, ui 81 % of a 1M window) and the Refund flow (backend 45 %,
+    // frontend unknown). The chip shows the figure from 40 %: plain, amber from 50 %, red from
+    // 75 %, with the tooltip; under 40 % or unknown it shows none. The session card and the
+    // context bar carry the fullest agent's figure. `compact` on a chip posts the route; the
+    // fixture drops that agent to 6 %, so its chip figure goes and the card follows the next
+    // fullest agent, and none once every agent is under 40 %. Fixture only.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    const chips = `Object.fromEntries([...document.querySelectorAll(".agents-pane .chip")].map(
+        (c) => [c.querySelector(".chip-name").dataset.name, (() => {
+            const f = c.querySelector(".chip-context");
+            return f === null ? null : [f.textContent, f.dataset.tone, f.title,
+                c.querySelector(".chip-compact") !== null];
+        })()]))`;
+    const figure = (where: string) => `(() => {
+        const f = document.querySelector(${JSON.stringify(where)} + " .context-figure");
+        return f === null ? null : [f.textContent, f.dataset.tone, f.title];
+    })()`;
+    const card = ".session-selected";
+    await click(".session", "CSV export \u00b7 seeded");
+    await until("seeded selected", `${text(".context-title")} === "CSV export \u00b7 seeded"`);
+    await click(".agents-pane .view-tab", "Agents");
+    await until("chips", `document.querySelectorAll(".agents-pane .chip-context").length === 2`);
+    await expectSame("seeded chips", await evaluate(chips), {
+        lead: null,
+        engine: ["52 %", "warn", "52 % of 1M context (520k tokens)", true],
+        ui: ["81 %", "fail", "81 % of 1M context (810k tokens)", true],
+    });
+    await expectSame("seeded card and bar", await evaluate(`[${figure(card)}, ${figure(
+        ".context-bar")}]`), [
+        ["ui 81 %", "fail", "ui: 81 % of 1M context (810k tokens)"],
+        ["ui 81 %", "fail", "ui: 81 % of 1M context (810k tokens)"],
+    ]);
+    await shot("context-seeded");
+    await click(".chip-compact[aria-label='Compact engine']");
+    await until("engine compacted", `${chips}.engine === null`);
+    await click(".chip-compact[aria-label='Compact ui']");
+    await until("ui compacted", `${chips}.ui === null`);
+    await until("card and bar empty", `${figure(card)} === null && ${figure(".context-bar")}
+        === null`);
+    await shot("context-compacted");
+
+    await click(".session", "Refund flow");
+    await until("refund selected", `${text(".context-title")} === "Refund flow"`);
+    await click(".agents-pane .view-tab", "Agents");
+    await until("refund chips", `document.querySelectorAll(".agents-pane .chip-context").length
+        === 1`);
+    await expectSame("refund chips", await evaluate(chips), {
+        backend: ["45 %", "plain", "45 % of 1M context (450k tokens)", true],
+        frontend: null,
+    });
+    await expectSame("refund card and bar", await evaluate(`[${figure(card)}, ${figure(
+        ".context-bar")}]`), [
+        ["backend 45 %", "plain", "backend: 45 % of 1M context (450k tokens)"],
+        ["backend 45 %", "plain", "backend: 45 % of 1M context (450k tokens)"],
+    ]);
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("context ok");
+    await finish();
+}
+
+if (flow === "review-actions") {
+    // Approve and cancel review (dogfood row 22, r4.10) against the fixture's review r77 (Dark
+    // mode for the settings page): once its swarm runs, the card and the PR header show
+    // `approve` and `cancel review`; cancel review in the header stops it: the state goes idle,
+    // the pill reads cancelled and cancel review goes; approve asks once with the PR's name
+    // and posts, after which the header reads posted. Fixture only.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".activity-bar button[aria-label='Show reviews']");
+    await until("reviews pane", `document.querySelector(".reviews-pane") !== null`);
+    await click(".rv-card-body", "Dark mode for the settings page");
+    await until("review pane", `${text(".rv-pane .rv-head")}.includes("Dark mode")`);
+    const started = await fetch(new URL("/sessions/r77-web-77/review", uiUrl), {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    await expectSame("swarm started", started.status < 300, true);
+    const buttons = (where: string) => `[...document.querySelectorAll(
+        ${JSON.stringify(where + " .rv-actions button")})].map((b) => b.textContent)`;
+    await until("header actions while reviewing",
+        `JSON.stringify(${buttons(".rv-head")}) === '["approve","cancel review"]'`);
+    await until("card actions while reviewing",
+        `JSON.stringify(${buttons(".rv-card-selected")}) === '["approve","cancel review"]'`);
+    await shot("review-actions-reviewing");
+    await click(".rv-head .rv-actions button", "cancel review");
+    const pill = `document.querySelector(".rv-head .rv-state")`;
+    await until("cancelled", `${pill}?.dataset.state === "idle"
+        && ${pill}.textContent === "cancelled"
+        && JSON.stringify(${buttons(".rv-head")}) === '["approve"]'`);
+    await shot("review-actions-cancelled");
+    await click(".rv-head .rv-actions button", "approve");
+    await until("approve confirm", `${text(".rv-head .rv-confirm")}.startsWith(
+        "Approve example/web#77 as you?")`);
+    await shot("review-actions-confirm");
+    await click(".rv-head .rv-confirm button", "approve");
+    await until("posted", `document.querySelector(".rv-head .rv-confirm") === null
+        && ${pill}?.textContent === "posted"`);
+    await shot("review-actions-posted");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("review-actions ok");
+    await finish();
+}
+
 if (flow === "expanded") {
     // Expanded is one state with one exit. Expand: the previews are the only pane and fill
     // the window, no drawer, no strips, no handles. The activity bar's sessions icon does
@@ -506,6 +698,7 @@ if (flow === "expanded") {
         })`)) as Record<string, number>;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     await until("three panes", `document.querySelectorAll(".pane").length === 3`);
+    await openDrawer();
     await until("drawer shown", `document.querySelectorAll(".drawer").length === 1`);
     const before = await widths();
     console.log("before:", JSON.stringify(before));
@@ -632,8 +825,9 @@ if (flow === "panes") {
     const wanted = {
         // The rail: sessions (lit), reviews, the operator, the gear; the panel titled.
         bar: 4, barOn: "true", title: "Sessions", popOuts: 1, top: 0, inSessions: 0,
-        // `$3.27` is the fixture session's cost (s013), between the stack and the PR badge.
-        context: ["Refund flow", "peer-review", "stack up", "$3.27", "⑂ 2",
+        // `$3.27` is the fixture session's cost (s013), between the stack and the PR badge;
+        // `backend 45 %` its fullest agent's context use (r4.2).
+        context: ["Refund flow", "peer-review", "stack up", "$3.27", "backend 45 %", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
         links: 0, icons: 7,
     };
@@ -1406,13 +1600,15 @@ if (flow === "pipeline") {
     await shot("15-thread-replied-flagged");
     for (const action of ["create PR", "review", "fix"]) {
         await click(".actions button", action);
-        await until(`${action} finished`, `${text(".drawer")}.includes("ok")`);
+        await until(`${action} finished`, `${drawerText}.includes("ok")`);
         if (action === "review") {
             // The swarm (s015): the reviewers are agents of the session, so their chips show.
+            await openDrawer();
             await until("review log", `${text(".drawer")}.includes("POSTED")`);
             await until("reviewer chips",
                 `${text(".agents-pane .chips")}.includes("review-anthropic-claude-opus-5-5")`);
         }
+        await openDrawer();
         await click(".drawer button", "close");
     }
     await shot("16-pr-and-fix");
@@ -1420,13 +1616,15 @@ if (flow === "pipeline") {
     await until("post preview", `document.querySelector("[aria-label=Message]") !== null`);
     await shot("17-post-confirm");
     await click(".confirm button", "post this message");
-    await until("post finished", `${text(".drawer")}.includes("post · ok")`);
+    await until("post finished", `${drawerText}.includes("post · ok")`);
+    await openDrawer();
     await click(".drawer button", "close");
     await click(".actions button", "approve");
     await until("approve preview", `${text(".confirm")}.includes("open threads")`);
     await shot("18-approve-confirm");
     await click(".confirm button", "approve");
-    await until("approve finished", `${text(".drawer")}.includes("approve · ok")`);
+    await until("approve finished", `${drawerText}.includes("approve · ok")`);
+    await openDrawer();
     await click(".drawer button", "close");
     for (const action of ["land", "reset"] as const) {
         if (action === "reset") {
@@ -1434,7 +1632,8 @@ if (flow === "pipeline") {
         } else {
             await click(".actions button", action);
         }
-        await until(`${action} finished`, `${text(".drawer")}.includes("${action} · ok")`);
+        await until(`${action} finished`, `${drawerText}.includes("${action} · ok")`);
+        await openDrawer();
         await click(".drawer button", "close");
     }
     await shot("19-landed-reset");
@@ -1509,7 +1708,8 @@ if (flow === "m2-real") {
     const session = process.env["E2E_SESSION"] ?? "";
     const { readFileSync } = await import("node:fs");
     const finished = async (action: string) => {
-        await until(`${action} finished`, `${text(".drawer")}.includes("${action} · ok")`);
+        await until(`${action} finished`, `${drawerText}.includes("${action} · ok")`);
+        await openDrawer();
         await click(".drawer button", "close");
     };
     await click(".session", session);
@@ -1816,11 +2016,14 @@ if (flow === "usage") {
 }
 
 if (flow === "drawer") {
-    // The job drawer under the terminal: `run local` opens it at its remembered height; its
-    // divider drags the height (floor 48 px, ceiling the pane minus 200 px) and the terminal
-    // refits; the minimize icon collapses it to a one-line bar with the job's name and state;
-    // a click on the bar restores the height; a drag under the floor collapses too; the
-    // height and the flag survive a reload in the layout record.
+    // The job drawer under the terminal (dogfood row 4, r4.4): it starts collapsed, and a
+    // routine `run local` only moves the bar's line; a click on the bar opens it at its
+    // remembered height; its divider drags the height (floor 48 px, ceiling the pane minus
+    // 200 px) and the terminal refits; the minimize icon collapses it to a one-line bar with the
+    // job's name and state; a drag under the floor collapses too; the height survives a reload
+    // in the layout record and the page starts collapsed again. A new needs-you on the shown
+    // session opens it by itself; selecting a session that already needs the operator does not.
+    // (A failed action opens it too: the flow design-actions reads its refusal in the drawer.)
     const drawer = `document.querySelector(".drawer")`;
     const bar = `document.querySelector(".drawer-bar")`;
     const heightOf = `Math.round(${drawer}?.getBoundingClientRect().height ?? -1)`;
@@ -1849,7 +2052,12 @@ if (flow === "drawer") {
     await click(".agents-pane .view-tab", "Agents");
     await until("terminal attached", `${rows}.includes("[resize ")`);
     await until("run local enabled", runLocal);
+    await until("collapsed at load", `${bar} !== null && ${drawer} === null`);
     await click(".actions button", "run local");
+    await until("job finished on the bar", `${text(".drawer-bar")}.includes("up · ok")`);
+    await expectSame("a routine job leaves the drawer collapsed",
+        await evaluate(`${drawer} === null`), true);
+    await click(".drawer-bar");
     await until("drawer open", `${heightOf} === 200`);
     await until("job finished", `${text(".drawer")}.includes("up · ok")`);
     // One drawer: the Activity header with the job's line at the right, the job log as the
@@ -1914,6 +2122,29 @@ if (flow === "drawer") {
     await click(".drawer-bar");
     await until("height after the reload", `${heightOf} === 300`);
     await shot("70-drawer-after-reload");
+
+    // The auto-open on a new needs-you: the gate session already needs the operator, so
+    // selecting it leaves the bar; its answer clears the line, and a new gate opens the drawer.
+    await click("button[aria-label='Minimize activity']");
+    await until("collapsed again", `${bar} !== null && ${drawer} === null`);
+    await click(".session", "CSV export \u00b7 gate");
+    await until("gate selected", `${text(".context-title")} === "CSV export \u00b7 gate"`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await expectSame("selecting a session that needs you keeps it collapsed",
+        await evaluate(`${drawer} === null`), true);
+    const design = (verb: string, method: string, body: unknown) =>
+        fetch(new URL(`/sessions/s211-csv-gate/design/${verb}`, uiUrl), {
+            method, headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        });
+    await expectSame("gate answered",
+        (await design("answer", "POST", { text: "Streamed CSV from the list page" })).status, 200);
+    await until("needs cleared", `document.querySelector(".context-bar .context-needs") === null`);
+    await expectSame("still collapsed", await evaluate(`${drawer} === null`), true);
+    await expectSame("new gate",
+        (await design("gate", "PUT", { question: "Ship it?", options: ["Yes", "No"] })).status,
+        200);
+    await until("opened by the new needs-you", `${drawer} !== null && ${heightOf} === 300`);
+    await shot("71-drawer-needs-you");
     console.log("drawer ok");
     await finish();
 }
@@ -2635,7 +2866,7 @@ if (flow === "reviews") {
         `${text(".rv-card-selected")}.includes("PR 9 of peanut")`);
     await until("box folded",
         `document.querySelector("textarea[aria-label='Pull requests to review']") === null`);
-    await until("job finished", `${text(".drawer")}.includes("ok")`);
+    await until("job finished", `${drawerText}.includes("ok")`);
     // The job started the lead and the swarm: the chips move on their own.
     const reviewers = `${chips}.filter((c) => c.dataset.name !== "lead")`;
     await until("chips queued", `${reviewers}.some((c) => c.dataset.state === "queued")`);
@@ -3382,9 +3613,11 @@ if (flow === "design-actions") {
     // The toolbar's design group (docs/designs/egm-adoption.md, entries 3.18 to 3.20, 3.24)
     // against the fixture. One filled primary per stage, left of the stack group; brainstorm
     // asks an optional concept, review design a preset with `consolidated report` checked,
-    // draft runs at once; drafting has no primary. The `EGM ▾` menu lists 7 skills with
-    // bootstrap disabled before approval, 2 on the direct track; resolve prefills the doc's
-    // absolute path. A refused run lands in the drawer. At 1100 px the group opens the `⋯` menu.
+    // draft runs at once; drafting has no primary. The design group is one split button (row
+    // 25, r4.6): the ▾ half lists the skills other than the primary's, with the current step's
+    // marked and bootstrap disabled before approval; 2 on the direct track, where it reads
+    // `EGM ▾`; resolve prefills the doc's absolute path. A refused run lands in the drawer. At
+    // 1100 px the group opens the `⋯` menu with the primary first and nothing twice.
     const primary = `document.querySelector(".context-bar .design-group > .primary")`;
     const dialog = `document.querySelector(".design-dialog")`;
     const pick = async (title: string) => {
@@ -3411,6 +3644,13 @@ if (flow === "design-actions") {
 
     await pick("CSV export \u00b7 brainstorm");
     await until("draft primary", `${primary}?.textContent === "draft"`);
+    // While brainstorming the primary is the next step, draft; the ▾ half marks brainstorm.
+    await click(".context-bar .design-menu > button");
+    await until("menu on brainstorm", `document.querySelector(".design-menu .menu") !== null`);
+    await expectSame("brainstorm menu", await evaluate(`[...document.querySelectorAll(
+        ".design-menu .menu button")].map((b) => [b.textContent, b.dataset.current === "true"])
+        .slice(0, 2)`), [["brainstorm", true], ["review design", false]]);
+    await click(".context-bar .design-menu > button");
     await click(".context-bar .design-group > .primary", "draft");
     await until("draft posted", `${dialog} === null`);
     await expectSame("draft run", await received("s202-csv-brainstorm"), {
@@ -3436,14 +3676,20 @@ if (flow === "design-actions") {
     await click(".design-dialog button", "run");
     await until("preset dialog closed", `${dialog} === null`);
 
-    // The menu: 7 skills, bootstrap disabled with the guard's reason.
-    await click(".context-bar .design-menu > button", "EGM");
+    // The split button (row 25): the ▾ half lists the other 6 skills, not the primary's
+    // `review design`, with the current step `draft` marked; bootstrap disabled with the
+    // guard's reason.
+    await expectSame("split halves", await evaluate(`[${primary}.textContent,
+        document.querySelector(".context-bar .design-menu > button").textContent,
+        document.querySelector(".context-bar .design-menu > button").getAttribute("aria-label")]`),
+    ["review design", "\u25be", "More EGM skills"]);
+    await click(".context-bar .design-menu > button");
     await until("EGM menu", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("menu", await evaluate(`[...document.querySelectorAll(
-        ".design-menu .menu button")].map((b) => [b.textContent, b.disabled])`), [
-        ["brainstorm", false], ["draft", false], ["review design", false],
-        ["review loop", false], ["resolve", false], ["drift report", false],
-        ["bootstrap", true],
+        ".design-menu .menu button")].map((b) => [b.textContent, b.disabled,
+        b.dataset.current === "true"])`), [
+        ["brainstorm", false, false], ["draft", false, true], ["review loop", false, false],
+        ["resolve", false, false], ["drift report", false, false], ["bootstrap", true, false],
     ]);
     const guard = await evaluate(
         `document.querySelector(".design-menu .menu button[data-skill=egm-bootstrap]").title`);
@@ -3458,7 +3704,7 @@ if (flow === "design-actions") {
     await shot("94-design-resolve-dialog");
     await click(".design-dialog button", "run");
     await until("resolve dialog closed", `${dialog} === null`);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu again", `document.querySelector(".design-menu .menu") !== null`);
     await click(".design-menu .menu button", "drift report");
     await until("drift dialog", `${dialog}?.getAttribute("aria-label") === "Drift report"`);
@@ -3476,7 +3722,7 @@ if (flow === "design-actions") {
 
     // A refusal goes to the drawer: a review with a preset before the doc exists is a 409.
     await pick("CSV export \u00b7 intake");
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu on intake", `document.querySelector(".design-menu .menu") !== null`);
     await click(".design-menu .menu button", "review design");
     await until("preset dialog on intake", `${dialog} !== null`);
@@ -3490,11 +3736,13 @@ if (flow === "design-actions") {
     // The direct track: drift report and bootstrap only.
     await pick("CSV export \u00b7 direct track");
     await until("no primary on direct", `${primary} === null`);
-    await click(".context-bar .design-menu > button", "EGM");
+    await expectSame("EGM label without a primary", await evaluate(
+        `document.querySelector(".context-bar .design-menu > button").textContent`), "EGM \u25be");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu on direct", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("direct menu", await evaluate(`[...document.querySelectorAll(
         ".design-menu .menu button")].map((b) => b.textContent)`), ["drift report", "bootstrap"]);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
 
     // Compact: the design group opens the `⋯` menu, the primary first.
     await pick("CSV export \u00b7 intake");
@@ -3509,8 +3757,8 @@ if (flow === "design-actions") {
         return [first.className, [...first.querySelectorAll("button")]
             .map((b) => b.textContent)];
     })()`), ["toolbar-group design-group", [
-        "brainstorm", "brainstorm", "draft", "review design", "review loop", "resolve",
-        "drift report", "bootstrap",
+        "brainstorm", "draft", "review design", "review loop", "resolve", "drift report",
+        "bootstrap",
     ]]);
     await shot("96-design-compact-menu");
     await send("Emulation.setDeviceMetricsOverride", {
@@ -3708,7 +3956,7 @@ if (flow === "approve-design") {
     await shot("102-approved-build");
 
     // `remove approval` ends the menu while an approval exists and takes the session back.
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("menu end", await evaluate(`[...document.querySelectorAll(
         ".design-menu .menu button")].slice(-2).map((b) => [b.textContent, b.disabled])`), [
@@ -3718,11 +3966,11 @@ if (flow === "approve-design") {
     await click(".design-menu .menu button", "remove approval");
     await until("approval removed", `${primary}?.textContent === "approve design"
         && ${tabState("review")} === "waiting"`);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu again", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("no remove item", await evaluate(`[...document.querySelectorAll(
         ".design-menu .menu button")].some((b) => b.textContent === "remove approval")`), false);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
 
     // The changed session: the re-approve primary and needs line, the banner, the changes.
     await pick("CSV export \u00b7 changed");
@@ -4027,7 +4275,7 @@ if (flow === "archive") {
     await click(".card-confirm button.danger", "archive");
     await until("selection on the next row", `${selectedDir} === ${JSON.stringify(second)}`);
     await until("card gone", `!${dirs}.includes(${JSON.stringify(first)})`);
-    await until("close ran", `${text(".drawer")}.includes("close · ok")`);
+    await until("close ran", `${drawerText}.includes("close · ok")`);
     await shot("archive-2-gone-next-selected");
     // The context bar's menu: the same question, the same move.
     await clickEndAction("archive");
@@ -4113,7 +4361,7 @@ await until(
         .some((b) => b.textContent === "run local" && !b.disabled)`,
 );
 await click(".actions button", "run local");
-await until("job log shows", `${text(".drawer")}.includes("up")`);
+await until("job log shows", `${drawerText}.includes("up")`);
 await shot("03-up-running");
 await click(".agents-pane .tab", "Services");
 await until(
@@ -4132,7 +4380,7 @@ await new Promise((resolve) => setTimeout(resolve, 2500));
 await click(".preview-bar button", "reload");
 await new Promise((resolve) => setTimeout(resolve, 2000));
 await until("preview frame", `document.querySelector(".preview-frame") !== null`);
-await until("job finished", `${text(".drawer")}.includes("ok")`);
+await until("job finished", `${drawerText}.includes("ok")`);
 await shot("04-previews");
 
 await until("verify enabled", `document.querySelector(".verified input")?.disabled === false`);

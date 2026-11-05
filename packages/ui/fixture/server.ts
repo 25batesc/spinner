@@ -40,11 +40,15 @@ import { PipelineFixture } from "./pipeline.ts";
 import {
     FIXTURE_PORT, designView, diffRepoStopped, diffViewerUrl, egmStatus, initialDesignSessions,
     initialReviews, initialSessions, machineUsage, PROJECTS, pr, session, stackView, view,
+    withContext,
 } from "./data.ts";
 import { ReviewFixture } from "./reviews.ts";
 import type { DiffRepoView, DiffView } from "@spinner/protocol";
 import { EchoPty } from "./tty.ts";
 import { WorkspaceFixture, withWorkspace } from "./workspace.ts";
+
+/** An agent's context figure after the fixture's compaction: pi's summary and the brief. */
+export const COMPACTED_PCT = 6;
 
 export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
 
@@ -480,13 +484,17 @@ class FixtureDaemon {
         return this.accepted(response, this.act(action, current));
     }
 
-    /** `POST /sessions/:dir/agents` and `.../agents/:name/{prompt,steer,abort,stop}`. */
+    /**
+     * `POST /sessions/:dir/agents` and `.../agents/:name/{prompt,steer,abort,stop,compact}`.
+     * A compaction leaves pi's summary in the window, so the agent's figure drops to 6 %.
+     */
     async agentRoute(
         response: ServerResponse,
         path: string,
         body: Record<string, unknown>,
     ): Promise<boolean> {
-        const route = /^\/sessions\/([^/]+)\/agents(?:\/([^/]+)\/(prompt|steer|abort|stop))?$/;
+        const commands = "prompt|steer|abort|stop|compact";
+        const route = new RegExp(`^/sessions/([^/]+)/agents(?:/([^/]+)/(${commands}))?$`);
         const match = route.exec(path);
         const current = this.sessions.get(match?.[1] ?? "");
         if (match === null || current === undefined) {
@@ -536,6 +544,9 @@ class FixtureDaemon {
             const summary = { ...current.summary, session: { ...base, agents } };
             const running = current.agents_running.filter((item) => item !== name);
             this.update({ ...current, summary, agents_running: running });
+            sendJson(response, { ok: true });
+        } else if (match[3] === "compact") {
+            this.update(withContext(current, { [name]: COMPACTED_PCT }));
             sendJson(response, { ok: true });
         } else {
             if (match[3] === "abort") {

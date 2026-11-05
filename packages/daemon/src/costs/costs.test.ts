@@ -109,8 +109,31 @@ describe("fold_transcript", () => {
             tokens_in: 114,
             tokens_out: 319,
             model: "anthropic/gpt-6-luna",
+            context: null,
         });
         expect(cost.agents["ui"]?.model).toBe("anthropic/claude-fable-5-1");
+    });
+
+    // Dogfood #45: the latest message's prompt against the model's window, per agent.
+    it("gives each agent its context use from its latest row and the model's window", () => {
+        const lead = [
+            assistant("2026-11-05T10:00:00.000Z", "claude-fable-5-1", 1, [5, 10, 90_000, 400]),
+            assistant("2026-11-05T11:00:00.000Z", "claude-fable-5-1", 1, [4, 249, 104_000, 1_000]),
+        ].join("\n");
+        const rows = [
+            ...fold_transcript(lead, { ...REF, agent: "lead" }),
+            ...fold_transcript(
+                assistant("2026-11-05T11:00:00.000Z", "gpt-6-luna", 1, [10, 20, 0, 0]),
+                { ...REF, agent: "ui" },
+            ),
+        ];
+        const windows: Record<string, number> = { "anthropic/claude-fable-5-1": 200_000 };
+        const cost = session_cost_of(rows, (model) => windows[model] ?? null);
+        expect(cost.agents["lead"]?.context).toEqual({ tokens: 105_004, window: 200_000, pct: 52 });
+        expect(cost.agents["ui"]?.context).toBeNull();
+        expect(session_cost_of(rows).agents["lead"]?.context).toBeNull();
+        const zero = session_cost_of(rows, () => 0);
+        expect(zero.agents["lead"]?.context).toBeNull();
     });
 });
 
@@ -414,6 +437,8 @@ describe("GET /costs through the daemon", () => {
                         tokens_in: 10,
                         tokens_out: 20,
                         model: "anthropic/claude-fable-5-1",
+                        // The daemon's pi is /bin/false here, so no window is known.
+                        context: null,
                     },
                 },
             });

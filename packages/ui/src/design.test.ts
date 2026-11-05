@@ -15,8 +15,8 @@ import { describe, expect, it } from "vitest";
 
 import {
     BOOTSTRAP_BLOCKED, DRIFT_BLOCKED, RESOLVE_NEEDS, approveLabel, blockersLabel, blockersLine,
-    compactLabel, designPaths, designSteps, egmMenu, gateCard, primaryAction, showResolveCard,
-    stepTitle, stepperText, trackChoices,
+    compactLabel, currentSkill, designPaths, designSteps, egmMenu, gateCard, primaryAction,
+    showResolveCard, splitMenu, stepTitle, stepperText, trackChoices,
 } from "./design.ts";
 
 function design(stage: DesignStage | null, partial: Partial<DesignView> = {}): DesignView {
@@ -334,5 +334,49 @@ describe("approve dialog words", () => {
         expect(blockersLabel(1)).toBe("approve with 1 listed blocker");
         expect(blockersLine(3)).toBe("The newest review report lists 3 blockers.");
         expect(blockersLabel(3)).toBe("approve with 3 listed blockers");
+    });
+});
+
+describe("the split button (row 25)", () => {
+    const menu = (stage: DesignStage | null, partial: Partial<DesignView> = {}) =>
+        splitMenu(design(stage, partial), false).map((item) => [item.label, item.current]);
+
+    it("leaves the primary's skill out of the ▾ half, so nothing shows twice", () => {
+        for (const stage of ["intake", "brainstorm", "drafted"] as const) {
+            const primary = primaryAction(design(stage));
+            const skills = splitMenu(design(stage), false).map((item) => item.skill);
+            expect(primary?.kind).toBe("run");
+            if (primary?.kind === "run") {
+                expect(skills).not.toContain(primary.skill);
+            }
+            expect(skills).toHaveLength(6);
+        }
+    });
+
+    it("marks the current step's skill", () => {
+        expect(menu("brainstorm")).toEqual([
+            ["brainstorm", true], ["review design", false], ["review loop", false],
+            ["resolve", false], ["drift report", false], ["bootstrap", false],
+        ]);
+        expect(menu("drafted").filter(([, current]) => current)).toEqual([["draft", true]]);
+        expect(menu("design-review").filter(([, current]) => current))
+            .toEqual([["review design", true]]);
+        expect(menu("resolving").filter(([, current]) => current)).toEqual([["resolve", true]]);
+    });
+
+    it("lists every skill, none marked, where the primary approves or there is none", () => {
+        expect(menu("design-ready")).toHaveLength(7);
+        expect(menu("design-ready").some(([, current]) => current)).toBe(false);
+        expect(menu("intake").some(([, current]) => current)).toBe(false);
+        expect(menu(null, { track: "direct" })).toEqual(
+            [["drift report", false], ["bootstrap", false]],
+        );
+    });
+
+    it("names the current skill by stage", () => {
+        expect(currentSkill(design("intake"))).toBeNull();
+        expect(currentSkill(design("drafting"))).toBe("egm-draft");
+        expect(currentSkill(design("approved"))).toBeNull();
+        expect(currentSkill(design(null, { track: "direct" }))).toBeNull();
     });
 });

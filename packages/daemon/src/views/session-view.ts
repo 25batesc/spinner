@@ -145,6 +145,8 @@ export function build_review(
         state,
         comment_count: draft?.comments.length ?? 0,
         event: draft?.event ?? null,
+        // The card says `cancelled` until the next action, and only while nothing runs (#22).
+        cancelled: state === "idle" && session.review?.cancelled === true,
     };
 }
 

@@ -35,7 +35,10 @@ const refuse = (command: Command, error: string): void =>
     out({ id: command.id, type: "response", command: command.type, success: false, error });
 
 let running = false;
-/** Steers received; a `prompt` of `steers?` echoes them, so a test can see what arrived. */
+/**
+ * Steers received, and `(compact)` for each compact; a `prompt` of `steers?` echoes them, so a
+ * test can see what arrived.
+ */
 const steers: string[] = [];
 
 function handle(command: Command): void {
@@ -98,6 +101,10 @@ function handle(command: Command): void {
             return;
         case "abort":
             respond(command, undefined);
+            return;
+        case "compact":
+            steers.push("(compact)");
+            respond(command, { summary: "compacted", firstKeptEntryId: "x", tokensBefore: 1 });
             return;
         default:
             refuse(command, "unknown");

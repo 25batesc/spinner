@@ -58,6 +58,11 @@ export interface AgentHandle {
     steer(text: string): Promise<string>;
     abort(): Promise<void>;
     /**
+     * Starts pi's compaction of the agent's context (dogfood #45) and answers at once with
+     * `started`; the compaction runs a model call and lands in the transcript when done.
+     */
+    compact(): Promise<string>;
+    /**
      * A message from the daemon itself (a failed stack job), not from a person: delivered as
      * a custom message that starts a turn, or steers the running one. Only the tty harness
      * has it; the RPC path has no custom-message command.
@@ -298,6 +303,13 @@ class PiHandle implements AgentHandle {
 
     async abort(): Promise<void> {
         await this.process_.send({ type: "abort" });
+    }
+
+    compact(): Promise<string> {
+        // pi's rpc answers `compact` only when the summary is written, a model call later; the
+        // route must not wait for it. A failure shows in the transcript, not here.
+        void this.process_.send({ type: "compact" }).catch(() => undefined);
+        return Promise.resolve("started");
     }
 
     async commands(): Promise<PiCommand[]> {

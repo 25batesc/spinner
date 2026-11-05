@@ -2,7 +2,9 @@
 // per session and repo, and the `SessionView.diff` the view builder asks for. The record of
 // a running viewer is `session.yaml` (`diff.repos`), so the CLI's `down` and `close` can stop
 // one without the daemon; this class keeps only what the file cannot: a fetch in flight, a
-// start in flight, and the error of the last failed start.
+// start in flight, the error of the last failed start, and the last activity of each viewer.
+// A viewer stops after `DIFF_IDLE_MS` without activity, at daemon shutdown, and to keep at
+// most `DIFF_VIEWERS_MAX` running (dogfood #15); the next `diff/start` starts it again.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -14,12 +16,13 @@ import type {
     DiffWaiting,
     SessionSummary,
 } from "@spinner/protocol";
+import { DIFF_IDLE_MS, DIFF_VIEWERS_MAX } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { derive_stage } from "../pipeline/derive-stage.js";
 import { config_for } from "../pipeline/poller.js";
 import { facts_from_session } from "../pipeline/tracker.js";
 import { process_alive } from "../stack/host-service.js";
-import { read_session, write_session } from "../store/session-store.js";
+import { list_sessions, read_session, write_session } from "../store/session-store.js";
 import { run_comments } from "./comments.js";
 import {
     diff_fetched,
@@ -54,6 +57,24 @@ export interface DiffManagerOptions {
     runner?: Runner;
     /** Bound on one viewer start. */
     start_timeout_ms?: number;
+    /** The clock in epoch ms; a test passes a fake one. */
+    now?: () => number;
+    /** A viewer without activity this long stops; `DIFF_IDLE_MS` when absent. */
+    idle_ms?: number;
+    /** The live viewer cap across sessions; `DIFF_VIEWERS_MAX` when absent. */
+    viewers_max?: number;
+    /** How often the idle sweep runs; 0 runs none (a test calls `sweep`). One minute. */
+    sweep_ms?: number;
+}
+
+/** The idle sweep's period unless the options say otherwise. */
+const SWEEP_MS = 60_000;
+
+/** One live viewer: its session, its repo, and the last activity the daemon saw. */
+interface LiveViewer {
+    summary: SessionSummary;
+    repo: string;
+    active: number;
 }
 
 type RepoMemory = { state: "starting" } | { state: "failed"; error: string };
@@ -84,6 +105,12 @@ export class DiffManager {
     private fetch_error: string | null = null;
     /** `<dir>/<repo>` to what the file cannot hold. */
     private readonly memory = new Map<string, RepoMemory>();
+    /** `<dir>/<repo>` to the epoch ms of its viewer's last activity (#15). */
+    private readonly active = new Map<string, number>();
+    private readonly now: () => number;
+    private readonly idle_ms: number;
+    private readonly viewers_max: number;
+    private readonly sweeper: ReturnType<typeof setInterval> | null;
 
     constructor(options: DiffManagerOptions) {
         this.home = options.home;
@@ -94,6 +121,16 @@ export class DiffManager {
         this.bin_override = options.bin ?? null;
         this.runner = options.runner;
         this.start_timeout_ms = options.start_timeout_ms;
+        this.now = options.now ?? (() => Date.now());
+        this.idle_ms = options.idle_ms ?? DIFF_IDLE_MS;
+        this.viewers_max = options.viewers_max ?? DIFF_VIEWERS_MAX;
+        assert.ok(this.idle_ms > 0, "the idle bound must be positive");
+        assert.ok(this.viewers_max > 0, "the viewer cap must be positive");
+        const sweep_ms = options.sweep_ms ?? SWEEP_MS;
+        this.sweeper =
+            sweep_ms > 0 ? setInterval(() => void this.sweep(this.log), sweep_ms) : null;
+        // The sweep must not keep a test process, or a stopping daemon, alive.
+        this.sweeper?.unref();
     }
 
     /** `DIFFVIEW_HOME`. */
@@ -170,6 +207,7 @@ export class DiffManager {
                 throw new Error(`repo ${name} has no worktree yet; attach the project first`);
             }
             const key = `${fresh.dir}/${name}`;
+            await this.make_room(key, log);
             this.memory.set(key, { state: "starting" });
             try {
                 const started = await start_viewer({
@@ -185,6 +223,7 @@ export class DiffManager {
                 });
                 record_viewer(fresh, name, started);
                 this.memory.delete(key);
+                this.active.set(key, this.now());
                 log(`diff viewer of ${name}: pid ${started.pid} on ${diff_url(started.port)}`);
                 this.watch(fresh, name, 0);
             } catch (error) {
@@ -200,6 +239,7 @@ export class DiffManager {
         const names = this.repo_names(summary, repo);
         for (const name of names) {
             this.memory.delete(`${summary.dir}/${name}`);
+            this.active.delete(`${summary.dir}/${name}`);
             this.unwatch(summary.dir, name);
         }
         const fresh = this.reread(summary);
@@ -217,17 +257,84 @@ export class DiffManager {
                 continue;
             }
             for (const repo of await reattach_viewers(summary, this.log)) {
+                // The previous daemon's activity is unknown; the idle clock starts now.
+                this.active.set(`${summary.dir}/${repo}`, this.now());
                 this.watch(summary, repo, null);
             }
         }
     }
 
-    /** Ends every watcher; the viewers stay, they outlive the daemon. */
-    close(): void {
+    /**
+     * At daemon shutdown: ends the sweep and every watcher, then stops every live viewer, so
+     * none outlives the daemon (#15). The next `diff/start` starts it again.
+     */
+    async close(): Promise<void> {
+        if (this.sweeper !== null) {
+            clearInterval(this.sweeper);
+        }
         for (const watcher of this.watchers.values()) {
             watcher.stop();
         }
         this.watchers.clear();
+        for (const viewer of this.live()) {
+            await this.stop_idle(viewer, "the daemon stops", this.log);
+        }
+    }
+
+    /**
+     * Stops every live viewer without activity for `idle_ms`. Runs on the sweep timer; a test
+     * calls it with a fake clock. Answers the `<dir>/<repo>` keys it stopped.
+     */
+    async sweep(log: Log): Promise<string[]> {
+        const stopped: string[] = [];
+        for (const viewer of this.live()) {
+            const idle = this.now() - viewer.active;
+            if (idle >= this.idle_ms) {
+                const minutes = Math.floor(idle / 60_000);
+                await this.stop_idle(viewer, `idle for ${minutes} min`, log);
+                stopped.push(`${viewer.summary.dir}/${viewer.repo}`);
+            }
+        }
+        return stopped;
+    }
+
+    /** Marks a viewer active: a start, an agent's comments call, a new comment message. */
+    private touch(dir: string, repo: string): void {
+        this.active.set(`${dir}/${repo}`, this.now());
+    }
+
+    /** Every recorded viewer whose process lives, across sessions, with its last activity. */
+    private live(): LiveViewer[] {
+        const viewers: LiveViewer[] = [];
+        for (const summary of list_sessions(this.home).sessions) {
+            for (const [repo, record] of Object.entries(summary.session.diff?.repos ?? {})) {
+                if (!process_alive(record.pid)) {
+                    continue;
+                }
+                const key = `${summary.dir}/${repo}`;
+                // A viewer this daemon never saw starts its idle clock at the first look.
+                const active = this.active.get(key) ?? this.now();
+                this.active.set(key, active);
+                viewers.push({ summary, repo, active });
+            }
+        }
+        return viewers;
+    }
+
+    /** Before a start: stops the least recently active viewers until one more fits the cap. */
+    private async make_room(key: string, log: Log): Promise<void> {
+        const others = this.live()
+            .filter((viewer) => `${viewer.summary.dir}/${viewer.repo}` !== key)
+            .sort((a, b) => a.active - b.active);
+        const excess = others.length - this.viewers_max + 1;
+        for (const viewer of others.slice(0, Math.max(0, excess))) {
+            await this.stop_idle(viewer, `the cap of ${this.viewers_max} viewers`, log);
+        }
+    }
+
+    private async stop_idle(viewer: LiveViewer, why: string, log: Log): Promise<void> {
+        log(`diff viewer of ${viewer.summary.dir}/${viewer.repo} stops: ${why}`);
+        await this.stop(viewer.summary, viewer.repo, log);
     }
 
     /**
@@ -244,6 +351,7 @@ export class DiffManager {
         assert.ok(bin !== null, "the caller checked that the viewer is available");
         const worktree = summary.session.repos?.[repo]?.worktree;
         assert.ok(worktree !== undefined, `repo ${repo} has a worktree`);
+        this.touch(summary.dir, repo);
         const result = await run_comments(
             {
                 bin,
@@ -287,9 +395,10 @@ export class DiffManager {
             alive,
             notify: (text) => this.notify?.(dir, text) ?? Promise.resolve(),
             on_threads: (records) => {
+                // The watcher lists the threads every round; only a change is activity.
                 const read = read_session(this.home, dir);
-                if (read.ok) {
-                    this.record_threads(read.summary, [repo], records);
+                if (read.ok && this.record_threads(read.summary, [repo], records)) {
+                    this.touch(dir, repo);
                 }
             },
             limiter,
@@ -311,19 +420,20 @@ export class DiffManager {
 
     /**
      * Replaces the records of `repos` with `records`, re-derives `stage` and `needs_human`
-     * from the facts, and writes `session.yaml` when the records changed.
+     * from the facts, and writes `session.yaml` when the records changed. Answers whether
+     * they changed.
      */
     private record_threads(
         summary: SessionSummary,
         repos: string[],
         records: DiffThreadRecord[],
-    ): void {
+    ): boolean {
         const session = summary.session;
         const before = session.diff?.threads ?? [];
         const kept = before.filter((t) => !repos.includes(t.repo));
         const threads = [...kept, ...records].sort((a, b) => a.thread - b.thread);
         if (JSON.stringify(before) === JSON.stringify(threads)) {
-            return;
+            return false;
         }
         if (threads.length > 0) {
             session.diff ??= { repos: {} };
@@ -339,6 +449,7 @@ export class DiffManager {
         session.stage = result.stage;
         session.needs_human = result.needs_human;
         write_session(summary);
+        return true;
     }
 
     /** Validates `repo` against the session, or lists every repo. */

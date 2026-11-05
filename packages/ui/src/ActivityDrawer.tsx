@@ -3,8 +3,10 @@
 // the height between `DRAWER_MIN_PX` and the pane's height minus `DRAWER_RESERVE_PX` (the
 // terminal keeps that); a drag under the floor, or the minimize icon, collapses it to a
 // one-line bar with the last job's name and state, and a click on the bar restores the last
-// height. The height and the collapsed flag live in the layout record (`layout.ts`), so they
-// survive a reload with the pane widths.
+// height. The height lives in the layout record (`layout.ts`) and survives a reload; the
+// drawer starts collapsed and opens itself only for what needs the operator (`drawerOpens`,
+// dogfood row 4): a watched job that fails, an action that fails, or the shown session's
+// `needs_human` turning from none to a line. A routine job only moves the bar's line.
 import { useRef, type PointerEvent } from "react";
 
 import type { Job } from "@spinner/protocol";
@@ -43,6 +45,39 @@ export function drawerTitle(job: Job | undefined, error: string | null): string 
         return `${job.action} · ${job.state}`;
     }
     return error === null ? null : "action failed";
+}
+
+/** What the auto-open rule reads, once per render of the main layout. */
+export interface DrawerWatch {
+    jobId: string | null;
+    jobState: Job["state"] | null;
+    error: string | null;
+    /** The shown session's dir, or null when none is shown. */
+    dir: string | null;
+    /** The shown session's `needs_human`. */
+    needs: string | null;
+}
+
+/**
+ * True when the drawer opens itself between two reads: the watched job reached `failed`
+ * (a new job that is already failed counts), an action failed before it became a job, or
+ * the same shown session's `needs_human` turned from null to a line. Selecting another session
+ * that already needs the operator does not open it; neither does a job that runs or ends ok.
+ */
+export function drawerOpens(before: DrawerWatch, after: DrawerWatch): boolean {
+    if (after.jobState === "failed") {
+        const sameJob = before.jobId === after.jobId;
+        if (!sameJob || before.jobState !== "failed") {
+            return true;
+        }
+    }
+    if (before.error === null && after.error !== null) {
+        return true;
+    }
+    if (before.dir === after.dir && after.dir !== null) {
+        return before.needs === null && after.needs !== null;
+    }
+    return false;
 }
 
 /** The pill's colour for the job line: the job's state, or amber for an action that failed. */

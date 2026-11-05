@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionSummary } from "@spinner/protocol";
+import type { DiffView, SessionSummary } from "@spinner/protocol";
 import { parse } from "yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SpinnerHome } from "../home.js";
@@ -258,6 +258,82 @@ describe("DiffManager", () => {
         const view = manager.view(summary);
         expect(view.repos["lib"]?.state).toBe("failed");
         expect(view.repos["lib"]?.error).toMatch(/boom/);
+    });
+
+    // Dogfood #15: a viewer stops when idle, at the cap and at shutdown; a start brings it back.
+    it("stops a viewer after the idle bound and starts it again on the next start", async () => {
+        const home = make_home();
+        const summary = make_session(home, "s037");
+        running.push({ summary, home });
+        let clock = 0;
+        const minute = 60_000;
+        const manager = new DiffManager({
+            home,
+            log,
+            bin: FAKE,
+            start_timeout_ms: 5_000,
+            now: () => clock,
+            sweep_ms: 0,
+        });
+        await manager.start(summary, "app", () => {});
+        clock = 20 * minute;
+        await manager.start(summary, "lib", () => {});
+        clock = 29 * minute;
+        expect(await manager.sweep(() => {})).toEqual([]);
+        clock = 31 * minute;
+        const lines: string[] = [];
+        expect(await manager.sweep((line) => lines.push(line))).toEqual(["s037-diff/app"]);
+        expect(lines[0]).toBe("diff viewer of s037-diff/app stops: idle for 31 min");
+        const fresh = (): SessionSummary => ({ ...summary, session: read_file(summary) });
+        expect(manager.view(fresh()).repos["app"]?.state).toBe("stopped");
+        expect(manager.view(fresh()).repos["lib"]?.state).toBe("running");
+        await manager.start(fresh(), "app", () => {});
+        expect(manager.view(fresh()).repos["app"]?.state).toBe("running");
+        clock = 51 * minute;
+        expect(await manager.sweep(() => {})).toEqual(["s037-diff/lib"]);
+        await manager.close();
+        expect(read_file(summary).diff).toBeUndefined();
+    });
+
+    it("stops the least recently active viewer at the cap, and every viewer at close", async () => {
+        const home = make_home();
+        const first = make_session(home, "s038");
+        const second = make_session(home, "s039");
+        running.push({ summary: first, home }, { summary: second, home });
+        let clock = 0;
+        const manager = new DiffManager({
+            home,
+            log,
+            bin: FAKE,
+            start_timeout_ms: 5_000,
+            now: () => clock,
+            sweep_ms: 0,
+            viewers_max: 2,
+        });
+        await manager.start(first, "app", () => {});
+        clock = 1;
+        await manager.start(first, "lib", () => {});
+        clock = 2;
+        const lines: string[] = [];
+        await manager.start(second, "app", (line) => lines.push(line));
+        expect(lines[0]).toBe("diff viewer of s038-diff/app stops: the cap of 2 viewers");
+        const view = (summary: SessionSummary): DiffView =>
+            manager.view({ ...summary, session: read_file(summary) });
+        expect(view(first).repos["app"]?.state).toBe("stopped");
+        expect(view(first).repos["lib"]?.state).toBe("running");
+        expect(view(second).repos["app"]?.state).toBe("running");
+
+        const pids = [first, second].flatMap((summary) =>
+            Object.values(read_file(summary).diff?.repos ?? {}).map((record) => record.pid),
+        );
+        expect(pids).toHaveLength(2);
+        await manager.close();
+        expect(read_file(first).diff).toBeUndefined();
+        expect(read_file(second).diff).toBeUndefined();
+        for (let poll = 0; poll < 50 && pids.some(process_alive); poll += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(pids.some(process_alive)).toBe(false);
     });
 });
 

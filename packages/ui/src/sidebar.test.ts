@@ -1,10 +1,14 @@
 // The side panel's state (s020, round 2): a rail click opens its view, a click on the lit
 // icon collapses the panel, a click on an icon whose panel the width or a fold hides opens it
 // again; the record survives storage and falls back from bad input; the needs-you count
-// follows `needs_human`; the detail level follows the panel's width.
+// follows `needs_human`; the detail level follows the panel's width; the title row carries
+// the count alone, rendered to markup, since the rail icon owns the needs-you badge.
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { initialReviews, initialSessions } from "../fixture/data.ts";
+import { Sidebar, type ViewFacts } from "./Sidebar.tsx";
 import { needsHuman } from "./state.ts";
 import {
     DEFAULT_SIDEBAR,
@@ -103,6 +107,35 @@ describe("needsCount", () => {
         store.set(SEEN_KEY, "{");
         expect(loadSeen(storage)).toEqual({});
         expect(loadSeen(undefined)).toEqual({});
+    });
+});
+
+describe("Sidebar title row", () => {
+    function titleRow(view: "sessions" | "settings", facts: ViewFacts | undefined): string {
+        const markup = renderToStaticMarkup(
+            createElement(Sidebar, { view, level: "full", facts, children: null }),
+        );
+        const header = /<header class="side-title"[^>]*>(.*?)<\/header>/.exec(markup);
+        if (header === null) {
+            throw new Error(`no title row in ${markup}`);
+        }
+        return header[1] ?? "";
+    }
+
+    it("shows the view's name and its count, and no needs pill", () => {
+        // The caller also knows how many sessions wait on the operator; the row ignores it.
+        const facts = { count: 3, needs: 2 };
+        const row = titleRow("sessions", facts);
+        expect(row).toContain(">Sessions</h2>");
+        expect(row).toContain('<span class="muted side-title-count">3</span>');
+        expect(row).not.toContain("pill");
+        expect(row).not.toContain("need");
+    });
+
+    it("shows settings by its name alone", () => {
+        const row = titleRow("settings", undefined);
+        expect(row).toContain(">Settings</h2>");
+        expect(row).not.toContain("side-title-count");
     });
 });
 

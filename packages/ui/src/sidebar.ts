@@ -78,7 +78,7 @@ export function markSeen(seen: Seen, dir: string, view: SessionView | undefined)
 
 /**
  * How many of `sessions` wait on the operator with a line the operator has not seen: the
- * pill on the title row, the rail badge. Without `seen`, every waiting session counts.
+ * rail badge. Without `seen`, every waiting session counts.
  */
 export function needsCount(sessions: readonly [string, SessionView][], seen: Seen = {}): number {
     return sessions.filter(([dir, view]) => {

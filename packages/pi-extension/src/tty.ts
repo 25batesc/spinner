@@ -188,6 +188,11 @@ export function act(
         ctx.abort();
         return "aborted";
     }
+    if (command.type === "compact") {
+        // pi's own `/compact` (dogfood #45); it runs in the background and does not wait.
+        ctx.compact();
+        return "started";
+    }
     const raw = command.text ?? "";
     if (raw.length === 0) {
         return "ignored";

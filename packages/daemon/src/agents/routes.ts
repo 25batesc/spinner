@@ -22,6 +22,7 @@ import type {
     MissionSectionResponse,
     MissionViewResponse,
     SessionResponse,
+    SessionSummary,
 } from "@spinner/protocol";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
@@ -99,11 +100,25 @@ export function mount_agent_routes(app: Hono, deps: AgentRouteDeps): void {
             return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
         }
         // The title line is not a section; the write still waits its turn behind the writer.
-        const author = c.req.query("author") ?? "operator";
-        const titled = await deps.writer.serialized(summary.dir, author, () =>
-            actions.set_title(deps.ctx, summary, request.title),
-        );
-        const body: SessionResponse = { session: deps.view(titled) };
+        const author = c.req.query("author") ?? actions.OPERATOR_AUTHOR;
+        let titled: { summary: SessionSummary; was: string | null };
+        try {
+            titled = await deps.writer.serialized(summary.dir, author, () =>
+                actions.retitle(deps.ctx, summary, request, author),
+            );
+        } catch (error) {
+            const status = error instanceof actions.TitlePinned ? 409 : 400;
+            return c.json(error_body(describe_error(error)), status);
+        }
+        if (titled.was !== null) {
+            await deps.writer.write(summary.dir, {
+                section: "log",
+                mode: "append",
+                author,
+                text: `title: ${titled.summary.session.title} (was ${titled.was})`,
+            });
+        }
+        const body: SessionResponse = { session: deps.view(titled.summary) };
         return c.json(body);
     });
 

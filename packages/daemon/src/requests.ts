@@ -122,11 +122,18 @@ export function parse_reviews(input: unknown): ReviewsRequest | string {
     return { text };
 }
 
-/** `PUT /sessions/:dir/title`. */
+/** `PUT /sessions/:dir/title`: a title, a pin flag, or both (dogfood #27). */
 export function parse_session_title(input: unknown): SessionTitleRequest | string {
     const record = as_record(input);
     if (typeof record === "string") {
         return record;
+    }
+    const pinned = record["pinned"];
+    if (pinned !== undefined && typeof pinned !== "boolean") {
+        return "`pinned` must be a boolean";
+    }
+    if (record["title"] === undefined) {
+        return pinned === undefined ? "`title` or `pinned` must be given" : { pinned };
     }
     const title = non_empty_string(record, "title");
     if (title === undefined) {
@@ -135,7 +142,7 @@ export function parse_session_title(input: unknown): SessionTitleRequest | strin
     if (title.includes("\n") || title.trim().length > SESSION_TITLE_MAX) {
         return `\`title\` must be one line of at most ${SESSION_TITLE_MAX} characters`;
     }
-    return { title: title.trim() };
+    return pinned === undefined ? { title: title.trim() } : { title: title.trim(), pinned };
 }
 
 export function parse_adopt(input: unknown): AdoptRequest | string {

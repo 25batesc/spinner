@@ -37,6 +37,7 @@ import type {
     PostView,
     ReviewDraft,
     ReviewDraftResponse,
+    ReviewCancelResponse,
     ReviewPostResponse,
     SessionResponse,
     ThreadsView,
@@ -191,6 +192,16 @@ export async function deleteReviewDraft(dir: string): Promise<void> {
 /** `POST /sessions/:dir/review/post`: the draft goes to GitHub as one review; the URL answers. */
 export async function postReview(dir: string): Promise<ReviewPostResponse> {
     return send("POST", `/sessions/${dir}/review/post`, {});
+}
+
+/** `POST /sessions/:dir/review/approve`: one APPROVE "LGTM" at the PR's head, no swarm. */
+export async function postReviewApprove(dir: string): Promise<ReviewPostResponse> {
+    return send("POST", `/sessions/${dir}/review/approve`, {});
+}
+
+/** `POST /sessions/:dir/review/cancel`: the reviewers and a review's lead stop. */
+export async function postReviewCancel(dir: string): Promise<ReviewCancelResponse> {
+    return send("POST", `/sessions/${dir}/review/cancel`, {});
 }
 
 /**

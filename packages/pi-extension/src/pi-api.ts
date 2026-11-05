@@ -56,6 +56,29 @@ export interface ToolCallResult {
     reason: string;
 }
 
+/** One part of a tool result, as pi records it: text, or an image the model sees. */
+export type ToolResultContent =
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string };
+
+/** pi's `tool_result` event: the result of one tool call, before pi records it. */
+export interface ToolResultEvent {
+    type: "tool_result";
+    toolName: string;
+    toolCallId: string;
+    input: Record<string, unknown>;
+    content: ToolResultContent[];
+    /** Set by a tool with an output schema; replacing `content` alone drops it. */
+    structuredContent?: unknown;
+    isError: boolean;
+}
+
+/** A handler's answer to `tool_result`: the fields that replace the result's own. */
+export interface ToolResultPatch {
+    content?: ToolResultContent[];
+    structuredContent?: unknown;
+}
+
 export interface ExtensionContext {
     cwd: string;
     hasUI: boolean;
@@ -64,6 +87,8 @@ export interface ExtensionContext {
     isIdle(): boolean;
     /** Aborts the current agent run, as Escape does. */
     abort(): void;
+    /** Starts compaction of the context without waiting for it, as `/compact` does. */
+    compact(): void;
 }
 
 export interface SessionStartEvent {
@@ -143,5 +168,9 @@ export interface ExtensionAPI {
             event: ToolCallEvent,
             ctx: ExtensionContext,
         ) => ToolCallResult | undefined | Promise<ToolCallResult | undefined>,
+    ): unknown;
+    on(
+        event: "tool_result",
+        handler: (event: ToolResultEvent, ctx: ExtensionContext) => ToolResultPatch | undefined,
     ): unknown;
 }

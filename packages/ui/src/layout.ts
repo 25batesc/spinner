@@ -89,7 +89,9 @@ export const DEFAULT_LAYOUT: Layout = {
         previews: { width: 520, collapsed: false, hidden: false, popped: false },
     },
     expanded: false,
-    drawer: { height: 200, collapsed: false },
+    // Collapsed: routine jobs stay behind the bar; the drawer opens itself only for a failed
+    // job or a new needs-you (`drawerOpens` in ActivityDrawer.tsx, dogfood row 4).
+    drawer: { height: 200, collapsed: true },
 };
 
 export type LayoutAction =
@@ -304,7 +306,8 @@ export function loadLayout(storage: LayoutStorage | undefined): Layout {
                 typeof height === "number" && Number.isFinite(height)
                     ? Math.max(DRAWER_MIN_PX, Math.round(height))
                     : DEFAULT_LAYOUT.drawer.height,
-            collapsed: drawer["collapsed"] === true,
+            // Every page starts with the drawer collapsed (row 4); only its height carries over.
+            collapsed: true,
         };
     }
     const panes = parsed["panes"];

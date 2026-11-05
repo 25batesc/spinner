@@ -1,7 +1,7 @@
 // Goal: `spinner new` and `spinner show` behave as docs/SESSION_PROTOCOL.md says, through the
 // public `run_cli` entry. Method: run the commands against a temporary SPINNER_HOME and check
 // the exit code, the captured output and the files on disk.
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +26,14 @@ beforeEach(() => {
 afterEach(() => {
     rmSync(root, { recursive: true, force: true });
 });
+
+/** A new session asks nothing (dogfood #2); a test that shows the column sets a needs line. */
+function set_needs(dir: string, needs: string): void {
+    const file = join(root, "sessions", dir, "session.yaml");
+    const text = readFileSync(file, "utf8");
+    expect(text).toMatch(/^needs_human: null$/m);
+    writeFileSync(file, text.replace(/^needs_human: null$/m, `needs_human: ${needs}`));
+}
 
 describe("spinner new", () => {
     it("creates a session directory and prints its path", async () => {
@@ -58,13 +66,14 @@ describe("spinner show", () => {
     it("lists sessions with stage, stack state and needs_human", async () => {
         await run_cli(["new", "One"], io);
         await run_cli(["new", "Two"], io);
+        set_needs("s001-one", "verify locally");
         out = [];
         expect(await run_cli(["show"], io)).toBe(0);
         expect(out).toHaveLength(1);
         const lines = out[0]?.split("\n") ?? [];
         expect(lines[0]).toMatch(/^id\s+title\s+stage\s+stack\s+needs you$/);
-        expect(lines[1]).toMatch(/^s001\s+One\s+planned\s+none\s+write Goal/);
-        expect(lines[2]).toMatch(/^s002\s+Two\s+planned\s+none/);
+        expect(lines[1]).toMatch(/^s001\s+One\s+planned\s+none\s+verify locally$/);
+        expect(lines[2]).toMatch(/^s002\s+Two\s+planned\s+none$/);
     });
 
     it("shows one session by dir or id and fails for an unknown one", async () => {
@@ -73,7 +82,11 @@ describe("spinner show", () => {
         expect(await run_cli(["show", "s001-one"], io)).toBe(0);
         expect(out[0]).toContain("s001 · One");
         expect(out[0]).toContain("planned · stack none");
-        expect(out[0]).toContain("needs you: write Goal");
+        expect(out[0]).not.toContain("needs you");
+        set_needs("s001-one", "verify locally");
+        out = [];
+        expect(await run_cli(["show", "s001-one"], io)).toBe(0);
+        expect(out[0]).toContain("needs you: verify locally");
         expect(await run_cli(["show", "s001"], io)).toBe(0);
         expect(await run_cli(["show", "nope"], io)).toBe(1);
         expect(err[0]).toMatch(/no session "nope"/);

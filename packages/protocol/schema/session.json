@@ -24,6 +24,10 @@
                 "title": {
                     "type": "string"
                 },
+                "title_pinned": {
+                    "type": "boolean",
+                    "description": "True after the operator renamed the session (dogfood #27): the lead's `session_title` is refused until the operator unpins it. Absent means false."
+                },
                 "project": {
                     "type": "string",
                     "description": "Project name whose `spinner.yaml` configures the stack and the pipeline tracker."
@@ -710,6 +714,10 @@
                         "null"
                     ],
                     "description": "The posted review's URL (s016), null until `post`."
+                },
+                "cancelled": {
+                    "type": "boolean",
+                    "description": "True after the operator's `cancel review` (dogfood #22), until the next start, draft, approve or post. Absent means false."
                 }
             },
             "required": [

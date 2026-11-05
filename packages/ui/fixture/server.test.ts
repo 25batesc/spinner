@@ -17,7 +17,9 @@ import {
     type OperatorView,
     type SessionResponse,
     type SessionsResponse,
+    type ReviewCancelResponse,
     type ReviewFields,
+    type ReviewPostResponse,
     type SessionView,
     type SpinnerEvent,
 } from "@spinner/protocol";
@@ -26,7 +28,7 @@ import { WebSocket } from "ws";
 
 import { initialDesignSessions, initialReviews, initialSessions } from "./data.ts";
 import { isReviewSession } from "./reviews.ts";
-import { startFixture } from "./server.ts";
+import { COMPACTED_PCT, startFixture } from "./server.ts";
 
 const servers: ReturnType<typeof startFixture>[] = [];
 afterEach(() => {
@@ -147,6 +149,44 @@ it("POST /reviews makes a review per PR and runs the lead's process to the draft
     expect(empty.status).toBe(409);
 });
 
+it("cancels a running review for good and approves in one call, as the daemon (#22)", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/r77-web-77`;
+    const fields = async () => {
+        const body = (await (await fetch(base)).json()) as SessionResponse;
+        return body.session;
+    };
+    // A new run: the lead and the queued swarm, state `reviewing`.
+    expect((await fetch(`${base}/review`, { method: "POST" })).status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await fields()).review?.state).toBe("reviewing");
+    const cancelled = await fetch(`${base}/review/cancel`, { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    const answer = (await cancelled.json()) as ReviewCancelResponse;
+    expect(answer.ok).toBe(true);
+    expect(answer.stopped).toContain("lead");
+    const after = await fields();
+    expect(after.review).toMatchObject({ state: "idle", cancelled: true, swarm: [] });
+    expect(after.agents_running).not.toContain("lead");
+    // The process that was running wakes later and must not write over the cancel.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect((await fields()).review).toMatchObject({ state: "idle", cancelled: true });
+
+    const approved = await fetch(`${base}/review/approve`, { method: "POST" });
+    expect(approved.status).toBe(200);
+    const posted = (await approved.json()) as ReviewPostResponse;
+    expect(posted).toEqual({
+        url: "https://github.com/example/web/pull/77#pullrequestreview-9001",
+        event: "APPROVE", fell_back: false,
+    });
+    expect((await fields()).review).toMatchObject({
+        posted_url: posted.url, review_decision: "approved", cancelled: false,
+    });
+    const ordinary = `http://127.0.0.1:${port}/sessions/s001-bootstrap/review`;
+    expect((await fetch(`${ordinary}/approve`, { method: "POST" })).status).toBe(409);
+    expect((await fetch(`${ordinary}/cancel`, { method: "POST" })).status).toBe(409);
+});
+
 it("runs `up` as a job: 202, job.log lines, job.finished, then a healthy stack", async () => {
     const port = await start();
     const socket = new WebSocket(`ws://127.0.0.1:${port}${EVENTS_PATH}`);
@@ -215,6 +255,27 @@ it("DELETE /sessions/:dir/verify clears the tick, answers the view, 404 without 
         method: "DELETE",
     });
     expect(missing.status).toBe(404);
+});
+
+it("compacts a hosted agent: its figure drops; 409 for an agent it does not host (#45)",
+    async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/s17-refund-flow`;
+    const figure = async (name: string) => {
+        const body = (await (await fetch(base)).json()) as SessionResponse;
+        return body.session.cost?.agents[name]?.context?.pct;
+    };
+    expect(await figure("backend")).toBe(45);
+    const compact = (name: string) =>
+        fetch(`${base}/agents/${name}/compact`, { method: "POST", body: "{}" });
+    const done = await compact("backend");
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({ ok: true });
+    expect(await figure("backend")).toBe(COMPACTED_PCT);
+    // The frontend agent is not hosted: the daemon refuses, and the figure stays unknown.
+    const refused = await compact("frontend");
+    expect(refused.status).toBe(409);
+    expect(await figure("frontend")).toBeUndefined();
 });
 
 it("refuses post and approve without confirm and runs them with it", async () => {

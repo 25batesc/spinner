@@ -25,7 +25,7 @@ import { create_session, write_session } from "../store/session-store.js";
 import { PiRpcHarness, default_extension_path, pi_spawn_plan } from "./harness.js";
 import { events_of_transcript } from "./history.js";
 import { AgentManager, ensure_brief } from "./manager.js";
-import { models_of } from "./models.js";
+import { MODELS_RETRY_MS, ModelCatalog, models_of } from "./models.js";
 import { child_env, model_args, resolve_pi_binary, spawn_pi } from "./pi-rpc.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -111,6 +111,51 @@ describe("spawn_pi", () => {
             models: [{ provider: "a", id: "m", contextWindow: 10, reasoning: true, extra: 1 }, {}],
         });
         expect(models).toEqual([{ provider: "a", id: "m", contextWindow: 10, reasoning: true }]);
+    });
+
+    // Dogfood #45: the view asks for a window without waiting; the first ask loads the list.
+    it("ModelCatalog answers windows without waiting and loads the list once", async () => {
+        let fetches = 0;
+        let loaded = 0;
+        let fail = true;
+        let clock = 0;
+        const catalog = new ModelCatalog(
+            () => {
+                fetches += 1;
+                if (fail) {
+                    return Promise.reject(new Error("no pi"));
+                }
+                return Promise.resolve([
+                    {
+                        provider: "anthropic",
+                        id: "claude-x",
+                        contextWindow: 200_000,
+                        reasoning: true,
+                    },
+                    { provider: "fake", id: "none", contextWindow: 0, reasoning: false },
+                ]);
+            },
+            { on_loaded: () => (loaded += 1), now: () => clock },
+        );
+        expect(catalog.window_of("anthropic/claude-x")).toBeNull();
+        expect(catalog.window_of("anthropic/claude-x")).toBeNull();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fetches).toBe(1);
+        // A failed fetch is asked again only after the retry delay, not on every view.
+        expect(catalog.window_of("anthropic/claude-x")).toBeNull();
+        expect(fetches).toBe(1);
+        clock = MODELS_RETRY_MS;
+        fail = false;
+        expect(catalog.window_of("anthropic/claude-x")).toBeNull();
+        expect(fetches).toBe(2);
+        expect(await catalog.list()).toHaveLength(2);
+        expect(loaded).toBe(1);
+        expect(catalog.window_of("anthropic/claude-x")).toBe(200_000);
+        expect(catalog.window_of("fake/none")).toBeNull();
+        expect(catalog.window_of("openai/unknown")).toBeNull();
+        await catalog.list();
+        expect(fetches).toBe(2);
     });
 });
 

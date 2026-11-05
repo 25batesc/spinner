@@ -162,7 +162,9 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
         title: input.title,
         created: iso_local(now),
         stage: "planned",
-        needs_human: "write Goal and Done when in MISSION.md",
+        // A session being created needs nothing from the operator yet (dogfood #2): its lead
+        // writes the Goal, and a needs line here would badge every new session on the rail.
+        needs_human: null,
         branch: `feat/${slug}`,
         base: "main",
         repos: {},

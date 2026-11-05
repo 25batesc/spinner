@@ -47,7 +47,11 @@ function fake_pi(): FakePi {
     return pi;
 }
 
-function fake_ctx(idle: boolean, aborted: { count: number }): ExtensionContext {
+function fake_ctx(
+    idle: boolean,
+    aborted: { count: number },
+    compacted = { count: 0 },
+): ExtensionContext {
     return {
         cwd: "/tmp",
         hasUI: true,
@@ -55,6 +59,9 @@ function fake_ctx(idle: boolean, aborted: { count: number }): ExtensionContext {
         isIdle: () => idle,
         abort: () => {
             aborted.count += 1;
+        },
+        compact: () => {
+            compacted.count += 1;
         },
     };
 }
@@ -256,6 +263,18 @@ describe("the tty channel", () => {
             { text: read, deliverAs: "steer" },
         ]);
         expect(pi.custom[0]?.content).toBe("/skill:egm-review");
+    });
+
+    it("act: compact runs pi's compaction, busy or idle, and sends no message (#45)", () => {
+        const pi = fake_pi();
+        const compacted = { count: 0 };
+        expect(act(pi, fake_ctx(false, { count: 0 }, compacted), { id: "c-1", type: "compact" }))
+            .toBe("started");
+        expect(act(pi, fake_ctx(true, { count: 0 }, compacted), { id: "c-2", type: "compact" }))
+            .toBe("started");
+        expect(compacted.count).toBe(2);
+        expect(pi.sent).toEqual([]);
+        expect(pi.custom).toEqual([]);
     });
 
     it("act: a busy pi queues a prompt as a follow-up and a steer as a steer", () => {

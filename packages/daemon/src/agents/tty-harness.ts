@@ -339,6 +339,10 @@ class PiTtyHandle implements AgentHandle {
         await this.tty.channel.enqueue("abort");
     }
 
+    compact(): Promise<string> {
+        return this.tty.channel.enqueue("compact");
+    }
+
     notify(text: string): Promise<string> {
         assert.ok(text.length > 0, "a notice must not be empty");
         return this.tty.channel.enqueue("notify", text);

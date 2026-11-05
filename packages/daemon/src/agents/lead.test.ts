@@ -19,6 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
     ExtractResponse,
@@ -322,6 +323,48 @@ describe("GET /sessions/:dir/mission/view and PUT /sessions/:dir/title", () => {
         const bad = await call("PUT", `/sessions/${dir}/title`, { title: "" });
         expect(bad.status).toBe(400);
         expect((await call("GET", "/sessions/nope/mission/view")).status).toBe(404);
+    });
+
+    // Dogfood #27: an operator's rename pins the title against the lead until he unpins it,
+    // and every change writes a Log line by its author.
+    it("pins the operator's title, refuses the lead's while pinned, logs each change", async () => {
+        const started = await call("POST", "/sessions", { title: "Plain" });
+        const { job } = (await started.json()) as { job: Job };
+        const dir = job.session as string;
+        expect((await wait_job(job.id)).state).toBe("ok");
+        const put = (body: unknown, author?: string): Promise<Response> => {
+            const query = author === undefined ? "" : `?author=${author}`;
+            return call("PUT", `/sessions/${dir}/title${query}`, body);
+        };
+        const yaml = (): { title: string; title_pinned?: boolean } =>
+            parse(readFileSync(join(home.sessions, dir, "session.yaml"), "utf8")) as {
+                title: string;
+                title_pinned?: boolean;
+            };
+        const log = (): string[] =>
+            readFileSync(join(home.sessions, dir, "MISSION.md"), "utf8")
+                .split("\n")
+                .filter((line) => / title: /.test(line));
+
+        expect((await put({ title: "Refunds" }, "lead")).status).toBe(200);
+        expect(yaml().title_pinned).toBeUndefined();
+        expect((await put({ title: "Refund flow" })).status).toBe(200);
+        expect(yaml()).toMatchObject({ title: "Refund flow", title_pinned: true });
+        const refused = await put({ title: "Something else" }, "lead");
+        expect(refused.status).toBe(409);
+        expect(((await refused.json()) as { error: string }).error).toMatch(/pinned the title/);
+        expect((await put({ pinned: false }, "lead")).status).toBe(400);
+        expect(yaml().title).toBe("Refund flow");
+        expect((await put({ pinned: false })).status).toBe(200);
+        expect(yaml()).toEqual(expect.not.objectContaining({ title_pinned: expect.anything() }));
+        expect((await put({ title: "Refunds, round 2" }, "lead")).status).toBe(200);
+        expect((await put({ title: "Refunds, round 2" }, "lead")).status).toBe(200);
+        expect((await put({})).status).toBe(400);
+        expect(log().map((line) => line.replace(/^- \d\d:\d\d /, ""))).toEqual([
+            "lead: title: Refunds (was Plain)",
+            "operator: title: Refund flow (was Refunds)",
+            "lead: title: Refunds, round 2 (was Refund flow)",
+        ]);
     });
 });
 

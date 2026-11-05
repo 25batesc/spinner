@@ -260,6 +260,17 @@ describe("the job drawer", () => {
         expect(dragged.drawer).toEqual({ height: 320, collapsed: true });
     });
 
+    it("starts collapsed by default and on every load, keeping the stored height", () => {
+        expect(DEFAULT_LAYOUT.drawer.collapsed).toBe(true);
+        const storage = memory();
+        const open = reduceLayout(
+            reduceLayout(DEFAULT_LAYOUT, { kind: "drawer", height: 280, max: 600 }),
+            { kind: "drawer-collapse", collapsed: false },
+        );
+        saveLayout(storage, open);
+        expect(loadLayout(storage).drawer).toEqual({ height: 280, collapsed: true });
+    });
+
     it("survives storage with the panes, and falls back field by field", () => {
         const storage = memory();
         const bar = reduceLayout(
@@ -269,7 +280,7 @@ describe("the job drawer", () => {
         saveLayout(storage, bar);
         expect(loadLayout(storage).drawer).toEqual({ height: 260, collapsed: true });
         const partial = memory({ [STORAGE_KEY]: JSON.stringify({ drawer: { height: 5 } }) });
-        expect(loadLayout(partial).drawer).toEqual({ height: 48, collapsed: false });
+        expect(loadLayout(partial).drawer).toEqual({ height: 48, collapsed: true });
         const none = memory({ [STORAGE_KEY]: JSON.stringify({ expanded: false }) });
         expect(loadLayout(none).drawer).toEqual(DEFAULT_LAYOUT.drawer);
     });

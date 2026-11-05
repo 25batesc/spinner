@@ -118,7 +118,7 @@ function state(): unknown {
 
 describe("DesignTracker: the stage from files", () => {
     it("moves intake → brainstorm → drafting and writes .state.json", async () => {
-        expect(session().needs_human).toBe("write Goal and Done when in MISSION.md");
+        expect(session().needs_human).toBeNull();
         await tracker.refresh(summary.dir);
         expect(session().design?.stage).toBe("intake");
         expect(session().needs_human).toBeNull();

@@ -2,10 +2,11 @@
 // pane header, the strip of a collapsed or popped-out pane, the activity bar at the far left
 // and the context bar that names the active session. Chrome shows icons with tooltips, never
 // link text.
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
+import { contextLabel, contextTitle, contextTone, fullestContext } from "./agent-view.ts";
 import { formatTokens, formatUsd } from "./costs.ts";
 import { trackChoices } from "./design.ts";
 import type { PaneName } from "./layout.ts";
@@ -22,6 +23,7 @@ import {
     stackUsageOf,
     type UsageSample,
 } from "./usage.ts";
+import { useMenu } from "./useMenu.ts";
 
 export type IconName =
     | "sessions"
@@ -279,6 +281,30 @@ export function CostFigure({ cost }: { cost: CostTotals | undefined }) {
     );
 }
 
+/**
+ * The session's fullest agent's context use (dogfood row 45, r4.2): `engine 52 %` from 40 %,
+ * amber from 50 %, red from 75 %, the same bands and tooltip as the agent chip
+ * (`agent-view.ts`). Nothing under 40 % or without a known window.
+ */
+export function ContextFigure({ view }: { view: SessionView }) {
+    const fullest = fullestContext(view);
+    const tone = contextTone(fullest?.context);
+    if (fullest === null || tone === null) {
+        return null;
+    }
+    const toneClass = tone === "plain" ? "" : ` pill-${tone}`;
+    return (
+        <span
+            className={`pill context-figure${toneClass}`}
+            data-tone={tone}
+            data-agent={fullest.name}
+            title={`${fullest.name}: ${contextTitle(fullest.context)}`}
+        >
+            {fullest.name} {contextLabel(fullest.context)}
+        </span>
+    );
+}
+
 /** A state pill of a review (s015): the CI state, the review decision. */
 export function StatePill({ pill, className }: { pill: Pill; className: string }) {
     return (
@@ -391,10 +417,10 @@ function TrackChip(props: {
 }) {
     const { dir, track, onError } = props;
     const egm = useLoaded(`egm#${dir}`, fetchEgm).value?.egm ?? null;
-    const [open, setOpen] = useState(false);
+    const menu = useMenu<HTMLSpanElement>();
     const others = trackChoices(egm).filter((choice) => choice !== track);
     const pick = (choice: DesignTrack) => {
-        setOpen(false);
+        menu.close();
         putDesignTrack(dir, choice).catch((failure: unknown) => onError?.(String(failure)));
     };
     if (others.length === 0) {
@@ -405,17 +431,17 @@ function TrackChip(props: {
         );
     }
     return (
-        <span className="track-menu">
+        <span className="track-menu" ref={menu.ref}>
             <button
                 type="button"
                 className="pill track-chip"
                 title="The session's track; click to switch"
-                aria-expanded={open}
-                onClick={() => setOpen(!open)}
+                aria-expanded={menu.open}
+                onClick={menu.toggle}
             >
                 {track} {"\u25be"}
             </button>
-            {open && (
+            {menu.open && (
                 <div className="menu" role="menu" aria-label="Track">
                     {others.map((choice) => (
                         <button key={choice} type="button" onClick={() => pick(choice)}>
@@ -464,7 +490,8 @@ function MachineLine({ usage }: { usage: UsageSample | null }) {
  * the PR header and the context bar. `reviewing` carries a working dot.
  */
 export function ReviewStatePills({ facts }: { facts: ReviewFacts }) {
-    const state = reviewStatePill(facts.state);
+    // After `cancel review` an idle review reads `cancelled` (r4.10, panels' review.ts).
+    const state = reviewStatePill(facts.state, facts.cancelled);
     const draft = draftPill(facts);
     return (
         <>
@@ -556,6 +583,7 @@ export function ContextBar(props: ContextBarProps) {
             </span>
             {stack !== null && <span className="muted usage-line">{stackLine(stack)}</span>}
             <CostFigure cost={view.cost} />
+            <ContextFigure view={view} />
             <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
             {needs !== null && <NeedsPill needs={needs} onNeeds={onNeeds} />}

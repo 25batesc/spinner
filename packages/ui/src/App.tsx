@@ -4,7 +4,7 @@ import type { SessionView } from "@spinner/protocol";
 
 import { AgentsPane } from "./AgentsPane.tsx";
 import { fetchThemes, postAction, putSettings } from "./events-client.ts";
-import { ActivityDrawer } from "./ActivityDrawer.tsx";
+import { ActivityDrawer, drawerOpens, type DrawerWatch } from "./ActivityDrawer.tsx";
 import { ComposerPane } from "./Composer.tsx";
 import { isOpen, isStrip, PANES, type PaneName } from "./layout.ts";
 import { operatorHidden, operatorNotice, postOperator } from "./operator.ts";
@@ -319,6 +319,22 @@ export function App() {
             applyPalette(palette, document.documentElement, themeName);
         }
     }, [themeName, themes]);
+    // The drawer opens itself for a failed job, a failed action or a new needs-you on the shown
+    // session (row 4); the previous read lives in a ref, so a render compares against it.
+    const watchNow: DrawerWatch = {
+        jobId: app.job?.id ?? null,
+        jobState: app.job?.state ?? null,
+        error: app.actionError,
+        dir: selected ?? null,
+        needs: view === undefined ? null : needsHuman(view),
+    };
+    const watchBefore = useRef<DrawerWatch>(watchNow);
+    useEffect(() => {
+        if (drawerOpens(watchBefore.current, watchNow) && layout.layout.drawer.collapsed) {
+            layout.setDrawerCollapsed(false);
+        }
+        watchBefore.current = watchNow;
+    }, [watchNow.jobId, watchNow.jobState, watchNow.error, watchNow.dir, watchNow.needs]);
     const drawer = (
         <ActivityDrawer
             feed={feed}
@@ -573,8 +589,8 @@ export function App() {
     // so the cell is never empty while the fold catches up.
     const sideView = sidebar.view ?? "sessions";
     const sideViews = {
-        sessions: { facts: { count: ordinary.length, needs: needs.sessions }, pane: sessionsPane },
-        reviews: { facts: { count: reviewRows.length, needs: needs.reviews }, pane: reviewsPane },
+        sessions: { facts: { count: ordinary.length }, pane: sessionsPane },
+        reviews: { facts: { count: reviewRows.length }, pane: reviewsPane },
         settings: { facts: undefined, pane: settingsPane },
     };
     const sidePanel = (

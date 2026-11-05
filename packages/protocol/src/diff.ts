@@ -34,6 +34,17 @@ export function diff_log_path(repo: string): string {
  */
 export const DIFF_START_TIMEOUT_MS = 20_000;
 
+/**
+ * A viewer the daemon saw no activity for in this long stops (dogfood #15): no `diff/start`,
+ * no agent's `diff_comments` or `diff_reply`, no new comment message. The next `diff/start`
+ * starts it again. The viewer serves the browser directly, so reading the diff without a
+ * comment does not count.
+ */
+export const DIFF_IDLE_MS = 30 * 60_000;
+
+/** At most this many viewers run across all sessions; a start past it stops the most idle. */
+export const DIFF_VIEWERS_MAX = 6;
+
 /** Time one `diff_comments` or `diff_reply` call gets before the daemon kills the CLI. */
 export const DIFF_TOOL_TIMEOUT_MS = 30_000;
 

@@ -62,6 +62,26 @@ describe("JobRunner", () => {
         });
     });
 
+    // Dogfood #48: a job's command can print the daemon's secrets; the log never keeps them.
+    it("redacts secret values from the log lines, the events and the error", async () => {
+        const { bus, events } = recorder();
+        const token = "ghp_0123456789abcdef";
+        const runner = new JobRunner(bus, { env: { GH_TOKEN: token, HOME: "/home/x" } });
+        runner.start("pr", "s001-alpha", async (log) => {
+            log(`git push https://x:${token}@github.com/acme/web\nHOME=/home/x`);
+            throw new Error(`gh: bad credentials ${token}`);
+        });
+        await settle();
+        const job = runner.get("j-1");
+        expect(job?.log).toEqual([
+            "git push https://x:[redacted:GH_TOKEN]@github.com/acme/web",
+            "HOME=/home/x",
+        ]);
+        expect(job?.error).toBe("gh: bad credentials [redacted:GH_TOKEN]");
+        expect(JSON.stringify(events)).not.toContain(token);
+        expect(JSON.stringify(job)).not.toContain(token);
+    });
+
     it("refuses a second job on a busy session and allows one on another", async () => {
         const { bus } = recorder();
         const runner = new JobRunner(bus);

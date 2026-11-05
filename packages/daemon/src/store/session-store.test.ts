@@ -61,6 +61,8 @@ describe("create_session", () => {
             slug: "payments-refund-flow",
             title: "Payments: refund flow",
             stage: "planned",
+            // Dogfood #2: a session being created asks nothing of the operator.
+            needs_human: null,
             branch: "feat/payments-refund-flow",
             base: "main",
             repos: {},

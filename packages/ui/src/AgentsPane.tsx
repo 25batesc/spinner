@@ -5,7 +5,9 @@
 // and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { agentState, showsTerminal } from "./agent-view.ts";
+import {
+    agentState, contextLabel, contextTitle, contextTone, showsTerminal,
+} from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
@@ -35,7 +37,8 @@ import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
 import { ViewTabs, type ViewTabFold } from "./ViewTabs.tsx";
 import {
-    EGM_NOTICE, tty_path, type AgentCost, type MissionView, type SessionView,
+    EGM_NOTICE, tty_path, type AgentContext, type AgentCost, type MissionView,
+    type SessionView,
 } from "@spinner/protocol";
 
 import { formatUsd } from "./costs.ts";
@@ -99,8 +102,56 @@ function GateCard({ view, onError }: { view: SessionView; onError: (message: str
 export { agentState } from "./agent-view.ts";
 
 /**
+ * The chip's context figure (dogfood row 45): from 40 % the share of the window the agent's
+ * last prompt filled, amber from 50 %, red from 75 %. While the daemon hosts the agent a
+ * `compact` button beside it sends pi's /compact, so the operator acts where the figure is.
+ * The button waits for the daemon's answer, so a double click sends one compaction.
+ */
+function ChipContext(props: {
+    context: AgentContext | null | undefined;
+    hosted: boolean;
+    name: string;
+    onCompact: () => Promise<void>;
+}) {
+    const { context, hosted, name, onCompact } = props;
+    const [sending, setSending] = useState(false);
+    const tone = contextTone(context);
+    if (tone === null || context === null || context === undefined) {
+        return null;
+    }
+    const toneClass = tone === "plain" ? "" : ` pill-${tone}`;
+    return (
+        <>
+            <span
+                className={`pill chip-context${toneClass}`}
+                data-tone={tone}
+                title={contextTitle(context)}
+            >
+                {contextLabel(context)}
+            </span>
+            {hosted && (
+                <button
+                    type="button"
+                    className="chip-compact"
+                    aria-label={`Compact ${name}`}
+                    title="Send pi's /compact: summarise the conversation to free the window"
+                    disabled={sending}
+                    onClick={() => {
+                        setSending(true);
+                        void onCompact().finally(() => setSending(false));
+                    }}
+                >
+                    compact
+                </button>
+            )}
+        </>
+    );
+}
+
+/**
  * The agent row: one chip per agent (a state dot, the name; the harness, model and state as
- * the tooltip), the selected one filled with an × that stops it, and the `+` chip at the end.
+ * the tooltip; the context figure and `compact` from 40 %), the selected one filled with an
+ * × that stops it, and the `+` chip at the end.
  */
 function AgentChips(props: {
     view: SessionView;
@@ -109,8 +160,9 @@ function AgentChips(props: {
     onPick: (name: string) => void;
     onAdd: () => void;
     onStop: (name: string) => void;
+    onCompact: (name: string) => Promise<void>;
 }) {
-    const { view, selected, adding, onPick, onAdd, onStop } = props;
+    const { view, selected, adding, onPick, onAdd, onStop, onCompact } = props;
     const agents = view.summary.session.agents;
     return (
         <div className="chips" role="tablist" aria-label="Agents">
@@ -135,6 +187,12 @@ function AgentChips(props: {
                             <span className={`dot chip-dot dot-${state}`} />
                             {name}
                         </button>
+                        <ChipContext
+                            context={cost?.context}
+                            hosted={hosted}
+                            name={name}
+                            onCompact={() => onCompact(name)}
+                        />
                         {current && hosted && (
                             <button
                                 type="button"
@@ -356,6 +414,10 @@ export function AgentsPane(props: AgentsPaneProps) {
                             }}
                             onStop={(name) =>
                                 void postAgent(`${agentBase(view.summary.dir, name)}/stop`, {})
+                            }
+                            onCompact={(name) =>
+                                postAgent(`${agentBase(view.summary.dir, name)}/compact`, {})
+                                    .catch((failure: unknown) => props.onError(String(failure)))
                             }
                         />
                     )}

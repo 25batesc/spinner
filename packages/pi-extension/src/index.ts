@@ -8,7 +8,13 @@
 // Outside a Spinner session (no `SPINNER_SESSION_DIR`) it registers nothing.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { EXTENSION_MANIFEST, type SessionView } from "@spinner/protocol";
+import {
+    EXTENSION_MANIFEST,
+    redact_values,
+    secret_values,
+    type SecretValue,
+    type SessionView,
+} from "@spinner/protocol";
 import { read_env, type SpinnerEnv } from "./env.js";
 import {
     guard_edit,
@@ -16,7 +22,12 @@ import {
     refuse_operator_bash,
     refuse_process_sweep,
 } from "./guard.js";
-import type { ExtensionAPI, ToolDefinition } from "./pi-api.js";
+import type {
+    ExtensionAPI,
+    ToolDefinition,
+    ToolResultEvent,
+    ToolResultPatch,
+} from "./pi-api.js";
 import { load_session_files, render_operator_section, render_prompt_section } from "./prompt.js";
 import { daemon_client, run_tool, schema_of, type DaemonClient, type Fetch } from "./tools.js";
 import { register_tty, type TtyChannel } from "./tty.js";
@@ -87,6 +98,11 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
         };
         pi.registerTool(tool);
     }
+
+    // Dogfood #48: the agent inherits the operator's secrets; no tool result may carry their
+    // values into the transcript pi records. The environment is read once, at load.
+    const secrets = secret_values(process.env);
+    pi.on("tool_result", (event) => redacted_result(event, secrets));
 
     pi.on("tool_call", (event, ctx) => {
         if (event.toolName === "bash") {
@@ -169,4 +185,40 @@ async function session_view(env: SpinnerEnv, fetch_: Fetch): Promise<SessionView
 
 function read_or_empty(path: string): string {
     return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
+/**
+ * The text parts of a tool result with the secret values replaced, or undefined when none
+ * appears, so pi keeps the result as it was. A structured result is redacted through its
+ * JSON text, since pi drops it when only `content` is replaced.
+ */
+export function redacted_result(
+    event: ToolResultEvent,
+    secrets: readonly SecretValue[],
+): ToolResultPatch | undefined {
+    if (secrets.length === 0) {
+        return undefined;
+    }
+    let changed = false;
+    const content = event.content.map((part) => {
+        if (part.type !== "text") {
+            return part;
+        }
+        const text = redact_values(part.text, secrets);
+        changed ||= text !== part.text;
+        return { ...part, text };
+    });
+    let structured = event.structuredContent;
+    if (structured !== undefined) {
+        const json = JSON.stringify(structured);
+        const clean = redact_values(json, secrets);
+        if (clean !== json) {
+            changed = true;
+            structured = JSON.parse(clean) as unknown;
+        }
+    }
+    if (!changed) {
+        return undefined;
+    }
+    return structured === undefined ? { content } : { content, structuredContent: structured };
 }
