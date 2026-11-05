@@ -19,3 +19,4 @@ export * from "./costs.js";
 export * from "./diff.js";
 export * from "./egm.js";
 export * from "./plan-entries.js";
+export * from "./redact.js";

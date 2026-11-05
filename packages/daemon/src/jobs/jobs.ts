@@ -3,8 +3,8 @@
 // runner serializes jobs per session, bounds how many run at once, and keeps finished jobs in
 // memory for `GET /jobs/:id`. Nothing here touches disk; the work function does.
 import assert from "node:assert/strict";
-import type { Job, JobAction } from "@spinner/protocol";
-import { JOBS_RECENT_MAX } from "@spinner/protocol";
+import type { Job, JobAction, SecretValue } from "@spinner/protocol";
+import { JOBS_RECENT_MAX, redact_values, secret_values } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 
 /** Lines a job keeps. A stack `up` with image builds prints a few hundred. */
@@ -23,6 +23,8 @@ export type JobWork = (log: JobLog, set_session: (dir: string) => void) => Promi
 
 export interface JobRunnerOptions {
     now?: () => Date;
+    /** The environment whose secret values never reach a job log (#48); the daemon's own. */
+    env?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface JobStartOptions {
@@ -40,12 +42,15 @@ export class JobRunner {
     private running_count = 0;
     private next_id = 1;
     private readonly now: () => Date;
+    /** Read once: a job's commands print what the daemon's environment holds (dogfood #48). */
+    private readonly secrets: readonly SecretValue[];
 
     constructor(
         private readonly bus: EventBus,
         options: JobRunnerOptions = {},
     ) {
         this.now = options.now ?? (() => new Date());
+        this.secrets = secret_values(options.env ?? process.env);
     }
 
     get(id: string): Job | null {
@@ -118,7 +123,8 @@ export class JobRunner {
             job.state = "ok";
         } catch (error) {
             job.state = "failed";
-            job.error = error instanceof Error ? error.message : String(error);
+            const message = error instanceof Error ? error.message : String(error);
+            job.error = redact_values(message, this.secrets);
         }
         job.finished = this.now().toISOString();
         this.running_count -= 1;
@@ -139,8 +145,8 @@ export class JobRunner {
 
     private append(job: Job, line: string): void {
         // A multi-line message (a docker log tail) becomes one event per line, so the UI's
-        // drawer and the CLI print the same thing.
-        for (const part of line.split("\n")) {
+        // drawer and the CLI print the same thing. A secret value goes before either sees it.
+        for (const part of redact_values(line, this.secrets).split("\n")) {
             if (job.log.length < JOB_LOG_LINES_MAX) {
                 job.log.push(part);
             } else if (job.log.length === JOB_LOG_LINES_MAX) {

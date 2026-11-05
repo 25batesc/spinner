@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EXTENSION_MANIFEST } from "@spinner/protocol";
 import { glob_to_regex, guard_edit, owned_globs } from "./guard.js";
-import { register } from "./index.js";
+import { redacted_result, register } from "./index.js";
 import type {
     BeforeAgentStartEvent,
     ExtensionAPI,
@@ -264,6 +264,70 @@ describe("registration", () => {
         expect(schema.required).toEqual(["command"]);
         expect(Object.keys(schema.properties)).toEqual(["command", "service", "lines", "session"]);
         expect(JSON.stringify(schema.properties["command"])).toContain('"show"');
+    });
+});
+
+// Dogfood #48: a secret the agent inherited never reaches the result pi records.
+describe("tool result redaction", () => {
+    it("replaces inherited secret values in every tool result before pi records it", () => {
+        const token = "xoxp-test-1111-2222-3333";
+        const saved = process.env["SLACK_USER_TOKEN"];
+        process.env["SLACK_USER_TOKEN"] = token;
+        try {
+            const pi = fake_pi();
+            register(pi, { env: env_for("worker", "") });
+            const handler = pi.handlers.get("tool_result")?.[0] as
+                | ((event: unknown) => unknown)
+                | undefined;
+            expect(handler).toBeDefined();
+            const dump = `declare -x SLACK_USER_TOKEN="${token}"\ndeclare -x HOME="/h"`;
+            const patch = handler?.({
+                type: "tool_result",
+                toolName: "bash",
+                toolCallId: "c1",
+                input: { command: "export -n" },
+                content: [
+                    { type: "text", text: dump },
+                    { type: "image", data: "x", mimeType: "p" },
+                ],
+                isError: false,
+            }) as { content: { type: string; text?: string }[] } | undefined;
+            expect(patch?.content[0]?.text).toBe(
+                'declare -x SLACK_USER_TOKEN="[redacted:SLACK_USER_TOKEN]"\ndeclare -x HOME="/h"',
+            );
+            expect(patch?.content[1]).toEqual({ type: "image", data: "x", mimeType: "p" });
+            expect(JSON.stringify(patch)).not.toContain(token);
+            const clean = handler?.({
+                type: "tool_result",
+                toolName: "read",
+                toolCallId: "c2",
+                input: {},
+                content: [{ type: "text", text: "nothing secret" }],
+                isError: false,
+            });
+            expect(clean).toBeUndefined();
+            const structured = redacted_result(
+                {
+                    type: "tool_result",
+                    toolName: "x",
+                    toolCallId: "c3",
+                    input: {},
+                    content: [],
+                    structuredContent: { env: { token } },
+                    isError: false,
+                },
+                [{ name: "SLACK_USER_TOKEN", value: token }],
+            );
+            expect(structured?.structuredContent).toEqual({
+                env: { token: "[redacted:SLACK_USER_TOKEN]" },
+            });
+        } finally {
+            if (saved === undefined) {
+                delete process.env["SLACK_USER_TOKEN"];
+            } else {
+                process.env["SLACK_USER_TOKEN"] = saved;
+            }
+        }
     });
 });
 
