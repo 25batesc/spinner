@@ -230,6 +230,11 @@ export interface Session {
     /** URL-safe slug; the directory is `<id>-<slug>`. */
     slug: string;
     title: string;
+    /**
+     * True after the operator renamed the session (dogfood #27): the lead's `session_title`
+     * is refused until the operator unpins it. Absent means false.
+     */
+    title_pinned?: boolean;
     /** Project name whose `spinner.yaml` configures the stack and the pipeline tracker. */
     project?: string;
     /** ISO 8601 date or timestamp. */

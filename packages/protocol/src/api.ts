@@ -52,7 +52,11 @@ export const ROUTES = {
     "POST /sessions/extract": "ExtractResponse",
     /** Adopt PR references into an existing session. Body: SessionAdoptRequest. */
     "POST /sessions/:dir/adopt": "JobResponse",
-    /** Set the title in `session.yaml` and the mission heading. Body: SessionTitleRequest. */
+    /**
+     * Set the title in `session.yaml` and the mission heading, or pin and unpin it. Body:
+     * SessionTitleRequest; `?author=<agent>` for an agent's write, the operator otherwise.
+     * 409 for an agent's write while the title is pinned (dogfood #27).
+     */
     "PUT /sessions/:dir/title": "SessionResponse",
     /** The structured mission (s014): the sections of MISSION.md parsed, derived on each read. */
     "GET /sessions/:dir/mission/view": "MissionViewResponse",
@@ -804,9 +808,14 @@ export interface SessionAdoptRequest {
     refs: string[];
 }
 
-/** `PUT /sessions/:dir/title`. */
+/**
+ * `PUT /sessions/:dir/title` (dogfood #27). At least one field. The operator's `title` renames
+ * and pins (`pinned` defaults to true); `{ pinned: false }` alone unpins and keeps the title.
+ * An agent sends `title` only; a changed title writes the Log line `title: <new> (was <old>)`.
+ */
 export interface SessionTitleRequest {
-    title: string;
+    title?: string;
+    pinned?: boolean;
 }
 
 /** Upper bound on a session title; the provisional one from a paste is cut to this. */
