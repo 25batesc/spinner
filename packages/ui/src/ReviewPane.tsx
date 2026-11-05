@@ -3,7 +3,7 @@
 // `$`; nothing to click, the agents are headless), the lead's briefing and draft
 // (`ReviewDraft.tsx`), and the threads view live. There is no pipeline toolbar and no
 // terminal view; `review` lives in the context bar.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { SessionView, SwarmMember } from "@spinner/protocol";
 
@@ -12,6 +12,7 @@ import { ReviewPills, type IconButtonProps } from "./PaneHead.tsx";
 import { leadDot, swarmDot, swarmLine, type LeadChip, type ReviewFacts } from "./review.ts";
 import { ReviewBriefing, ReviewDraftBlock, ReviewPosted } from "./ReviewDraft.tsx";
 import type { RunAction } from "./SessionForms.tsx";
+import { postReviewApprove, postReviewCancel } from "./remote.ts";
 import type { Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ViewTabs } from "./ViewTabs.tsx";
@@ -34,7 +35,75 @@ export function modelShort(model: string): string {
     return name.replace(/^claude-/, "");
 }
 
-/** The PR header: the title as a link, the author, `branch → base`, the pills. */
+/**
+ * The one-click answers of a review (dogfood #22), on the card and the PR header: `approve`
+ * posts APPROVE "LGTM" as the operator after one question that names the PR, since it
+ * speaks for the operator on GitHub; `cancel review` shows while the swarm or the lead
+ * works and stops them at once. The daemon's `session.updated` carries the result (the
+ * `posted` or `cancelled` pill); a refusal shows under the buttons.
+ */
+export function ReviewActions({ facts }: { facts: ReviewFacts }) {
+    const [asking, setAsking] = useState(false);
+    const [pending, setPending] = useState<"approve" | "cancel" | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const act = (kind: "approve" | "cancel", call: () => Promise<unknown>) => {
+        setPending(kind);
+        setError(null);
+        call().then(
+            () => setAsking(false),
+            (failure: unknown) => setError(String(failure)),
+        ).finally(() => setPending(null));
+    };
+    const busy = pending !== null;
+    const ref = facts.pr_ref;
+    if (asking && ref !== null) {
+        return (
+            <span className="rv-confirm rv-actions" role="group" aria-label="Confirm approve">
+                <span>Approve {ref} as you?</span>
+                <button
+                    type="button"
+                    className="primary"
+                    disabled={busy}
+                    onClick={() => act("approve", () => postReviewApprove(facts.dir))}
+                >
+                    {pending === "approve" ? "approving…" : "approve"}
+                </button>
+                <button type="button" disabled={busy} onClick={() => setAsking(false)}>
+                    no
+                </button>
+                {error !== null && <span className="needs-human rv-action-error">{error}</span>}
+            </span>
+        );
+    }
+    return (
+        <span className="rv-actions">
+            {ref !== null && (
+                <button
+                    type="button"
+                    disabled={busy}
+                    title={`Post APPROVE "LGTM" on ${ref} as you, without a swarm`}
+                    onClick={() => setAsking(true)}
+                >
+                    approve
+                </button>
+            )}
+            {facts.state === "reviewing" && (
+                <button
+                    type="button"
+                    className="danger"
+                    disabled={busy}
+                    title="Stop the reviewers and the lead; their verdicts are archived"
+                    onClick={() => act("cancel", () => postReviewCancel(facts.dir))}
+                >
+                    {pending === "cancel" ? "cancelling…" : "cancel review"}
+                </button>
+            )}
+            {error !== null && <span className="needs-human rv-action-error">{error}</span>}
+        </span>
+    );
+}
+
+/** The PR header: the title as a link, the author, `branch → base`, the pills, the answers. */
 function ReviewHeader({ facts }: { facts: ReviewFacts }) {
     const title = facts.url === null
         ? <strong className="rv-head-title">{facts.title}</strong>
@@ -51,6 +120,7 @@ function ReviewHeader({ facts }: { facts: ReviewFacts }) {
                 <code className="rv-branches">{facts.branch} → {facts.base}</code>
             </span>
             <ReviewPills facts={facts} />
+            <ReviewActions facts={facts} />
         </header>
     );
 }

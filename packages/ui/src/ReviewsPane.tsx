@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
 import { ReviewPills } from "./PaneHead.tsx";
+import { ReviewActions } from "./ReviewPane.tsx";
 import { swarmLine, type ReviewFacts } from "./review.ts";
 import type { RunAction } from "./SessionForms.tsx";
 import { NewButton } from "./Sidebar.tsx";
@@ -26,7 +27,10 @@ export interface ReviewsPaneProps {
     composing: boolean;
 }
 
-/** One review: the facts, the pills, `review` and `open on GitHub`, and `archive` on hover. */
+/**
+ * One review: the facts, the pills, `review`, `approve`, `cancel review` while it runs, `open
+ * on GitHub`, and `archive` on hover.
+ */
 function ReviewCard(props: {
     facts: ReviewFacts;
     selected: boolean;
@@ -77,6 +81,7 @@ function ReviewCard(props: {
                 >
                     review
                 </button>
+                <ReviewActions facts={facts} />
                 {facts.url !== null && (
                     <a
                         className="rv-github"

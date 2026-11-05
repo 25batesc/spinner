@@ -43,6 +43,10 @@ export interface ReviewFacts {
     comment_count: number;
     /** The draft's event; null without a draft. */
     event: ReviewEvent | null;
+    /** True after the operator's `cancel review` (#22), until the next action. */
+    cancelled: boolean;
+    /** `owner/repo#n` of the PR, for the approve question; null without a GitHub PR URL. */
+    pr_ref: string | null;
     usd: number | null;
     /** ISO 8601: the PR's last activity, else the session's creation. */
     last_activity: string;
@@ -101,6 +105,8 @@ export function reviewFacts(view: SessionView): ReviewFacts | null {
         state: fields?.state ?? derivedState(fields),
         comment_count: fields?.comment_count ?? fields?.draft?.comments.length ?? 0,
         event: fields?.event ?? fields?.draft?.event ?? null,
+        cancelled: fields?.cancelled ?? false,
+        pr_ref: prRef(pr?.url ?? null),
         usd: view.cost?.usd ?? null,
         last_activity: pr?.last_activity ?? session.created,
     };
@@ -121,13 +127,27 @@ function derivedState(fields: SessionView["review"] | undefined): ReviewProgress
     return working || fields.swarm.some((m) => m.state === "done") ? "reviewing" : "idle";
 }
 
+/** `owner/repo#n` from a GitHub PR URL; null for any other URL. */
+export function prRef(url: string | null): string | null {
+    const match = url === null ? null : /github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
+    if (match === null) {
+        return null;
+    }
+    return `${match[1] ?? ""}#${match[2] ?? ""}`;
+}
+
 /**
  * The review state pill: `reviewing` with a working dot, `drafted` while the operator's
- * answer waits, `posted` green. Null while idle: no swarm has run.
+ * answer waits, `posted` green. While idle, `cancelled` after the operator's `cancel review`
+ * (#22), so the card says why nothing runs; else null: no swarm has run.
  */
-export function reviewStatePill(state: ReviewProgress): Pill | null {
+export function reviewStatePill(state: ReviewProgress, cancelled = false): Pill | null {
     switch (state) {
         case "idle":
+            if (cancelled) {
+                const title = "You cancelled the review; `review` starts it again";
+                return { text: "cancelled", tone: "", title };
+            }
             return null;
         case "reviewing":
             return {

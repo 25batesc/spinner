@@ -17,7 +17,9 @@ import {
     type OperatorView,
     type SessionResponse,
     type SessionsResponse,
+    type ReviewCancelResponse,
     type ReviewFields,
+    type ReviewPostResponse,
     type SessionView,
     type SpinnerEvent,
 } from "@spinner/protocol";
@@ -145,6 +147,44 @@ it("POST /reviews makes a review per PR and runs the lead's process to the draft
         body: JSON.stringify({ text: "nothing here" }),
     });
     expect(empty.status).toBe(409);
+});
+
+it("cancels a running review for good and approves in one call, as the daemon (#22)", async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/r77-web-77`;
+    const fields = async () => {
+        const body = (await (await fetch(base)).json()) as SessionResponse;
+        return body.session;
+    };
+    // A new run: the lead and the queued swarm, state `reviewing`.
+    expect((await fetch(`${base}/review`, { method: "POST" })).status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await fields()).review?.state).toBe("reviewing");
+    const cancelled = await fetch(`${base}/review/cancel`, { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    const answer = (await cancelled.json()) as ReviewCancelResponse;
+    expect(answer.ok).toBe(true);
+    expect(answer.stopped).toContain("lead");
+    const after = await fields();
+    expect(after.review).toMatchObject({ state: "idle", cancelled: true, swarm: [] });
+    expect(after.agents_running).not.toContain("lead");
+    // The process that was running wakes later and must not write over the cancel.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect((await fields()).review).toMatchObject({ state: "idle", cancelled: true });
+
+    const approved = await fetch(`${base}/review/approve`, { method: "POST" });
+    expect(approved.status).toBe(200);
+    const posted = (await approved.json()) as ReviewPostResponse;
+    expect(posted).toEqual({
+        url: "https://github.com/example/web/pull/77#pullrequestreview-9001",
+        event: "APPROVE", fell_back: false,
+    });
+    expect((await fields()).review).toMatchObject({
+        posted_url: posted.url, review_decision: "approved", cancelled: false,
+    });
+    const ordinary = `http://127.0.0.1:${port}/sessions/s001-bootstrap/review`;
+    expect((await fetch(`${ordinary}/approve`, { method: "POST" })).status).toBe(409);
+    expect((await fetch(`${ordinary}/cancel`, { method: "POST" })).status).toBe(409);
 });
 
 it("runs `up` as a job: 202, job.log lines, job.finished, then a healthy stack", async () => {

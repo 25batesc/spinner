@@ -5,14 +5,17 @@
 // `FAILING_MODEL` ends `failed` with its reason), and the
 // lead writes the draft, which sets `needs_human`. `GET /sessions/:dir/review/briefing` serves
 // the briefing; `PUT` and `DELETE /sessions/:dir/review/draft` edit and drop the draft;
-// `POST /sessions/:dir/review/post` answers a URL and sets `posted_url`. Every change emits
+// `POST /sessions/:dir/review/post` answers a URL and sets `posted_url`. `POST
+// /sessions/:dir/review/approve` posts APPROVE at once and `POST /sessions/:dir/review/cancel`
+// stops the swarm and the lead and sets `cancelled` (#22). Every change emits
 // `review.updated`. The shape of the review fields is in `src/review.ts`.
 import type { ServerResponse } from "node:http";
 
 import {
     LEAD_NAME, REVIEW_DRAFT_NEEDS_HUMAN,
-    type Job, type JobAction, type PrFacts, type ReviewDraft, type ReviewFields,
-    type ReviewProgress, type SessionView, type SpinnerEvent, type SwarmMember,
+    type Job, type JobAction, type PrFacts, type ReviewCancelResponse, type ReviewDraft,
+    type ReviewFields, type ReviewPostResponse, type ReviewProgress, type SessionView,
+    type SpinnerEvent, type SwarmMember,
 } from "@spinner/protocol";
 
 import {
@@ -83,6 +86,13 @@ export class ReviewFixture {
     private counter = 0;
     /** The session files the routes serve, keyed `<dir>/<path>`. */
     private readonly files = new Map<string, string>();
+    /**
+     * The newest process per session: a cancel bumps it, so a process that wakes after the
+     * cancel sees a newer number and ends instead of writing over the cancelled state.
+     */
+    private readonly runs = new Map<string, number>();
+    /** Review sessions whose lead a cancel stopped; a new process hosts it again. */
+    private readonly stoppedLeads = new Set<string>();
 
     constructor(host: ReviewHost) {
         this.host = host;
@@ -160,22 +170,35 @@ export class ReviewFixture {
         if (current === undefined) {
             return;
         }
+        const run = (this.runs.get(dir) ?? 0) + 1;
+        this.runs.set(dir, run);
+        const step = async (ms: number) => {
+            await sleep(ms);
+            return this.runs.get(dir) === run;
+        };
         const repo = current.board?.prs[0]?.repo ?? "repo";
         const members: SwarmMember[] = SWARM_MODELS.map((model) => ({
             name: reviewerName(model), model, state: "queued", usd: 0, pr: repo, error: null,
         }));
-        this.put(dir, { swarm: members, briefing: false, draft: null, posted_url: null },
-            log, "lead started; swarm queued", { lead: "running" });
-        await sleep(STEP_MS);
+        this.put(dir, {
+            swarm: members, briefing: false, draft: null, posted_url: null, cancelled: false,
+        }, log, "lead started; swarm queued", { lead: "running" });
+        if (!(await step(STEP_MS))) {
+            return;
+        }
         this.files.set(`${dir}/artifacts/briefing.md`, BRIEFING_MD);
         this.put(dir, { briefing: true }, log, "lead wrote artifacts/briefing.md");
         for (const [index, member] of members.entries()) {
-            await sleep(STEP_MS);
+            if (!(await step(STEP_MS))) {
+                return;
+            }
             members[index] = { ...member, state: "reading", usd: 0.05 };
             this.put(dir, { swarm: members }, log, `${member.name} reading the diff`);
         }
         for (const [index, member] of members.entries()) {
-            await sleep(STEP_MS * 2);
+            if (!(await step(STEP_MS * 2))) {
+                return;
+            }
             if (member.model === FAILING_MODEL) {
                 members[index] = { ...member, state: "failed", usd: 0, error: REVIEWER_ERROR };
                 this.put(dir, { swarm: members }, log, `${member.name} FAILED: ${REVIEWER_ERROR}`);
@@ -186,7 +209,9 @@ export class ReviewFixture {
             this.put(dir, { swarm: members }, log,
                 `${member.name} VERDICT saved to artifacts/reviews/${slug}.md`);
         }
-        await sleep(STEP_MS);
+        if (!(await step(STEP_MS))) {
+            return;
+        }
         this.put(dir, { draft: DRAFT }, log, "lead wrote artifacts/review-draft.json",
             { lead: "idle", needs_human: REVIEW_DRAFT_NEEDS_HUMAN });
     }
@@ -198,7 +223,8 @@ export class ReviewFixture {
     handle(
         method: string, path: string, body: Record<string, unknown>, response: ServerResponse,
     ): boolean {
-        const route = /^\/sessions\/([^/]+)\/review\/(briefing|draft|post)$/.exec(path);
+        const route = /^\/sessions\/([^/]+)\/review\/(briefing|draft|post|approve|cancel)$/
+            .exec(path);
         const dir = route?.[1] ?? "";
         const current = this.host.sessions.get(dir);
         if (route === null || current === undefined) {
@@ -246,7 +272,56 @@ export class ReviewFixture {
             sendJson(response, { url, event });
             return true;
         }
+        if (route[2] === "approve" && method === "POST") {
+            this.approve(dir, current, response);
+            return true;
+        }
+        if (route[2] === "cancel" && method === "POST") {
+            this.cancel(dir, current, response);
+            return true;
+        }
         return false;
+    }
+
+    /** `POST …/review/approve`: APPROVE "LGTM" at the head, as posted; 409 without a PR. */
+    private approve(dir: string, current: SessionView, response: ServerResponse): void {
+        const prUrl = current.board?.prs[0]?.url;
+        if (prUrl === undefined || prUrl === "") {
+            sendJson(response, { error: `${dir} has no PR to review` }, 409);
+            return;
+        }
+        const url = postedUrl(prUrl);
+        this.put(dir, { posted_url: url, review_decision: "approved", cancelled: false },
+            () => undefined, "");
+        const body: ReviewPostResponse = { url, event: "APPROVE", fell_back: false };
+        sendJson(response, body);
+    }
+
+    /**
+     * `POST …/review/cancel`: the queued and reading reviewers and a review's lead stop, the
+     * verdicts are archived, `cancelled` is set; 409 when the session has no review.
+     */
+    private cancel(dir: string, current: SessionView, response: ServerResponse): void {
+        if (current.review === undefined && !isReviewSession(current)) {
+            sendJson(response, { error: `${dir} has no review to cancel` }, 409);
+            return;
+        }
+        this.runs.set(dir, (this.runs.get(dir) ?? 0) + 1);
+        const swarm = this.fieldsOf(current).swarm;
+        const stopped = swarm
+            .filter((member) => member.state === "queued" || member.state === "reading")
+            .map((member) => member.name);
+        const archived = swarm
+            .filter((member) => member.state === "done")
+            .map((member) => `artifacts/reviews-cancelled/${member.name}.md`);
+        const leadHosted = current.agents_running.includes(LEAD_NAME);
+        if (isReviewSession(current) && leadHosted) {
+            stopped.push(LEAD_NAME);
+        }
+        const extra = isReviewSession(current) ? { lead: "stopped" as const } : {};
+        this.put(dir, { swarm: [], cancelled: true }, () => undefined, "", extra);
+        const body: ReviewCancelResponse = { ok: true, stopped, archived };
+        sendJson(response, body);
     }
 
     private fieldsOf(view: SessionView): ReviewFields {
@@ -259,7 +334,7 @@ export class ReviewFixture {
         change: Partial<ReviewFields>,
         log: (line: string) => void,
         line: string,
-        extra: { lead?: "running" | "idle"; needs_human?: string | null } = {},
+        extra: { lead?: "running" | "idle" | "stopped"; needs_human?: string | null } = {},
     ): void {
         const current = this.host.sessions.get(dir);
         if (current === undefined) {
@@ -275,15 +350,21 @@ export class ReviewFixture {
                 process: member.state === "reading" ? "running" : "idle",
             };
         }
+        if (extra.lead === "stopped") {
+            this.stoppedLeads.add(dir);
+        } else if (extra.lead !== undefined) {
+            this.stoppedLeads.delete(dir);
+        }
         if (extra.lead !== undefined) {
-            agents[LEAD_NAME] = { harness: "rpc", model: LEAD_MODEL, process: extra.lead };
+            const process = extra.lead === "running" ? "running" : "idle";
+            agents[LEAD_NAME] = { harness: "rpc", model: LEAD_MODEL, process };
         }
         const leadRunning = agents[LEAD_NAME]?.process === "running";
         const review = progress(merged, leadRunning);
         const running = review.swarm
             .filter((member) => member.state === "reading")
             .map((member) => member.name);
-        if (agents[LEAD_NAME] !== undefined) {
+        if (agents[LEAD_NAME] !== undefined && !this.stoppedLeads.has(dir)) {
             running.unshift(LEAD_NAME);
         }
         const needs_human = extra.needs_human === undefined ? base.needs_human : extra.needs_human;
