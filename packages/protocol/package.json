@@ -1,6 +1,6 @@
 {
     "name": "@spinner/protocol",
-    "version": "0.15.2",
+    "version": "0.16.0",
     "private": true,
     "description": "Shared types and JSON schema for Spinner sessions, events and the daemon API.",
     "license": "MIT",
