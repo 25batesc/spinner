@@ -192,6 +192,34 @@ describe("apply_mission_write", () => {
         ).toContain("item.id");
     });
 
+    it("item mode: the entry token is written first, kept by edit and tick, moved by a token", () => {
+        const item = (text: string, request: MissionSectionRequest["item"]): string =>
+            apply_mission_write(
+                text,
+                { section: "plan", mode: "item", text: "", author: "lead", item: request },
+                "10:05",
+            ).text;
+        let text = item(base, { command: "add", text: "`a.ts`", entry: "2.3" });
+        expect(mission_section(text, "Plan")).toBe("- [ ] 1. [2.3] `a.ts` (lead)");
+        text = item(text, { command: "edit", id: 1, text: "`a.ts` and `b.ts`" });
+        expect(mission_section(text, "Plan")).toBe("- [ ] 1. [2.3] `a.ts` and `b.ts` (lead)");
+        text = item(text, { command: "tick", id: 1 });
+        expect(mission_section(text, "Plan")).toBe("- [x] 1. [2.3] `a.ts` and `b.ts` (lead, 10:05)");
+        text = item(text, { command: "edit", id: 1, text: "[2.4] `c.ts`" });
+        expect(mission_section(text, "Plan")).toBe("- [x] 1. [2.4] `c.ts` (lead, 10:05)");
+        const refused = (request: MissionSectionRequest["item"]): string | null =>
+            validate_mission_write({
+                section: "plan",
+                mode: "item",
+                text: "",
+                author: "lead",
+                item: request,
+            });
+        expect(refused({ command: "tick", id: 1, entry: "2.3" })).toContain("add only");
+        expect(refused({ command: "add", text: "x", entry: "x" })).toContain("entry id");
+        expect(refused({ command: "add", text: "x", entry: "2.3" })).toBeNull();
+    });
+
     it("item mode gives older Plan lines ids on the first write and keeps notes in place", () => {
         const old = [
             "# s9 \u00b7 Old",
@@ -273,6 +301,32 @@ describe("MissionWriter", () => {
         expect(lines[19]).toBe("- 10:30 api: line 20");
         expect(events.filter((event) => event.type === "mission.changed")).toHaveLength(20);
         expect(writer.last_write("s9-test")?.author).toBe("api");
+    });
+
+    it("rewrite applies a function to the file and publishes one mission.changed", async () => {
+        const writer = new MissionWriter(home, bus, { now: () => new Date(2026, 9, 28, 12, 0) });
+        const first = writer.write("s9-test", {
+            section: "log",
+            mode: "append",
+            text: "before",
+            author: "lead",
+        });
+        const rewrite = writer.rewrite("s9-test", "spinner", (text) =>
+            text.replace("## Plan\n", "## Plan\n- [ ] 1. [1.1] seeded\n"),
+        );
+        await Promise.all([first, rewrite]);
+        const text = readFileSync(join(home.sessions, "s9-test", "MISSION.md"), "utf8");
+        expect(mission_section(text, "Plan")).toContain("- [ ] 1. [1.1] seeded");
+        expect(mission_section(text, "Log")).toContain("before");
+        const changed = events.filter((event) => event.type === "mission.changed");
+        expect(changed).toHaveLength(2);
+        expect(changed[1]).toMatchObject({ author: "spinner", sections: [] });
+        expect(changed[1]?.type === "mission.changed" && changed[1].view.plan[0]).toMatchObject({
+            id: 1,
+            entry: "1.1",
+            text: "seeded",
+        });
+        expect(writer.last_write("s9-test")?.author).toBe("spinner");
     });
 
     it("rewrites the agent's NOTES.md on a Roster row write", async () => {

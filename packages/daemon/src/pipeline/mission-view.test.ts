@@ -20,6 +20,7 @@ describe("parse_item and render_item", () => {
             id: 3,
             text: "Extract",
             owner: "engine",
+            entry: null,
             ticked_at: null,
         });
         expect(parse_item("- [x] 3. Extract (engine, 14:02)")).toEqual({
@@ -27,6 +28,7 @@ describe("parse_item and render_item", () => {
             id: 3,
             text: "Extract",
             owner: "engine",
+            entry: null,
             ticked_at: "14:02",
         });
         expect(parse_item("- [ ] 4. Order page button (admin-ui, after 3)")).toEqual({
@@ -34,6 +36,7 @@ describe("parse_item and render_item", () => {
             id: 4,
             text: "Order page button (after 3)",
             owner: "admin-ui",
+            entry: null,
             ticked_at: null,
         });
         expect(parse_item("- [ ] 9. Lessons (the operator)")?.owner).toBe("the operator");
@@ -42,6 +45,7 @@ describe("parse_item and render_item", () => {
             id: null,
             text: "Refund button on the order page",
             owner: "web",
+            entry: null,
             ticked_at: null,
         });
         expect(parse_item("- [x] all three PRs green")).toEqual({
@@ -49,6 +53,7 @@ describe("parse_item and render_item", () => {
             id: null,
             text: "all three PRs green",
             owner: null,
+            entry: null,
             ticked_at: null,
         });
         // A trailing parenthesis with prose in it is part of the text.
@@ -71,8 +76,43 @@ describe("parse_item and render_item", () => {
             expect(item).not.toBeNull();
             expect(render_item(item!)).toBe(line);
         }
-        const unowned = { checked: true, id: 2, text: "x", owner: null, ticked_at: "09:10" };
+        const unowned = {
+            checked: true,
+            id: 2,
+            text: "x",
+            owner: null,
+            entry: null,
+            ticked_at: "09:10",
+        };
         expect(render_item(unowned)).toBe("- [x] 2. x (?, 09:10)");
+    });
+
+    it("reads the entry token on every form and round-trips it first (T3)", () => {
+        expect(parse_item("- [ ] 7. [1.5] packages/protocol/src/plan-entries.ts (engine)")).toEqual({
+            checked: false,
+            id: 7,
+            text: "packages/protocol/src/plan-entries.ts",
+            owner: "engine",
+            entry: "1.5",
+            ticked_at: null,
+        });
+        const lines = [
+            "- [ ] 7. [1.5] plan-entries.ts (engine)",
+            "- [x] 7. [1.5] plan-entries.ts (engine, 14:02)",
+            "- [ ] [3] retry the probe",
+            "- [x] [2.21] done when line (lead, 09:00)",
+        ];
+        for (const line of lines) {
+            const item = parse_item(line);
+            expect(item?.entry).not.toBeNull();
+            expect(render_item(item!)).toBe(line);
+        }
+        // The legacy prefix of the old build message parses and renders as the token.
+        const legacy = parse_item("- [ ] 4. plan 2.21: `packages/ui/src/styles.css` (ui)");
+        expect(legacy).toMatchObject({ entry: "2.21", text: "`packages/ui/src/styles.css`" });
+        expect(render_item(legacy!)).toBe("- [ ] 4. [2.21] `packages/ui/src/styles.css` (ui)");
+        // A bracket text that is not a token stays text.
+        expect(parse_item("- [ ] 4. [D7] fix")).toMatchObject({ entry: null, text: "[D7] fix" });
     });
 });
 
@@ -108,13 +148,13 @@ describe("mission_view", () => {
             "",
             "## Done when",
             "- [x] API agreed (lead, 10:01)",
-            "- [ ] UI done",
+            "- [ ] [1.1] UI done",
             "",
             "## Plan",
             "- [x] 1. contract (lead, 10:01)",
             "- [ ] 2. workflow (backend)",
             "- [ ] 3. tests (backend)",
-            "- [ ] 4. page (web)",
+            "- [ ] 4. [2.3] page (web)",
             "- [ ] 5. review #4 (web)",
             "- [ ] copy (lead)",
             "",
@@ -155,6 +195,11 @@ describe("mission_view", () => {
             [6, "next"],
         ]);
         expect(view.plan[0]?.ticked_at).toBe("10:01");
+        // The view carries the entry; a token on a Done when line is text with no effect.
+        expect(view.plan.map((item) => item.entry)).toEqual([null, null, null, "2.3", null, null]);
+        expect(view.plan[3]?.text).toBe("page");
+        expect(view.done_when[1]).toMatchObject({ text: "UI done", state: "open" });
+        expect("entry" in (view.done_when[1] ?? {})).toBe(false);
         expect(view.contracts[0]?.text).toBe("`POST /refunds` → 202\n```ts\ntype X = 1;\n```");
         expect(view.contracts[1]).toMatchObject({ ts: "2026-11-02", author: "Cullen" });
         expect(view.questions).toEqual([
