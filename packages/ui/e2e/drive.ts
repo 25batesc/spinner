@@ -12,24 +12,26 @@
 // opens the right pane's `diff` view, starts the viewers, checks the keys reach the frame,
 // switches repo, expands the pane, and stops and restarts a viewer from the services view. The
 // flow `about-egm` reads the About EGM block in settings and watches it reload after a
-// refetch. The flow `design-stepper` reads the EGM stepper, the card's dots and the track
-// chip, folds the stepper at 1100 px and checks one line at 1000 px; `rounds` reads the round
-// badge and its tooltip. Both read the fixture's EGM sessions. The flow `design-actions`
+// refetch. The flow `view-tabs` reads the row of view tabs with its step marks, the card's
+// dots and the track chip, and folds the EGM tabs in a 1000 px window; `rounds` reads the
+// round badge and its tooltip. Both read the fixture's EGM sessions. The flow `design-actions`
 // runs the toolbar's design group: the primary button per stage, its dialogs, the `EGM ▾`
 // menu, a refusal in the drawer and the compact menu; `design-gate` answers the gate card from
 // the `needs you` pill, the resolve card, and a gate the lead asks while the page is open.
 // Both read the fixture's `GET …/design/received`, so they run against the fixture only, as
-// does `design-workspace`: the five tabs of the design view, the stepper and the round badge
-// that open them, and a revision request (build session 5). The flow `sidebar` opens each
+// does `design-workspace`: the views of the agents pane by tab id, the round badge that opens
+// History, a revision request, the done marks on Draft and the Implement list of the seeded
+// session (session-workspace.md). The flow `sidebar` opens each
 // view from the rail, collapses the panel from the lit icon, reads the needs-you badges,
 // walks the three width levels and snaps the panel shut with the rail in place; `reload`
 // reloads a session view and a review view and checks each comes back (s020). Both read the
 // fixture's sessions. The flow `goldfish` reads the Goldfish chips of the fixture's design-review
 // session, opens a transcript and watches it reload, returns to the lead, and reads the cap
-// line and the stepper's running count and cost tooltip; it runs against the fixture only.
+// line and the Review tab's running count and cost tooltip; it runs against the fixture only.
 // The flow `approve-design` approves the design-ready session through the blocker
 // confirmation, removes the approval, and re-approves the changed session from the Design
-// tab's banner with the changed section side by side (build session 6); fixture only.
+// tab's banner with the changed section side by side, and reads the seed counts (build
+// session 6; session-workspace.md); fixture only.
 // The flow `composer` opens the composer in the working area from the sidebar, keeps its
 // draft across a switch, and starts a session that opens on its lead and a review (s038);
 // `archive` archives from a card, from the context bar's menu and from a review card, and
@@ -327,30 +329,41 @@ if (flow === "bridge-stub") {
 }
 
 if (flow === "workspace") {
-    // The mission view is the workspace (s014). On the fixture mission: the Goal card, the
-    // Done-when checklist, the Plan in three columns with owner chips, the Roster, one open
-    // question, the Contracts and the Log newest first. A tick writes through the item mode
-    // and comes back with the time; an edit changes the text; a note reaches the owner's
-    // inbox; an answer steers the asker and lands in the Log; the filter narrows the feed;
-    // `source` shows the rendered MISSION.md.
+    // The Implement view (docs/designs/session-workspace.md, T6, entry 2.31). On the fixture
+    // mission of a session without a design block: the editable goal, the sticky header with
+    // the counts, the Plan as one `Plan` group with a state dot per row (doing first), the
+    // Done-when checklist, the Roster in the rail, one open question, the Contracts and the
+    // Log newest first. A tick writes through the item mode and comes back with the time; an
+    // edit changes the text; a note reaches the owner's inbox; an answer steers the asker and
+    // lands in the Log; the filter narrows the feed; `source` shows the rendered MISSION.md.
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
-    await click(".agents-pane .tab", "mission");
-    await until("workspace shown", `document.querySelector(".mw") !== null`);
-    const columns = `[...document.querySelectorAll(".mw-column")]
-        .map((c) => [c.getAttribute("aria-label"), c.querySelectorAll(".mw-item").length])`;
+    await click(".agents-pane .tab", "Implement");
+    await until("workspace shown", `document.querySelector(".im") !== null`);
+    const phases = `[...document.querySelectorAll(".im-phase")].map((p) => [
+        p.querySelector(".im-phase-label").textContent, p.dataset.open,
+        [...p.querySelectorAll(".im-row")].map((r) => r.dataset.state)])`;
     const shape = await evaluate(`({
-        columns: ${columns},
+        phases: ${phases},
+        header: [...document.querySelectorAll(".im-header .mw-pulse-pill")]
+            .map((pill) => pill.textContent),
+        sticky: getComputedStyle(document.querySelector(".im-header")).position,
         doneWhen: document.querySelectorAll(".mw-done-when .mw-item").length,
-        agents: [...document.querySelectorAll(".mw-agent-name")].map((a) => a.textContent),
-        questions: document.querySelectorAll(".mw-questions .mw-question-text").length,
-        contracts: document.querySelectorAll(".mw-contracts .mw-item").length,
+        agents: [...document.querySelectorAll(".im-rail .mw-agent-name")]
+            .map((a) => a.textContent),
+        live: [...document.querySelectorAll(".im-rail .im-live")].map((d) => d.dataset.state),
+        questions: document.querySelectorAll(".im-rail .mw-questions .mw-question-text").length,
+        contracts: document.querySelectorAll(".im-rail .mw-contracts .mw-item").length,
         log: [...document.querySelectorAll(".mw-feed .mw-line-text")].map((l) => l.textContent),
         goal: document.querySelector(".mw-goal .mw-text")?.textContent,
     })`);
     console.log("workspace:", JSON.stringify(shape));
     const wanted = {
-        columns: [["Next", 1], ["Doing", 1], ["Done", 1]],
-        doneWhen: 2, agents: ["backend", "frontend"], questions: 1, contracts: 1,
+        phases: [["Plan", "true", ["doing", "next", "done"]]],
+        header: ["plan 1 / 3", "1 in progress", "done when 1 / 2", "1 open question",
+            "frontend blocked"],
+        sticky: "sticky",
+        doneWhen: 2, agents: ["backend", "frontend"], live: ["working", "blocked"],
+        questions: 1, contracts: 1,
         log: ["button wired", "route done", "session created"],
         goal: "Let a customer request a refund.",
     };
@@ -358,12 +371,18 @@ if (flow === "workspace") {
         throw new Error("the workspace does not show the fixture mission as expected");
     }
     await shot("80-workspace");
-    // Tick Plan item 2 (`next`): it moves to `done` with the owner and a time.
+    // The `doing` filter keeps the one doing row; off again, every row returns.
+    await click(".im-doing-filter");
+    await until("doing rows alone", `${phases}[0][2].join() === "doing"`);
+    await click(".im-doing-filter");
+    await until("every row again", `${phases}[0][2].length === 3`);
+    // Tick Plan item 2 (`next`): its row reads `done` with the owner and a time, sorted last.
     await click(".mw-item[data-id='plan:2'] .mw-check");
     const doneItem =
-        `document.querySelector(".mw-column[aria-label=Done] .mw-item[data-id='plan:2']")`;
+        `document.querySelector(".im-row[data-state=done] .mw-item[data-id='plan:2']")`;
     await until("item 2 done", `${doneItem} !== null`);
     await until("tick time shown", `${doneItem}.querySelector(".mw-time") !== null`);
+    await until("plan count moved", `${text(".im-header")}.includes("plan 2 / 3")`);
     await shot("81-workspace-ticked");
     // Edit Plan item 3's text in place.
     await click(".mw-item[data-id='plan:3'] .mw-item-actions button", "edit");
@@ -398,7 +417,7 @@ if (flow === "workspace") {
     await until("tick in the source", `${text(".mission .md")}.includes("the form")`);
     await shot("83-workspace-source");
     await click(".mission-head .link", "workspace");
-    await until("workspace again", `document.querySelector(".mw") !== null`);
+    await until("workspace again", `document.querySelector(".im") !== null`);
     console.log("workspace ok");
     await finish();
 }
@@ -704,6 +723,8 @@ if (flow === "panes") {
     // 10. The route alone: one pane, no bar, strips, dividers or controls, same session.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
     await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
+    // The route opens on the session's default view, Implement here; the chat is in Agents.
+    await click(".agents-pane .view-tab", "Agents");
     const contextTab = `[...document.querySelectorAll(".agents-pane .tab")]`;
     await until("session shown", `${contextTab}.some((t) => t.textContent === "context")`);
     const lone = await evaluate(`({
@@ -1303,14 +1324,14 @@ if (flow === "pipeline") {
     // Mission edit, threads, then pr, fix, post (with its confirm), approve (with its confirm),
     // land and reset, on the first session that has a PR. Runs against the fixture or the daemon.
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
-    await click(".agents-pane .tab", "mission");
-    await until("mission shown", `document.querySelector(".mw") !== null`);
+    await click(".agents-pane .tab", "Implement");
+    await until("mission shown", `document.querySelector(".im") !== null`);
     await click(".mw-goal .mw-text");
     await fill("textarea[aria-label='Edit goal']", "Let a customer ask for a refund. Edited.");
     await click(".mw-goal .mw-inline .primary", "save");
     await until("goal changed", `${text(".mw-goal")}.includes("Edited.")`);
     await shot("13-mission-edited");
-    await click(".agents-pane .tab", "threads");
+    await click(".agents-pane .tab", "Threads");
     await until("threads shown", `document.querySelectorAll(".thread").length > 0`);
     await shot("14-threads");
     await fill("input[aria-label='Reply to T1']", "Fixed in the next push.");
@@ -1353,7 +1374,7 @@ if (flow === "pipeline") {
         await click(".drawer button", "close");
     }
     await shot("19-landed-reset");
-    await click(".agents-pane .tab", "agents");
+    await click(".agents-pane .tab", "Agents");
     await click(".agents-pane .tab", "context");
     await until("context shown", `document.querySelectorAll(".context-file").length > 0`);
     // Every file is a collapsible section, every one closed at first; the chevron toggles
@@ -1405,10 +1426,10 @@ if (flow === "pipeline") {
 if (flow === "real-panels") {
     // Read-only look at the M2 panes on a real daemon: mission, threads, the post preview.
     await click(".session", process.env["E2E_SESSION"] ?? "");
-    await click(".agents-pane .tab", "mission");
-    await until("mission shown", `document.querySelector(".mw") !== null`);
+    await click(".agents-pane .tab", "Implement");
+    await until("mission shown", `document.querySelector(".im") !== null`);
     await shot("21-real-mission");
-    await click(".agents-pane .tab", "threads");
+    await click(".agents-pane .tab", "Threads");
     await until("threads shown", `document.querySelector(".threads") !== null`);
     await shot("22-real-threads");
     await click(".actions button", "post");
@@ -1428,8 +1449,8 @@ if (flow === "m2-real") {
         await click(".drawer button", "close");
     };
     await click(".session", session);
-    await click(".agents-pane .tab", "mission");
-    await until("mission shown", `document.querySelector(".mw") !== null`);
+    await click(".agents-pane .tab", "Implement");
+    await until("mission shown", `document.querySelector(".im") !== null`);
     await click(".mw-goal .mw-text");
     await fill("textarea[aria-label='Edit goal']", "Let a customer ask for a refund.");
     await click(".mw-goal .mw-inline .primary", "save");
@@ -1443,7 +1464,7 @@ if (flow === "m2-real") {
     await click(".actions button", "create PR");
     await finished("pr");
     await shot("25-m2-pr");
-    await click(".agents-pane .tab", "threads");
+    await click(".agents-pane .tab", "Threads");
     await until("threads shown", `document.querySelectorAll(".thread").length > 1`);
     await shot("26-m2-threads");
     const first = await evaluate(`document.querySelector(".thread-open")?.dataset.thread`);
@@ -1502,7 +1523,7 @@ if (flow === "m2-real") {
     await clickEndAction("reset");
     await finished("reset");
     await shot("32-m2-reset");
-    await click(".agents-pane .tab", "agents");
+    await click(".agents-pane .tab", "Agents");
     await click("button[aria-label='Add agent']");
     await fill("input[aria-label='Agent name']", "scribe");
     await evaluate(`(() => {
@@ -1543,7 +1564,7 @@ if (flow === "m2-context") {
     const session = process.env["E2E_SESSION"] ?? "";
     const { readFileSync } = await import("node:fs");
     await click(".session", session);
-    await click(".agents-pane .tab", "agents");
+    await click(".agents-pane .tab", "Agents");
     await click(".agents-pane .tab", "scribe");
     await click(".agents-pane .tab", "context");
     await until("context shown", `document.querySelectorAll(".context-file").length > 0`);
@@ -1587,6 +1608,9 @@ if (flow === "settings") {
         })()`);
     const selectValue = `document.querySelector("select[aria-label=Theme]")?.value`;
     await click(".session", "Refund flow");
+    // A session without a design block opens on Implement (session-workspace.md T5); the
+    // terminal is in the Agents view.
+    await click(".agents-pane .view-tab", "Agents");
     await until("terminal", `${xterm} !== null`);
     const systemBg = (await evaluate(bg)) as string;
     const systemXterm = (await evaluate(xtermBg)) as string;
@@ -1686,7 +1710,7 @@ if (flow === "usage") {
     await until("machine line", `${machine}?.textContent === "machine 9.8 / 32 GB · 1 stack up"`);
     await until("machine line not red", `!${machine}.classList.contains("needs-human")`);
     await shot("73-usage-cards-and-bar");
-    await click(".agents-pane .tab", "services");
+    await click(".agents-pane .tab", "Services");
     await until("table shown", `document.querySelector(".services") !== null`);
     const table = await evaluate(`({
         head: [...document.querySelectorAll("table[aria-label=Services] th")]
@@ -1756,6 +1780,9 @@ if (flow === "drawer") {
     const runLocal = `[...document.querySelectorAll(".actions button")]
         .some((b) => b.textContent === "run local" && !b.disabled)`;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    // A session without a design block opens on Implement (session-workspace.md T5); the
+    // terminal is in the Agents view.
+    await click(".agents-pane .view-tab", "Agents");
     await until("terminal attached", `${rows}.includes("[resize ")`);
     await until("run local enabled", runLocal);
     await click(".actions button", "run local");
@@ -1853,6 +1880,9 @@ if (flow === "narrow") {
         })`)) as Record<string, number>;
     await resize(900);
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    // A session without a design block opens on Implement (session-workspace.md T5); the
+    // terminal is in the Agents view.
+    await click(".agents-pane .view-tab", "Agents");
     await until("agents at the minimum", `${widthOf(".agents-pane")} === 280`);
     // 860 px less the rail's border, 260, two handles and 280: about 307 px.
     await until("previews shrunk", `${widthOf(".preview-pane")} < 320`);
@@ -1936,6 +1966,9 @@ if (flow === "terminal") {
         }
     };
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
+    // A session without a design block opens on Implement (session-workspace.md T5); the
+    // terminal is in the Agents view.
+    await click(".agents-pane .view-tab", "Agents");
     const session = (await evaluate(
         `document.querySelector(".session-selected").dataset.dir`,
     )) as string;
@@ -2061,8 +2094,8 @@ if (flow === "terminal") {
             toolbarInPane: 0,
             toolbarInBar: 1,
             title: 0,
-            views: ["agents", "mission", "threads", "services"],
-            viewSelected: "agents",
+            views: ["Agents", "Implement", "Files", "History", "Threads", "Services"],
+            viewSelected: "Agents",
             groups: [["run local", "stop local"],
                 ["create PR", "review", "fix", "post", "approve", "land"],
                 ["", "reset", "archive"]],
@@ -2106,6 +2139,8 @@ if (flow === "terminal") {
     // replayed, so the typed line is there before any keystroke.
     await send("Page.navigate", { url: `${uiUrl}?pane=agents&session=${session}` });
     await until("single pane", `document.querySelector(".layout-single .agents-pane") !== null`);
+    // The route opens on the session's default view, Implement here; the terminal is in Agents.
+    await click(".agents-pane .view-tab", "Agents");
     await until("xterm in the pane route", `${shown}?.querySelector(".xterm") !== null`);
     await until("scrollback replayed", `${rows}.includes(${JSON.stringify(expected)})`);
     await shot("60-terminal-pane-route");
@@ -2306,7 +2341,7 @@ if (flow === "diff") {
     await until("service tabs back", `${text(".preview-pane .tabs")}.includes("web")`);
     await until("diff page gone", `document.querySelector(".diff-page") === null`);
     // The services view: the `diff` heading, stop, restart.
-    await click(".agents-pane .tab", "services");
+    await click(".agents-pane .tab", "Services");
     const row = (repo: string) => `document.querySelector(".diff-table tr[data-repo=${repo}]")`;
     await until("diff heading", `${text(".diff-heading")}.toLowerCase() === "diff"`);
     await until("web running in the table", `${row("web")}.innerText.includes("running")`);
@@ -2789,73 +2824,81 @@ if (flow === "about-egm") {
     await finish();
 }
 
-if (flow === "design-stepper") {
-    // The EGM stepper (docs/designs/egm-adoption.md, entries 2.30 to 2.38) against the
-    // fixture: the design-review session shows five steps in the context bar, Brainstorm and
-    // Draft done, Review active with three of five dots, then the pipeline stage; its card
-    // shows the five steps as dots. The direct session switches to `design` on the track
-    // chip and back. At 1100 px (`TOOLBAR_COMPACT_PX - 100`) the stepper folds to
-    // `EGM 3/5 Review`; at 1000 px the context bar keeps one 36 px line. An active step
-    // waits (warn) while the session needs the operator. The full stepper is read at 1920 px:
-    // with the design group of build session 3 it does not fit a 1500 px bar, so there it
-    // folds too, and the bar keeps its width and a 120 px title (`TITLE_MIN_PX`).
+if (flow === "view-tabs") {
+    // The row of view tabs (docs/designs/session-workspace.md, T5, D5, D12, D13) against the
+    // fixture: the design-review session shows the EGM tabs in step order with their marks,
+    // Brainstorm and Draft done, Review active with `3/5`, Implement to do, and the context
+    // bar shows the stage badge; the two running Goldfish of the fixture are the Review tab's
+    // suffix; its card shows the five steps as dots. The direct session
+    // shows the shorter row and opens on Implement; it switches to `design` on the track chip
+    // and back. The design-ready session marks Review waiting (Approve's state). In a narrow
+    // agents pane the four EGM tabs fold into `EGM 3/5 Review` with a menu of the four.
     const bar = `document.querySelector(".context-bar")`;
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
     });
-    const steps = `[...document.querySelectorAll(".context-bar .egm-step")]`;
-    const compactText =
-        `(document.querySelector(".context-bar .egm-compact")?.textContent ?? "")`;
+    const tabs = `[...document.querySelectorAll(".agents-pane .view-tabs .view-tab")]`;
+    const tabsNow = `${tabs}.map((t) => [t.dataset.view, t.dataset.state ?? null,
+        t.textContent])`;
     const fail = async (message: string): Promise<never> => {
         await shot("failure");
         await closeTarget();
         throw new Error(message);
     };
     await click(".session", "CSV export \u00b7 design-review");
-    await until("stepper shown", `document.querySelector(".context-bar .egm-stepper") !== null`);
+    await until("design row shown",
+        `document.querySelector(".agents-pane .view-tab[data-view=implement]") !== null`);
     const shape = await evaluate(`({
-        steps: ${steps}.map((s) => [s.dataset.step, s.dataset.state, s.textContent]),
-        dots: [...document.querySelectorAll(".context-bar .egm-dot")]
-            .map((d) => d.classList.contains("egm-dot-on")),
-        label: document.querySelector(".context-bar .egm-label")?.title,
-        pipeline: document.querySelector(".context-bar .egm-pipeline")?.textContent,
-        stageBadge: ${bar}.querySelectorAll(":scope > .badge:not(.round-badge)").length,
+        tabs: ${tabsNow},
+        review: document.querySelector(".agents-pane .view-tab[data-view=review]").title,
+        brainstorm: document.querySelector(".agents-pane .view-tab[data-view=brainstorm]").title,
+        marks: [...document.querySelectorAll(".agents-pane .view-tab-mark")]
+            .map((m) => m.getAttribute("aria-label")),
+        stepper: document.querySelectorAll(".context-bar .egm-stepper").length,
+        stageBadge: [...${bar}.querySelectorAll(":scope > .badge:not(.round-badge)")]
+            .map((b) => b.textContent),
         track: document.querySelector(".context-bar .track-chip")?.textContent,
         card: [...document.querySelectorAll(".session-selected .card-dot")]
             .map((d) => d.dataset.state),
     })`);
-    console.log("stepper:", JSON.stringify(shape));
+    console.log("tabs:", JSON.stringify(shape));
     const wanted = {
-        steps: [
-            ["brainstorm", "done", "\u2713Brainstorm"], ["draft", "done", "\u2713Draft"],
-            ["review", "active", "3Review2"], ["approve", "todo", "4Approve"],
-            ["build", "todo", "5Build"],
+        tabs: [
+            ["agents", null, "Agents"], ["brainstorm", "done", "Brainstorm"],
+            ["draft", "done", "Draft"], ["review", "active", "Review3/5 2 live"],
+            ["implement", "todo", "Implement"], ["files", null, "Files"],
+            ["history", null, "History"], ["threads", null, "Threads"],
+            ["services", null, "Services"],
         ],
-        dots: [true, true, true, false, false],
-        label: EGM_NOTICE,
-        pipeline: "planned",
-        stageBadge: 0,
+        review: "Review: active \u00b7 Goldfish: $1.20\nApprove: todo",
+        brainstorm: `${EGM_NOTICE}\nBrainstorm: done \u00b7 Goldfish: $0.42`,
+        marks: ["done", "done", "active", "todo"],
+        stepper: 0,
+        stageBadge: ["planned"],
         track: "design \u25be",
         card: ["done", "done", "active", "todo", "todo"],
     };
     if (JSON.stringify(shape) !== JSON.stringify(wanted)) {
-        await fail(`the stepper is not the one expected: ${JSON.stringify(wanted)}`);
+        await fail(`the row is not the one expected: ${JSON.stringify(wanted)}`);
     }
-    await shot("83-design-stepper");
+    await shot("83-view-tabs");
 
-    // The track chip on the direct session: `design` while EGM is ready, and back.
+    // The direct session: the shorter row, Implement shown; `design` on the chip, and back.
     await click(".session", "CSV export \u00b7 direct track");
     const chip = `(document.querySelector(".context-bar .track-chip")?.textContent ?? "")`;
     await until("direct chip", `${chip} === "direct \u25be"`);
-    await until("no stepper on direct",
-        `document.querySelector(".context-bar .egm-stepper") === null`);
+    await until("direct row", `JSON.stringify(${tabs}.map((t) => t.textContent))
+        === '["Agents","Implement","Files","History","Threads","Services"]'`);
+    await until("implement shown",
+        `document.querySelector(".agents-pane .view-tab.tab-selected")?.dataset.view
+            === "implement" && document.querySelector(".im") !== null`);
     await click(".context-bar .track-chip");
     await until("track menu", `document.querySelector(".track-menu .menu") !== null`);
     await shot("84-track-menu");
     await click(".track-menu .menu button", "design");
     await until("switched to design", `${chip} === "design \u25be"`);
-    await until("intake stepper", `${steps}.length === 5
-        && ${steps}.every((s) => s.dataset.state === "todo")`);
+    await until("intake row", `${tabs}.length === 9
+        && ${tabs}.filter((t) => t.dataset.state === "todo").length === 4`);
     await shot("85-track-design");
     await click(".context-bar .track-chip");
     await until("track menu again", `document.querySelector(".track-menu .menu") !== null`);
@@ -2863,47 +2906,43 @@ if (flow === "design-stepper") {
     await until("back to direct", `${chip} === "direct \u25be"`);
     await until("no error", `document.querySelector(".drawer .needs-human") === null`);
 
-    // Waiting: the design-ready session needs the operator, so Approve is warn.
+    // Waiting: the design-ready session needs the operator, so Review shows Approve waiting.
     await click(".session", "CSV export \u00b7 design-ready");
-    await until("approve waits",
-        `document.querySelector(".context-bar .egm-step[data-step=approve]")
+    await until("review waits",
+        `document.querySelector(".agents-pane .view-tab[data-view=review]")
             ?.dataset.state === "waiting"`);
-    await shot("86-design-waiting");
+    await shot("86-view-tabs-waiting");
 
-    // Folded where the full stepper does not fit: 1500 px, the bar without overflow.
+    // The fold: a 1000 px window gives the agents pane too little for nine tabs, so the four
+    // EGM tabs fold into one with a menu that opens the picked view.
     await click(".session", "CSV export \u00b7 design-review");
-    await send("Emulation.setDeviceMetricsOverride", {
-        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
-    });
-    await until("folded at 1500 px", `${compactText} === "EGM 3/5 Review"`);
-    const fit = await evaluate(`({
-        overflow: ${bar}.scrollWidth - ${bar}.clientWidth,
-        title: document.querySelector(".context-bar .context-title").clientWidth >= 120,
-    })`);
-    if (JSON.stringify(fit) !== JSON.stringify({ overflow: 0, title: true })) {
-        await fail(`the 1500 px bar does not fit: ${JSON.stringify(fit)}`);
-    }
-    await shot("87a-design-stepper-1500");
-
-    // Folded under `TOOLBAR_COMPACT_PX`: one pill with the whole stepper in its tooltip.
-    await send("Emulation.setDeviceMetricsOverride", {
-        width: 1100, height: 900, deviceScaleFactor: 1, mobile: false,
-    });
-    await until("compact label", `${compactText} === "EGM 3/5 Review"`);
-    const tip = await evaluate(`document.querySelector(".context-bar .egm-compact").title`);
-    if (typeof tip !== "string" || !tip.includes("3 Review active")) {
-        await fail(`the folded stepper's tooltip lacks the steps: ${JSON.stringify(tip)}`);
-    }
-    await shot("87-design-stepper-compact");
+    await until("review active again",
+        `document.querySelector(".agents-pane .view-tab[data-view=review]")
+            ?.dataset.state === "active"`);
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1000, height: 900, deviceScaleFactor: 1, mobile: false,
     });
-    await until("one line at 1000 px", `${bar}.getBoundingClientRect().height === 36`);
-    await shot("88-design-stepper-1000");
+    const folded = `document.querySelector(".agents-pane .view-tab[data-view=egm]")`;
+    await until("folded", `${folded} !== null && ${folded}.textContent === "EGM 3/5 Review"`);
+    // The rest of the row scrolls sideways, as before; the row keeps one line (Q3).
+    const row = `document.querySelector(".agents-pane .view-tabs")`;
+    await until("one line", `${row}.getBoundingClientRect().height <= 40`);
+    await click(".agents-pane .view-tab-fold-toggle");
+    await until("fold menu", `[...document.querySelectorAll(".view-tab-fold .menu button")]
+        .map((b) => b.dataset.view).join() === "brainstorm,draft,review,implement"`);
+    await shot("87-view-tabs-folded");
+    await click(".view-tab-fold .menu button", "Draft");
+    await until("draft from the menu", `document.querySelector(".agents-pane .dw-doc") !== null
+        && ${folded}.getAttribute("aria-selected") === "true"`);
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await until("unfolded", `${folded} === null && ${tabs}.length === 9`);
+    await shot("88-view-tabs-unfolded");
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
     });
-    console.log("design-stepper ok");
+    console.log("view-tabs ok");
     await finish();
 }
 
@@ -2948,16 +2987,20 @@ if (flow === "rounds") {
 }
 
 if (flow === "design-workspace") {
-    // The design workspace (entries 5.6 to 5.14) against the fixture. A session with a `design`
-    // block has the view tabs agents · design · mission · threads · services; one without
-    // keeps four. A stepper step opens its tab. Brief: the brief, or the empty line at intake.
-    // Design: the 6-section outline (a `## ` line in a fence is no section), the source toggle,
-    // and a revision request that reaches the lead as `POST …/design/answer`. Review: the
-    // resolve card, the stage rows, the review Goldfish, a report, and the archived run `r1`.
-    // Files: the direct track opens there, with its drift report. History: the round badge
-    // opens it; round 1 expands to its Log; two approval rows, the round-2 one `current`.
-    const workspace = `document.querySelector(".agents-pane .dw")`;
-    const tabOf = `(${workspace}?.dataset.tab ?? "")`;
+    // The views of the agents pane (session-workspace.md T5; egm-adoption.md entries 5.6 to
+    // 5.14) against the fixture. A legacy session shows the direct row and opens on
+    // Implement; a design-track session shows the nine tabs. A tab opens its view by id.
+    // Brainstorm: the brief, or the empty line at intake. Draft: the 7-section outline (a
+    // `## ` line in a fence is no section), the source toggle, a revision request that reaches
+    // the lead as `POST …/design/answer`, and the done marks beside the plan entries. Review:
+    // the compact resolve line, the stage rows, the review Goldfish, a report, the archived
+    // run `r1`. Files: the direct track's drift report. History: the round badge opens it;
+    // round 1 expands to its Log; two approval rows, the round-2 one `current`. Implement on
+    // the seeded session: three phases, Other, the stale and orphan badges, the doc's goal
+    // paragraph with `open in Draft`, and a tick that moves the Draft tab's mark.
+    const workspace = `document.querySelector(".agents-pane .chat")`;
+    const tabOf = `(document.querySelector(".agents-pane .view-tab.tab-selected")?.dataset.view
+        ?? "")`;
     const body = (selector: string) =>
         `(${workspace}?.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
     const viewTabsNow = `[...document.querySelectorAll(".agents-pane .view-tab")]
@@ -2967,37 +3010,43 @@ if (flow === "design-workspace") {
     });
     await click(".session", "Bootstrap");
     await until("bootstrap selected", `${text(".context-title")}.startsWith("Bootstrap")`);
-    await expectSame("plain view tabs", await evaluate(viewTabsNow),
-        ["agents", "mission", "threads", "services"]);
+    await expectSame("legacy view tabs", await evaluate(viewTabsNow),
+        ["Agents", "Implement", "Files", "History", "Threads", "Services"]);
+    await until("legacy opens on Implement", `${tabOf} === "implement"`);
+    await click(".agents-pane .view-tab", "Files");
+    await until("files empty", `${body(".dw-empty")} === "No design files yet."`);
 
-    // Brief at intake: the empty line; History in round 1: its empty line.
+    // Brainstorm at intake: the empty line; History in round 1: its empty line.
     await click(".session", "CSV export \u00b7 intake");
     await until("intake selected", `${text(".context-title")} === "CSV export \u00b7 intake"`);
-    await expectSame("design view tabs", await evaluate(viewTabsNow),
-        ["agents", "design", "mission", "threads", "services"]);
-    await click(".agents-pane .view-tab", "design");
-    await until("brief empty", `${tabOf} === "brief"
+    await expectSame("design view tabs", await evaluate(viewTabsNow), [
+        "Agents", "Brainstorm", "Draft", "Review", "Implement", "Files", "History", "Threads",
+        "Services",
+    ]);
+    await until("design opens on Agents", `${tabOf} === "agents"`);
+    await click(".agents-pane .view-tab", "Brainstorm");
+    await until("brief empty", `${tabOf} === "brainstorm"
         && ${body(".dw-empty")} === "No brief yet. Start with brainstorm."`);
-    await click(".agents-pane .dw .tab", "History");
+    await click(".agents-pane .view-tab", "History");
     await until("history empty", `${body(".dw-empty")} === "Round 1, no approval yet."`);
 
-    // The resolving session: the Brainstorm step opens Brief with the brief.
+    // The resolving session: the Brainstorm tab shows the brief.
     await click(".session", "CSV export \u00b7 resolving");
     await until("resolving selected",
         `${text(".context-title")} === "CSV export \u00b7 resolving"`);
-    await until("full stepper", `document.querySelector(".context-bar button.egm-step") !== null`);
-    await click(".agents-pane .view-tab", "agents");
-    await click(".context-bar .egm-step[data-step=brainstorm]");
+    await click(".agents-pane .view-tab", "Brainstorm");
     await until("brief tab",
-        `${tabOf} === "brief" && ${body(".md h1")} === "Concepts brief: CSV export"`);
+        `${tabOf} === "brainstorm" && ${body(".md h1")} === "Concepts brief: CSV export"`);
     await shot("90-workspace-brief");
 
-    // Review: the resolve card above, the rows, the Goldfish, the consolidated report first.
-    await click(".context-bar .egm-step[data-step=review]");
+    // Review: the resolve line above, the rows, the Goldfish, the consolidated report first.
+    await click(".agents-pane .view-tab", "Review");
     await until("review tab", `${tabOf} === "review"
         && ${body(".dw-body .md h1")} === "Consolidated review report"`);
     await expectSame("review", await evaluate(`({
-        resolveCard: ${workspace}.querySelector(".design-gate")?.dataset.kind,
+        resolveCard: ${workspace}.querySelector(".design-gate-compact")?.dataset.kind,
+        resolveLine: ${body(".design-gate-compact")},
+        approveHead: ${workspace}.querySelectorAll(".dw-approve-head").length,
         rows: [...${workspace}.querySelectorAll(".dw-list .dw-row")]
             .map((row) => [row.dataset.stage, row.querySelector(".pill").textContent]),
         goldfish: [...${workspace}.querySelectorAll(".dw-goldfish-row")]
@@ -3005,6 +3054,8 @@ if (flow === "design-workspace") {
         runs: [...${workspace}.querySelectorAll("select option")].map((o) => o.textContent),
     })`), {
         resolveCard: "resolve",
+        resolveLine: "Findings to resolve \u2192 open Agents",
+        approveHead: 0,
         rows: [
             ["5", "written"], ["6", "written"], ["7", "written"], ["8", "not yet"],
             ["9", "not yet"], ["consolidated", "written"], ["resolve", "written"],
@@ -3012,7 +3063,7 @@ if (flow === "design-workspace") {
         goldfish: ["zoom_out done $0.31", "comprehension done $0.27", "critic done $0.40"],
         runs: ["r2 (current)", "r1"],
     });
-    await click(".agents-pane .dw .dw-row[data-stage='5']");
+    await click(".agents-pane .dw-row[data-stage='5']");
     await until("stage 5 report", `${body(".dw-body .md h1")} === "Zoom out report"`);
     await shot("91-workspace-review");
     await evaluate(`(() => {
@@ -3027,27 +3078,35 @@ if (flow === "design-workspace") {
             .every((pill) => pill.textContent === "archived")`);
     await shot("92-workspace-review-r1");
 
-    // Design on the design-ready session: the doc, its outline, source, a revision request.
+    // Draft on the design-ready session: the doc, its outline, the approve header, source, a
+    // revision request, and the entry marks (none before the seed).
     await click(".session", "CSV export \u00b7 design-ready");
     await until("design-ready selected",
         `${text(".context-title")} === "CSV export \u00b7 design-ready"`);
-    await until("full stepper again",
-        `document.querySelector(".context-bar button.egm-step") !== null`);
-    await click(".context-bar .egm-step[data-step=draft]");
+    await click(".agents-pane .view-tab", "Review");
+    await until("approve header", `${tabOf} === "review"
+        && ${body(".dw-approve-head .dw-approve")} === "approve design"`);
+    await click(".agents-pane .view-tab", "Draft");
     const outlineNow = `[...${workspace}.querySelectorAll(".dw-outline-item")]
         .map((item) => item.textContent)`;
-    await until("design tab", `${tabOf} === "design" && ${outlineNow}.length === 6`);
+    await until("draft tab", `${tabOf} === "draft" && ${outlineNow}.length === 7`);
     await expectSame("doc", await evaluate(`({
         outline: ${outlineNow},
         name: ${body(".dw-doc-name")},
         revise: ${workspace}.querySelectorAll(".dw-revise").length,
+        marks: [...${workspace}.querySelectorAll("[data-entry]")]
+            .map((h) => [h.dataset.entry, h.dataset.mark]),
     })`), {
         outline: [
             "Overview", "Goals", "Non-Goals", "Decisions", "Technical Plan",
-            "Verification Plan",
+            "Verification Plan", "Detailed Implementation Plan",
         ],
         name: "docs/designs/csv-export.md",
-        revise: 6,
+        revise: 7,
+        marks: [
+            ["1.1", "none"], ["1.2", "none"], ["1.3", "none"], ["2.1", "none"],
+            ["2.2", "none"], ["3.1", "none"], ["3.2", "none"],
+        ],
     });
     // A short window, so the doc overflows the pane and the outline has to scroll it.
     await send("Emulation.setDeviceMetricsOverride", {
@@ -3055,7 +3114,7 @@ if (flow === "design-workspace") {
     });
     await click(".agents-pane .dw-outline-item", "Decisions");
     await until("scrolled to the section", `(() => {
-        const pane = document.querySelector(".agents-pane .chat");
+        const pane = ${workspace};
         const section = ${workspace}.querySelector("[data-heading-index='3']");
         const top = section.getBoundingClientRect().top - pane.getBoundingClientRect().top;
         return pane.scrollTop > 0 && top >= 0 && top < 120;
@@ -3076,10 +3135,12 @@ if (flow === "design-workspace") {
     await click(".agents-pane .dw-doc-head .link", "source");
     await until("source shown", `${body(".dw-source")}.includes("## Overview")`);
 
-    // Files on the direct track: the workspace opens there; the drift report renders.
+    // Files on the direct track: the session opens on Implement; the drift report renders.
     await click(".session", "CSV export \u00b7 direct track");
     await until("direct selected",
         `${text(".context-title")} === "CSV export \u00b7 direct track"`);
+    await until("direct opens on Implement", `${tabOf} === "implement"`);
+    await click(".agents-pane .view-tab", "Files");
     await until("files tab",
         `${tabOf} === "files" && ${body(".dw-list")}.includes("drift report")`);
     await click(".agents-pane .dw-row", "CSV_EXPORT_DRIFT_REPORT.md");
@@ -3087,7 +3148,7 @@ if (flow === "design-workspace") {
     await shot("94-workspace-files");
 
     // History from the round badge: three rounds, round 1's Log, two approvals.
-    await click(".agents-pane .view-tab", "agents");
+    await click(".agents-pane .view-tab", "Agents");
     await click(".session", "CSV export \u00b7 round 3");
     await until("round badge button",
         `document.querySelector(".context-bar button.round-badge")?.textContent === "r3"`);
@@ -3109,6 +3170,66 @@ if (flow === "design-workspace") {
         approvals: [["r2", "9f2c4be1d0a7", "current"], ["r1", "4d1e9a07c3b2", null]],
     });
     await shot("95-workspace-history");
+
+    // Implement on the seeded session (T6, CUJ 1, CUJ 3, CUJ 5): the doc's goal paragraph,
+    // the header's entry count, the three phases and Other, the badges, the rail; a tick
+    // moves the phase count and the Draft tab's mark without a reload.
+    await click(".session", "CSV export \u00b7 seeded");
+    await until("seeded selected", `${text(".context-title")} === "CSV export \u00b7 seeded"`);
+    await click(".agents-pane .view-tab", "Implement");
+    const phasesNow = `[...document.querySelectorAll(".im-phase")].map((p) => [
+        p.querySelector(".im-phase-label").textContent, p.dataset.open,
+        p.querySelector(".mw-count").textContent,
+        [...p.querySelectorAll(".im-row")].map((r) => [r.dataset.entry ?? null, r.dataset.state,
+            [...r.querySelectorAll(".im-badges .pill")].map((b) => b.textContent).join()])])`;
+    await until("implement shown", `${tabOf} === "implement" && ${phasesNow}.length === 4`);
+    await expectSame("seeded implement", await evaluate(`({
+        goal: ${body(".im-goal .im-goal-text")},
+        openDraft: ${workspace}.querySelectorAll(".im-open-draft").length,
+        editable: ${workspace}.querySelectorAll(".im-goal button.mw-text").length,
+        doneWhen: ${workspace}.querySelectorAll(".mw-done-when").length,
+        header: [...${workspace}.querySelectorAll(".im-header .mw-pulse-pill")]
+            .map((pill) => pill.textContent),
+        phases: ${phasesNow},
+        rail: [...${workspace}.querySelectorAll(".im-rail .mw-agent")].map((a) => [
+            a.querySelector(".mw-agent-name").textContent,
+            a.querySelector(".im-live").dataset.state]),
+    })`), {
+        goal: "The list page gains an export button that streams the shown rows as CSV.",
+        openDraft: 1,
+        editable: 0,
+        doneWhen: 0,
+        header: ["entries done 2 / 7", "2 in progress", "1 open question", "ui blocked"],
+        phases: [
+            ["Build session 1: the route", "true", "2 / 3",
+                [["1.3", "doing", ""], ["1.1", "done", ""], ["1.2", "done", ""]]],
+            ["Build session 2: the button", "true", "0 / 2",
+                [["2.1", "doing", ""], ["2.2", "next", "stale"]]],
+            ["Build session 3: the docs", "false", "0 / 2", []],
+            ["Other", "false", "1 / 3", []],
+        ],
+        rail: [["lead", "idle"], ["engine", "working"], ["ui", "blocked"]],
+    });
+    await shot("96-implement-seeded");
+    await click(".im-phase[data-phase=other] .im-phase-toggle");
+    await until("Other open", `${phasesNow}[3][3].map((r) => r.join("|")).join()
+        === "|next|,4.1|next|orphan,|done|"`);
+    const orphanTip = await evaluate(
+        `${workspace}.querySelector(".im-orphan")?.title`);
+    await expectSame("orphan tooltip", orphanTip, "entry 4.1 is not in the doc");
+    await click(".im-row[data-entry='1.3'] .mw-check");
+    await until("phase 1 done", `${phasesNow}[0][2] === "3 / 3"
+        && ${phasesNow}[0][1] === "false"`);
+    await until("entries count moved", `${body(".im-header")}.includes("entries done 3 / 7")`);
+    await shot("97-implement-ticked");
+    await click(".agents-pane .im-open-draft");
+    await until("draft marks moved", `${tabOf} === "draft"
+        && JSON.stringify([...${workspace}.querySelectorAll("[data-entry]")]
+            .map((h) => [h.dataset.mark, h.title]))
+        === JSON.stringify([
+            ["done", "done 1 / 1"], ["done", "done 1 / 1"], ["done", "done 1 / 1"],
+            ["doing", "doing"], ["none", ""], ["none", ""], ["none", ""]])`);
+    await shot("98-draft-marks");
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
     });
@@ -3276,18 +3397,37 @@ if (flow === "design-actions") {
 }
 
 if (flow === "design-gate") {
-    // The gate cards (entries 3.21, 3.22, 3.24) against the fixture. The gate session's
-    // `needs you` pill opens the `agents` view with `lead` picked and the gate card above the
-    // chips: the question as markdown and one button per option. A click sends the option's
-    // full text and the card goes on the next `session.updated`. The resolving session shows
-    // the resolve card; `auto accept` sends `Auto accept`. A gate the lead asks while the page
-    // is open shows at once, and the "other answer" box answers it.
-    const card = `document.querySelector(".agents-pane .design-gate")`;
+    // The gate cards (egm-adoption.md entries 3.21, 3.22, 3.24; session-workspace.md K1)
+    // against the fixture. On the gate session's Brainstorm tab the gate is one compact line,
+    // `The lead asks: … → answer in Agents`, which opens Agents with `lead` picked. The
+    // `needs you` pill does the same from Implement. The card above the chips shows the
+    // question as markdown and one button per option. A click sends the option's full text
+    // and the card goes on the next `session.updated`. The resolving session shows the
+    // resolve line on Review and the resolve card in Agents; `auto accept` sends
+    // `Auto accept`. A gate the lead asks while the page is open shows at once, and the
+    // "other answer" box answers it.
+    const card = `document.querySelector(".agents-pane .agents-view .design-gate")`;
+    const line = `document.querySelector(".agents-pane .design-gate-compact")`;
     const needs = `document.querySelector(".context-bar .context-needs")`;
+    const shown = `document.querySelector(".agents-pane .view-tab.tab-selected")?.dataset.view`;
+    // Wide enough that the nine tabs do not fold, so the selected tab's id is the view's.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
     await click(".session", "CSV export \u00b7 gate");
     await until("gate session", `${text(".context-title")} === "CSV export \u00b7 gate"`);
-    await click(".agents-pane .view-tab", "mission");
-    await until("mission view", `document.querySelector(".agents-view")?.hidden === true`);
+    await click(".agents-pane .view-tab", "Brainstorm");
+    await until("compact gate line", `${shown} === "brainstorm" && ${line} !== null
+        && ${line}.innerText === "The lead asks: Which export shape should the brief carry "
+            + "forward? - Streamed CSV: rows go out as the query reads them. - Background job"
+            + "\u2026 \u2192 answer in Agents"
+        && ${line}.querySelectorAll("button").length === 1`);
+    await shot("96-design-gate-line");
+    await click(".design-gate-compact button", "answer in Agents");
+    await until("agents from the line", `${shown} === "agents" && ${card} !== null
+        && document.querySelector(".chip-selected .chip-name")?.dataset.name === "lead"`);
+    await click(".agents-pane .view-tab", "Implement");
+    await until("implement view", `document.querySelector(".agents-view")?.hidden === true`);
     await until("needs pill is a button", `${needs}?.tagName === "BUTTON"`);
     await click(".context-bar .context-needs");
     await until("gate card shown", `${card} !== null
@@ -3331,7 +3471,12 @@ if (flow === "design-gate") {
     await until("new gate card gone", `${card} === null`);
 
     await click(".session", "CSV export \u00b7 resolving");
-    await until("resolve card", `${card}?.dataset.kind === "resolve"`);
+    await until("resolving selected",
+        `${text(".context-title")} === "CSV export \u00b7 resolving"`);
+    await click(".agents-pane .view-tab", "Review");
+    await until("resolve line", `${shown} === "review" && ${line}?.dataset.kind === "resolve"`);
+    await click(".design-gate-compact button", "open Agents");
+    await until("resolve card", `${shown} === "agents" && ${card}?.dataset.kind === "resolve"`);
     await expectSame("resolve card", await evaluate(`({
         title: ${card}.querySelector(".design-gate-title").textContent,
         options: [...${card}.querySelectorAll(".design-gate-options button")]
@@ -3357,24 +3502,23 @@ if (flow === "design-gate") {
 }
 
 if (flow === "approve-design") {
-    // The approve dialog (docs/designs/egm-adoption.md, entries 6.16 to 6.18) against the
-    // fixture. At design-ready the one primary is `approve design`; its dialog names the doc,
-    // has `start the build` checked, and confirms with `approve and build`. The report lists
-    // 1 blocker, so the first post is a 409 and the dialog asks `approve with 1 listed
-    // blocker`, which posts `blockers_confirmed: 1`; the stepper then shows Build active and
-    // the `EGM ▾` menu ends with `remove approval`, which takes the session back. The changed
-    // session reads `re-approve design`; its Design tab has the "Changed since approval"
-    // banner, whose dialog shows the Technical Plan side by side and approves without a build.
+    // The approve dialog (egm-adoption.md entries 6.16 to 6.18; session-workspace.md T4, T5,
+    // entry 2.22) against the fixture. At design-ready the Review tab's header carries the
+    // `approve design` primary, as the toolbar does; its dialog names the doc, has `start the
+    // build` checked, and confirms with `approve and build`. The report lists 1 blocker, so
+    // the first post is a 409 and the dialog asks `approve with 1 listed blocker`, which
+    // posts `blockers_confirmed: 1`; the dialog then shows the seed counts, the Implement tab
+    // marks Build active and the Plan holds the seeded rows, and the `EGM ▾` menu ends with
+    // `remove approval`, which takes the session back. The changed session reads `re-approve
+    // design`; its Draft tab has the "Changed since approval" banner, whose dialog shows the
+    // Technical Plan side by side and approves without a build.
     const primary = `document.querySelector(".context-bar .design-group > .primary")`;
     const dialog = `document.querySelector(".approve-dialog")`;
     const confirm = `(${dialog}?.querySelector(".confirm-actions .primary")?.textContent ?? "")`;
-    const compactStep = `document.querySelector(".context-bar .egm-compact")`;
-    const stepState = (step: string) =>
-        `document.querySelector(".context-bar .egm-step[data-step=${step}]")?.dataset.state`;
-    // The toolbar of an approved session is wider, so the stepper may fold to its compact form.
-    const buildActive = `((${stepState("approve")} === "done" && ${stepState("build")} === "active")
-        || (${compactStep}?.dataset.state === "active"
-            && ${compactStep}?.textContent === "EGM 5/5 Build"))`;
+    const tabState = (view: string) =>
+        `document.querySelector(".agents-pane .view-tab[data-view=${view}]")?.dataset.state`;
+    const buildActive =
+        `(${tabState("review")} === "done" && ${tabState("implement")} === "active")`;
     const approves = async (dir: string) => {
         const url = new URL(`/sessions/${dir}/design/approve-received`, uiUrl);
         return ((await (await fetch(url)).json()) as { approves: unknown[] }).approves;
@@ -3388,8 +3532,11 @@ if (flow === "approve-design") {
     });
     await pick("CSV export \u00b7 design-ready");
     await until("approve primary", `${primary}?.textContent === "approve design"`);
-    await until("full stepper", `${stepState("approve")} === "waiting"`);
-    await click(".context-bar .design-group > .primary", "approve design");
+    await until("review waits", `${tabState("review")} === "waiting"`);
+    await click(".agents-pane .view-tab", "Review");
+    await until("approve header", `${text(".agents-pane .dw-approve-head")}
+        === "The review is done\\napprove design"`);
+    await click(".agents-pane .dw-approve-head .dw-approve", "approve design");
     await until("approve dialog", `${dialog}?.getAttribute("aria-label") === "Approve the design"`);
     await expectSame("approve dialog", await evaluate(`({
         doc: ${dialog}.querySelector(".approve-doc code").textContent,
@@ -3412,12 +3559,28 @@ if (flow === "approve-design") {
         "The newest review report lists 1 blocker.");
     await shot("101-approve-blockers");
     await click(".approve-dialog .confirm-actions .primary", "approve with 1 listed blocker");
+    await until("seed counts shown", `${text(".approve-dialog .approve-seed")}
+        === "Plan seeded: 7 added, 3 kept, 0 stale, 0 orphaned"`);
+    await shot("101a-approve-seeded");
     await until("dialog closed", `${dialog} === null`);
     await until("build active", buildActive);
-    await until("no primary once approved", `${primary} === null`);
+    await until("no primary once approved", `${primary} === null
+        && document.querySelector(".agents-pane .dw-approve-head") === null`);
     await expectSame("approve bodies", await approves("s207-csv-design-ready"), [
         { build: true }, { build: true, blockers_confirmed: 1 },
     ]);
+    await click(".agents-pane .view-tab", "Implement");
+    // The seeded phases, collapsed: `Other` holds the doing row, so it alone is open (T6).
+    await until("seeded phases", `[...document.querySelectorAll(".im-phase")]
+        .map((p) => p.querySelector(".im-phase-label").textContent + " "
+            + p.querySelector(".mw-count").textContent + " " + p.dataset.open).join("; ")
+        === "Build session 1: the route 0 / 3 false; Build session 2: the button 0 / 2 false; "
+            + "Build session 3: the docs 0 / 2 false; Other 1 / 3 true"
+        && ${text(".im-header")}.includes("entries done 0 / 7")`);
+    await click(".im-phase[data-phase=phase-1] .im-phase-toggle");
+    await until("phase 1 rows", `[...document.querySelectorAll(
+        ".im-phase[data-phase=phase-1] .im-row")].map((row) => row.dataset.entry).join()
+        === "1.1,1.2,1.3"`);
     await shot("102-approved-build");
 
     // `remove approval` ends the menu while an approval exists and takes the session back.
@@ -3430,7 +3593,7 @@ if (flow === "approve-design") {
     await shot("103-remove-approval-menu");
     await click(".design-menu .menu button", "remove approval");
     await until("approval removed", `${primary}?.textContent === "approve design"
-        && ${stepState("approve")} === "waiting"`);
+        && ${tabState("review")} === "waiting"`);
     await click(".context-bar .design-menu > button", "EGM");
     await until("EGM menu again", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("no remove item", await evaluate(`[...document.querySelectorAll(
@@ -3442,8 +3605,7 @@ if (flow === "approve-design") {
     await until("re-approve primary", `${primary}?.textContent === "re-approve design"`);
     await expectSame("needs line", await evaluate(text(".context-bar .context-needs")),
         "re-approve the design (changed since approval)");
-    await click(".agents-pane .view-tab", "design");
-    await click(".agents-pane .dw .tab", "Design");
+    await click(".agents-pane .view-tab", "Draft");
     await until("changed banner", `${text(".agents-pane .dw-changed-banner")}
         .startsWith("Changed since approval")`);
     await shot("104-changed-banner");
@@ -3471,7 +3633,7 @@ if (flow === "approve-design") {
         && document.querySelector(".agents-pane .dw-changed-banner") === null && ${buildActive}`);
     await expectSame("re-approve bodies", await approves("s212-csv-changed"), [{ build: false }]);
     await shot("106-reapproved");
-    await click(".agents-pane .view-tab", "agents");
+    await click(".agents-pane .view-tab", "Agents");
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
     });
@@ -3486,8 +3648,9 @@ if (flow === "goldfish") {
     // first: the 🐟 mark, a dot per state, the persona, the tokens and `$`; a failed chip's
     // tooltip says `not run`. A click shows that Goldfish's transcript in place of the lead's
     // tabs, read-only, and reloads it every 2 s while it runs; a step without a transcript says
-    // so; the lead chip returns. The stepper's Review step carries `2` running Goldfish and each
-    // keyed step's tooltip ends with its Goldfish cost. The brainstorm session is at the cap.
+    // so; the lead chip returns. The Review tab carries `2 live` for the running Goldfish and
+    // each EGM tab's tooltip ends with its step's Goldfish cost. The brainstorm session is at
+    // the cap.
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
     });
@@ -3515,14 +3678,14 @@ if (flow === "goldfish") {
         .querySelector(".chip-name").title`),
     "egm-security \u00b7 anthropic/claude-opus-5-5 \u00b7 failed, not run \u00b7 15k tokens " +
         "\u00b7 $0.37");
-    await expectSame("stepper", await evaluate(`[...document.querySelectorAll(
-        ".context-bar .egm-step")].map((s) => [s.dataset.step,
-        s.querySelector(".egm-fish")?.textContent ?? null, s.title])`), [
+    await expectSame("tab marks", await evaluate(`[...document.querySelectorAll(
+        ".agents-pane .view-tab[data-state]")].map((t) => [t.dataset.view,
+        t.querySelector(".view-tab-suffix")?.textContent ?? null,
+        t.title.replace(${JSON.stringify(EGM_NOTICE)} + "\\n", "")])`), [
         ["brainstorm", null, "Brainstorm: done \u00b7 Goldfish: $0.42"],
         ["draft", null, "Draft: done \u00b7 Goldfish: $0.18"],
-        ["review", "2", "Review: active \u00b7 Goldfish: $1.20"],
-        ["approve", null, "Approve: todo"],
-        ["build", null, "Build: todo \u00b7 Goldfish: $0.00"],
+        ["review", "3/5 2 live", "Review: active \u00b7 Goldfish: $1.20\nApprove: todo"],
+        ["implement", null, "Build: todo \u00b7 Goldfish: $0.00"],
     ]);
     await expectSame("no cap line", await evaluate(
         `document.querySelector(".agents-pane .gf-cap")`), null);
@@ -3675,7 +3838,7 @@ if (flow === "composer") {
     const lead = `document.querySelector(".agents-pane .chip-selected .chip-name")?.dataset.name`;
     await until("lead picked", `${lead} === "lead"`);
     await until("agents view shown", `document.querySelector(".agents-pane .view-tab.tab-selected")
-        ?.textContent === "agents"`);
+        ?.textContent === "Agents"`);
     await until("lead terminal shown",
         `document.querySelector(".agent-terminal:not([hidden])") !== null`);
     await shot("composer-3-lead-after-start");
@@ -3783,8 +3946,10 @@ if (flow === "archive") {
 }
 
 if (flow === "agents") {
+    // A session without a design block opens on Implement (session-workspace.md T5).
     await click(".session", "Refund flow");
-    await until("agent tab", `document.querySelector(".agents-pane .tab") !== null`);
+    await click(".agents-pane .view-tab", "Agents");
+    await until("agent tab", `document.querySelector(".agents-pane .tabs-sub .tab") !== null`);
     await fill("input[aria-label=Prompt]", "say hello");
     await click(".prompt-form button[type=submit]");
     await until("tool call shown", `${text(".transcript")}.includes("bash")`);
@@ -3826,7 +3991,7 @@ await until(
 await click(".actions button", "run local");
 await until("job log shows", `${text(".drawer")}.includes("up")`);
 await shot("03-up-running");
-await click(".agents-pane .tab", "services");
+await click(".agents-pane .tab", "Services");
 await until(
     "service healthy",
     `[...document.querySelectorAll(".services tbody tr")]
@@ -3836,7 +4001,7 @@ await until(
     "preview tab dot",
     `document.querySelector(".preview-pane .tab .tab-dot.dot-healthy")?.title === "healthy"`,
 );
-await click(".agents-pane .tab", "agents");
+await click(".agents-pane .tab", "Agents");
 await click(".preview-pane .tab", "web");
 // The proxy picks up a new route a moment after the service is healthy; reload like a user.
 await new Promise((resolve) => setTimeout(resolve, 2500));

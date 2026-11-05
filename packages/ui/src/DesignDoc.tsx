@@ -81,7 +81,7 @@ export function DesignDoc({ view, doc, mission, onError }: DesignDocProps) {
             path={source.kind === "doc" ? source.path : null}
             text={loaded.value}
             marks={marks}
-            banner={changed ? <ChangedBanner view={view} /> : null}
+            banner={source.kind === "doc" ? <ChangedBanner view={view} changed={changed} /> : null}
             onError={onError}
         />
     );
@@ -113,15 +113,24 @@ export function markHeadings(root: ParentNode, marks: ReadonlyMap<string, EntryM
     return marked;
 }
 
-/** "Changed since approval" and the button that opens the approve dialog. */
-function ChangedBanner({ view }: { view: SessionView }) {
+/**
+ * "Changed since approval" and the button that opens the approve dialog. The dialog outlives
+ * the banner: the `session.updated` of the re-approval clears `changed` while the dialog still
+ * shows the seed counts.
+ */
+function ChangedBanner({ view, changed }: { view: SessionView; changed: boolean }) {
     const [open, setOpen] = useState(false);
+    const dialog = open ? <ApproveDesign view={view} onClose={() => setOpen(false)} /> : null;
     return (
-        <div className="dw-changed-banner" role="status">
-            <span>Changed since approval</span>
-            <button type="button" onClick={() => setOpen(true)}>re-approve design</button>
-            {open && <ApproveDesign view={view} onClose={() => setOpen(false)} />}
-        </div>
+        <>
+            {changed && (
+                <div className="dw-changed-banner" role="status">
+                    <span>Changed since approval</span>
+                    <button type="button" onClick={() => setOpen(true)}>re-approve design</button>
+                </div>
+            )}
+            {dialog}
+        </>
     );
 }
 

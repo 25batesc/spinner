@@ -44,25 +44,30 @@ function ApproveHeader({ view }: { view: SessionView }) {
     }
     const primary = primaryAction(design);
     const changed = design.changed_after_approval;
-    if (primary?.kind !== "approve" && !changed) {
-        return null;
-    }
+    // The dialog outlives the button, at one tree position so its state survives: the
+    // `session.updated` of the approval hides the button while the dialog shows the counts.
+    const dialog = open ? <ApproveDesign view={view} onClose={() => setOpen(false)} /> : null;
+    const shown = primary?.kind === "approve" || changed;
     const label = primary?.kind === "approve" ? primary.label : "re-approve design";
     return (
-        <div className="dw-approve-head">
-            <span className="muted">
-                {changed ? "Changed since approval" : "The review is done"}
-            </span>
-            <button
-                type="button"
-                className="primary dw-approve"
-                title={APPROVE_TIP}
-                onClick={() => setOpen(true)}
-            >
-                {label}
-            </button>
-            {open && <ApproveDesign view={view} onClose={() => setOpen(false)} />}
-        </div>
+        <>
+            {shown && (
+                <div className="dw-approve-head">
+                    <span className="muted">
+                        {changed ? "Changed since approval" : "The review is done"}
+                    </span>
+                    <button
+                        type="button"
+                        className="primary dw-approve"
+                        title={APPROVE_TIP}
+                        onClick={() => setOpen(true)}
+                    >
+                        {label}
+                    </button>
+                </div>
+            )}
+            {dialog}
+        </>
     );
 }
 

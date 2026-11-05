@@ -23,9 +23,9 @@ export type DesignGateProps =
 /** The characters of the question the compact line shows. */
 export const COMPACT_QUESTION_CHARS = 120;
 
-/** `The lead asks: <first 120 characters>`, on one line. */
+/** `The lead asks: <first 120 characters>`, on one line, without the emphasis marks. */
 export function compactQuestion(question: string): string {
-    const flat = question.replace(/\s+/g, " ").trim();
+    const flat = question.replace(/[*`]/g, "").replace(/\s+/g, " ").trim();
     return flat.length > COMPACT_QUESTION_CHARS
         ? `${flat.slice(0, COMPACT_QUESTION_CHARS).trimEnd()}…`
         : flat;
