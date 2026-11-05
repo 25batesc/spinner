@@ -351,7 +351,6 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .side-title-count {
     font-size: var(--text-meta); font-weight: 500; font-variant-numeric: tabular-nums;
 }
-.side-title-needs { flex: none; font-variant-numeric: tabular-nums; }
 .side-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .side-body > .pane {
     display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 0; overflow: hidden;

@@ -1884,11 +1884,14 @@ if (flow === "usage") {
 }
 
 if (flow === "drawer") {
-    // The job drawer under the terminal: `run local` opens it at its remembered height; its
-    // divider drags the height (floor 48 px, ceiling the pane minus 200 px) and the terminal
-    // refits; the minimize icon collapses it to a one-line bar with the job's name and state;
-    // a click on the bar restores the height; a drag under the floor collapses too; the
-    // height and the flag survive a reload in the layout record.
+    // The job drawer under the terminal (dogfood row 4, r4.4): it starts collapsed, and a
+    // routine `run local` only moves the bar's line; a click on the bar opens it at its
+    // remembered height; its divider drags the height (floor 48 px, ceiling the pane minus
+    // 200 px) and the terminal refits; the minimize icon collapses it to a one-line bar with the
+    // job's name and state; a drag under the floor collapses too; the height survives a reload
+    // in the layout record and the page starts collapsed again. A new needs-you on the shown
+    // session opens it by itself; selecting a session that already needs the operator does not.
+    // (A failed action opens it too: the flow design-actions reads its refusal in the drawer.)
     const drawer = `document.querySelector(".drawer")`;
     const bar = `document.querySelector(".drawer-bar")`;
     const heightOf = `Math.round(${drawer}?.getBoundingClientRect().height ?? -1)`;
@@ -1917,7 +1920,12 @@ if (flow === "drawer") {
     await click(".agents-pane .view-tab", "Agents");
     await until("terminal attached", `${rows}.includes("[resize ")`);
     await until("run local enabled", runLocal);
+    await until("collapsed at load", `${bar} !== null && ${drawer} === null`);
     await click(".actions button", "run local");
+    await until("job finished on the bar", `${text(".drawer-bar")}.includes("up · ok")`);
+    await expectSame("a routine job leaves the drawer collapsed",
+        await evaluate(`${drawer} === null`), true);
+    await click(".drawer-bar");
     await until("drawer open", `${heightOf} === 200`);
     await until("job finished", `${text(".drawer")}.includes("up · ok")`);
     // One drawer: the Activity header with the job's line at the right, the job log as the
@@ -1982,6 +1990,29 @@ if (flow === "drawer") {
     await click(".drawer-bar");
     await until("height after the reload", `${heightOf} === 300`);
     await shot("70-drawer-after-reload");
+
+    // The auto-open on a new needs-you: the gate session already needs the operator, so
+    // selecting it leaves the bar; its answer clears the line, and a new gate opens the drawer.
+    await click("button[aria-label='Minimize activity']");
+    await until("collapsed again", `${bar} !== null && ${drawer} === null`);
+    await click(".session", "CSV export \u00b7 gate");
+    await until("gate selected", `${text(".context-title")} === "CSV export \u00b7 gate"`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await expectSame("selecting a session that needs you keeps it collapsed",
+        await evaluate(`${drawer} === null`), true);
+    const design = (verb: string, method: string, body: unknown) =>
+        fetch(new URL(`/sessions/s211-csv-gate/design/${verb}`, uiUrl), {
+            method, headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        });
+    await expectSame("gate answered",
+        (await design("answer", "POST", { text: "Streamed CSV from the list page" })).status, 200);
+    await until("needs cleared", `document.querySelector(".context-bar .context-needs") === null`);
+    await expectSame("still collapsed", await evaluate(`${drawer} === null`), true);
+    await expectSame("new gate",
+        (await design("gate", "PUT", { question: "Ship it?", options: ["Yes", "No"] })).status,
+        200);
+    await until("opened by the new needs-you", `${drawer} !== null && ${heightOf} === 300`);
+    await shot("71-drawer-needs-you");
     console.log("drawer ok");
     await finish();
 }
