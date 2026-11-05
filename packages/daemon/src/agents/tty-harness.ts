@@ -138,6 +138,9 @@ export class PiTtyHarness implements AgentHarness {
 /** The line pi prints under a startup warning; it waits for a key before the session starts. */
 export const PI_STARTUP_NOTICE = "Press any key to continue";
 
+/** The gap between the two resizes of a redraw nudge; pi coalesces renders within a frame. */
+const REDRAW_NUDGE_MS = 60;
+
 /** One pty and what hangs off it: the extension channel, the scrollback, the attachments. */
 export class TtyAgent {
     readonly exited: Promise<number | null>;
@@ -146,6 +149,8 @@ export class TtyAgent {
     private scrollback: Buffer = Buffer.alloc(0);
     private size: TtyResize = { ...TTY_SIZE_DEFAULT };
     private sized_by_client = false;
+    /** Set by `attach`; the next same-size resize nudges pi into a full redraw. */
+    private redraw_pending = false;
     private exit_code: number | null | undefined;
     /** pi's startup notice waits for a key; the daemon presses it once, nobody else can. */
     private startup_notice_answered = false;
@@ -190,6 +195,7 @@ export class TtyAgent {
         assert.ok(this.exit_code === undefined, "the pty has exited");
         this.attachments.add(client);
         client.send_bytes(Buffer.from(this.scrollback));
+        this.redraw_pending = true;
         return () => {
             this.attachments.delete(client);
         };
@@ -210,11 +216,38 @@ export class TtyAgent {
         }
         if (size.cols === this.size.cols && size.rows === this.size.rows) {
             this.sized_by_client = true;
+            if (this.redraw_pending) {
+                this.nudge_redraw();
+            }
             return;
         }
         this.size = { ...size };
         this.sized_by_client = true;
+        this.redraw_pending = false;
         this.pty.resize(size.cols, size.rows);
+    }
+
+    /**
+     * A client that attaches replays the scrollback ring, which starts at an arbitrary byte
+     * and holds pi's relative cursor moves; the screen it paints differs from what pi
+     * believes is there, and every later differential update leaves stale rows (dogfooding
+     * #30). pi's TUI clears the screen and renders everything on a width change, so one
+     * column off and back, two SIGWINCHes, gives the client a screen that matches pi's model.
+     * A same-size resize alone sends no SIGWINCH.
+     */
+    private nudge_redraw(): void {
+        this.redraw_pending = false;
+        const { cols, rows } = this.size;
+        if (cols < 3) {
+            return;
+        }
+        this.pty.resize(cols - 1, rows);
+        setTimeout(() => {
+            const unchanged = this.size.cols === cols && this.size.rows === rows;
+            if (this.exit_code === undefined && unchanged) {
+                this.pty.resize(cols, rows);
+            }
+        }, REDRAW_NUDGE_MS);
     }
 
     /** `{cols, rows}` and whether a client set it, for the route test and the docs' claim. */

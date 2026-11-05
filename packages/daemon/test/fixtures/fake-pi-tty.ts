@@ -135,6 +135,10 @@ process.stdin.setRawMode?.(true);
 process.stdin.on("data", (chunk: Buffer) => {
     process.stdout.write(chunk);
 });
+// The size after each SIGWINCH, as pi's TUI would redraw on one (the attach nudge).
+process.stdout.on("resize", () => {
+    print(`resize ${process.stdout.columns}x${process.stdout.rows}`);
+});
 process.on("SIGTERM", () => {
     print("bye");
     setTimeout(() => process.exit(143), 20);

@@ -199,6 +199,14 @@ describe("the tty harness through the daemon", () => {
         expect(second.text()).toContain("fake pi tty ready");
         first.socket.send(Buffer.from("z"), { binary: true });
         await until(() => second.text().endsWith("z"));
+        // A same-size resize from the new client nudges pi: one column off, then back, so
+        // its TUI clears the replayed screen and renders everything (dogfooding #30).
+        second.socket.send(JSON.stringify({ resize: { cols: 100, rows: 30 } }));
+        await until(() => second.text().includes("resize 99x30"));
+        await until(() => {
+            const text = second.text();
+            return text.indexOf("resize 100x30", text.indexOf("resize 99x30")) > 0;
+        });
 
         // The Context tab lists the commands the extension posted with hello.
         const context = await call("GET", `/sessions/${summary.dir}/agents/backend/context`);
