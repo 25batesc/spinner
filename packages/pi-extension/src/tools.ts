@@ -24,6 +24,7 @@ import type {
     MissionItemRequest,
     MissionSectionRequest,
     MissionSectionResponse,
+    MissionViewResponse,
     QuestionItemCommand,
     SessionResponse,
     PrThreadsView,
@@ -270,14 +271,19 @@ export async function run_tool(
             });
         case "mission_done_when":
             return done_when_tool(client, session, env.agent, args);
-        case "mission_plan":
+        case "mission_plan": {
+            const item = item_request(args);
+            if (env.role === "worker") {
+                await check_worker_tick(client, session, env.agent, item);
+            }
             return mission_write(client, session, {
                 section: "plan",
                 mode: "item",
                 text: "",
                 author: env.agent,
-                item: item_request(args),
+                item,
             });
+        }
         case "adopt": {
             const refs = text("refs")
                 .split(/[\s,]+/)
@@ -392,6 +398,34 @@ function question_request(args: Record<string, unknown>, env: SpinnerEnv): Missi
     }
     const item = { command: command as QuestionItemCommand, id, text: text.trim() };
     return { section: "open_questions", mode: "item", text: "", author: env.agent, item };
+}
+
+/**
+ * A worker's `mission_plan` (dogfood r3.6): `tick` and `untick` only, on an item it owns or
+ * that has no owner yet (a seeded item; the tick makes the worker its owner). The lead adds,
+ * edits, assigns and reorders. Reads the mission view for the owner.
+ */
+async function check_worker_tick(
+    client: DaemonClient,
+    session: string,
+    agent: string,
+    item: MissionItemRequest,
+): Promise<void> {
+    if (item.command !== "tick" && item.command !== "untick") {
+        throw new Error(
+            `a worker only ticks and unticks its Plan items; ask the lead to ${item.command}`,
+        );
+    }
+    const { view } = await client.get<MissionViewResponse>(`${session}/mission/view`);
+    const target = view.plan.find((candidate) => candidate.id === item.id);
+    if (target === undefined) {
+        throw new Error(`no item ${String(item.id)} in the Plan`);
+    }
+    if (target.owner !== null && target.owner !== agent) {
+        throw new Error(
+            `item ${target.id} belongs to ${target.owner}; only its owner or the lead ticks it`,
+        );
+    }
 }
 
 /** The model's `mission_plan` or `mission_done_when` arguments as the route's `item`. */

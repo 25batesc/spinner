@@ -45,7 +45,7 @@ export function render_brief(input: BriefTemplateInput): string {
         "",
         "## Finish",
         "1. Make the tests green.",
-        "2. Tick your Plan items.",
+        "2. Tick each of your Plan items with `mission_plan` `tick` the moment it is done.",
         "3. Set your Roster row: Doing = `done`, Blocked? = `no`.",
         "",
     ].join("\n");
