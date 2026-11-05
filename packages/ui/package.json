@@ -1,6 +1,6 @@
 {
     "name": "@spinner/ui",
-    "version": "0.17.0",
+    "version": "0.18.0",
     "private": true,
     "description": "Spinner web UI (React + Vite): sessions, agent tabs and previews.",
     "license": "MIT",
