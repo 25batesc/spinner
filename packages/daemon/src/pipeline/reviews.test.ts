@@ -210,6 +210,7 @@ describe("POST /reviews", () => {
             draft: null,
             posted_url: null,
             state: "idle",
+            cancelled: false,
             comment_count: 0,
             event: null,
         });

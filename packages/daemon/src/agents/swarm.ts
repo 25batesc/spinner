@@ -185,6 +185,7 @@ export class ReviewSwarm {
     ): Promise<SwarmStartResult> {
         const plan = await this.check(summary, request);
         const result: SwarmStartResult = { started: [], queued: [], failed: [] };
+        clear_cancelled(this.deps.home, summary.dir);
         for (const reviewer of plan.reviewers) {
             this.ensure_brief(summary, reviewer.name, reviewer.model, reviewer.target, plan.skill);
             this.record(summary.dir, reviewer.name, "queued", {
@@ -212,6 +213,38 @@ export class ReviewSwarm {
             }
         }
         return result;
+    }
+
+    /**
+     * The operator's `cancel review` (dogfood #22): drops the session's queued reviewers,
+     * clears the swarm records and sets `review.cancelled`, then stops the running reviewers.
+     * The records go first, so the exit handler does not read a stopped reviewer as failed.
+     * Answers the reviewers taken off the queue or stopped.
+     */
+    async cancel(dir: string): Promise<string[]> {
+        this.queues.delete(dir);
+        const read = read_session(this.deps.home, dir);
+        if (!read.ok) {
+            return [];
+        }
+        const review = read.summary.session.review ?? { swarm: {} };
+        const names = Object.keys(review.swarm);
+        read.summary.session.review = { ...review, swarm: {}, cancelled: true };
+        write_session(read.summary);
+        const stopped: string[] = [];
+        for (const name of names) {
+            this.last_text.delete(key_of(dir, name));
+            const running = this.deps.agents.get(dir, name) !== null;
+            if (running) {
+                await this.deps.agents.stop(dir, name).catch(() => undefined);
+            }
+            const state = review.swarm[name]?.state;
+            if (running || state === "queued") {
+                stopped.push(name);
+            }
+        }
+        assert.ok(this.queues.get(dir) === undefined, "a cancelled session keeps no queue");
+        return stopped;
     }
 
     private enqueue(entry: Queued): void {
@@ -568,4 +601,14 @@ function truncate(text: string, max: number): string {
 
 function key_of(dir: string, name: string): string {
     return `${dir}/${name}`;
+}
+
+/** A new start, draft, approve or post ends the `cancelled` mark of a review (dogfood #22). */
+export function clear_cancelled(home: SpinnerHome, dir: string): void {
+    const read = read_session(home, dir);
+    if (!read.ok || read.summary.session.review?.cancelled !== true) {
+        return;
+    }
+    delete read.summary.session.review.cancelled;
+    write_session(read.summary);
 }

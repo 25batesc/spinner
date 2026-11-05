@@ -41,6 +41,8 @@ WebSockets below.
 | `PUT /sessions/:dir/review/draft` | `ReviewDraft` | `ReviewDraftResponse` | The lead's `review_draft` tool and the operator's edits; validated against the PR diff, below. 400 with every fault; 409 without a PR. |
 | `DELETE /sessions/:dir/review/draft` | | `OkResponse` | Drops the draft. 404 without one. |
 | `POST /sessions/:dir/review/post` | | `ReviewPostResponse` | Posts the draft as one PR review through the operator's `gh`; below. 409 without a draft; 502 when GitHub refuses. |
+| `POST /sessions/:dir/review/approve` | | `ReviewPostResponse` | Posts one APPROVE review with the body "LGTM", no swarm and no draft; below. 409 without a PR; 502 when GitHub refuses. |
+| `POST /sessions/:dir/review/cancel` | | `ReviewCancelResponse` | Stops a running review: the swarm, a review session's lead, the verdict files; below. 409 without a review. |
 | `GET /sessions/:dir/threads` | | `ThreadsResponse` | From the last render. |
 | `POST /sessions/:dir/threads/refresh` | | `ThreadsResponse` | Re-renders from GitHub now. |
 | `POST /sessions/:dir/threads/:id/reply` | `ThreadReplyRequest` | `ThreadResponse` | As the operator. |
@@ -741,6 +743,19 @@ review session's PR repo is allowed; an ordinary session's PR must be on its pro
 `pipeline.github.write_repos`. 409 without a draft; 502 with GitHub's reason when it
 refuses. The lead role's bash guard refuses `gh pr review`, `gh pr comment` and `gh api`
 writes, so the lead cannot post by hand.
+
+`POST /sessions/:dir/review/approve` (dogfood #22) is the operator's one-click approve.
+It posts one review with `event: APPROVE`, the body "LGTM" and no comments, at the PR head, through the same writer and the same allow-list as `post`.
+It needs no swarm and no draft; a draft that exists stays.
+GitHub's refusal of APPROVE on the author's own PR reposts it as `COMMENT`, as `post` does.
+The URL lands in `review.posted_url` and `artifacts/review-posted.json`, and one Log line by `operator` reads `approved <owner/repo>#<n> as <event>: <url>`.
+
+`POST /sessions/:dir/review/cancel` (dogfood #22) stops a running review as one.
+The swarm drops its queued reviewers, clears `review.swarm` and sets `review.cancelled`, then stops the running reviewers; a stopped reviewer is therefore not recorded as failed.
+In a review session the lead stops too; in an ordinary session the lead is the session's own and stays.
+The verdict files under `artifacts/reviews/` move to `artifacts/reviews-cancelled/<stamp>/`.
+The answer is `ReviewCancelResponse { ok, stopped, archived }`, and one Log line by `operator` names what stopped.
+`ReviewFields.cancelled` is true while the review is `idle` after a cancel; the next start, draft, drop, approve or post clears it.
 
 ## The operator agent
 

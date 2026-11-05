@@ -708,6 +708,8 @@ export function create_app(deps: AppDeps): Hono {
         log: deps.log,
         ...(deps.writer === undefined ? {} : { writer: deps.writer }),
         ...(deps.poll === undefined ? {} : { poll: deps.poll }),
+        ...(deps.swarm === undefined ? {} : { swarm: deps.swarm }),
+        agents: deps.agents,
     });
     if (deps.diff !== undefined) {
         mount_diff_routes(app, { ...deps, diff: deps.diff });

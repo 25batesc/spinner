@@ -356,6 +356,84 @@ describe("the review routes", () => {
         expect(posted_bodies.map((body) => body["event"])).toEqual(["APPROVE", "COMMENT"]);
     });
 
+    // Dogfood #22: the operator approves a peer's PR in one click, without swarm or draft.
+    it("approves with one APPROVE review 'LGTM' at the head; logs it; keeps a draft", async () => {
+        const dir = review_session();
+        writeFileSync(join(home.sessions, dir, "MISSION.md"), "# r\n\n## Goal\nG\n\n## Log\n");
+        expect((await call("PUT", `/sessions/${dir}/review/draft`, GOOD)).status).toBe(200);
+        const approved = await call("POST", `/sessions/${dir}/review/approve`);
+        expect(approved.status, await approved.clone().text()).toBe(200);
+        const result = (await approved.json()) as { url: string; event: string };
+        expect(result).toEqual({
+            url: `${PR_URL}#pullrequestreview-1`,
+            event: "APPROVE",
+            fell_back: false,
+        });
+        expect(posted_bodies).toEqual([
+            {
+                commit_id: "c46867ff747b5d774b3073ead5ebc54c939bdfb4",
+                event: "APPROVE",
+                body: "LGTM",
+                comments: [],
+            },
+        ]);
+        const mission = readFileSync(join(home.sessions, dir, "MISSION.md"), "utf8");
+        expect(mission).toContain(`operator: approved acme/backend#4812 as APPROVE: ${result.url}`);
+        const view = await view_of(dir);
+        expect(view.review?.posted_url).toBe(result.url);
+        expect(view.review?.draft).toEqual(GOOD);
+        expect((await call("POST", "/sessions/nope/review/approve")).status).toBe(404);
+    });
+
+    // Dogfood #22: cancel stops the swarm as one, moves the verdicts, says `cancelled`.
+    it("cancels a review: queue dropped, verdicts archived, cancelled until next", async () => {
+        const dir = review_session();
+        writeFileSync(join(home.sessions, dir, "MISSION.md"), "# r\n\n## Goal\nG\n\n## Log\n");
+        const read = read_session(home, dir);
+        expect(read.ok).toBe(true);
+        if (read.ok) {
+            read.summary.session.review = {
+                swarm: {
+                    "review-a": { model: "a/m", state: "queued", pr: "backend" },
+                    "review-b": { model: "b/m", state: "done", pr: "backend" },
+                },
+            };
+            write_session(read.summary);
+        }
+        const verdicts = join(home.sessions, dir, "artifacts", "reviews");
+        mkdirSync(verdicts, { recursive: true });
+        writeFileSync(join(verdicts, "b-m.md"), "VERDICT: approve\n");
+        expect((await view_of(dir)).review?.state).toBe("reviewing");
+
+        const cancelled = await call("POST", `/sessions/${dir}/review/cancel`);
+        expect(cancelled.status, await cancelled.clone().text()).toBe(200);
+        const body = (await cancelled.json()) as { stopped: string[]; archived: string[] };
+        expect(body.stopped).toEqual(["review-a"]);
+        expect(body.archived).toHaveLength(1);
+        expect(body.archived[0]).toMatch(/^artifacts\/reviews-cancelled\/[^/]+\/b-m\.md$/);
+        expect(existsSync(join(verdicts, "b-m.md"))).toBe(false);
+        expect(existsSync(join(home.sessions, dir, body.archived[0] ?? ""))).toBe(true);
+        expect(session_of(dir).review).toMatchObject({ swarm: {}, cancelled: true });
+        const view = await view_of(dir);
+        expect(view.review?.state).toBe("idle");
+        expect(view.review?.cancelled).toBe(true);
+        expect(view.review?.swarm).toEqual([]);
+        const mission = readFileSync(join(home.sessions, dir, "MISSION.md"), "utf8");
+        expect(mission).toContain(
+            "operator: cancelled the review: stopped review-a; archived 1 verdict file",
+        );
+
+        // The next action ends the mark.
+        expect((await call("POST", `/sessions/${dir}/review/approve`)).status).toBe(200);
+        expect(session_of(dir).review?.cancelled).toBeUndefined();
+        expect((await view_of(dir)).review?.cancelled).toBe(false);
+    });
+
+    it("refuses a cancel without a review", async () => {
+        const created = create_session(home, { title: "Plain" });
+        expect((await call("POST", `/sessions/${created.dir}/review/cancel`)).status).toBe(409);
+    });
+
     it("refuses the post of an ordinary session's PR outside the allow-list", async () => {
         const dir = review_session();
         const read = read_session(home, dir);
