@@ -32,6 +32,15 @@ with the bridge preloaded so the page can dock itself back. One window per previ
 `(pane, session)`; a second pop-out focuses it. The tray menu lists the popped-out windows.
 A session's windows close with it.
 
+## Notifications
+
+The app opens its events socket with `?client=desktop`. While that socket is open, the
+daemon does not run its `osascript` banner: it sends a `notify` event, and the app posts it
+as an Electron `Notification`. macOS shows the banner under Spinner's name and bundle icon
+(`Electron` in a dev run). A click shows the main window and sends the session directory to
+the page through `spinnerDesktop.sessions.subscribeFocus`; the page selects that session.
+Without the app, the daemon shows the `osascript` banner as before.
+
 ## How it fits
 
 | File | Role |
@@ -43,7 +52,8 @@ A session's windows close with it.
 | `src/window-geometry.ts` | `SPINNER_DESKTOP_WINDOW` parsing. |
 | `src/daemon.ts` | Probe `/health`; start a daemon and poll for 30 s; never start one after a loss. |
 | `src/start-daemon.ts` | `node packages/cli/dist/main.js daemon start`, with Electron's own Node as the fallback. |
-| `src/events.ts` | The app's own `/events` socket, for `session.closed` and loss. |
+| `src/events.ts` | The app's own `/events` socket (`?client=desktop`), for `session.closed`, `notify` and loss. |
+| `src/notifications.ts` | Pure poster: one Electron `Notification` per `notify` event; a click focuses the session. |
 | `src/preload.cts` | `contextBridge` for `window.spinnerDesktop`, typed in `@spinner/protocol`'s `desktop-bridge.ts`. |
 | `src/tray.ts`, `src/tray-icon.ts` | The tray item; the icon is drawn at runtime. |
 | `scripts/package.ts` | The unsigned `.app`. |

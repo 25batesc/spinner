@@ -40,6 +40,7 @@ const IPC = {
     panes_event: "panes:event",
     daemon_status: "daemon:status",
     daemon_event: "daemon:event",
+    sessions_focus: "sessions:focus",
 } as const;
 
 /** `ipcRenderer.on` listeners get the event first; the page's listener wants the payload only. */
@@ -87,6 +88,10 @@ const bridge: SpinnerDesktop = {
         status: () => ipcRenderer.invoke(IPC.daemon_status),
         subscribe: (listener: (status: DaemonStatus) => void) =>
             subscribe(IPC.daemon_event, listener),
+    },
+    sessions: {
+        subscribeFocus: (listener: (session: string) => void) =>
+            subscribe(IPC.sessions_focus, listener),
     },
 };
 

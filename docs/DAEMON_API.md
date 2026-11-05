@@ -113,6 +113,17 @@ WebSockets below.
 (`packages/protocol/src/events.ts`). The daemon accepts any `Origin`; it listens on loopback
 only.
 
+The desktop app's main process opens its socket as `GET /events?client=desktop`. The daemon
+counts the open sockets that carry this query; the UI's socket does not carry it. Every local
+notification (a pipeline transition from the poller, a PR merged by `land`) is a `notify`
+event: `{ type: "notify", ts, session, title, message }`. `session` is the session directory,
+or null when the notification names no session. `message` is at most 200 characters. While
+the count is 0, the daemon also shows the banner itself through `osascript`. While the count
+is 1 or more, it sends the event only, and the app posts the banner under Spinner's name; a
+click on it opens the session in the app. With `SPINNER_NOTIFY=off`, the daemon sends no
+`notify` event and shows no banner. The `notify` event is not the operator agent's `notify`
+command ("The operator agent" below).
+
 ## tty WebSocket
 
 `GET /sessions/:dir/agents/:name/tty` upgrades to a WebSocket on the agent's pseudo-terminal.
