@@ -85,7 +85,11 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 polls += 1;
                 answer(200, { job: job(polls >= 2 ? "ok" : "running") });
             } else if (method === "POST" && path === `/sessions/${DIR}/agents`) {
-                answer(201, { name: (body as { name: string }).name, pi_session_id: "backend" });
+                answer(201, {
+                    name: (body as { name: string }).name,
+                    pi_session_id: "backend",
+                    first_turn: "started",
+                });
             } else if (path.endsWith("/steer")) {
                 answer(200, { ok: true, disposition: "queued" });
             } else if (path === `/sessions/${DIR}`) {
@@ -251,10 +255,20 @@ describe("the lead role", () => {
 
             const added = await run(pi, "agent_add", { name: "backend", repo: "api" });
             expect(added).toContain(`Agent backend started in ${DIR}`);
+            expect(added).toContain(
+                "The go signal (read the mission and brief, start) is its first turn (started).",
+            );
             expect(daemon.requests.at(-1)).toEqual({
                 method: "POST",
                 path: `/sessions/${DIR}/agents`,
                 body: { name: "backend", repo: "api" },
+            });
+            // A message of the lead's replaces the go signal and the reply says so.
+            const custom = await run(pi, "agent_add", { name: "web", message: "Build the form." });
+            expect(custom).toContain("Your message is its first turn (started).");
+            expect(daemon.requests.at(-1)?.body).toEqual({
+                name: "web",
+                message: "Build the form.",
             });
             const steered = await run(pi, "agent_steer", { agent: "backend", text: "go" });
             expect(steered).toContain("queued");

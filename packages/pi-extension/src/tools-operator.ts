@@ -153,6 +153,10 @@ export async function run_operator_tool(
             if (model !== undefined) {
                 body.model = model;
             }
+            const message = text("message").trim().length === 0 ? undefined : text("message");
+            if (message !== undefined) {
+                body.message = message;
+            }
             const response = await client.send<AgentResponse>(
                 "POST",
                 `${session_path(id("session"))}/agents`,
@@ -161,7 +165,7 @@ export async function run_operator_tool(
             return (
                 `Agent ${response.name} started in ${id("session")}` +
                 (repo === undefined ? "." : ` on repo ${repo}.`) +
-                " It reads the mission and its brief on its first turn."
+                ` ${first_turn_line(response.first_turn, message !== undefined)}`
             );
         }
         case "agent_steer": {
@@ -245,6 +249,22 @@ export async function wait_job(
         );
     }
     return current;
+}
+
+/**
+ * What `agent_add` says about the first turn, so the lead knows whether to steer: `none` is a
+ * resume (pi continues the transcript), `queued` means pi refused the prompt and the text
+ * goes with the next one.
+ */
+export function first_turn_line(first_turn: string, custom: boolean): string {
+    const what = custom ? "Your message" : "The go signal (read the mission and brief, start)";
+    if (first_turn === "none") {
+        return "Resumed on its transcript; no first turn sent.";
+    }
+    if (first_turn === "queued") {
+        return `${what} waits for its next prompt: pi did not take it yet.`;
+    }
+    return `${what} is its first turn (${first_turn}).`;
 }
 
 function describe_job(job: Job, verb: string): string {

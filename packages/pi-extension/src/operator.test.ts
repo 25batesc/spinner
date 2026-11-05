@@ -113,7 +113,11 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
             } else if (path.endsWith("/brief")) {
                 answer(200, { ok: true, path: "/tmp/s3-refund-flow/agents/backend/BRIEF.md" });
             } else if (method === "POST" && path === "/sessions/s3-refund-flow/agents") {
-                answer(201, { name: (body as { name: string }).name, pi_session_id: "backend" });
+                answer(201, {
+                    name: (body as { name: string }).name,
+                    pi_session_id: "backend",
+                    first_turn: "started",
+                });
             } else if (path.endsWith("/steer")) {
                 answer(200, { ok: true, disposition: "started" });
             } else if (path.endsWith("/inbox")) {

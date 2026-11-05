@@ -2,8 +2,9 @@
 // from the UI alone. `POST /sessions/:dir/attach` checks the PR's head branch out for a
 // session adopted without a project; `GET /sessions/:dir/agents/default-brief` renders the
 // brief the daemon would write; `POST /sessions/:dir/agents` writes that brief, or the text
-// the body carries, when the session has none. Method: a daemon on a temporary home with the
-// fake pi, a fake `gh` that serves the scrubbed fixture, and a real clone of a bare origin as
+// the body carries, when the session has none, and sends the agent its first turn (the go
+// signal, the body's `message`, or none on a resume). Method: a daemon on a temporary home with
+// the fake pi, a fake `gh` that serves the scrubbed fixture, and a real clone of a bare origin as
 // the project's repo.
 import {
     chmodSync,
@@ -19,11 +20,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { SessionSummary, SpinnerEvent } from "@spinner/protocol";
+import type { AgentResponse, SessionSummary, SpinnerEvent } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { adopt_prs } from "../pipeline/adopt.js";
 import type { GhRunner, PrResponse } from "../pipeline/github.js";
 import { start_daemon, type Daemon } from "../server.js";
+import { FIRST_TURN } from "./manager.js";
 import { run_ok } from "../stack/shell.js";
 import { read_session } from "../store/session-store.js";
 
@@ -206,3 +208,67 @@ describe("agents without a brief", () => {
         await daemon.agents.stop_all();
     });
 });
+
+describe("the first turn of an added agent", () => {
+    it("is the go signal, or the body's message; none on a resume", async () => {
+        const summary = await adopt_board_only();
+        const dir = summary.dir;
+
+        // A new agent without `message`: the daemon's go signal, so it starts on its own.
+        const added = await call("POST", `/sessions/${dir}/agents`, { name: "api" });
+        expect(added.status).toBe(201);
+        expect(((await added.json()) as AgentResponse).first_turn).toBe("started");
+        await until(() => last_echo("api").length > 0);
+        expect(last_echo("api")).toBe(`echo: ${FIRST_TURN}`);
+        expect(last_echo("api")).toContain("Take the Plan items that carry your name as owner");
+
+        // A new agent with `message`: that text, nothing else.
+        const custom = await call("POST", `/sessions/${dir}/agents`, {
+            name: "web",
+            message: "Build the form first.",
+        });
+        expect(custom.status).toBe(201);
+        expect(((await custom.json()) as AgentResponse).first_turn).toBe("started");
+        await until(() => last_echo("web").length > 0);
+        expect(last_echo("web")).toBe("echo: Build the form first.");
+
+        // A resume of a listed agent (the tab's `resume` button posts the name alone): pi
+        // continues the transcript, no prompt is sent.
+        await daemon.agents.stop_all();
+        const api_turns = count_events("api");
+        const resumed = await call("POST", `/sessions/${dir}/agents`, { name: "api" });
+        expect(resumed.status).toBe(201);
+        expect(((await resumed.json()) as AgentResponse).first_turn).toBe("none");
+        await until(() => daemon.agents.running(dir).includes("api"));
+        await new Promise((resolve_) => setTimeout(resolve_, 100));
+        expect(count_events("api")).toBe(api_turns);
+
+        // `message` must be a non-empty string when given.
+        const bad = await call("POST", `/sessions/${dir}/agents`, { name: "x", message: "" });
+        expect(bad.status).toBe(400);
+        await daemon.agents.stop_all();
+    });
+});
+
+/** How many pi events `agent` has put on the bus; a resume without a prompt adds none. */
+function count_events(agent: string): number {
+    return events.filter((e) => e.type === "agent.event" && e.agent === agent).length;
+}
+
+/** The text of the last assistant message `agent` produced; the fake pi echoes its prompt. */
+function last_echo(agent: string): string {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (event?.type !== "agent.event" || event.agent !== agent) {
+            continue;
+        }
+        if (event.event.type === "message_end") {
+            const content = event.event.message.content;
+            const first = Array.isArray(content) ? content[0] : undefined;
+            if (first !== undefined && first.type === "text") {
+                return first.text;
+            }
+        }
+    }
+    return "";
+}

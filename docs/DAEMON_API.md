@@ -55,7 +55,7 @@ WebSockets below.
 | `PUT /sessions/:dir/mission/section` | `MissionSectionRequest` | `MissionSectionResponse` | The daemon serializes writes. The `item` mode is below. |
 | `POST /sessions/:dir/inbox` | `InboxMessageRequest` | `InboxMessageResponse` | Writes the message and delivers it. |
 | `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
-| `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. |
+| `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. First turn: a new agent gets `message`, else the go signal (read the mission and the brief, take your Plan items, start); a listed agent (a resume) gets `message` or nothing. `first_turn` answers pi's disposition, `queued` when pi refused it (it goes with the next prompt), or `none`. |
 | `POST /sessions/:dir/agents/:name/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 with the state for a stopped agent. |
 | `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. A steer to `lead` with `source: "operator"` adds 1 to `outcomes.operator_steers`; below. |
 | `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |

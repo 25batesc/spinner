@@ -515,7 +515,7 @@ class FixtureDaemon {
             const summary = { ...current.summary, session: { ...base, agents } };
             const next = { ...current, summary, agents_running: [...current.agents_running, name] };
             this.update(next);
-            sendJson(response, { name, pi_session_id: "pi-1" }, 201);
+            sendJson(response, { name, pi_session_id: "pi-1", first_turn: "started" }, 201);
         } else if (!current.agents_running.includes(name)) {
             const process = current.summary.session.agents[name]?.process ?? "exited";
             sendJson(response, { error: `agent ${name} is not running`, process }, 409);

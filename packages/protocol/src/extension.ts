@@ -514,8 +514,9 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         {
             name: "agent_add",
             description:
-                "Add an agent to the session and start it. Pass brief when the session has no " +
-                "brief for it yet; an existing brief is kept.",
+                "Add an agent to the session, start it and send its first turn. Pass brief when " +
+                "the session has no brief for it yet; an existing brief is kept. Pass message to " +
+                "replace the default first turn.",
             parameters: {
                 session: {
                     type: "string",
@@ -525,6 +526,12 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 brief: { type: "string", description: "BRIEF.md text when none exists" },
                 repo: { type: "string", description: "Repo key; the agent runs in its worktree" },
                 model: { type: "string", description: "provider/model; the default when absent" },
+                message: {
+                    type: "string",
+                    description:
+                        "The agent's first prompt; without it the daemon tells a new agent to " +
+                        "read the mission and its brief, take its Plan items and start",
+                },
             },
             required: ["name"],
             roles: OPERATOR_OR_LEAD,

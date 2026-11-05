@@ -63,7 +63,7 @@ import { mount_tty_routes, tty_upgrader } from "./agents/routes-tty.js";
 import { mount_operator_routes } from "./agents/routes-operator.js";
 import { OperatorHost } from "./agents/operator.js";
 import { agent_history } from "./agents/history.js";
-import { AgentManager } from "./agents/manager.js";
+import { AgentManager, FIRST_TURN } from "./agents/manager.js";
 import { ReviewSwarm } from "./agents/swarm.js";
 import { mount_agent_routes } from "./agents/routes.js";
 import { models_source } from "./agents/models.js";
@@ -473,9 +473,22 @@ export function create_app(deps: AppDeps): Hono {
         if (summary === null) {
             return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
         }
+        // A listed agent is a resume: pi continues its transcript, so only an explicit
+        // `message` is sent. A new agent gets the go signal, else it sits idle until the
+        // operator types (dogfood row 37).
+        const resumed = summary.session.agents?.[request.name] !== undefined;
+        const text = request.message ?? (resumed ? null : FIRST_TURN);
         try {
             const handle = await deps.agents.add(summary, request);
-            const body: AgentResponse = { name: request.name, pi_session_id: handle.pi_session_id };
+            const first_turn =
+                text === null
+                    ? "none"
+                    : await deps.agents.first_turn(summary.dir, request.name, handle, text);
+            const body: AgentResponse = {
+                name: request.name,
+                pi_session_id: handle.pi_session_id,
+                first_turn,
+            };
             return c.json(body, 201);
         } catch (error) {
             // An agent that runs already, or a repo without a worktree, is the caller's
