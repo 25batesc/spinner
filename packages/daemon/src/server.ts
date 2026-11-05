@@ -1148,7 +1148,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             unwatch_stack_jobs();
             swarm.close();
             await designs.close();
-            diff.close();
+            await diff.close();
             await operator.close();
             goldfish.close();
             await agents.stop_all();

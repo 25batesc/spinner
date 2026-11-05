@@ -232,6 +232,14 @@ records it under `diff.repos.<repo>` with `pid`, `started`, `port` and `log`
 (`diff/<repo>.log`). A port comes from the top of the session's host half, `base + 49`
 downward. `down` and `close` stop the viewers; a daemon restart reattaches them by pid identity.
 
+A viewer stops on its own in three cases (dogfood #15); the next `diff/start` starts it again.
+The daemon stops every live viewer when it stops, so no viewer outlives it.
+It stops a viewer that had no activity for 30 minutes (`DIFF_IDLE_MS`); a sweep checks each minute.
+Activity is what the daemon sees: a `diff/start`, an agent's `diff_comments` or `diff_reply`, and a change in the recorded threads.
+The viewer serves the browser directly, so reading the diff without a comment is not activity.
+At most 6 viewers run across sessions (`DIFF_VIEWERS_MAX`); a start past that stops the least recently active one first.
+Each stop is a line in the job log or the daemon log that names the reason.
+
 The daemon watches each viewer with `diffview comments wait` in 30 s rounds. A new thread
 waiting on the agent is one `notify` to every running tty agent of the session, at most 2
 per second. The notice has three lines. Line 1 is
