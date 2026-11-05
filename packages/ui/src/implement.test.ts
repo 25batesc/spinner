@@ -3,13 +3,15 @@
 // and reads what the view would show: the groups and their order, which group opens, the
 // view's state and header, the rail state per agent, the mark of each entry, and the goal
 // block's source and paragraph.
-import type { AgentSpec, DesignView, PlanItem, PlanScan } from "@spinner/protocol";
+import type {
+    AgentSpec, DesignView, PlanItem, PlanScan, QuestionItem,
+} from "@spinner/protocol";
 import { scan } from "@spinner/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
     entryMarks, goalParagraph, goalSource, headerText, implementState, markTitle, needsAgent,
-    phaseGroups, railState,
+    phaseGroups, questionGroups, railState, resolutionText,
 } from "./implement.ts";
 
 const DOC = [
@@ -191,5 +193,32 @@ describe("the goal block", () => {
         );
         expect(goalParagraph("## Goals\nx")).toBeNull();
         expect(goalParagraph("## Overview\n\n\n## Goals")).toBeNull();
+    });
+});
+
+describe("questionGroups", () => {
+    const question = (
+        id: number, answer: string | null, resolved: QuestionItem["resolved"] = null,
+    ): QuestionItem => ({
+        id, ts: id === 1 ? null : `10:0${id}`, author: "lead", text: `q${id}`, answer, resolved,
+    });
+    const done = { ts: "10:40", author: "lead", reason: "became Contract 14:15" };
+
+    it("splits open, answered and resolved, each in id order", () => {
+        const groups = questionGroups([
+            question(4, "10:05 operator: yes", done), question(3, "10:04 operator: no"),
+            question(2, null), question(1, null), question(5, null, done),
+        ]);
+        expect(groups.open.map((item) => item.id)).toEqual([1, 2]);
+        expect(groups.answered.map((item) => item.id)).toEqual([3]);
+        expect(groups.resolved.map((item) => item.id)).toEqual([4, 5]);
+    });
+
+    it("words a resolution, and none for an unresolved question", () => {
+        expect(resolutionText(question(5, null, done)))
+            .toBe("resolved by lead at 10:40: became Contract 14:15");
+        expect(resolutionText(question(6, null, { ts: null, author: null, reason: "moot" })))
+            .toBe("resolved: moot");
+        expect(resolutionText(question(2, null))).toBeNull();
     });
 });

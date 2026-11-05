@@ -3,7 +3,9 @@
 // header text, the rail's live dot per agent, and the mark of each doc entry. Everything here
 // is pure over `MissionView`, the doc's `PlanScan` and the facts of `SessionView`; the
 // component renders what these return.
-import type { AgentSpec, DesignView, PlanItem, PlanScan } from "@spinner/protocol";
+import type {
+    AgentSpec, DesignView, PlanItem, PlanScan, QuestionItem,
+} from "@spinner/protocol";
 
 import { agentState } from "./agent-view.ts";
 import { docSections } from "./design-workspace.ts";
@@ -254,4 +256,41 @@ export function railState(
         return "off";
     }
     return agentState(spec, hosted);
+}
+
+/**
+ * The Open questions of the rail (#43), each group in id order. `open` waits on an answer:
+ * no answer and not resolved; the pulse counts these. `answered` has an answer and waits on
+ * the asker to resolve it. `resolved` carries a `[resolved]` line and folds in the rail.
+ */
+export interface QuestionGroups {
+    open: QuestionItem[];
+    answered: QuestionItem[];
+    resolved: QuestionItem[];
+}
+
+export function questionGroups(questions: readonly QuestionItem[]): QuestionGroups {
+    const groups: QuestionGroups = { open: [], answered: [], resolved: [] };
+    const sorted = [...questions].sort((a, b) => a.id - b.id);
+    for (const question of sorted) {
+        if (question.resolved !== null) {
+            groups.resolved.push(question);
+        } else if (question.answer === null) {
+            groups.open.push(question);
+        } else {
+            groups.answered.push(question);
+        }
+    }
+    return groups;
+}
+
+/** `resolved by lead at 10:40: became Contract 14:15`: the folded line of a resolved one. */
+export function resolutionText(question: QuestionItem): string | null {
+    const resolved = question.resolved;
+    if (resolved === null) {
+        return null;
+    }
+    const by = resolved.author === null ? "" : ` by ${resolved.author}`;
+    const at = resolved.ts === null ? "" : ` at ${resolved.ts}`;
+    return `resolved${by}${at}: ${resolved.reason}`;
 }

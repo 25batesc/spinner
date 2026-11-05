@@ -119,7 +119,9 @@ export function MissionWorkspace(props: MissionWorkspaceProps) {
         }));
     };
 
-    // The answer steers the asker, and the Log keeps it so the workspace shows it too.
+    // The answer is written under the question (#43, item mode `answer`); the daemon writes no
+    // Log line for it. A running asker is steered with it too; one that is not running reads
+    // it in MISSION.md on its next turn.
     const onAnswer = (questionId: number, text: string) => {
         const question = mission?.questions.find((candidate) => candidate.id === questionId);
         if (question === undefined) {
@@ -127,16 +129,15 @@ export function MissionWorkspace(props: MissionWorkspaceProps) {
         }
         const asker = question.author ?? LEAD;
         writes.write(key("open_questions", questionId), async () => {
-            if (!running.includes(asker)) {
-                throw new Error(`${asker} is not running; the answer was not sent`);
-            }
-            await postAgent(`/sessions/${dir}/agents/${asker}/steer`, {
-                text: `Answer to your question "${question.text}": ${text}`,
-            });
             await section({
-                section: "log", mode: "append", author: AUTHOR,
-                text: `answered ${asker}'s question "${question.text}": ${text}`,
+                section: "open_questions", mode: "item", text: "", author: AUTHOR,
+                item: { command: "answer", id: questionId, text },
             });
+            if (running.includes(asker)) {
+                await postAgent(`/sessions/${dir}/agents/${asker}/steer`, {
+                    text: `Answer to your question "${question.text}": ${text}`,
+                });
+            }
         });
     };
 
