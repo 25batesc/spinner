@@ -248,8 +248,19 @@ A review typed in the lead's terminal does not archive; EGM then overwrites the 
 The operator approves the design with one click, `approve and build` ([DAEMON_API.md](DAEMON_API.md#approval-and-the-build)).
 The approval pins the doc's normalized hash and copies the doc to `<session>/design/approved.md`.
 When the newest review report lists N blockers, the approval needs the confirmation "approve with N listed blockers", and the record keeps N.
-With the build, the lead gets a message that tells it to add one Plan item per `##### n.n` entry of the doc's plan.
-The message also tells it to tick each item when its entry is done.
+The approval also seeds the Plan (`docs/designs/session-workspace.md`, T2 and T4).
+The daemon scans the doc's Detailed Implementation Plan and adds one Plan item per entry, owner none, linked by the `[n.n]` token at the start of the line.
+The seed's checks run before anything is written.
+A doc with duplicate entry ids, an entry without a title, no entries, or more entries than the Plan can hold is refused with 409, and nothing is recorded.
+A second approval adds only the entries that have no item and keeps every tick.
+It reports an item as `stale` (its entry's title changed) or `orphaned` (its entry left the doc) without rewriting a token.
+The lead re-points such an item with `mission_plan edit` and a new token.
+The Log gets two `spinner` lines: the approval and the seed with its counts.
+With the build, the lead gets a message that says the Plan holds one item per entry.
+The message names the token and the `entry` argument of `mission_plan add` for a split, and tells the lead to assign owners and to tick each item when its entry is done.
+The message also names two worker conventions.
+A worker's Roster *Doing* cell names `#<id>`, so the item reads doing.
+An entry a worker cannot build as written goes under *Open questions* with the entry id.
 
 Before the first approval, a design-track lead can write only the design doc (the designs directory) and the session's own files.
 The extension's guard refuses its other `edit` and `write` calls. Workers and direct-track leads are not affected.
@@ -313,7 +324,7 @@ These rules are what make a shared file safe with several writers. They are enfo
 | Section | Who writes | How |
 |---|---|---|
 | Goal, Done when | Operator | Freely. Agents propose changes under *Open questions*. |
-| Plan | Anyone | Add items; every item names one owner; only the owner ticks it. Never renumber. Since s014 an item is `- [ ] 3. text (owner)`. Ticked, it is `- [x] 3. text (owner, 14:02)`. The `mission_plan` tool writes the number and the time. A Done when item ticks the same way: `- [x] text (owner, 14:02)`. |
+| Plan | Anyone | Add items; every item names one owner, except a seeded item, which has none until the lead assigns one; only the owner ticks it. Never renumber. Since s014 an item is `- [ ] 3. text (owner)`. Ticked, it is `- [x] 3. text (owner, 14:02)`. An item seeded from the design doc, or added with `entry`, starts its text with the entry token: `- [ ] 3. [1.5] text (owner)`; `mission_plan edit` keeps the token unless the new text starts with another one, and the older `plan 1.5: text` prefix is read as the token. The `mission_plan` tool writes the number and the time. A Done when item ticks the same way: `- [x] text (owner, 14:02)`. |
 | Roster | Each agent, own row only | Overwrite the row. *Doing* is one line, or `done`, or `—` when idle. *Blocked?* is `no` or `yes: <what you wait for>`. |
 | Contracts & decisions | Anyone | **Append-only.** To change a contract, add a new entry that says what it supersedes. |
 | Open questions | Agents add, operator answers | The operator answers inline or moves the answer to *Contracts*. |
@@ -467,7 +478,7 @@ Commands and what they change:
 So that agents follow the protocol without being told every turn, `spinnerd` loads a pi extension into each agent session:
 
 - **System prompt section**: session id, hostnames, the agent's `BRIEF.md`, the full `MISSION.md`, and a one-line digest per other agent (`admin-ui: blocked on /refunds`).
-- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. The lead's `ask_question(questions)` asks one EGM gate. `questions` is the JSON text of EGM's payload, `[{"question": "...", "options": ["...", "..."], "is_multi_select": false}]` or `{"questions": [...]}`, with exactly one single-select question and 2 to 6 options. The tool refuses any other payload and calls nothing. Otherwise it writes `design.gate` and tells the lead to end its turn. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
+- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text)`, `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The lead role (s014) adds `session_title(title)`, `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, where `add` takes `entry` (the doc entry the item belongs to, `2.3`, written as the `[2.3]` token), `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. The lead's `ask_question(questions)` asks one EGM gate. `questions` is the JSON text of EGM's payload, `[{"question": "...", "options": ["...", "..."], "is_multi_select": false}]` or `{"questions": [...]}`, with exactly one single-select question and 2 to 6 options. The tool refuses any other payload and calls nothing. Otherwise it writes `design.gate` and tells the lead to end its turn. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
 - **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first. On the design track it also refuses a lead's `edit`/`write` outside the designs directory and the session's files. The refusal holds until the design is approved, and again while a changed design waits for re-approval. `bash` is not covered.
 
 Until then, the brief carries these instructions, and the operator serializes by running only two or three agents at once.
@@ -605,3 +616,4 @@ The protocol freezes at each milestone exit. A change needs a dated entry here b
 - 2026-11-03 Cost is shown, never enforced: no budget gate, no cost-driven choice of model or agent count.
 - 2026-11-03 A session is the long-lived home of one feature area; rounds continue it with the full history, the round badge shows from round 2, the design doc and its approval carry across rounds.
 - 2026-11-03 The sidebar is VS Code's shape: an always-visible icon rail, one panel per view, the gear at the bottom; the needs-you badges count only sessions the operator has not looked at.
+- 2026-11-05 Session workspace (`docs/designs/session-workspace.md`, s046): the Plan is seeded from the design doc at approval and linked back to it. `PlanItem.entry` and `MissionItemRequest.entry` (`add` only) are added; a Plan line may start its text with the `[n.n]` entry token, which an older daemon reads as text; `POST …/design/approve` answers `DesignApproveResponse` (`SessionResponse` plus `seed: SeedResult`) and refuses with 409 a doc the seed cannot honour; `MissionWriter.rewrite` writes a whole-file change under the session's write chain. The design doc file format and `session.yaml` are unchanged.

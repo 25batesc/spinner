@@ -102,7 +102,7 @@ WebSockets below.
 | `GET /sessions/:dir/design/files/:name` | | `text/markdown` | One file of `<session>/design/`. 400 for a bad name, 404 when absent. |
 | `GET /sessions/:dir/design/reviews/:run/:name` | | `text/markdown` | One report of an archived review run. 400 for a bad run id or name, 404 when absent. |
 | `GET /sessions/:dir/design/doc` | | `text/markdown` | The design doc from the worktree of `design.repo`. 404 before `design_doc` and when the file is missing. |
-| `POST /sessions/:dir/design/approve` | `DesignApproveRequest` | `SessionResponse` | Approves the design doc and, with `build`, prompts the lead to build; below. 400 for a bad body, 409 with a `DesignApproveRefusal`. |
+| `POST /sessions/:dir/design/approve` | `DesignApproveRequest` | `DesignApproveResponse` | Approves the design doc, seeds the Plan from its entries and, with `build`, prompts the lead to build; below. 400 for a bad body, 409 with a `DesignApproveRefusal`. |
 | `DELETE /sessions/:dir/design/approve` | | `SessionResponse` | Removes the approval and `approved.md`. `design.approvals` keeps its history. |
 | `GET /sessions/:dir/design/approved` | | `text/markdown` | The doc as approved, `<session>/design/approved.md`. 404 before an approval. |
 | `GET /sessions/:dir/design/changes` | | `DesignChangesResponse` | The `## ` sections changed since the approval; an empty list without a change. |
@@ -363,13 +363,16 @@ It does these steps in order:
 
 1.  It refuses with 409 off the design track, without `design.doc`, at stage `resolving`, and with an open gate.
 2.  It counts the blockers that the newest report of the current run lists. The newest report is `goldfish_review_report.md`, else `consolidated_review_report.md`, else `implementation_readiness_report.md`. When the count N is above 0 and `blockers_confirmed` is not N, it refuses with 409.
-3.  It refuses with 409 when the doc is missing from the worktree, and when `build` is true while the lead is not running. No write happens before these checks.
-4.  It rewrites the doc's `*   **Status:**` line to `Approved`. A doc without that line is not changed.
-5.  It hashes the doc (normalized) and copies the text to `<session>/design/approved.md`.
-6.  It writes `design.approved` with the path, repo, hash, time, N and round, appends the same record to `design.approvals`, and clears `design.changed_after_approval`.
-7.  It appends the Log line `design approved: <path> (<sha12>, <N> listed blockers)` as author `spinner`.
-8.  With `build`, it prompts the lead with the build message.
+3.  It refuses with 409 when the doc is missing from the worktree, and when `build` is true while the lead is not running.
+4.  It scans the doc's plan (below) and runs the seed's checks against the current Plan. It refuses with 409 when the doc has duplicate entry ids (`the plan has duplicate entry ids: 2.3`), an entry whose title is empty (`entries without a title: 2.5`), or no entries (`no plan entries found under an Implementation Plan heading`). It also refuses a doc past the scan's bounds, and a Plan that would hold more than 500 items once every entry without an item is added. No write happens before these checks.
+5.  It rewrites the doc's `*   **Status:**` line to `Approved`. A doc without that line is not changed.
+6.  It hashes the doc (normalized) and copies the text to `<session>/design/approved.md`.
+7.  It writes `design.approved` with the path, repo, hash, time, N and round, appends the same record to `design.approvals`, and clears `design.changed_after_approval`.
+8.  It seeds the Plan through the mission writer: one `- [ ] <id>. [<entry>] <title>` line per entry that has no item, owner none, after the existing items. Every Plan line is rewritten in canonical form on the way. An item whose entry's title changed counts `stale`; an item whose entry left the doc counts `orphaned`. Both stay in place, and no token is rewritten. One `mission.changed` is published with the whole view.
+9.  It appends the Log lines `design approved: <path> (<sha12>, <N> listed blockers)` and `plan seeded from <path> (<sha12>): <added> added, <kept> kept, <n> stale[: ids], <m> orphaned[: ids]` as author `spinner`.
+10. With `build`, it prompts the lead with the build message.
 
+The response is a `DesignApproveResponse`: the `SessionResponse` plus `seed: SeedResult`, `{ doc_path, sha12, added, kept, stale[], orphaned[] }`.
 A 409 body is a `DesignApproveRefusal`: `{ error, blockers }`. `blockers` is N for the refusal of step 2 and null for the others.
 The blocker count reads only `##` to `####` headings outside code fences.
 Severity mode counts the headings with `Severity: Blocker` or `Severity: High`.
@@ -378,9 +381,16 @@ Section mode counts the headings one level below the section heading.
 The count does not know which blockers a resolve pass fixed, so the UI calls them "listed".
 
 The build message names the absolute doc path and the first 12 characters of the hash.
-It tells the lead to add one `MISSION.md` Plan item per `##### n.n` entry of the doc's plan with `mission_plan add`.
-It also tells the lead to tick each item when its entry is done.
-The daemon does not parse the doc's plan.
+It says the Plan holds one item per entry, with the seed's counts.
+It names the `[n.n]` token and the `entry` argument of `mission_plan add` for a split.
+It tells the lead to assign owners and to tick each item when its entry is done.
+It names two worker conventions. A worker's Roster `Doing` cell names `#<id>`, so the item reads `doing`. An entry a worker cannot build as written goes under Open questions with the entry id.
+
+The scan of the doc's plan is `scan` in `@spinner/protocol` (`plan-entries.ts`), shared with the UI ([designs/session-workspace.md](designs/session-workspace.md), T2).
+The plan section starts at a `## ` heading whose text ends with `Implementation Plan` and ends at the next `## ` heading.
+A phase is a `#### Build session N[: title]` heading; an entry is a `#### n.` or `##### n.n` heading.
+An entry's title is the heading text after three strips: every `**[…]**` tag, one trailing parenthetical, and surrounding whitespace. The backticks stay.
+Headings inside code fences do not count. The scan reads at most 100 000 lines, 50 phases and 500 entries.
 
 The design tracker hashes the doc on every change.
 When an approval exists and the hash differs, it sets `design.changed_after_approval`, and the guard locks the lead's code writes again.
@@ -570,7 +580,7 @@ truth. `mission.changed` carries the same `view` after a tool write and after a 
 | `title` | From the `# id · title` line. |
 | `goal` | The Goal body; the template's placeholder reads as empty. |
 | `done_when[]` | `{ id, text, owner, state: open \| done, ticked_at }`; `id` is the position. |
-| `plan[]` | `{ id, text, owner, state: next \| doing \| done, ticked_at }`; `id` is the number in the file. |
+| `plan[]` | `{ id, text, owner, entry, state: next \| doing \| done, ticked_at }`; `id` is the number in the file; `entry` is the doc entry of the `[1.5]` token (or the older `plan 1.5:` prefix) at the start of the line, null for a free item; `text` is the text without the token. |
 | `roster[]` | `{ agent, owns, doing, blocked, updated }`, the cells as written. |
 | `contracts[]` | `{ id, ts, author, text }`; nested lines join the text. |
 | `questions[]` | `{ id, author, text, answer }`; the indented lines under a question are the answer. |
@@ -581,13 +591,15 @@ A Plan item is `doing` when it is unticked and its owner's Roster `Doing` names 
 `doing` on its lowest unticked item.
 
 The `item` mode of `PUT /sessions/:dir/mission/section` edits one item of `plan` or
-`done_when`: `item: { command, id?, text?, owner?, order? }`. `add` appends `- [ ] N. text
-(owner)` to the Plan (N is `max + 1`; the owner defaults to the author) or `- [ ] text` to
-Done when. `tick` writes `[x]` and `(owner, HH:MM)` with the daemon's clock. `untick` drops
-the time. `edit` replaces the text. `assign` sets the owner. `reorder` takes the ids in their
-new order; unlisted items follow in their old order. Ids never change. A Plan line
-written before s014 without a number gets one on the first write to the section. A 400
-names the first problem. An unknown id is one.
+`done_when`: `item: { command, id?, text?, owner?, entry?, order? }`. `add` appends `- [ ] N.
+text (owner)` to the Plan (N is `max + 1`; the owner defaults to the author) or `- [ ] text`
+to Done when; with `entry` (`add` only; an entry id such as `2.3`) the Plan line starts its
+text with the `[2.3]` token. `tick` writes `[x]` and `(owner, HH:MM)` with the daemon's
+clock. `untick` drops the time. `edit` replaces the text and keeps the token, unless the new
+text starts with a token, which then replaces the entry. `assign` sets the owner. `reorder`
+takes the ids in their new order; unlisted items follow in their old order. Ids never
+change. A Plan line written before s014 without a number gets one on the first write to the
+section. A 400 names the first problem. An unknown id is one.
 
 ## Reviews
 
