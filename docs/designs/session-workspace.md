@@ -1089,4 +1089,34 @@ A path is relative to the repo root.
 
 --------------------------------------------------------------------------------
 
+## Build findings
+
+Both build sessions ran in Spinner session s046 on 2026-11-05, in one worktree, by two workers (`engine`, `ui`) under the lead.
+Commits on `feat/session-workspace`: `a43e417` (1.1 to 1.7), `ec2e7ec` (1.8 to 1.11), `d6a8c2a` (1.12, 1.13), `22a41a5` (1.14 to 1.19), `252da37` (1.20 to 1.22, 1.25, 1.26), `d12066e` (1.23, 1.24), `824553c` (2.1 to 2.11, 2.21, 2.24, 2.25), `2e6d758` (2.12, 2.15 to 2.20), `12cb787` (2.22, 2.23, 2.29, 2.30), `14d062a` (2.31), `a1d41aa` (2.27).
+Root checks at `a1d41aa`, run by the lead with `npm_config_reporter` and `SLACK_USER_TOKEN` unset: `pnpm -r build` exit 0; `pnpm typecheck` exit 0; `pnpm lint` exit 0; `pnpm -r test`: protocol 48, desktop 69, pi-extension 28 passed; ui 262 passed and 1 failed; daemon 457 passed and 1 failed.
+The two failures reproduce on the untouched primary checkout at `1f93186` from the same environment: `fixture/server.test.ts` `GET /costs` (a date boundary at this hour) and `agents.test.ts` "gives a lead the EGM spawn" (it asserts a spawned worker's env lacks `PI_SUBAGENTS_TEMP_ROOT`, which the lead's own pi process exports and the test inherits).
+Neither is a regression of this design.
+
+Built variants, each the smallest faithful one:
+
+1.  1.12: `seed_plan` returns the counts and the new mission text (`SeedCounts & { mission_text }`); `approve.ts` adds `doc_path` and `sha12` to make the `SeedResult`, since the pure function has no use for them.
+2.  1.12, T4 step 3: the stale test is per entry over `by_entry`: an entry is stale when none of its linked items carries its title, so a split item from CUJ 4 does not read stale at re-approval.
+3.  1.14: a scan past its bounds (501 entries) is a 409 with the scan's message, not a 500.
+4.  2.15: `agentState` moved to `agent-view.ts` (pure) and is re-exported from `AgentsPane.tsx`, so `implement.test.ts` does not import the terminals under vitest's node environment; `railState`'s fourth argument is a boolean from `needsAgent(needs_human, name)`, because `AgentSpec` carries no name.
+5.  2.29: the fixture seeds through a host rewrite with its own `seedPlan` counting; `seed_plan` stays the daemon's.
+6.  2.31: a legacy session's `?pane=agents` route opens on Implement (D5), so the driver clicks Agents first.
+7.  2.22: the approve dialog opened from the Review header or the Draft banner outlives its button, because `session.updated` unmounted it before the counts showed; the compact gate line drops `*` and `` ` `` marks (found by the driver flows).
+
+Findings for the harness and the protocol, outside this design:
+
+1.  `agent_add` starts a worker's process but sends no first prompt; the operator had to message `engine`. The lead steered `ui` right after adding it. Follow-up: the daemon prompts a new agent to read its brief and `MISSION.md`.
+2.  The worker role has no `mission_plan` tool, so a worker cannot tick its own items; the lead ticked all 56 after verifying. Follow-up: give workers `tick` and `untick` on their own items, as T10 assumes.
+3.  With `seed_links`, a worktree's `packages/*/node_modules` are symlinks into the primary checkout, so `@spinner/protocol` resolved to the primary's stale `dist` and the daemon tests could not see `a43e417`. `engine` replaced those links with directories that point every entry at the primary's install except `@spinner/*`, which point at the worktree (untracked). Follow-up: a worktree that changes a workspace package needs `pnpm install` or this relink at creation.
+4.  The daemon's inherited environment carries `npm_config_reporter=silent` (hides all test output) and `SLACK_USER_TOKEN` (flips `loop.test.ts` to the real transport); both must be unset for a worker's `pnpm -r test`.
+5.  The row folds in a 1500 px window with the previews pane open (the agents pane is about 660 px wide); Threads and Services still scroll after the fold (Q3 stands as a build observation).
+
+Not run: the manual e2e rows on a real daemon session (no scratch daemon with a real pi was available to the workers); the driver flows `workspace`, `view-tabs`, `design-workspace`, `design-gate`, `approve-design` plus `goldfish`, `agents` and 28 other fixture flows exit 0 against the fixture (`E2E_CDP_PORT=9340 node e2e/drive.ts`, headless Chrome 156), covering CUJ 1, 3, 4, 6, 7, 8, 10 and the fold.
+
+--------------------------------------------------------------------------------
+
 *Drafted with EGM*
