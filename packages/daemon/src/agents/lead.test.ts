@@ -289,7 +289,14 @@ describe("GET /sessions/:dir/mission/view and PUT /sessions/:dir/title", () => {
             | { view?: MissionView }
             | undefined;
         expect(changed?.view?.plan).toEqual([
-            { id: 1, text: "first thing", owner: "lead", state: "next", ticked_at: null },
+            {
+                id: 1,
+                text: "first thing",
+                owner: "lead",
+                entry: null,
+                state: "next",
+                ticked_at: null,
+            },
         ]);
         const response = await call("GET", `/sessions/${dir}/mission/view`);
         expect(response.status).toBe(200);
