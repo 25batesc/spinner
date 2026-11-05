@@ -33,6 +33,24 @@ export interface CostTotals {
 export interface AgentCost extends CostTotals {
     /** The model of the agent's latest assistant message, or null before its first. */
     model: string | null;
+    /**
+     * How full the agent's context window is (dogfood #45), from its latest assistant
+     * message and that model's window. Null before the first message or while the window of
+     * the model is unknown (the daemon's model list is not loaded, or pi does not know the
+     * model). Optional so a fixture written before round 4 still type-checks; the daemon
+     * always sets it on `SessionView.cost.agents`.
+     */
+    context?: AgentContext | null;
+}
+
+/** The context use of one agent: the prompt of its latest message against the window. */
+export interface AgentContext {
+    /** `input + cacheRead + cacheWrite` of the latest assistant message's usage. */
+    tokens: number;
+    /** The model's `contextWindow` from `pi --list-models`, in tokens; above 0. */
+    window: number;
+    /** `tokens / window` as a whole percent, rounded down; can pass 100 after a model change. */
+    pct: number;
 }
 
 /** `SessionView.cost`: the session's agents summed, and each agent's share. */

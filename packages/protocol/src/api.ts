@@ -154,6 +154,13 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/abort": "AgentCommandResponse",
     /** Stop the agent's process. Its transcript stays and `resume` picks it up. */
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
+    /**
+     * Compact the agent's context (dogfood #45): pi's `/compact`, typed into a tty agent
+     * through its extension, or the rpc `compact` command. Writes the `spinner` Log line
+     * `compacted <agent> at NN %` (`at ? %` while the window is unknown). 409 with an
+     * AgentNotRunningResponse when the daemon does not host the agent.
+     */
+    "POST /sessions/:dir/agents/:name/compact": "AgentCommandResponse",
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
     /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
