@@ -52,6 +52,19 @@ describe("extension manifest", () => {
         expect(ROUTES["POST /sessions/:dir/design/approve"]).toBe("DesignApproveResponse");
     });
 
+    it("takes ask, answer and resolve on mission_question, with an id", () => {
+        const question = EXTENSION_MANIFEST.tools.find((tool) => tool.name === "mission_question");
+        expect(question?.parameters["command"]?.enum).toEqual(["ask", "answer", "resolve"]);
+        expect(Object.keys(question?.parameters ?? {})).toContain("id");
+        expect(question?.required).toEqual(["text"]);
+        const args: ExtensionToolArgs["mission_question"] = {
+            command: "resolve",
+            id: 2,
+            text: "done in 5affce3",
+        };
+        expect(args.command).toBe("resolve");
+    });
+
     it("types the fixer tools' arguments", () => {
         const args: ExtensionToolArgs["thread_resolve"] = { thread: "T1", pr: "backend" };
         expect(args.thread).toBe("T1");

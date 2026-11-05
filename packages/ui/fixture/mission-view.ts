@@ -3,6 +3,7 @@
 // 14:02)`, `- [ ] 3. [1.5] text (owner)` with the entry token). A compact mirror of
 // `packages/daemon/src/pipeline/mission-sections.ts`, enough for the UI drivers; the daemon's
 // own tests cover the edge cases. The token rule is `@spinner/protocol`'s, as in the daemon.
+// Open questions are stamped, answered and resolved in place (dogfood #43): `applyQuestion`.
 import type {
     DoneWhenItem, LogLine, MissionItemRequest, MissionLine, MissionView, PlanItem,
     QuestionItem, RosterRow,
@@ -138,15 +139,79 @@ function parseLines(bodyText: string): MissionLine[] {
     });
 }
 
+/** `HH:MM author: text`, the stamped question and answer form (#43). */
+const QUESTION_STAMPED = /^(\d\d:\d\d)\s+([^:\s]+):\s*(.*)$/;
+/** `HH:MM author: [resolved] reason` under a question; the time is optional. */
+const RESOLVED = /^(?:(\d\d:\d\d)\s+)?([^:\s]+):\s*\[resolved\]\s*(.*)$/;
+
 function parseQuestions(bodyText: string): QuestionItem[] {
     return entries(bodyText).map(({ head, rest }, index) => {
-        const authored = AUTHORED.exec(head);
-        const named = authored !== null && authored[1] !== undefined && !authored[1].includes(" ");
-        const author = named ? (authored[1] ?? null) : null;
-        const text = author === null ? head : (authored?.[2] ?? "");
-        const answer = rest.map((line) => line.replace(/^-\s+/, "")).join("\n");
-        return { id: index + 1, author, text, answer: answer === "" ? null : answer };
+        const stamped = QUESTION_STAMPED.exec(head);
+        const authored = stamped === null ? AUTHORED.exec(head) : null;
+        const named = authored?.[1] !== undefined && !authored[1].includes(" ");
+        const author = stamped?.[2] ?? (named ? (authored?.[1] ?? null) : null);
+        const text = stamped?.[3] ?? (named ? (authored?.[2] ?? "") : head);
+        const lines = rest.map((line) => line.replace(/^-\s+/, ""));
+        let resolved: QuestionItem["resolved"] = null;
+        const answers: string[] = [];
+        for (const line of lines) {
+            const match = RESOLVED.exec(line);
+            if (match !== null && resolved === null) {
+                const [, ts = null, by = null, reason = ""] = match;
+                resolved = { ts, author: by, reason };
+            } else {
+                answers.push(line);
+            }
+        }
+        return {
+            id: index + 1, ts: stamped?.[1] ?? null, author, text,
+            answer: answers.length === 0 ? null : answers.join("\n"), resolved,
+        };
     });
+}
+
+/**
+ * The `item` mode on `open_questions` (#43), as the daemon does it: `answer` writes
+ * `  - HH:MM author: text` under question `id`, `resolve` writes `  - HH:MM author:
+ * [resolved] text`. Only `lead` and `operator` resolve, once. Returns the new text or an error.
+ */
+export function applyQuestion(
+    text: string, author: string, request: MissionItemRequest, now = clock(),
+): { text: string } | { error: string } {
+    if (request.command !== "answer" && request.command !== "resolve") {
+        return { error: `item.command must be answer or resolve on open_questions` };
+    }
+    const reply = (request.text ?? "").trim();
+    if (reply === "" || reply.includes("\n")) {
+        return { error: `item.text must be one non-empty line for ${request.command}` };
+    }
+    if (request.command === "resolve" && author !== "lead" && author !== "operator") {
+        return { error: "only the lead or the operator resolves a question" };
+    }
+    const span = sectionLines(text, "Open questions");
+    const lines = text.split("\n");
+    const heads = span === null ? [] : lines.slice(span.start, span.end)
+        .map((line, index) => ({ line, at: span.start + index }))
+        .filter(({ line }) => line.startsWith("- "));
+    const target = heads[(request.id ?? 0) - 1];
+    if (span === null || target === undefined) {
+        return { error: `no item ${String(request.id)} in open_questions` };
+    }
+    const question = parseQuestions(body(text, "Open questions"))[(request.id ?? 0) - 1];
+    if (request.command === "resolve" && question?.resolved !== null) {
+        return { error: `question ${String(request.id)} is resolved already` };
+    }
+    // The new line goes after the question's last non-blank line under it.
+    const next = heads.find(({ at }) => at > target.at)?.at ?? span.end;
+    let last = target.at;
+    for (let at = target.at + 1; at < next; at += 1) {
+        if ((lines[at] ?? "").trim() !== "") {
+            last = at;
+        }
+    }
+    const mark = request.command === "resolve" ? "[resolved] " : "";
+    lines.splice(last + 1, 0, `  - ${now} ${author}: ${mark}${reply}`);
+    return { text: lines.join("\n") };
 }
 
 function parseLog(bodyText: string): LogLine[] {

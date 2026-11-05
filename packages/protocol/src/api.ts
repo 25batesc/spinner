@@ -1226,12 +1226,32 @@ export interface MissionLine {
     text: string;
 }
 
-/** An Open questions line `- author: text`; `answer` is the indented lines under it, if any. */
+/**
+ * An Open question (dogfood #43). The daemon writes `- HH:MM author: text`; an answer goes
+ * under it as `  - HH:MM author: text`, and a resolution as `  - HH:MM author: [resolved]
+ * reason`. An older line `- author: text` without a time still reads, with `ts` null.
+ */
 export interface QuestionItem {
+    /** The 1-based position in the section; the `item` mode on `open_questions` takes it. */
     id: number;
+    /** `HH:MM` the question was asked, or null for an unstamped line. */
+    ts: string | null;
     author: string | null;
     text: string;
+    /**
+     * The lines under the question except the resolution, each `HH:MM author: text` as
+     * written, joined by newlines; null without one.
+     */
     answer: string | null;
+    /** The `[resolved]` line under the question, or null while the question is open. */
+    resolved: QuestionResolution | null;
+}
+
+/** How an Open question was closed: who, when and why. */
+export interface QuestionResolution {
+    ts: string | null;
+    author: string | null;
+    reason: string;
 }
 
 /** A Log line `- HH:MM author: text`. */

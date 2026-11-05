@@ -111,6 +111,21 @@ export const MISSION_ITEM_COMMANDS = [
 
 export type MissionItemCommand = (typeof MISSION_ITEM_COMMANDS)[number];
 
+/**
+ * The `item` commands on `open_questions` (dogfood #43). `answer` writes `  - HH:MM author:
+ * text` under question `id`; any author may answer. `resolve` writes `  - HH:MM author:
+ * [resolved] text` under it; only `lead` and `operator` may resolve, and a question resolves
+ * once. Neither writes a Log line.
+ */
+export const QUESTION_ITEM_COMMANDS = ["answer", "resolve"] as const;
+
+export type QuestionItemCommand = (typeof QUESTION_ITEM_COMMANDS)[number];
+
+/** What `mission_question` does: `ask` appends a stamped question; the others are above. */
+export const QUESTION_TOOL_COMMANDS = ["ask", ...QUESTION_ITEM_COMMANDS] as const;
+
+export type QuestionToolCommand = (typeof QUESTION_TOOL_COMMANDS)[number];
+
 export const DONE_WHEN_COMMANDS = ["set", "tick", "untick", "edit"] as const;
 
 export type DoneWhenCommand = (typeof DONE_WHEN_COMMANDS)[number];
@@ -153,8 +168,12 @@ export interface ExtensionToolArgs {
     mission_log: { text: string };
     /** Appends one Contracts line. The daemon stamps the time and the agent name. */
     mission_contract: { text: string };
-    /** Appends one Open questions line, prefixed with the agent name. */
-    mission_question: { text: string };
+    /**
+     * Open questions (dogfood #43). `ask` (the default) appends `- HH:MM agent: text`;
+     * `answer` writes `text` under question `id`; `resolve` (the lead only) closes question
+     * `id` with `text` as the reason.
+     */
+    mission_question: { text: string; command?: QuestionToolCommand; id?: number };
     /** Writes `inbox/<HHMMSS>-<agent>-<to>.md`. `to` is an agent name, `operator` or `all`. */
     message: { to: string; subject: string; text: string };
     /**
@@ -332,8 +351,21 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         },
         {
             name: "mission_question",
-            description: "Append one Open questions line for the operator.",
-            parameters: { text: { type: "string", description: "The question, one line" } },
+            description:
+                "Open questions: ask one for the operator (stamped with the time), answer " +
+                "question id under it, or, as the lead, resolve question id with a reason.",
+            parameters: {
+                text: {
+                    type: "string",
+                    description: "The question, the answer or the reason, one line",
+                },
+                command: {
+                    type: "string",
+                    description: "ask (default), answer or resolve",
+                    enum: QUESTION_TOOL_COMMANDS,
+                },
+                id: { type: "number", description: "For answer and resolve: the question's id" },
+            },
             required: ["text"],
             roles: SESSION_ROLES,
             route: "PUT /sessions/:dir/mission/section",
@@ -746,7 +778,7 @@ export type MissionWriteMode =
     | "replace"
     /** Overwrite the row of `author` in the Roster table. */
     | "roster_row"
-    /** One item of the Plan or the Done when list (s014); `item` says which and what. */
+    /** One item of the Plan, Done when or Open questions; `item` says which and what. */
     | "item";
 
 /**
@@ -755,10 +787,13 @@ export type MissionWriteMode =
  * the author; on `done_when` it writes `- [ ] text`. `tick` writes `[x]` and `(owner, HH:MM)`;
  * `untick` drops the time; `edit` replaces the text; `assign` sets the owner; `reorder` takes
  * the ids in their new order (unlisted ones follow in their old order). A done_when item's id
- * is its 1-based position; Plan ids are the numbers in the file and never change.
+ * is its 1-based position; Plan ids are the numbers in the file and never change. On
+ * `open_questions` the mode takes `answer` and `resolve` with `id` (the position) and `text`;
+ * see `QUESTION_ITEM_COMMANDS`.
  */
 export interface MissionItemRequest {
-    command: MissionItemCommand;
+    /** A `MissionItemCommand` on `plan` and `done_when`; a `QuestionItemCommand` on questions. */
+    command: MissionItemCommand | QuestionItemCommand;
     id?: number;
     text?: string;
     owner?: string;
