@@ -129,6 +129,11 @@ async function fake_daemon(
                 });
             } else if (path.endsWith("/mission/section")) {
                 answer(200, { ok: true, sections: [(body as { section: string }).section] });
+            } else if (path.endsWith("/mission/view")) {
+                const item = (id: number, owner: string | null) => ({
+                    id, text: `item ${id}`, owner, entry: null, state: "next", ticked_at: null,
+                });
+                answer(200, { view: { plan: [item(1, "alpha"), item(2, "beta"), item(3, null)] } });
             } else if (path.endsWith("/inbox")) {
                 answer(201, { file: "120000-alpha-beta.md" });
             } else if (/\/stack\/logs\/web\?lines=20$/.test(path)) {
@@ -417,6 +422,68 @@ describe("tools against the daemon routes", () => {
             });
             expect(writes[5]?.body).toEqual({ text: "fixed" });
             expect(writes[6]?.body).toEqual({ reason: "design" });
+            expect(writes[3]?.body).toEqual({
+                section: "open_questions",
+                mode: "append",
+                text: "v1?",
+                author: "alpha",
+            });
+
+            // A non-lead answers a question by its id and cannot resolve one (dogfood #43).
+            await run(pi, "mission_question", { command: "answer", id: 2, text: " v2 " });
+            expect(daemon.requests.at(-1)?.body).toEqual({
+                section: "open_questions",
+                mode: "item",
+                text: "",
+                author: "alpha",
+                item: { command: "answer", id: 2, text: "v2" },
+            });
+            await expect(
+                run(pi, "mission_question", { command: "resolve", id: 2, text: "done" }),
+            ).rejects.toThrow(/only the lead resolves/);
+            await expect(
+                run(pi, "mission_question", { command: "answer", text: "x" }),
+            ).rejects.toThrow(/`id` must be/);
+            await expect(
+                run(pi, "mission_question", { command: "close", id: 1, text: "x" }),
+            ).rejects.toThrow(/must be one of ask, answer, resolve/);
+        } finally {
+            daemon.close();
+        }
+    });
+
+    // Dogfood r3.6: a worker ticks and unticks its own items and unowned ones, nothing else.
+    it("lets a worker tick and untick its own or unowned Plan items only", async () => {
+        const daemon = await fake_daemon(false);
+        try {
+            const pi = fake_pi();
+            register(pi, { env: env_for("worker", daemon.url) });
+            expect(pi.tools.has("mission_plan")).toBe(true);
+            expect(await run(pi, "mission_plan", { command: "tick", id: 1 })).toContain("plan");
+            expect(daemon.requests.at(-1)?.body).toEqual({
+                section: "plan",
+                mode: "item",
+                text: "",
+                author: "alpha",
+                item: { command: "tick", id: 1 },
+            });
+            await run(pi, "mission_plan", { command: "untick", id: 3 });
+            expect((daemon.requests.at(-1)?.body as { item: unknown }).item).toEqual({
+                command: "untick",
+                id: 3,
+            });
+            const writes = (): number =>
+                daemon.requests.filter((request) => request.method === "PUT").length;
+            const before = writes();
+            await expect(run(pi, "mission_plan", { command: "tick", id: 2 })).rejects.toThrow(
+                "item 2 belongs to beta; only its owner or the lead ticks it",
+            );
+            await expect(run(pi, "mission_plan", { command: "tick", id: 9 })).rejects.toThrow(
+                "no item 9 in the Plan",
+            );
+            const add = run(pi, "mission_plan", { command: "add", text: "more work" });
+            await expect(add).rejects.toThrow("ticks and unticks its Plan items; ask the lead");
+            expect(writes()).toBe(before);
         } finally {
             daemon.close();
         }

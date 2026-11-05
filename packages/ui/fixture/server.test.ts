@@ -243,6 +243,29 @@ it("rewrites one mission section and keeps the rest", async () => {
     expect(text).toContain("refund button works");
 });
 
+it("answers and resolves an Open question through item mode, as the daemon (#43)", async () => {
+    // The rail's answer and the lead's resolve go through `PUT …/mission/section` item mode on
+    // `open_questions`; the view then carries the answer, the resolution, and the refusals.
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/s17-refund-flow/mission`;
+    const put = (author: string, item: Record<string, unknown>) => fetch(`${base}/section`, {
+        method: "PUT",
+        body: JSON.stringify({ section: "open_questions", mode: "item", text: "", author, item }),
+    });
+    expect((await put("operator", { command: "answer", id: 1, text: "Full only." })).status)
+        .toBe(200);
+    expect((await put("backend", { command: "resolve", id: 1, text: "ok" })).status).toBe(400);
+    expect((await put("lead", { command: "resolve", id: 1, text: "Contract 10:00" })).status)
+        .toBe(200);
+    expect((await put("lead", { command: "resolve", id: 1, text: "again" })).status).toBe(400);
+    const view = (await (await fetch(`${base}/view`)).json()) as { view: MissionView };
+    const first = view.view.questions[0];
+    expect(first?.answer).toMatch(/^\d\d:\d\d operator: Full only\.$/);
+    expect(first?.resolved).toMatchObject({ author: "lead", reason: "Contract 10:00" });
+    expect(view.view.questions.map((question) => question.resolved !== null))
+        .toEqual([true, false, true]);
+});
+
 it("hosts the operator agent: GET /operator, its tty, stop closes the pty, start", async () => {
     const port = await start();
     const base = `http://127.0.0.1:${port}/operator`;

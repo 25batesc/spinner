@@ -359,6 +359,19 @@ export function App() {
         });
         // Once, on mount: the handles live in a ref and `setPopped` is stable.
     }, []);
+    // A click on a Spinner notification (#12): the desktop main process shows the window and
+    // sends the session's dir; the main window opens that session's agents pane. A pane route
+    // and a desktop build without the channel do not subscribe.
+    useEffect(() => {
+        if (route !== undefined) {
+            return;
+        }
+        return window.spinnerDesktop?.sessions?.subscribeFocus((dir) => {
+            app.pick("sessions", dir);
+            setMiddle("agents");
+        });
+        // Once, on mount: `pick` and `setMiddle` only call state setters.
+    }, []);
     // Escape leaves the expanded previews.
     const expanded = layout.layout.expanded;
     useEffect(() => {

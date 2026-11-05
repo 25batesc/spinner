@@ -33,6 +33,7 @@ import type {
     DesignFilesResponse,
 } from "@spinner/protocol";
 import { EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES, GOLDFISH_LIVE_MAX } from "@spinner/protocol";
+import { TRACK_NOTICES } from "../actions.js";
 import { CostLedger } from "../costs/ledger.js";
 import type { AgentHandle } from "../agents/harness.js";
 import { AgentManager } from "../agents/manager.js";
@@ -241,6 +242,23 @@ describe("PUT /sessions/:dir/design/track", () => {
         const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
         expect(mission).toContain("Spinner names it here once the lead calls design_doc.");
         expect(mission).toContain("- [ ] The design is approved and every Plan item is ticked.");
+    });
+
+    it("a change of the track writes a spinner Log line and tells the lead once", async () => {
+        const app = app_with(true);
+        expect((await put(app, "track", { track: "design" })).status).toBe(200);
+        expect((await put(app, "track", { track: "direct" })).status).toBe(200);
+        expect((await put(app, "track", { track: "direct" })).status).toBe(200);
+        const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
+        const lines = mission.split("\n").filter((line) => line.includes("spinner: track:"));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatch(/^- \d\d:\d\d spinner: track: direct \(was design\)$/);
+        expect(agents.sent).toEqual([TRACK_NOTICES.direct]);
+        // A lead that is not running gets the notice with its next prompt.
+        agents.running_lead = false;
+        expect((await put(app, "track", { track: "design" })).status).toBe(200);
+        expect(agents.sent).toHaveLength(1);
+        expect(agents.pending_for(summary.dir, "lead")).toEqual([TRACK_NOTICES.design]);
     });
 
     it("answers 400 for an unknown track", async () => {

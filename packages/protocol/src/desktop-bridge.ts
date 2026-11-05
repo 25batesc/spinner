@@ -18,6 +18,17 @@ export interface SpinnerDesktop {
     previews: DesktopPreviews;
     panes: DesktopPanes;
     daemon: DesktopDaemon;
+    /** Absent in a desktop build older than #12; the UI checks before it subscribes. */
+    sessions?: DesktopSessions;
+}
+
+export interface DesktopSessions {
+    /**
+     * Main process to renderer: a click on a Spinner notification asks the main window to show
+     * this session directory, for example `s046-session-workspace`. Returns the unsubscribe
+     * function.
+     */
+    subscribeFocus(listener: (session: string) => void): () => void;
 }
 
 /** `<session dir>/<service name>`, for example `s006-refunds/admin`. One view per key. */

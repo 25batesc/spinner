@@ -137,6 +137,12 @@ describe("the tty harness through the daemon", () => {
 
         const added = await call("POST", `/sessions/${summary.dir}/agents`, { name: "backend" });
         expect(added.status).toBe(201);
+        // A new agent gets the go signal as its first turn (r3.1, dogfood row 37); it runs
+        // through the same long-poll as a prompt. The list is cleared once it settles, so the
+        // fold below is the `hello` turn alone.
+        expect(((await added.json()) as { first_turn: string }).first_turn).toBe("started");
+        await until(() => events.some((event) => event.type === "agent.settled"));
+        events.length = 0;
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as {
             argv: string[];
             env: Record<string, string>;

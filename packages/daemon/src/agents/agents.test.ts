@@ -442,16 +442,22 @@ describe("the EGM spawn of a lead", () => {
 });
 
 describe("the environment of a spawned agent", () => {
-    it("drops inherited PI_SUBAGENT_* variables and keeps PI_CODING_AGENT_DIR", async () => {
-        // A daemon started inside a pi-subagents child inherits these; with them every
-        // agent's Spinner extension would stay off.
+    it("drops another agent's inherited variables and keeps the daemon's settings", async () => {
+        // A daemon started inside a pi-subagents child inherits the first three; with them
+        // every agent's Spinner extension would stay off. A daemon started from a lead's
+        // shell inherits the rest: the lead's EGM run directory and its tty harness (r3.7).
         const inherited = {
             PI_SUBAGENT_CHILD: "1",
             PI_SUBAGENT_PARENT_SESSION: "parent",
             PI_SUBAGENT_EXTRA_AGENT_DIRS: "/inherited/agents",
+            PI_SUBAGENTS_TEMP_ROOT: "/lead/egm-runs",
+            SPINNER_EGM_ROOT: "/lead/egm/src",
+            SPINNER_EGM_ARTIFACTS: "/lead/design",
+            SPINNER_HARNESS: "tty",
         };
+        const kept = { SPINNER_PI: "/opt/pi", SPINNER_HOME: "/daemon/home" };
         const saved = { ...process.env };
-        Object.assign(process.env, inherited);
+        Object.assign(process.env, inherited, kept);
         const args_file = join(home.root, "args.json");
         process.env["FAKE_PI_ARGS_FILE"] = args_file;
         try {
@@ -466,9 +472,11 @@ describe("the environment of a spawned agent", () => {
             }
             expect(spawned.env["PI_CODING_AGENT_DIR"]).toBe(process.env["PI_CODING_AGENT_DIR"]);
             expect(spawned.env["SPINNER_ROLE"]).toBe("worker");
+            expect(spawned.env).toMatchObject(kept);
             await manager.stop_all();
         } finally {
-            for (const key of [...Object.keys(inherited), "FAKE_PI_ARGS_FILE"]) {
+            const keys = [...Object.keys(inherited), ...Object.keys(kept), "FAKE_PI_ARGS_FILE"];
+            for (const key of keys) {
                 if (saved[key] === undefined) {
                     delete process.env[key];
                 } else {

@@ -20,8 +20,19 @@ it("parses the fixture mission into the structured view", () => {
         id: 1, ts: "10:00", author: "backend", text: "POST /refunds",
     });
     expect(view.questions[0]).toEqual({
-        id: 1, author: "backend", text: "partial refunds in the first round?", answer: null,
+        id: 1, ts: null, author: "backend", text: "partial refunds in the first round?",
+        answer: null, resolved: null,
     });
+    expect(view.questions.slice(1)).toEqual([
+        {
+            id: 2, ts: "10:06", author: "frontend", text: "one refund button per order line?",
+            answer: "10:08 operator: one per order", resolved: null,
+        },
+        {
+            id: 3, ts: "10:03", author: "backend", text: "the refund route's path?", answer: null,
+            resolved: { ts: "10:09", author: "lead", reason: "POST /refunds, in Contracts" },
+        },
+    ]);
     expect(view.log.map((l) => l.author)).toEqual(["operator", "backend", "frontend"]);
 });
 

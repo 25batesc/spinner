@@ -151,7 +151,7 @@ async function poll_session(
     }
     if (refreshed.transition !== null) {
         const message = transition_message(refreshed.session, refreshed.transition);
-        await options.notify("Spinner", message);
+        await options.notify("Spinner", message, entry.dir);
     }
     return refreshed.transition;
 }

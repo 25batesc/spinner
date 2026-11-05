@@ -78,6 +78,9 @@ export function describeEvent(event: SpinnerEvent): string | null {
                         : "";
             return `review: ${done} of ${swarm.length} done${lead}, ${event.data.threads} threads`;
         }
+        case "notify":
+            // The desktop app posts the banner (#12); the feed already has the transition.
+            return null;
         case "agent.event":
         case "stack.log":
         case "job.log":

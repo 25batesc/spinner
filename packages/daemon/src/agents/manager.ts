@@ -7,7 +7,9 @@
 // resumes the tty agents the previous daemon hosted, because a pty master dies with its
 // daemon and the operator expects the tab back. The manager also holds the text waiting for
 // an agent's next prompt (an inbox message or a mission-change notice for an idle agent,
-// docs/SESSION_PROTOCOL.md "Messages"), which `prompt` prepends.
+// docs/SESSION_PROTOCOL.md "Messages"), which `prompt` prepends. `first_turn` is the go
+// signal `POST /sessions/:dir/agents` sends a new agent (dogfood row 37): the other spawn
+// paths (the lead's paste, the fixer, the swarm) prompt on their own.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -72,6 +74,16 @@ interface Hosted {
 
 /** Upper bound on texts waiting for one agent's next prompt. */
 const PENDING_MAX = 50;
+
+/**
+ * The go signal a new agent gets from `POST /sessions/:dir/agents` when the body carries no
+ * `message`. The mission and the brief are in its system prompt already; the turn tells it to
+ * act on them instead of waiting for the operator (dogfood row 37).
+ */
+export const FIRST_TURN =
+    "Start. Read MISSION.md and your brief (both are in your system prompt). Take the Plan " +
+    "items that carry your name as owner, update your Roster row, and begin on the first one. " +
+    "Without a Plan item of yours, read your brief's `Owns` and say in the Log what you start on.";
 
 export class AgentManager {
     private readonly hosted = new Map<string, Hosted>();
@@ -144,6 +156,58 @@ export class AgentManager {
         assert.ok(queue.length < PENDING_MAX, `${PENDING_MAX} texts wait for ${name}`);
         queue.push(text);
         this.pending.set(key, queue);
+    }
+
+    /**
+     * Sends `text` as the agent's first prompt and answers pi's disposition. A pi that refuses
+     * it (not ready yet, a tty still attaching) keeps the text for the next prompt and answers
+     * `queued`, as the lead's paste does; the agent then starts on the operator's first word.
+     */
+    async first_turn(
+        dir: string,
+        name: string,
+        handle: AgentHandle,
+        text: string,
+    ): Promise<string> {
+        assert.ok(text.trim().length > 0, "a first turn must not be empty");
+        try {
+            return await handle.prompt(text);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.log(`${dir}/${name}: first turn not delivered (${reason}); queued for the next`);
+            this.queue_for_next_prompt(dir, name, text);
+            return "queued";
+        }
+    }
+
+    /**
+     * A one-line notice from the daemon to one agent (the track change, dogfood #44), by the
+     * rule the review swarm uses for its verdict notice: a tty agent takes `notify`; an rpc
+     * agent gets a steer while it runs and a prompt while idle; a prompt that loses that race
+     * goes as a steer. A stopped agent, or a failed delivery, queues the text for its next
+     * prompt. Answers the disposition, or `queued`.
+     */
+    async deliver_notice(dir: string, name: string, text: string): Promise<string> {
+        assert.ok(text.trim().length > 0, "a notice must not be empty");
+        const handle = this.get(dir, name);
+        if (handle === null) {
+            this.queue_for_next_prompt(dir, name, text);
+            return "queued";
+        }
+        try {
+            if (handle.notify !== undefined) {
+                return await handle.notify(text);
+            }
+            if (this.is_busy(dir, name)) {
+                return await handle.steer(text);
+            }
+            return await handle.prompt(text).catch(() => handle.steer(text));
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.log(`${dir}/${name}: notice not delivered (${reason}); queued for the next`);
+            this.queue_for_next_prompt(dir, name, text);
+            return "queued";
+        }
     }
 
     /** The texts waiting for the agent's next prompt, without taking them. */

@@ -14,7 +14,7 @@ import type {
 } from "@spinner/protocol";
 
 import { DESIGN_MISSIONS } from "./data.ts";
-import { applyItem, missionView } from "./mission-view.ts";
+import { applyItem, applyQuestion, missionView } from "./mission-view.ts";
 
 /** The part of the fixture daemon these routes use. */
 export interface Host {
@@ -38,7 +38,10 @@ export const MISSION = [
     "| backend | api | #3 the Stripe call | no | 10:00 |",
     "| frontend | web | form | waiting on api | 10:05 |", "",
     "## Contracts & decisions", "- 10:00 backend: POST /refunds", "",
-    "## Open questions", "- backend: partial refunds in the first round?", "",
+    "## Open questions", "- backend: partial refunds in the first round?",
+    "- 10:06 frontend: one refund button per order line?", "  - 10:08 operator: one per order",
+    "- 10:03 backend: the refund route's path?",
+    "  - 10:09 lead: [resolved] POST /refunds, in Contracts", "",
     "## Log", "- 10:00 operator: session created", "- 10:12 backend: route done",
     "- 10:20 frontend: button wired", "",
 ].join("\n");
@@ -135,7 +138,8 @@ export class PipelineFixture {
 
     /**
      * `PUT /sessions/:dir/mission/section`: `replace` and `append` as before, `item` on
-     * `plan` and `done_when` as the daemon (s014). `mission.changed` carries the view.
+     * `plan` and `done_when` as the daemon (s014), and on `open_questions` with `answer` and
+     * `resolve` (#43). `mission.changed` carries the view.
      */
     private putSection(
         dir: string, body: Record<string, unknown>,
@@ -146,14 +150,18 @@ export class PipelineFixture {
         const mode = String(body["mode"]);
         let next: string;
         if (mode === "item") {
-            if (section !== "plan" && section !== "done_when") {
-                return { error: `item mode is for plan and done_when, not ${section}` };
-            }
             const request = body["item"] as MissionItemRequest | undefined;
             if (request === undefined) {
                 return { error: "item mode needs item" };
             }
-            const result = applyItem(this.mission(dir), section, author, request);
+            if (section !== "plan" && section !== "done_when" && section !== "open_questions") {
+                return {
+                    error: `item mode is for plan, done_when and open_questions, not ${section}`,
+                };
+            }
+            const result = section === "open_questions"
+                ? applyQuestion(this.mission(dir), author, request)
+                : applyItem(this.mission(dir), section, author, request);
             if ("error" in result) {
                 return result;
             }

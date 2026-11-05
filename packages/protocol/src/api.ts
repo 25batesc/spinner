@@ -140,7 +140,11 @@ export const ROUTES = {
     "PUT /sessions/:dir/agents/:name/context": "ContextFileResponse",
     /** The brief the daemon writes for an agent without one. Query: `name=`, `repo=`, optional. */
     "GET /sessions/:dir/agents/default-brief": "DefaultBriefResponse",
-    /** Add an agent and start it. Body: AddAgentRequest. 201 once a brief exists or is written. */
+    /**
+     * Add an agent, start it and send its first turn. Body: AddAgentRequest. 201 once a brief
+     * exists or is written. A resume (the agent is listed in `session.yaml`) gets no first
+     * turn unless the body carries `message`.
+     */
     "POST /sessions/:dir/agents": "AgentResponse",
     /** Send a prompt to a running agent. Body: AgentMessageRequest. */
     "POST /sessions/:dir/agents/:name/prompt": "AgentCommandResponse",
@@ -1030,6 +1034,12 @@ export interface AddAgentRequest {
     model?: string;
     /** Repo key of `session.repos`; the agent runs in its worktree. The session dir when absent. */
     repo?: string;
+    /**
+     * The agent's first prompt. Without it a new agent gets the daemon's go signal: read the
+     * mission and the brief, take the Plan items it owns, start. A resumed agent gets no
+     * prompt unless this is given.
+     */
+    message?: string;
 }
 
 export interface AgentMessageRequest {
@@ -1096,6 +1106,11 @@ export interface AgentResponse {
     name: string;
     /** pi's session id for the agent's transcript, for resume. */
     pi_session_id: string | null;
+    /**
+     * What became of the first turn: pi's disposition (`started`), `queued` when pi refused
+     * it and it waits for the next prompt, or `none` on a resume without a `message`.
+     */
+    first_turn: string;
 }
 
 /** The 409 body of `prompt` or `steer` on an agent the daemon does not host. */
@@ -1211,12 +1226,32 @@ export interface MissionLine {
     text: string;
 }
 
-/** An Open questions line `- author: text`; `answer` is the indented lines under it, if any. */
+/**
+ * An Open question (dogfood #43). The daemon writes `- HH:MM author: text`; an answer goes
+ * under it as `  - HH:MM author: text`, and a resolution as `  - HH:MM author: [resolved]
+ * reason`. An older line `- author: text` without a time still reads, with `ts` null.
+ */
 export interface QuestionItem {
+    /** The 1-based position in the section; the `item` mode on `open_questions` takes it. */
     id: number;
+    /** `HH:MM` the question was asked, or null for an unstamped line. */
+    ts: string | null;
     author: string | null;
     text: string;
+    /**
+     * The lines under the question except the resolution, each `HH:MM author: text` as
+     * written, joined by newlines; null without one.
+     */
     answer: string | null;
+    /** The `[resolved]` line under the question, or null while the question is open. */
+    resolved: QuestionResolution | null;
+}
+
+/** How an Open question was closed: who, when and why. */
+export interface QuestionResolution {
+    ts: string | null;
+    author: string | null;
+    reason: string;
 }
 
 /** A Log line `- HH:MM author: text`. */

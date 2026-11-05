@@ -134,7 +134,9 @@ describe("mission_view", () => {
         expect(view.roster[0]?.owns).toContain("packages/daemon/**");
         expect(view.contracts).toHaveLength(5);
         expect(view.contracts[0]).toMatchObject({ id: 1, ts: "(date)", author: "the operator" });
-        expect(view.questions).toEqual([{ id: 1, author: null, text: "(none yet)", answer: null }]);
+        expect(view.questions).toEqual([
+            { id: 1, ts: null, author: null, text: "(none yet)", answer: null, resolved: null },
+        ]);
         expect(view.log).toHaveLength(1);
         expect(view.log[0]).toMatchObject({ ts: "(start)", author: "the operator" });
     });
@@ -176,6 +178,9 @@ describe("mission_view", () => {
             "- web: partial refunds in v1?",
             "  - Cullen: full amount only",
             "- lead: and the admin?",
+            "- 10:04 web: stamped?",
+            "  - 10:05 operator: yes",
+            "  - 10:06 operator: [resolved] answered in place",
             "",
             "## Log",
             "- 10:00 lead: started",
@@ -205,11 +210,28 @@ describe("mission_view", () => {
         expect(view.questions).toEqual([
             {
                 id: 1,
+                ts: null,
                 author: "web",
                 text: "partial refunds in v1?",
                 answer: "Cullen: full amount only",
+                resolved: null,
             },
-            { id: 2, author: "lead", text: "and the admin?", answer: null },
+            {
+                id: 2,
+                ts: null,
+                author: "lead",
+                text: "and the admin?",
+                answer: null,
+                resolved: null,
+            },
+            {
+                id: 3,
+                ts: "10:04",
+                author: "web",
+                text: "stamped?",
+                answer: "10:05 operator: yes",
+                resolved: { ts: "10:06", author: "operator", reason: "answered in place" },
+            },
         ]);
         expect(view.log[1]).toEqual({
             ts: "10:01",

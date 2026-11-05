@@ -27,4 +27,6 @@ export const IPC = {
     daemon_status: "daemon:status",
     /** Main to renderer: one `DaemonStatus` per message. */
     daemon_event: "daemon:event",
+    /** Main to renderer: a session directory to show, from a notification click (#12). */
+    sessions_focus: "sessions:focus",
 } as const;

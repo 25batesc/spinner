@@ -141,12 +141,32 @@ async function new_branch(
     branch: string,
     base: string,
 ): Promise<void> {
-    const dirty = (await git(cwd, ["status", "--porcelain"])).trim();
-    if (dirty.length > 0) {
-        throw new Error(`${cwd}: uncommitted changes; commit or stash before reset`);
+    const status = await git(cwd, ["status", "--porcelain"]);
+    if (status.trim().length > 0) {
+        throw new Error(dirty_message(cwd, status));
     }
     await git(cwd, ["fetch", "origin", base]);
     await git(cwd, ["checkout", "-b", branch, `origin/${base}`]);
+}
+
+/** The reset refusal names at most this many dirty paths, then counts the rest. */
+export const DIRTY_PATHS_SHOWN_MAX = 10;
+
+/**
+ * The refusal of a dirty worktree (dogfood #38): the first `DIRTY_PATHS_SHOWN_MAX` paths of
+ * `git status --porcelain` with their status codes, then how many more. The operator then
+ * sees at once whether the change is work to keep or a stray file.
+ */
+export function dirty_message(cwd: string, porcelain: string): string {
+    const lines = porcelain.split("\n").filter((line) => line.trim().length > 0);
+    assert.ok(lines.length > 0, "a dirty message needs at least one status line");
+    const shown = lines.slice(0, DIRTY_PATHS_SHOWN_MAX).map((line) => line.trimEnd());
+    const rest = lines.length - shown.length;
+    const more = rest > 0 ? `, and ${rest} more` : "";
+    return (
+        `${cwd}: uncommitted changes (${shown.join(", ")}${more}); ` +
+        "commit or stash before reset"
+    );
 }
 
 /** Moves `threads/*` to `artifacts/round-<n>/threads/` so the next round starts empty. */

@@ -21,7 +21,7 @@ import { pipeline_config_from_spec } from "./config.js";
 import type { GhRunner, PrResponse } from "./github.js";
 import type { GithubWriter } from "./github-write.js";
 import { land_blocker, land_prs } from "./land.js";
-import { next_branch, reset_blocker, reset_session } from "./reset.js";
+import { DIRTY_PATHS_SHOWN_MAX, next_branch, reset_blocker, reset_session } from "./reset.js";
 import { SESSION_SPEC } from "../stack/runner.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -90,6 +90,8 @@ class Fake implements GithubWriter {
     writes: string[][] = [];
     git_calls: { cwd: string; args: string[] }[] = [];
     rebase_fails = false;
+    /** What `git status --porcelain` prints; empty is a clean worktree. */
+    status = "";
     diff = { additions: 12, deletions: 3, changedFiles: 2 };
     reads: GhRunner = async (args) => {
         if (args[0] === "api" && args[1] === "user") {
@@ -118,7 +120,7 @@ class Fake implements GithubWriter {
     git = async (cwd: string, args: string[]): Promise<string> => {
         this.git_calls.push({ cwd, args });
         if (args[0] === "status") {
-            return "";
+            return this.status;
         }
         if (args[0] === "rebase" && args[1] !== "--abort" && this.rebase_fails) {
             throw new Error("CONFLICT (content): Merge conflict in src/a.ts");
@@ -289,14 +291,16 @@ describe("land", () => {
         // refresh_facts, then the watch: popped → (wait_green reads once) → merged.
         fake.responses = [green, popped, rebased, merged, merged];
         const banners: string[] = [];
+        const sessions: (string | null)[] = [];
         const log: string[] = [];
         const result = await land_prs(home, summary, {}, {
             gh: fake.reads,
             writer: fake,
             config,
             log: (line) => log.push(line),
-            notify: async (_t, message) => {
+            notify: async (_t, message, session) => {
                 banners.push(message);
+                sessions.push(session);
             },
             sleep: async () => {},
             poll_ms: 1,
@@ -316,6 +320,7 @@ describe("land", () => {
         const rebase = fake.git_calls.find((call) => call.args[0] === "rebase");
         expect(rebase?.args).toEqual(["rebase", "origin/develop"]);
         expect(banners).toEqual([`${summary.session.id}: backend#4812 merged`]);
+        expect(sessions).toEqual([summary.dir]);
         expect(log.some((line) => line.includes("popped out of the queue (CI_FAILED)"))).toBe(true);
         expect(read_yaml(summary.dir).stage).toBe("merged");
         const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
@@ -410,6 +415,26 @@ describe("reset", () => {
         expect(mission).toContain("backend#4812 (merged)");
         expect(mission).toContain("- 10:00 a: b");
         expect(mission.indexOf("## Log")).toBeLessThan(mission.indexOf("## Previous rounds"));
+    });
+
+    it("refuses a dirty worktree and names its paths, the first ten and a count", async () => {
+        const summary = session_with(pr_with({ state: "merged" }));
+        const paths = Array.from({ length: 12 }, (_, index) => ` M src/f${index + 1}.ts`);
+        fake.status = ["?? node_modules", ...paths].join("\n") + "\n";
+        const deps = { git: fake.git, config: config_with({}) };
+        const error = await reset_session(home, summary, {}, deps).then(
+            () => null,
+            (reason: unknown) => (reason instanceof Error ? reason.message : String(reason)),
+        );
+        expect(DIRTY_PATHS_SHOWN_MAX).toBe(10);
+        expect(error).toMatch(/: uncommitted changes \(\?\? node_modules, {2}M src\/f1\.ts, /);
+        expect(error).toContain(" M src/f9.ts, and 3 more); commit or stash before reset");
+        expect(error).not.toContain("src/f10.ts");
+        fake.status = " M src/one.ts\n";
+        const one = await reset_session(home, summary, {}, deps).catch((reason: Error) => reason);
+        expect(one).toBeInstanceOf(Error);
+        expect((one as Error).message).toMatch(/\( M src\/one\.ts\); commit or stash/);
+        expect(fake.git_calls.some((call) => call.args[0] === "checkout")).toBe(false);
     });
 
     // With the stack down, a reset marks the database stale for the next `up`; a spec without a

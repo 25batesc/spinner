@@ -195,6 +195,14 @@
     margin: 0; padding-left: var(--space-2); font-size: var(--text-dense);
     border-left: 2px solid var(--line-soft); color: var(--muted);
 }
+/* The answer lines under a question, each `HH:MM author: text` (#43). */
+.mw-answer-lines { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0;
+    list-style: none; }
+/* A resolved question folds under its toggle; its card is quiet, with the reason. */
+.mw-question-resolved { box-shadow: inset 2px 0 0 var(--muted); opacity: 0.7; }
+.mw-resolution { margin: 0; font-size: var(--text-meta); color: var(--muted); }
+.mw-resolved { margin-top: var(--space-2); }
+.mw-resolved-toggle { margin-bottom: var(--space-1); }
 .mw-answer-form { display: flex; gap: 6px; }
 .mw-answer-form input {
     flex: 1; min-width: 0; min-height: var(--control-row); font-size: var(--text-dense);

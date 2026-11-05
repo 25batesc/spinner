@@ -384,17 +384,41 @@ function parse_lines(body: string): MissionLine[] {
     });
 }
 
-/** `- author: question`, with the indented lines under it as the answer. */
-function parse_questions(body: string): QuestionItem[] {
+/** `HH:MM author: text`: a stamped question, and an answer line under one (dogfood #43). */
+const QUESTION_STAMPED = /^(\d\d:\d\d)\s+([^:\s]+):\s*(.*)$/;
+/** `HH:MM author: [resolved] reason` under a question; the time is optional for a hand edit. */
+const QUESTION_RESOLVED = /^(?:(\d\d:\d\d)\s+)?([^:\s]+):\s*\[resolved\]\s*(.*)$/;
+
+/**
+ * `- HH:MM author: question`, or the older `- author: question`, with the indented lines
+ * under it as the answer; the first `[resolved]` line under it is the resolution.
+ */
+export function parse_questions(body: string): QuestionItem[] {
     return entries(body).map(({ head, rest }, index) => {
-        const authored = AUTHORED.exec(head);
-        const author =
-            authored !== null && authored[1] !== undefined && !authored[1].includes(" ")
-                ? authored[1]
-                : null;
-        const text = author === null ? head : (authored?.[2] ?? "");
-        const answer = rest.map((line) => line.replace(/^-\s+/, "")).join("\n");
-        return { id: index + 1, author, text, answer: answer.length === 0 ? null : answer };
+        const stamped = QUESTION_STAMPED.exec(head);
+        const authored = stamped === null ? AUTHORED.exec(head) : null;
+        const named = authored?.[1] !== undefined && !authored[1].includes(" ");
+        const author = stamped?.[2] ?? (named ? (authored?.[1] ?? null) : null);
+        const text = stamped?.[3] ?? (named ? (authored?.[2] ?? "") : head);
+        let resolved: QuestionItem["resolved"] = null;
+        const answers: string[] = [];
+        for (const line of rest.map((entry) => entry.replace(/^-\s+/, ""))) {
+            const match: RegExpExecArray | null =
+                resolved === null ? QUESTION_RESOLVED.exec(line) : null;
+            if (match === null) {
+                answers.push(line);
+                continue;
+            }
+            resolved = { ts: match[1] ?? null, author: match[2] ?? null, reason: match[3] ?? "" };
+        }
+        return {
+            id: index + 1,
+            ts: stamped?.[1] ?? null,
+            author,
+            text,
+            answer: answers.length === 0 ? null : answers.join("\n"),
+            resolved,
+        };
     });
 }
 

@@ -55,7 +55,7 @@ WebSockets below.
 | `PUT /sessions/:dir/mission/section` | `MissionSectionRequest` | `MissionSectionResponse` | The daemon serializes writes. The `item` mode is below. |
 | `POST /sessions/:dir/inbox` | `InboxMessageRequest` | `InboxMessageResponse` | Writes the message and delivers it. |
 | `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
-| `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. |
+| `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. First turn: a new agent gets `message`, else the go signal (read the mission and the brief, take your Plan items, start); a listed agent (a resume) gets `message` or nothing. `first_turn` answers pi's disposition, `queued` when pi refused it (it goes with the next prompt), or `none`. |
 | `POST /sessions/:dir/agents/:name/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 with the state for a stopped agent. |
 | `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. A steer to `lead` with `source: "operator"` adds 1 to `outcomes.operator_steers`; below. |
 | `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |
@@ -112,6 +112,17 @@ WebSockets below.
 `GET /events` upgrades to a WebSocket. Each message is one `SpinnerEvent` as JSON
 (`packages/protocol/src/events.ts`). The daemon accepts any `Origin`; it listens on loopback
 only.
+
+The desktop app's main process opens its socket as `GET /events?client=desktop`. The daemon
+counts the open sockets that carry this query; the UI's socket does not carry it. Every local
+notification (a pipeline transition from the poller, a PR merged by `land`) is a `notify`
+event: `{ type: "notify", ts, session, title, message }`. `session` is the session directory,
+or null when the notification names no session. `message` is at most 200 characters. While
+the count is 0, the daemon also shows the banner itself through `osascript`. While the count
+is 1 or more, it sends the event only, and the app posts the banner under Spinner's name; a
+click on it opens the session in the app. With `SPINNER_NOTIFY=off`, the daemon sends no
+`notify` event and shows no banner. The `notify` event is not the operator agent's `notify`
+command ("The operator agent" below).
 
 ## tty WebSocket
 
@@ -262,6 +273,9 @@ It creates the `design` block when it is absent and answers with the session's v
 It answers 409 with `the build has started; the track is fixed` when a track is set and a repo has commits.
 It answers 409 with `EGM is not available: <reason>` for `design` when EGM is not `ready` or pi-subagents is not installed.
 On `design` it writes the Goal pointer and the one *Done when* item as author `spinner`.
+When a session that has a track gets another one, the route writes the `spinner` Log line `track: <new> (was <old>)` and sends the lead one line about the new track (dogfood #44).
+A tty lead gets the line as a notice; an rpc lead gets a steer while it runs and a prompt while it is idle; a stopped lead gets it with its next prompt.
+The first track of a new session, and the same track again, write no line and send nothing.
 
 `PUT /sessions/:dir/design/doc` takes `{ path }`, the absolute path of the doc.
 The designs directory is `spinner.yaml` `designs.dir` (default `docs/designs`) in the worktree of `designs.repo` (default the first repo).
@@ -587,7 +601,7 @@ truth. `mission.changed` carries the same `view` after a tool write and after a 
 | `plan[]` | `{ id, text, owner, entry, state: next \| doing \| done, ticked_at }`; `id` is the number in the file; `entry` is the doc entry of the `[1.5]` token (or the older `plan 1.5:` prefix) at the start of the line, null for a free item; `text` is the text without the token. |
 | `roster[]` | `{ agent, owns, doing, blocked, updated }`, the cells as written. |
 | `contracts[]` | `{ id, ts, author, text }`; nested lines join the text. |
-| `questions[]` | `{ id, author, text, answer }`; the indented lines under a question are the answer. |
+| `questions[]` | `{ id, ts, author, text, answer, resolved }`; `id` is the position; `ts` is the `HH:MM` of a stamped question, null for an older line; the indented lines under a question are the answer, except the first `[resolved]` line, which is `resolved: { ts, author, reason }`. |
 | `log[]` | `{ ts, author, text }`, file order, oldest first. |
 
 A Plan item is `doing` when it is unticked and its owner's Roster `Doing` names `#id` or
@@ -613,6 +627,13 @@ text starts with a token, which then replaces the entry. `assign` sets the owner
 takes the ids in their new order; unlisted items follow in their old order. Ids never
 change. A Plan line written before s014 without a number gets one on the first write to the
 section. A 400 names the first problem. An unknown id is one.
+
+Open questions (dogfood #43) are stamped: `append` on `open_questions` writes
+`- HH:MM author: text`. The `item` mode on `open_questions` takes `answer` and `resolve`
+with `id` (the question's position) and `text`. `answer` writes `  - HH:MM author: text`
+under the question; any author may answer. `resolve` writes `  - HH:MM author: [resolved]
+text`; only `lead` and `operator` may resolve, and a question resolves once. Neither writes
+a Log line. An older daemon reads the new lines as a question and its answer lines.
 
 ## Reviews
 

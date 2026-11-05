@@ -234,6 +234,12 @@ export function parse_add_agent(input: unknown): AddAgentRequest | string {
     } else if (brief !== undefined) {
         return "`brief` must be a non-empty string when given";
     }
+    const message = optional_string(record, "message");
+    if (typeof message === "string") {
+        request.message = message;
+    } else if (message !== undefined) {
+        return "`message` must be a non-empty string when given";
+    }
     return request;
 }
 

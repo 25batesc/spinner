@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Notification, shell } from "electron";
 import {
     DAEMON_HOST,
     DAEMON_PORT,
@@ -26,6 +26,7 @@ import {
 } from "./electron-previews.js";
 import { watch_events } from "./events.js";
 import { IPC } from "./ipc.js";
+import { NotificationPoster } from "./notifications.js";
 import { down_page, starting_page } from "./pages.js";
 import { PaneWindows, type PaneWindowHost } from "./pane-windows.js";
 import { PreviewRegistry } from "./previews.js";
@@ -212,6 +213,35 @@ function show_down(detail: string): void {
     }
 }
 
+/**
+ * A click on a Spinner banner: the main window comes forward, and the page shows `session`
+ * through the bridge (`sessions.subscribeFocus`). A window that is still loading gets the
+ * session once the page has loaded, so the click is not lost on a first open.
+ */
+function focus_session(session: string | null): void {
+    open_window();
+    app.focus({ steal: true });
+    const target = window;
+    if (session === null || target === null) {
+        return;
+    }
+    log(`notification click: focus ${session}`);
+    if (target.webContents.isLoading()) {
+        target.webContents.once("did-finish-load", () => {
+            send_to_renderer(IPC.sessions_focus, session);
+        });
+    } else {
+        send_to_renderer(IPC.sessions_focus, session);
+    }
+}
+
+// The daemon's `notify` events, posted as the app's own banners. Electron's `Notification`
+// needs the app ready; the events socket opens only after `whenReady`, so every post is.
+const notifications = new NotificationPoster(
+    (options) => new Notification({ ...options, silent: false }),
+    focus_session,
+);
+
 /** The events socket is open while connected; its loss moves the link to `down` and polls. */
 function follow_daemon(): void {
     if (stop_events !== null || link.status().state !== "connected") {
@@ -228,6 +258,13 @@ function follow_daemon(): void {
                 log(`session ${session_dir} closed: ${closed} preview view(s) destroyed`);
                 for (const entry of popped) {
                     docked(entry);
+                }
+            },
+            on_notify: (event) => {
+                if (Notification.isSupported()) {
+                    notifications.post(event);
+                } else {
+                    log(`notify (no notification support): ${event.message}`);
                 }
             },
             on_lost: () => {

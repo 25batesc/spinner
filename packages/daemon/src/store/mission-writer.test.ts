@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MissionSectionRequest, SpinnerEvent } from "@spinner/protocol";
-import { mission_section } from "../pipeline/mission-sections.js";
+import { mission_section, mission_view } from "../pipeline/mission-sections.js";
 import { EventBus } from "../event-bus.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { render_mission } from "./mission-template.js";
@@ -22,7 +22,7 @@ import {
 const base = render_mission({ id: "s9", title: "Test", time: "09:00" });
 
 describe("apply_mission_write", () => {
-    it("appends Log and Contracts lines with time and author, questions with the author", () => {
+    it("appends Log, Contracts and Open questions lines with time and author", () => {
         let text = apply_mission_write(
             base,
             { section: "log", mode: "append", text: "started", author: "api" },
@@ -40,7 +40,7 @@ describe("apply_mission_write", () => {
         ).text;
         expect(text).toContain("- 09:00 operator: session created\n- 09:01 api: started\n");
         expect(text).toContain("## Contracts & decisions\n- 09:02 api: POST /x\n\n");
-        expect(text).toContain("## Open questions\n- api: v1 or v2?\n\n");
+        expect(text).toContain("## Open questions\n- 09:03 api: v1 or v2?\n\n");
         expect(text.indexOf("## Open questions")).toBeLessThan(text.indexOf("## Log"));
     });
 
@@ -180,7 +180,7 @@ describe("apply_mission_write", () => {
         );
         expect(
             validate_mission_write({ section: "log", mode: "item", text: "", author: "a" }),
-        ).toContain("plan and done_when");
+        ).toContain("plan, done_when and open_questions");
         expect(
             validate_mission_write({
                 section: "plan",
@@ -220,6 +220,76 @@ describe("apply_mission_write", () => {
         expect(refused({ command: "tick", id: 1, entry: "2.3" })).toContain("add only");
         expect(refused({ command: "add", text: "x", entry: "x" })).toContain("entry id");
         expect(refused({ command: "add", text: "x", entry: "2.3" })).toBeNull();
+    });
+
+    it("item mode on open_questions answers under a question and resolves it once", () => {
+        const questions = [
+            "# s9 \u00b7 Q",
+            "",
+            "## Open questions",
+            "- 10:00 web: partial refunds?",
+            "  - 10:02 lead: checking",
+            "- lead: an old unstamped one",
+            "",
+            "## Log",
+            "",
+        ].join("\n");
+        const write = (
+            text: string,
+            author: string,
+            item: MissionSectionRequest["item"],
+            time = "10:05",
+        ): string =>
+            apply_mission_write(
+                text,
+                { section: "open_questions", mode: "item", text: "", author, item },
+                time,
+            ).text;
+        let text = write(questions, "operator", { command: "answer", id: 1, text: "full only" });
+        text = write(text, "lead", { command: "resolve", id: 1, text: "built in r3" }, "10:06");
+        text = write(text, "web", { command: "answer", id: 2, text: "noted" }, "10:07");
+        expect(mission_section(text, "Open questions")).toBe(
+            [
+                "- 10:00 web: partial refunds?",
+                "  - 10:02 lead: checking",
+                "  - 10:05 operator: full only",
+                "  - 10:06 lead: [resolved] built in r3",
+                "- lead: an old unstamped one",
+                "  - 10:07 web: noted",
+            ].join("\n"),
+        );
+        expect(mission_section(text, "Log")).toBe("");
+        const view = mission_view(text).questions;
+        expect(view[0]).toEqual({
+            id: 1,
+            ts: "10:00",
+            author: "web",
+            text: "partial refunds?",
+            answer: "10:02 lead: checking\n10:05 operator: full only",
+            resolved: { ts: "10:06", author: "lead", reason: "built in r3" },
+        });
+        expect(view[1]).toMatchObject({ ts: null, author: "lead", resolved: null });
+        expect(() => write(text, "lead", { command: "resolve", id: 1, text: "again" })).toThrow(
+            /question 1 is resolved already/,
+        );
+        expect(() => write(text, "lead", { command: "answer", id: 3, text: "x" })).toThrow(
+            /no item 3 in open_questions/,
+        );
+        const refused = (author: string, item: MissionSectionRequest["item"]): string | null =>
+            validate_mission_write({
+                section: "open_questions",
+                mode: "item",
+                text: "",
+                author,
+                item,
+            });
+        expect(refused("web", { command: "resolve", id: 1, text: "x" })).toBe(
+            "only the lead or the operator resolves a question",
+        );
+        expect(refused("operator", { command: "resolve", id: 1, text: "x" })).toBeNull();
+        expect(refused("lead", { command: "tick", id: 1 })).toContain("answer, resolve");
+        expect(refused("lead", { command: "answer", id: 1, text: " " })).toContain("non-empty");
+        expect(refused("lead", { command: "answer", text: "x" })).toContain("item.id");
     });
 
     it("item mode gives older Plan lines ids on the first write and keeps notes in place", () => {

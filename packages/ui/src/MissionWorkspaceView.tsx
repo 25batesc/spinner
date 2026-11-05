@@ -15,7 +15,7 @@ import type {
     DoneWhenItem, LogLine, MissionLine, MissionSection, MissionView, QuestionItem, RosterRow,
 } from "@spinner/protocol";
 
-import { GOAL_CLAMP_CHARS } from "./implement.ts";
+import { GOAL_CLAMP_CHARS, questionGroups, resolutionText } from "./implement.ts";
 
 import "./mission-workspace.css";
 
@@ -114,7 +114,8 @@ export function Pulse({ mission, counts }: { mission: MissionView; counts?: Puls
     const plan = mission.plan.filter((item) => item.state === "done").length;
     const doing = mission.plan.filter((item) => item.state === "doing").length;
     const done = mission.done_when.filter((item) => item.state === "done").length;
-    const open = mission.questions.filter((question) => question.answer === null).length;
+    // A question waits on the operator while it has no answer and is not resolved (#43).
+    const open = questionGroups(mission.questions).open.length;
     const blocked = mission.roster.filter((row) => isBlocked(row.blocked));
     const facts: { section: MissionSection; text: string; kind: string }[] = [];
     if (counts?.entries !== null && counts?.entries !== undefined) {
@@ -453,32 +454,54 @@ export function isBlocked(value: string): boolean {
     return text !== "" && text !== "no" && text !== "-" && text !== "—";
 }
 
+/**
+ * The Open questions (#43): the ones that wait on an answer first, each with its time and the
+ * answer box; then the answered ones with their answers, which wait on the asker to resolve
+ * them; the resolved ones fold under a toggle with who resolved them, when and why.
+ */
 export function Questions(props: {
     questions: QuestionItem[];
     pending: string | null;
     onAnswer: (id: number, text: string) => void;
 }) {
-    const open = props.questions.filter((question) => question.answer === null).length;
+    const [unfolded, setUnfolded] = useState(false);
+    const groups = questionGroups(props.questions);
+    const card = (question: QuestionItem) => (
+        <QuestionCard
+            key={question.id}
+            question={question}
+            pending={props.pending === itemKey("open_questions", question.id)}
+            onAnswer={props.onAnswer}
+        />
+    );
+    const live = [...groups.open, ...groups.answered];
     return (
         <Section
             section="open_questions"
             label="Open questions"
             className="mw-questions"
-            count={props.questions.length === 0 ? undefined : `${open} open`}
+            count={props.questions.length === 0 ? undefined : `${groups.open.length} open`}
         >
-            {props.questions.length === 0 ? (
+            {live.length === 0 && groups.resolved.length === 0 && (
                 <Empty text="The lead asks product calls here; you answer them in place." />
-            ) : (
-                <ul className="mw-list mw-question-list">
-                    {props.questions.map((question) => (
-                        <QuestionCard
-                            key={question.id}
-                            question={question}
-                            pending={props.pending === itemKey("open_questions", question.id)}
-                            onAnswer={props.onAnswer}
-                        />
-                    ))}
-                </ul>
+            )}
+            {live.length > 0 && <ul className="mw-list mw-question-list">{live.map(card)}</ul>}
+            {groups.resolved.length > 0 && (
+                <div className="mw-resolved">
+                    <button
+                        type="button"
+                        className="mw-ghost mw-resolved-toggle"
+                        aria-expanded={unfolded}
+                        onClick={() => setUnfolded(!unfolded)}
+                    >
+                        {unfolded ? "\u25be" : "\u25b8"} {groups.resolved.length} resolved
+                    </button>
+                    {unfolded && (
+                        <ul className="mw-list mw-question-list">
+                            {groups.resolved.map(card)}
+                        </ul>
+                    )}
+                </div>
             )}
         </Section>
     );
@@ -500,22 +523,36 @@ function QuestionCard(props: {
             setDraft("");
         }
     };
+    const resolution = resolutionText(question);
     const answered = question.answer !== null;
+    let state = "open";
+    if (resolution !== null) {
+        state = "resolved";
+    } else if (answered) {
+        state = "answered";
+    }
     return (
-        <li className={answered ? "mw-question mw-question-answered" : "mw-question"}
+        <li className={`mw-question mw-question-${state}`} data-state={state}
             data-id={itemKey("open_questions", question.id)} aria-busy={props.pending}>
             <span className="mw-question-head">
+                {question.ts !== null && <Clock value={question.ts} />}
                 {question.author !== null && <Owner name={question.author} />}
-                {answered && <span className="pill pill-ok">answered</span>}
+                {state === "answered" && <span className="pill pill-ok">answered</span>}
             </span>
             <p className="mw-question-text"><Inline text={question.text} /></p>
-            {answered ? (
-                <p className="mw-answer"><Inline text={question.answer ?? ""} /></p>
-            ) : (
+            {answered && (
+                <ul className="mw-answer-lines">
+                    {(question.answer ?? "").split("\n").map((line, index) => (
+                        <li key={index} className="mw-answer"><Inline text={line} /></li>
+                    ))}
+                </ul>
+            )}
+            {resolution !== null && <p className="mw-resolution">{resolution}</p>}
+            {resolution === null && (
                 <form className="mw-answer-form" onSubmit={send}>
                     <input
                         aria-label={`Answer ${question.id}`}
-                        placeholder={`Answer ${asker}…`}
+                        placeholder={answered ? `Add to the answer…` : `Answer ${asker}…`}
                         value={draft}
                         disabled={props.pending}
                         onChange={(event) => setDraft(event.target.value)}

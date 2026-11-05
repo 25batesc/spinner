@@ -73,8 +73,11 @@ let home: SpinnerHome;
 let project: string;
 let gh: FakeGh;
 let banners: string[];
-const notify = async (_title: string, message: string): Promise<void> => {
+/** The session directory of each banner, in the same order. */
+let banner_sessions: (string | null)[];
+const notify = async (_title: string, message: string, session: string | null): Promise<void> => {
     banners.push(message);
+    banner_sessions.push(session);
 };
 
 function read_yaml(dir: string): Session {
@@ -152,6 +155,7 @@ beforeEach(async () => {
     await make_backend(root);
     gh = new FakeGh();
     banners = [];
+    banner_sessions = [];
 });
 
 describe("spinner adopt", () => {
@@ -282,6 +286,7 @@ describe("poll_once", () => {
         expect(after.stage).toBe("verifying");
         const needs = "needs you: verify locally (backend#4812)";
         expect(banners).toEqual([`${after.id} ${after.slug}: peer-review → verifying · ${needs}`]);
+        expect(banner_sessions).toEqual([dir]);
     });
 
     it("notifies on a merge-queue pop-out within one round", async () => {
