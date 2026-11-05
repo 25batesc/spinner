@@ -5,7 +5,7 @@
 // and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
 import { useMemo, useState, type ReactNode } from "react";
 
-import { showsTerminal } from "./agent-view.ts";
+import { agentState, showsTerminal } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
@@ -35,7 +35,7 @@ import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
 import { ViewTabs, type ViewTabFold } from "./ViewTabs.tsx";
 import {
-    EGM_NOTICE, tty_path, type AgentCost, type AgentSpec, type MissionView, type SessionView,
+    EGM_NOTICE, tty_path, type AgentCost, type MissionView, type SessionView,
 } from "@spinner/protocol";
 
 import { formatUsd } from "./costs.ts";
@@ -94,13 +94,9 @@ function GateCard({ view, onError }: { view: SessionView; onError: (message: str
     return null;
 }
 
-/** The chip's dot: in a turn, hosted and idle, or not hosted at all. */
-export function agentState(spec: AgentSpec, hosted: boolean): "working" | "idle" | "off" {
-    if (!hosted) {
-        return "off";
-    }
-    return spec.process === "running" ? "working" : "idle";
-}
+// The chip's dot rule lives in `agent-view.ts` (pure), so the Implement rail can wrap it
+// (session-workspace.md, D14) without this module's terminals.
+export { agentState } from "./agent-view.ts";
 
 /**
  * The agent row: one chip per agent (a state dot, the name; the harness, model and state as
@@ -196,7 +192,7 @@ function useDesignDoc(view: SessionView | undefined) {
 
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
-    const { controls, leading, picked, onOpenAgent } = props;
+    const { controls, leading, picked, onOpenAgent, onOpenView } = props;
     // A session off the design track has no EGM views; its pick falls back to the default.
     const shown = shownView(view, props.shown);
     const setShown = props.onShown;
@@ -286,7 +282,7 @@ export function AgentsPane(props: AgentsPaneProps) {
                     <DesignBrief view={view} reload={reload} onOpenAgent={onOpenAgent} />
                 )}
                 {view !== undefined && shown === "draft" && (
-                    <DesignDoc view={view} doc={doc} onError={props.onError} />
+                    <DesignDoc view={view} doc={doc} mission={mission} onError={props.onError} />
                 )}
                 {view !== undefined && shown === "review" && (
                     <DesignReview
@@ -304,8 +300,14 @@ export function AgentsPane(props: AgentsPaneProps) {
                     <MissionWorkspace
                         dir={view.summary.dir}
                         revision={revisions.mission}
-                        view={mission}
+                        mission={mission}
+                        view={view}
+                        docText={design?.doc === null || design === undefined
+                            ? null
+                            : doc.value ?? null}
                         running={view.agents_running}
+                        onOpenAgent={onOpenAgent}
+                        onOpenView={onOpenView}
                     />
                 )}
                 {view !== undefined && shown === "threads" && (

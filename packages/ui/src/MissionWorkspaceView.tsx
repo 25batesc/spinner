@@ -1,18 +1,21 @@
-// The mission workspace's look: the Goal card and the Done-when checklist, the Plan board in
-// three columns, the Roster as chips, the Open questions with an answer box, the Contracts, and
-// the Log as a feed, newest first. The view never fetches and never writes: `MissionWorkspace`
-// owns the data and maps each callback to the section route or the inbox (the props contract
-// under *Contracts* in the session's MISSION.md). The view keeps look state only: the item in
-// edit, the draft, and which items arrived after the first render, for the one-shot animations.
+// The parts of the mission view that `ImplementView.tsx` composes (docs/designs/
+// session-workspace.md, T6, entry 2.18): the pulse line, the Done-when checklist, one item
+// row with its edit and note boxes, the editable goal text, the roster chip, the Open
+// questions with an answer box, the Contracts, and the Log as a feed, newest first. Nothing
+// here fetches or writes: `MissionWorkspace` owns the data and maps each callback to the
+// section route or the inbox (the props contract under *Contracts* in the session's
+// MISSION.md). The parts keep look state only: the item in edit, the draft, and which items
+// arrived after the first render, for the one-shot animations.
 import {
     createContext, useContext, useRef, useState, type FormEvent, type KeyboardEvent,
     type ReactNode,
 } from "react";
 
 import type {
-    DoneWhenItem, LogLine, MissionLine, MissionSection, MissionView, PlanItem, QuestionItem,
-    RosterRow,
+    DoneWhenItem, LogLine, MissionLine, MissionSection, MissionView, QuestionItem, RosterRow,
 } from "@spinner/protocol";
+
+import { GOAL_CLAMP_CHARS } from "./implement.ts";
 
 import "./mission-workspace.css";
 
@@ -40,66 +43,17 @@ export interface MissionWorkspaceViewProps {
 export type TickSection = "plan" | "done_when";
 
 /** The key of an item across sections, as `pending` names it: Plan and Done-when ids overlap. */
-function itemKey(section: MissionSection, id: number): string {
+export function itemKey(section: MissionSection, id: number): string {
     return `${section}:${id}`;
 }
 
-const PLAN_COLUMNS: { state: PlanItem["state"]; label: string; empty: string }[] = [
-    { state: "next", label: "Next", empty: "The lead writes the next steps here." },
-    { state: "doing", label: "Doing", empty: "Items move here when an agent starts them." },
-    { state: "done", label: "Done", empty: "Ticked items land here with their time." },
-];
-
-/** The workspace: everything the operator reads in ten seconds, top to bottom. */
-export function MissionWorkspaceView(props: MissionWorkspaceViewProps) {
-    const { mission } = props;
-    const ticked = useArrivals(doneKeys(mission));
-    const rows: RowContext = { ...props, ticked };
-    // The roster first, then any other Log author (the operator, a former agent): each gets a
-    // colour of its own and a filter chip.
-    const authors = [...new Set([...props.agents, ...mission.log.map((line) => line.author)])];
-    // The order in the DOM is the reading order of a narrow pane; `mission-workspace.css`
-    // places Done when beside the Goal card when the pane is wide enough.
-    const main = (
-        <div className="mw-main">
-            <GoalCard mission={mission} rows={rows} />
-            <PlanBoard plan={mission.plan} rows={rows} />
-            <DoneWhen items={mission.done_when} rows={rows} />
-            <Roster roster={mission.roster} />
-            <div className="mw-pair">
-                <Questions
-                    questions={mission.questions}
-                    pending={props.pending}
-                    onAnswer={props.onAnswer}
-                />
-                <Contracts contracts={mission.contracts} rows={rows} />
-            </div>
-        </div>
-    );
-    return (
-        <AgentOrder.Provider value={authors}>
-            <div className="mw" aria-label="Mission workspace">
-                {props.error !== null && <p className="mw-error" role="alert">{props.error}</p>}
-                <div className="mw-grid">
-                    {main}
-                    <LogFeed
-                        log={mission.log}
-                        agents={authors}
-                        filter={props.filter}
-                        onFilter={props.onFilter}
-                    />
-                </div>
-            </div>
-        </AgentOrder.Provider>
-    );
-}
-
 /** What every row needs from the view: the callbacks, the pending id, the fresh ticks. */
-interface RowContext extends MissionWorkspaceViewProps {
+export interface RowContext extends MissionWorkspaceViewProps {
     ticked: ReadonlySet<string>;
 }
 
-function doneKeys(mission: MissionView): string[] {
+/** The keys of the ticked Plan and Done-when items, for `useArrivals`. */
+export function doneKeys(mission: MissionView): string[] {
     const plan = mission.plan.filter((item) => item.state === "done");
     const done = mission.done_when.filter((item) => item.state === "done");
     return [
@@ -112,7 +66,7 @@ function doneKeys(mission: MissionView): string[] {
  * The keys that were not there at the first render. A row with a fresh key mounts with its
  * one-shot animation class; the class stays, so a later render does not replay it.
  */
-function useArrivals(keys: string[]): ReadonlySet<string> {
+export function useArrivals(keys: string[]): ReadonlySet<string> {
     const initial = useRef<ReadonlySet<string> | null>(null);
     if (initial.current === null) {
         initial.current = new Set(keys);
@@ -121,7 +75,7 @@ function useArrivals(keys: string[]): ReadonlySet<string> {
     return new Set(keys.filter((key) => !known.has(key)));
 }
 
-function Section(props: {
+export function Section(props: {
     section: MissionSection;
     label: string;
     count?: string | undefined;
@@ -143,42 +97,35 @@ function Section(props: {
     );
 }
 
-function GoalCard({ mission, rows }: { mission: MissionView; rows: RowContext }) {
-    return (
-        <section className="mw-section mw-goal" data-section="goal" aria-label="Goal">
-            <h3 className="mw-label">Goal</h3>
-            <h2 className="mw-title">{mission.title}</h2>
-            <Pulse mission={mission} />
-            <EditableText
-                id="goal"
-                text={mission.goal}
-                multiline
-                empty="The lead writes the goal here from the first message."
-                pending={rows.pending === itemKey("goal", 0)}
-                onSave={(text) => rows.onEdit("goal", 0, text)}
-            />
-        </section>
-    );
+/** The entry counts of the Implement header (T6): the text stands in for `plan n / N`. */
+export interface PulseCounts {
+    /** `entries done 9 / 23`; null shows the Plan count instead. */
+    entries: string | null;
+    /** False on the design track, where Done when is hidden (D4). */
+    doneWhen: boolean;
 }
 
 /**
- * The state of the work on one line, for the ten-second read: the Plan and Done-when counts,
- * what is in progress, the open questions and the blocked agents. A pill scrolls to its section.
+ * The state of the work on one line, for the ten-second read: the Plan and Done-when counts
+ * (or the entry counts with `counts`), what is in progress, the open questions and the
+ * blocked agents. A pill scrolls to its section.
  */
-function Pulse({ mission }: { mission: MissionView }) {
+export function Pulse({ mission, counts }: { mission: MissionView; counts?: PulseCounts }) {
     const plan = mission.plan.filter((item) => item.state === "done").length;
     const doing = mission.plan.filter((item) => item.state === "doing").length;
     const done = mission.done_when.filter((item) => item.state === "done").length;
     const open = mission.questions.filter((question) => question.answer === null).length;
     const blocked = mission.roster.filter((row) => isBlocked(row.blocked));
     const facts: { section: MissionSection; text: string; kind: string }[] = [];
-    if (mission.plan.length > 0) {
+    if (counts?.entries !== null && counts?.entries !== undefined) {
+        facts.push({ section: "plan", text: counts.entries, kind: "" });
+    } else if (mission.plan.length > 0) {
         facts.push({ section: "plan", text: `plan ${plan} / ${mission.plan.length}`, kind: "" });
     }
     if (doing > 0) {
         facts.push({ section: "plan", text: `${doing} in progress`, kind: "pill-accent" });
     }
-    if (mission.done_when.length > 0) {
+    if (mission.done_when.length > 0 && counts?.doneWhen !== false) {
         const text = `done when ${done} / ${mission.done_when.length}`;
         const kind = done === mission.done_when.length ? "pill-ok" : "";
         facts.push({ section: "done_when", text, kind });
@@ -208,7 +155,7 @@ function Pulse({ mission }: { mission: MissionView }) {
     );
 }
 
-function DoneWhen({ items, rows }: { items: DoneWhenItem[]; rows: RowContext }) {
+export function DoneWhen({ items, rows }: { items: DoneWhenItem[]; rows: RowContext }) {
     const done = items.filter((item) => item.state === "done").length;
     return (
         <Section
@@ -239,67 +186,11 @@ function DoneWhen({ items, rows }: { items: DoneWhenItem[]; rows: RowContext }) 
     );
 }
 
-function PlanBoard({ plan, rows }: { plan: PlanItem[]; rows: RowContext }) {
-    const done = plan.filter((item) => item.state === "done").length;
-    return (
-        <Section
-            section="plan"
-            label="Plan"
-            className="mw-plan"
-            count={plan.length === 0 ? undefined : `${done} / ${plan.length}`}
-        >
-            <div className="mw-board">
-                {PLAN_COLUMNS.map((column) => {
-                    const items = plan.filter((item) => item.state === column.state);
-                    return (
-                        <div
-                            key={column.state}
-                            className="mw-column"
-                            data-state={column.state}
-                            aria-label={column.label}
-                        >
-                            <h4 className="mw-column-head">
-                                <span className="mw-column-dot" />
-                                {column.label}
-                                <span className="mw-count">{items.length}</span>
-                            </h4>
-                            {items.length === 0 ? (
-                                <Empty text={column.empty} />
-                            ) : (
-                                <ul className="mw-list mw-cards">
-                                    {items.map((item) => (
-                                        <PlanCard key={item.id} item={item} rows={rows} />
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-        </Section>
-    );
-}
-
-function PlanCard({ item, rows }: { item: PlanItem; rows: RowContext }) {
-    return (
-        <Item
-            section="plan"
-            id={item.id}
-            number={String(item.id)}
-            text={item.text}
-            owner={item.owner}
-            time={item.state === "done" ? item.ticked_at : null}
-            done={item.state === "done"}
-            rows={rows}
-        />
-    );
-}
-
 /**
  * One item: the box, the text (a click edits it in place), the owner chip and the time. Under
  * the pointer the edit and note actions show. A note goes to the owner's inbox.
  */
-function Item(props: {
+export function Item(props: {
     section: MissionSection;
     id: number;
     text: string;
@@ -442,8 +333,6 @@ function InlineForm(props: {
     );
 }
 
-/** About four lines of the Goal card at its narrowest useful width. */
-const GOAL_CLAMP_CHARS = 280;
 
 /**
  * A mission text with its `code` spans set in mono. The rest stays plain text: the file is
@@ -464,7 +353,7 @@ function Inline({ text }: { text: string }) {
 }
 
 /** A free text that edits in place: the Goal. */
-function EditableText(props: {
+export function EditableText(props: {
     id: string;
     text: string;
     multiline?: boolean;
@@ -514,21 +403,13 @@ function EditableText(props: {
     );
 }
 
-function Roster({ roster }: { roster: RosterRow[] }) {
-    return (
-        <Section section="roster" label="Roster" className="mw-roster">
-            {roster.length === 0 ? (
-                <Empty text="The lead adds agents here when the work splits." />
-            ) : (
-                <ul className="mw-agents">
-                    {roster.map((row) => <RosterChip key={row.agent} row={row} />)}
-                </ul>
-            )}
-        </Section>
-    );
-}
-
-function RosterChip({ row }: { row: RosterRow }) {
+export function RosterChip({ row, dot, onOpen }: {
+    row: RosterRow;
+    /** The rail's live dot (D14), before the name; absent on the plain chip. */
+    dot?: ReactNode;
+    /** Opens the agent in the Agents view (T6). */
+    onOpen?: (() => void) | undefined;
+}) {
     const hueOf = useHue();
     const blocked = isBlocked(row.blocked);
     const idle = row.doing === "" || row.doing === "—" || row.doing === "-";
@@ -541,7 +422,19 @@ function RosterChip({ row }: { row: RosterRow }) {
         >
             <span className="mw-agent-head">
                 <span className="mw-agent-dot" />
-                <span className="mw-agent-name">{row.agent}</span>
+                {dot}
+                {onOpen === undefined ? (
+                    <span className="mw-agent-name">{row.agent}</span>
+                ) : (
+                    <button
+                        type="button"
+                        className="mw-agent-name mw-agent-open"
+                        title={`Open ${row.agent} in Agents`}
+                        onClick={onOpen}
+                    >
+                        {row.agent}
+                    </button>
+                )}
                 {blocked && <span className="pill pill-warn">blocked</span>}
                 {row.updated !== "" && row.updated !== "—" && <Clock value={row.updated} />}
             </span>
@@ -555,12 +448,12 @@ function RosterChip({ row }: { row: RosterRow }) {
     );
 }
 
-function isBlocked(value: string): boolean {
+export function isBlocked(value: string): boolean {
     const text = value.trim().toLowerCase();
     return text !== "" && text !== "no" && text !== "-" && text !== "—";
 }
 
-function Questions(props: {
+export function Questions(props: {
     questions: QuestionItem[];
     pending: string | null;
     onAnswer: (id: number, text: string) => void;
@@ -637,7 +530,7 @@ function QuestionCard(props: {
     );
 }
 
-function Contracts({ contracts, rows }: { contracts: MissionLine[]; rows: RowContext }) {
+export function Contracts({ contracts, rows }: { contracts: MissionLine[]; rows: RowContext }) {
     return (
         <Section section="contracts" label="Contracts" className="mw-contracts">
             {contracts.length === 0 ? (
@@ -666,7 +559,7 @@ function Contracts({ contracts, rows }: { contracts: MissionLine[]; rows: RowCon
  * The Log, newest first. `log` comes in file order (oldest first). A line that arrives after
  * the first render fades in at the top; the feed's own scroll keeps the reader's place.
  */
-function LogFeed(props: {
+export function LogFeed(props: {
     log: LogLine[];
     agents: string[];
     filter: string | null;
@@ -769,7 +662,7 @@ export function clock(value: string): string {
 }
 
 /** The roster's names, in order: the first six agents get six different colours. */
-const AgentOrder = createContext<readonly string[]>([]);
+export const AgentOrder = createContext<readonly string[]>([]);
 
 /**
  * One of six agent colours, the same for a name everywhere in the view, so a hand-off reads at

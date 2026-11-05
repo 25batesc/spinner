@@ -1,7 +1,11 @@
-/* The mission workspace (`MissionWorkspaceView.tsx`). It builds on the scales and the button
-   kinds of `styles.css` (DESIGN-PASS.md) and adds only `.mw-*` classes. The layout follows the
-   width of the pane, not of the window, through a container query: in the app the agents pane
-   is about 660 px wide in a 1500 px window and 280 px in a 1000 px window. */
+/* The Implement view (`ImplementView.tsx` over the parts of `MissionWorkspaceView.tsx`;
+   docs/designs/session-workspace.md, T6). It builds on the scales and the button kinds of
+   `styles.css` (DESIGN-PASS.md) and adds the `.mw-*` classes of the parts and the `.im-*`
+   classes of the layout: a main column with the goal block, the sticky header and the phase
+   list, a rail with the roster, the questions and the contracts, and the Log across the
+   width. The layout follows the width of the pane, not of the window, through a container
+   query: in the app the agents pane is about 660 px wide in a 1500 px window and 280 px in a
+   1000 px window; the rail goes under the main column below 900 px. */
 .mw {
     container-type: inline-size; container-name: mw;
     display: flex; flex-direction: column; gap: var(--space-3);
@@ -46,7 +50,7 @@
     color: color-mix(in srgb, var(--muted) 75%, transparent);
 }
 .mw-empty { margin: 0; font-size: var(--text-dense); color: var(--muted); font-style: normal; }
-.mw-section > .mw-empty, .mw-column > .mw-empty {
+.mw-section > .mw-empty {
     padding: var(--space-2) var(--space-3); border: 1px dashed var(--line-soft);
     border-radius: var(--radius-box);
 }
@@ -157,36 +161,6 @@
     white-space: nowrap;
 }
 
-/* The Plan board: three columns, next · doing · done; each item a small card. */
-.mw-board { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
-.mw-column {
-    display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: var(--space-2);
-    background: var(--fill-soft); border-radius: var(--radius-box);
-}
-.mw-column-head {
-    display: flex; align-items: center; gap: 6px; margin: 0; padding: 0 var(--space-1);
-    min-height: 20px; font-size: var(--text-dense); font-weight: 600;
-}
-.mw-column-dot {
-    width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%;
-    border: 1.5px solid var(--muted);
-}
-.mw-column[data-state="doing"] .mw-column-dot {
-    background: var(--accent); border-color: var(--accent);
-}
-.mw-column[data-state="done"] .mw-column-dot { background: var(--ok); border-color: var(--ok); }
-.mw-cards { display: flex; flex-direction: column; gap: 6px; }
-.mw-cards > .mw-item {
-    --mw-row-bg: var(--surface);
-    flex-wrap: wrap; padding: 6px var(--space-2); background: var(--surface);
-    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
-    transition: border-color 0.1s;
-}
-.mw-cards > .mw-item:hover { border-color: var(--border); }
-.mw-cards > .mw-item .mw-item-meta { flex-basis: 100%; }
-.mw-cards > .mw-item .mw-item-actions { top: 6px; right: var(--space-2); }
-.mw-column[data-state="doing"] .mw-cards > .mw-item { box-shadow: inset 2px 0 0 var(--accent); }
-
 /* The Roster: one chip per agent, the agent's colour, what it is doing under its name. */
 .mw-agents { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .mw-agent {
@@ -270,9 +244,7 @@
 /* A narrow pane (the agents pane in a 1000 px window): everything stacks, in reading order. In
    a pane of 520 px and more, Goal and Done when sit side by side, the Plan takes three
    columns, and questions and contracts pair up. */
-/* Stacked, the Plan reads Doing, then Next, then Done; an item's owner and time go under its
-   text. */
-.mw-column[data-state="doing"] { order: -1; }
+/* Stacked, an item's owner and time go under its text. */
 .mw-list:not(.mw-cards) > .mw-item { flex-wrap: wrap; }
 .mw-list:not(.mw-cards) > .mw-item .mw-item-meta { flex-basis: 100%; }
 .mw-item:has(.mw-check) > .mw-item-meta { padding-left: 20px; }
@@ -282,27 +254,83 @@
 @container mw (min-width: 520px) {
     .mw-line { grid-template-columns: 38px auto minmax(0, 1fr); }
     .mw-line .mw-line-text { grid-column: auto; }
-    .mw-column[data-state="doing"] { order: 0; }
     .mw-list:not(.mw-cards) > .mw-item { flex-wrap: nowrap; }
     .mw-list:not(.mw-cards) > .mw-item .mw-item-meta { flex-basis: auto; }
     .mw-list:not(.mw-cards) > .mw-item:has(.mw-check) > .mw-item-meta { padding-left: 0; }
-    .mw-board { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
     .mw-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
 }
-/* Wide enough for both: Done when sits beside the Goal card. With the Log at the right (from
-   1000 px) the main column is 364 px narrower, so the pair waits for 1240 px. */
-@container mw ((min-width: 860px) and (max-width: 999px)) or (min-width: 1240px) {
-    .mw-main { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
-    .mw-goal { grid-column: 1; grid-row: 1; }
-    .mw-done-when { grid-column: 2; grid-row: 1; }
-    .mw-plan, .mw-roster, .mw-pair { grid-column: 1 / -1; }
+
+/* The Implement layout (T6): the main column and the rail, the Log across both. Under 900 px
+   of pane width the rail goes under the main column. */
+.im-grid {
+    display: grid; grid-template-columns: minmax(0, 1fr); align-items: start;
+    gap: var(--space-4);
 }
-/* A wide pane (the previews folded): the Log moves to the right as a column of its own. */
-@container mw (min-width: 1000px) {
-    .mw-grid { grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-5); }
-    .mw-log {
-        position: sticky; top: 0; align-self: start; max-height: calc(100vh - 120px);
+.im-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.im-rail { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.im-grid > .mw-log { grid-column: 1 / -1; }
+@container mw (min-width: 900px) {
+    .im-grid { grid-template-columns: minmax(0, 1fr) 300px; gap: var(--space-5); }
+    .im-rail {
+        position: sticky; top: 0; max-height: calc(100vh - 120px); overflow: auto;
         padding-left: var(--space-4); border-left: 1px solid var(--line-soft);
     }
-    .mw-feed { max-height: none; }
 }
+/* The goal block: the doc's first Overview paragraph, read-only, with `open in Draft`. */
+.im-goal .mw-label .im-open-draft { margin-left: auto; font-weight: 500; }
+.im-goal-text { cursor: default; margin-top: 0; margin-bottom: 0; }
+.im-goal-text:hover { background: transparent; }
+/* The sticky header: the pulse pills and the `doing` filter, over the phase list. */
+.im-header {
+    position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: var(--space-2);
+    margin: 0 calc(-1 * var(--space-1)); padding: var(--space-1) var(--space-1);
+    background: var(--bg); border-bottom: 1px solid var(--line-soft);
+}
+.im-header .mw-pulse { flex: 1; margin: 0; }
+.im-doing-filter { border: 1px solid var(--border); font-family: inherit; cursor: pointer; }
+.im-doing-filter[aria-pressed="true"] { border-color: var(--accent); }
+/* A phase: a header button with the chevron, the label and the counts; the rows under it. */
+.im-phase { border: 1px solid var(--line-soft); border-radius: var(--radius-box); }
+.im-phase + .im-phase { margin-top: var(--space-2); }
+.im-phase-head { margin: 0; }
+.im-phase-toggle {
+    display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 30px;
+    padding: 0 var(--space-3); border: 0; border-radius: var(--radius-box);
+    background: var(--fill-soft); color: var(--text); font: inherit;
+    font-size: var(--text-dense); font-weight: 600; text-align: left; cursor: pointer;
+}
+.im-phase[data-open="true"] .im-phase-toggle { border-radius: var(--radius-box) var(--radius-box) 0 0; }
+.im-phase-toggle:hover { background: var(--fill); }
+.im-phase-chevron { width: 10px; color: var(--muted); }
+.im-phase-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.im-rows { padding: 0 var(--space-3); }
+/* A row: the state dot, the item, the entry badges at the right. */
+.im-row {
+    display: flex; align-items: flex-start; gap: var(--space-2); padding: 0;
+}
+.im-row + .im-row { border-top: 1px solid var(--line-soft); }
+.im-row-item { flex: 1; min-width: 0; }
+.im-row-item > .mw-item { --mw-row-bg: var(--bg); }
+.im-dot {
+    flex: none; width: 8px; height: 8px; margin-top: 14px; box-sizing: border-box;
+    border-radius: 50%; border: 1.5px solid var(--muted);
+}
+.im-dot-doing { background: var(--accent); border-color: var(--accent); }
+.im-dot-done { background: var(--ok); border-color: var(--ok); }
+.im-row[data-state="doing"] { box-shadow: inset 2px 0 0 var(--accent); padding-left: 4px; }
+.im-badges { flex: none; display: inline-flex; gap: 4px; margin-top: 7px; }
+/* The rail's roster: one chip per agent under the other, the live dot before the name. */
+.im-agents { flex-direction: column; }
+.im-agents .mw-agent { flex: none; min-width: 0; }
+.im-live { width: 7px; height: 7px; }
+.im-live.dot-blocked { background: var(--warn); border-color: var(--warn); }
+.im-live.dot-needs-you { background: var(--fail); border-color: var(--fail); }
+.im-live.dot-idle { background: transparent; border-color: var(--muted); }
+button.mw-agent-open {
+    padding: 0; border: 0; background: transparent; color: inherit; font: inherit;
+    font-weight: 600; cursor: pointer;
+}
+button.mw-agent-open:hover { text-decoration: underline; }
+/* The chip states the rail adds to the agents' chip classes (D14). */
+.chip-blocked .chip-name { color: var(--warn); }
+.chip-needs-you .chip-name { color: var(--fail); }

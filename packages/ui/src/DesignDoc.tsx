@@ -5,15 +5,20 @@
 // a text box whose `send` answers the lead through `POST …/design/answer`. `source` shows the
 // raw text. The doc renders section by section with the mission's markdown renderer. While
 // the doc differs from its approval, a warn banner above it opens the approve dialog with the
-// changed sections (entry 6.17).
-import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+// changed sections (entry 6.17). Beside each plan entry heading the tab draws a done mark from
+// the Plan items linked to it (T7, D9): a DOM walk after each render sets `data-mark` on the
+// `h4` and `h5` elements that parse as entries, so the doc text and its hash never change.
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { DESIGN_ANSWER_MAX, type SessionView } from "@spinner/protocol";
+import {
+    DESIGN_ANSWER_MAX, parse_entry_heading, scan, type MissionView, type SessionView,
+} from "@spinner/protocol";
 
 import { ApproveDesign } from "./ApproveDesign.tsx";
 import {
     docSections, docSource, outline, revisionText, type DocSection,
 } from "./design-workspace.ts";
+import { entryMarks, markTitle, type EntryMark } from "./implement.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { postDesignAnswer, type Loaded } from "./remote.ts";
 
@@ -23,13 +28,37 @@ export interface DesignDocProps {
     view: SessionView;
     /** The doc's text, fetched by the agents pane once per reload key (D15). */
     doc: Loaded<string>;
+    /** The mission of the last `mission.changed`: the done marks beside the entries (T7). */
+    mission: MissionView | undefined;
     onError: (message: string) => void;
 }
 
-export function DesignDoc({ view, doc, onError }: DesignDocProps) {
+/** The mark of every entry of the doc (D9): the scan per text, the marks per scan and Plan. */
+function useEntryMarks(text: string | undefined, mission: MissionView | undefined) {
+    const parsed = useMemo(() => (text === undefined ? null : safeScan(text)), [text]);
+    const plan = mission?.plan;
+    return useMemo(
+        () => (parsed === null || plan === undefined ? EMPTY_MARKS : entryMarks(parsed, plan)),
+        [parsed, plan],
+    );
+}
+
+const EMPTY_MARKS: ReadonlyMap<string, EntryMark> = new Map();
+
+/** The scan throws past its bounds; a draft over them shows without marks. */
+function safeScan(text: string) {
+    try {
+        return scan(text);
+    } catch {
+        return null;
+    }
+}
+
+export function DesignDoc({ view, doc, mission, onError }: DesignDocProps) {
     const dir = view.summary.dir;
     const source = view.design === undefined ? null : docSource(view.design);
     const loaded = doc;
+    const marks = useEntryMarks(loaded.value, mission);
     if (source === null) {
         return (
             <p className="muted dw-empty">
@@ -51,10 +80,37 @@ export function DesignDoc({ view, doc, onError }: DesignDocProps) {
             name={source.name}
             path={source.kind === "doc" ? source.path : null}
             text={loaded.value}
+            marks={marks}
             banner={changed ? <ChangedBanner view={view} /> : null}
             onError={onError}
         />
     );
+}
+
+/**
+ * Sets `data-entry`, `data-mark` and the title on every `h4` and `h5` under `root` whose text
+ * parses as a plan entry. A heading inside a fence renders as `<pre>`, so the walk is
+ * fence-safe. Bounded by the headings the doc has, at most `ENTRIES_MAX` entries of it.
+ */
+export function markHeadings(root: ParentNode, marks: ReadonlyMap<string, EntryMark>): number {
+    let marked = 0;
+    for (const heading of root.querySelectorAll("h4, h5")) {
+        const entry = parse_entry_heading(heading.textContent ?? "");
+        if (entry === null) {
+            continue;
+        }
+        const mark = marks.get(entry.id);
+        heading.setAttribute("data-entry", entry.id);
+        heading.setAttribute("data-mark", mark?.state ?? "none");
+        const title = mark === undefined ? null : markTitle(mark);
+        if (title === null) {
+            heading.removeAttribute("title");
+        } else {
+            heading.setAttribute("title", title);
+        }
+        marked += 1;
+    }
+    return marked;
 }
 
 /** "Changed since approval" and the button that opens the approve dialog. */
@@ -75,11 +131,12 @@ function DocView(props: {
     /** The repo-relative path of the doc; null for the draft. */
     path: string | null;
     text: string;
+    marks: ReadonlyMap<string, EntryMark>;
     /** Above the head: the changed-since-approval banner, or null. */
     banner: ReactNode;
     onError: (message: string) => void;
 }) {
-    const { dir, name, path, text, banner, onError } = props;
+    const { dir, name, path, text, marks, banner, onError } = props;
     const [raw, setRaw] = useState(false);
     const body = useRef<HTMLDivElement | null>(null);
     // Each section with the index of its heading in the outline, null for the preamble.
@@ -94,6 +151,12 @@ function DocView(props: {
         });
     }, [text]);
     const headings = useMemo(() => outline(text), [text]);
+    // After each render of the parts: the marks survive a doc reload and move on a tick (T7).
+    useEffect(() => {
+        if (body.current !== null && !raw) {
+            markHeadings(body.current, marks);
+        }
+    }, [marks, sections, raw]);
     const scrollTo = (index: number) => {
         const target = body.current?.querySelector(`[data-heading-index="${index}"]`);
         target?.scrollIntoView({ block: "start", behavior: "smooth" });
