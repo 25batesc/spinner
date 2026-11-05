@@ -1,6 +1,6 @@
 {
     "name": "@spinner/pi-extension",
-    "version": "0.16.1",
+    "version": "0.17.0",
     "private": true,
     "description": "The Spinner pi extension: mission in the system prompt, mission_*, message, stack, pr and thread_* tools, an out-of-area edit guard, /spinner-reload.",
     "license": "MIT",
