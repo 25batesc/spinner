@@ -48,6 +48,26 @@ export function refuse_operator_bash(command: string): string | null {
     return null;
 }
 
+/**
+ * The shell commands every role refuses: `pkill` and `killall` match by name or by command
+ * line, and one loose pattern ends every process of the operator that matches it. The
+ * worker of s046 ran `pkill -f "fixture/server.ts" -n` (2026-11-05): BSD pkill read `-n`
+ * as a second pattern, and every process whose command line held `-n` died, Docker and
+ * the browser among them. A process is stopped by pid: `lsof -ti :PORT`, a pid file, or
+ * `pgrep` with a review of its output. Null when the command is allowed.
+ */
+export function refuse_process_sweep(command: string): string | null {
+    const match = /(^|[\s;&|(])(?:sudo\s+)?(pkill|killall)\b/.exec(command);
+    if (match === null) {
+        return null;
+    }
+    return (
+        `\`${match[2]}\` is refused for every agent: a name pattern can match the operator's ` +
+        "own applications. Find the pid first (`lsof -ti :PORT`, a pid file, `pgrep -fl` " +
+        "and read the list), then `kill <pid>`."
+    );
+}
+
 /** Upper bound on globs read from a brief. */
 const GLOBS_MAX = 100;
 

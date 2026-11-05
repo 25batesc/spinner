@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EXTENSION_MANIFEST } from "@spinner/protocol";
 import { agent_route_base, read_env } from "./env.js";
-import { refuse_operator_bash } from "./guard.js";
+import { refuse_operator_bash, refuse_process_sweep } from "./guard.js";
 import { register } from "./index.js";
 import type {
     BeforeAgentStartEvent,
@@ -304,6 +304,24 @@ describe("the operator role", () => {
         expect(refuse_operator_bash("spinner land s3")).toMatch(/the operator must do it/);
         expect(refuse_operator_bash("git -C api push --force")).toMatch(/git push/);
         expect(refuse_operator_bash("gh pr view 7")).toBeNull();
+    });
+
+    it("refuses pkill and killall for every role: a pattern can match the operator's apps", () => {
+        const sweep = 'pkill -f "fixture/server.ts" -n 2>/dev/null; sleep 1';
+        expect(refuse_process_sweep(sweep)).toMatch(/`pkill` is refused/);
+        expect(refuse_process_sweep("cd ui && killall node")).toMatch(/`killall` is refused/);
+        expect(refuse_process_sweep("lsof -ti :5190 | xargs kill")).toBeNull();
+        expect(refuse_process_sweep("kill 1234")).toBeNull();
+        expect(refuse_process_sweep("pgrep -fl vite")).toBeNull();
+        // Every role is covered: the operator role above, and a worker here.
+        const pi = fake_pi();
+        register(pi, { env: { ...env_for(""), SPINNER_AGENT: "ui", SPINNER_ROLE: "worker" } });
+        const handler = pi.handlers.get("tool_call")?.[0];
+        const event: ToolCallEvent = { toolName: "bash", input: { command: "pkill -f vite" } };
+        const verdict = handler?.(event as never, { cwd: operator_dir, hasUI: false } as never) as
+            | ToolCallResult
+            | undefined;
+        expect(verdict?.block).toBe(true);
     });
 
     it("render_session names what a notice needs: dir, stage, needs_human, agents", () => {

@@ -10,7 +10,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXTENSION_MANIFEST, type SessionView } from "@spinner/protocol";
 import { read_env, type SpinnerEnv } from "./env.js";
-import { guard_edit, read_design_state, refuse_operator_bash } from "./guard.js";
+import {
+    guard_edit,
+    read_design_state,
+    refuse_operator_bash,
+    refuse_process_sweep,
+} from "./guard.js";
 import type { ExtensionAPI, ToolDefinition } from "./pi-api.js";
 import { load_session_files, render_operator_section, render_prompt_section } from "./prompt.js";
 import { daemon_client, run_tool, schema_of, type DaemonClient, type Fetch } from "./tools.js";
@@ -84,6 +89,15 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
     }
 
     pi.on("tool_call", (event, ctx) => {
+        if (event.toolName === "bash") {
+            const sweep = refuse_process_sweep(String(event.input["command"] ?? ""));
+            if (sweep !== null) {
+                if (ctx.hasUI) {
+                    ctx.ui.notify(sweep, "warning");
+                }
+                return { block: true, reason: sweep };
+            }
+        }
         const guarded = env.role === "operator" || env.role === "lead";
         if (guarded && event.toolName === "bash") {
             // The operator agent and the lead never push, post, approve, land, reset or
