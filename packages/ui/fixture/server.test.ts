@@ -353,7 +353,10 @@ it("GET /costs: 30 days by default, grouped by week on request, 400 for a bad sp
     // Two days of the month cost nothing, so the list is short of 30 by at most two.
     expect(byDay.by_period.length).toBeGreaterThanOrEqual(28);
     expect(byDay.by_period.length).toBeLessThanOrEqual(30);
-    expect(byDay.by_period[0]?.period).toBe(byDay.from);
+    // The 7th and the 21st cost nothing and are left out, so when `from` lands on one of
+    // them the first period is the day after.
+    const firstPeriod = byDay.by_period[0]?.period ?? "";
+    expect([byDay.from, dayAfter(byDay.from)]).toContain(firstPeriod);
     expect(byDay.total.usd).toBeGreaterThan(0);
     expect(byDay.by_session.map((row) => row.dir)).toContain("operator");
     expect(byDay.by_session[0]?.usd ?? 0).toBeGreaterThanOrEqual(byDay.by_session[1]?.usd ?? 0);
@@ -565,3 +568,11 @@ it("serves six Goldfish, one transcript and a session at the cap (entry 4.18)", 
     expect((await events("1")).status).toBe(404);
     expect((await events("0", "unknown")).status).toBe(404);
 });
+
+/** The `YYYY-MM-DD` of the local day after `day`. */
+function dayAfter(day: string): string {
+    const [y, m, d] = day.split("-").map(Number);
+    const next = new Date(y ?? 0, (m ?? 1) - 1, (d ?? 1) + 1);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
+}
