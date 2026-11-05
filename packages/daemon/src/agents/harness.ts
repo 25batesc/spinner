@@ -224,7 +224,7 @@ export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): P
         env[EXTENSION_ENV.egm_artifacts] = egm.artifacts_dir;
     }
     return {
-        env_unset: inherited_subagent_env(env),
+        env_unset: inherited_agent_env(env),
         pi: options.pi(),
         cwd: input.cwd,
         session_dir: input.pi_dir,
@@ -235,16 +235,26 @@ export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): P
     };
 }
 
+/** The extension's own variables: they describe one agent, never the daemon. */
+const AGENT_ENV_KEYS: readonly string[] = Object.values(EXTENSION_ENV);
+
 /**
- * The inherited `PI_SUBAGENT_*` variables the agent must not see. A daemon started from
- * inside a pi-subagents child inherits `PI_SUBAGENT_CHILD=1`, and the Spinner extension then
- * stays off in every agent (EGM design, build findings of session 1). The variables the
- * plan sets itself stay; `PI_CODING_AGENT_DIR` does not match the prefix and stays.
+ * The inherited variables that describe another agent, which the new agent must not see. A
+ * daemon started from inside an agent (a scratch daemon, or a test run from an agent's
+ * shell) inherits that agent's `SPINNER_*` extension variables and its `PI_SUBAGENT_*` and
+ * `PI_SUBAGENTS_*` variables: `PI_SUBAGENT_CHILD=1` turns the Spinner extension off (EGM
+ * design, build findings of session 1), a lead's `SPINNER_EGM_ROOT` and
+ * `PI_SUBAGENTS_TEMP_ROOT` would give a worker the lead's EGM run directory, and
+ * `SPINNER_HARNESS=tty` would put an rpc agent in tty mode (dogfood r3.7). The variables the
+ * plan sets itself stay; `SPINNER_HOME`, `SPINNER_PI` and `PI_CODING_AGENT_DIR` are the
+ * daemon's own settings and stay.
  */
-function inherited_subagent_env(env: Record<string, string>): string[] {
-    return Object.keys(process.env).filter(
-        (key) => key.startsWith("PI_SUBAGENT_") && !(key in env),
+function inherited_agent_env(env: Record<string, string>): string[] {
+    const unset = Object.keys(process.env).filter(
+        (key) => (AGENT_ENV_KEYS.includes(key) || key.startsWith("PI_SUBAGENT")) && !(key in env),
     );
+    assert.ok(!unset.includes("PI_CODING_AGENT_DIR"), "the pi config dir is the daemon's");
+    return unset;
 }
 
 /** The extension entry that exists, or null: absent means the checkout's, null means none. */

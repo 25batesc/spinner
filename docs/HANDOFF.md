@@ -52,6 +52,10 @@ curl -s localhost:7777/health
 4. Launch one `spinner-agent` subagent per role (`anthropic/claude-fable-5-1`, cwd the repo, the task names the role and the brief). Launch the one that owns the shared contract first; the others when its Contracts entry is committed.
 5. Deliver `inbox/` messages with `steer` (a live child) or `resume` (a finished one). Answer Open questions in the mission and in `subagent_supervisor` replies. Put each steer you give mid-pass under Contracts as one line. Count the relays.
 6. At the end: root checks (`pnpm -r build && pnpm -r test && pnpm lint`, `doc-metrics --fail`, `tools/actionlint.sh` if a workflow changed, a `node:24` container run if `src/stack/` or `src/pipeline/` changed). Then push, restart the daemon, and close the record (STATUS, lessons, decisions, the session record under `docs/sessions/`, the template copy-back without the Log).
+   From a session agent's shell, run the tests as `env -u npm_config_reporter -u SLACK_USER_TOKEN pnpm -r test`.
+   A daemon started with `pnpm daemon` passes pnpm's `npm_config_reporter=silent` to every agent, and pnpm then prints nothing but the exit code.
+   With `SLACK_USER_TOKEN` set, `loop.test.ts` takes the real Slack transport and fails.
+   The spawn of an agent drops the other agent's `SPINNER_*` and `PI_SUBAGENT*` variables (s046 r3.7), so `agents.test.ts` passes from a lead's shell.
 
 Rules that bit and are now in the briefs: stage by path, never `git add -A` or `git stash`. Log times from `date`. Wait on an artifact, not on a Log timestamp. Scratch with `mktemp -d`, reported, never deleted. One retry on a repo-side failure, then stop. Never print a file that can hold a secret. Never raise or move a window over the operator's. Destructive e2e only against a scratch daemon, and a driver never defaults to the operator's port. Never signal a pid without its identity. A driver closes its CDP target when it ends.
 
