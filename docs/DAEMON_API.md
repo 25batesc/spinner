@@ -60,6 +60,7 @@ WebSockets below.
 | `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. A steer to `lead` with `source: "operator"` adds 1 to `outcomes.operator_steers`; below. |
 | `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |
 | `POST /sessions/:dir/agents/:name/stop` | | `AgentCommandResponse` | The transcript stays. |
+| `POST /sessions/:dir/agents/:name/compact` | | `AgentCommandResponse` | Starts pi's compaction and answers `started` at once; writes the `spinner` Log line `compacted <agent> at NN %`. 409 with the process state for a listed agent that is not running. |
 | `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
 | `GET /sessions/:dir/agents/:name/context` | | `ContextResponse` | The context chain and the loaded commands. |
 | `PUT /sessions/:dir/agents/:name/context` | `ContextFileRequest` | `ContextFileResponse` | Writes one file of the chain. |
@@ -502,9 +503,15 @@ every `agent.settled`, and every 60 s. The daemon writes no cost file; a closed 
 transcripts in the archive stay the record.
 
 `SessionView.cost` is `SessionCost { usd, tokens_in, tokens_out, agents }`, where `agents`
-maps each agent to `{ usd, tokens_in, tokens_out, model }` and `model` is that of its latest
+maps each agent to `{ usd, tokens_in, tokens_out, model, context }` and `model` is that of its latest
 message. `OperatorView.cost` is the same without `agents`. Token counts leave the cache
 counts out.
+
+`context` (dogfood #45) is `{ tokens, window, pct }` or null. `tokens` is `input + cacheRead + cacheWrite` of the agent's latest assistant message: the size of the prompt that message answered.
+`window` is that model's `contextWindow` from the daemon's model list, and `pct` is the whole percent, rounded down.
+`context` is null before the agent's first message and while the window is unknown.
+The model list loads in the background the first time a view asks for a window; the sessions then republish.
+After a failed load the daemon asks pi again after 5 minutes, not on every view.
 
 The ledger also folds the transcripts of the lead's Goldfish. Each run's `status.json`
 under `<session>/egm-runs/` names a transcript per step (`steps[].sessionFile`). A

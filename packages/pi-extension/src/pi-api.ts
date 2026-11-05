@@ -64,6 +64,8 @@ export interface ExtensionContext {
     isIdle(): boolean;
     /** Aborts the current agent run, as Escape does. */
     abort(): void;
+    /** Starts compaction of the context without waiting for it, as `/compact` does. */
+    compact(): void;
 }
 
 export interface SessionStartEvent {

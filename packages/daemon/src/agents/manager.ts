@@ -432,6 +432,7 @@ export class AgentManager {
             exited: handle.exited,
             steer: (text) => handle.steer(text),
             abort: () => handle.abort(),
+            compact: () => handle.compact(),
             ...(notify === undefined ? {} : { notify }),
             commands: () => handle.commands(),
             on_event: (listener) => handle.on_event(listener),

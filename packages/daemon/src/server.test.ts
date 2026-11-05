@@ -3,7 +3,15 @@
 // appears, and serves the UI build at `/`, all without state of its own. Method: start a
 // daemon on an ephemeral port against a temporary SPINNER_HOME with the poller off, call it
 // with fetch and a ws client, and create sessions on disk the way the CLI does.
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -353,12 +361,33 @@ describe("agents", () => {
             ok: true,
             disposition: "queued",
         });
+        // Dogfood #45: compact reaches pi (the fake records it with the steers), answers at
+        // once, and logs the figure; the fake transcript has no usage, so it reads `?`.
+        const compacted = await post("/sessions/s001-alpha/agents/backend/compact");
+        expect(compacted.status).toBe(200);
+        expect((await compacted.json()) as AgentCommandResponse).toEqual({
+            ok: true,
+            disposition: "started",
+        });
+        expect((await post("/sessions/s001-alpha/agents/nobody/compact")).status).toBe(404);
+        expect(readFileSync(join(summary.path, "MISSION.md"), "utf8")).toMatch(
+            /\n- \d\d:\d\d spinner: compacted backend at \? %\n/,
+        );
+        await until(() => !daemon.agents.is_busy(summary.dir, "backend"));
+        await post("/sessions/s001-alpha/agents/backend/prompt", { text: "steers?" });
+        await until(() => echoes(events).some((text) => text.startsWith("echo: steers:")));
+        expect(echoes(events).find((text) => text.startsWith("echo: steers:"))).toContain(
+            "(compact)",
+        );
         expect((await post("/sessions/s001-alpha/agents/backend/abort")).status).toBe(200);
         expect((await post("/sessions/s001-alpha/agents/nobody/abort")).status).toBe(404);
         expect((await post("/sessions/s001-alpha/agents/backend/stop")).status).toBe(200);
         await until(() => events.some((event) => event.type === "agent.exited"));
         const gone = await post("/sessions/s001-alpha/agents/backend/prompt", { text: "x" });
         expect(gone.status).toBe(409);
+        const stopped = await post("/sessions/s001-alpha/agents/backend/compact");
+        expect(stopped.status).toBe(409);
+        expect(await stopped.json()).toMatchObject({ process: "exited" });
         expect(await gone.json()).toMatchObject({ process: "exited" });
         const never = await post("/sessions/s001-alpha/agents/nobody/prompt", { text: "x" });
         expect(never.status).toBe(404);
@@ -450,3 +479,19 @@ describe("WebSocket /events", () => {
         expect(failure.message).toMatch(/404/);
     });
 });
+
+/** The texts of the agents' finished messages, in order: the fake pi's `echo: …` lines. */
+function echoes(events: readonly SpinnerEvent[]): string[] {
+    const texts: string[] = [];
+    for (const event of events) {
+        if (event.type !== "agent.event" || event.event.type !== "message_end") {
+            continue;
+        }
+        const content = event.event.message.content;
+        const first = Array.isArray(content) ? content[0] : undefined;
+        if (first !== undefined && first.type === "text") {
+            texts.push(first.text);
+        }
+    }
+    return texts;
+}

@@ -68,7 +68,7 @@ import { agent_history } from "./agents/history.js";
 import { AgentManager, FIRST_TURN } from "./agents/manager.js";
 import { ReviewSwarm } from "./agents/swarm.js";
 import { mount_agent_routes } from "./agents/routes.js";
-import { models_source } from "./agents/models.js";
+import { ModelCatalog, fetch_models } from "./agents/models.js";
 import { resolve_pi_binary } from "./agents/pi-rpc.js";
 import { EventBus } from "./event-bus.js";
 import type { SpinnerHome } from "./home.js";
@@ -110,7 +110,7 @@ import {
     parse_verify,
 } from "./requests.js";
 import { start_lead_session } from "./agents/lead.js";
-import { MissionWriter } from "./store/mission-writer.js";
+import { MissionWriter, SPEC_AUTHOR } from "./store/mission-writer.js";
 import { find_session, list_sessions, read_session } from "./store/session-store.js";
 import {
     build_session_view,
@@ -567,6 +567,8 @@ export function create_app(deps: AppDeps): Hono {
         return c.json(body);
     });
 
+    app.post("/sessions/:dir/agents/:name/compact", (c) => compact_agent(c, deps));
+
     app.post("/sessions/:dir/agents/:name/stop", async (c) => {
         try {
             const summary = find_session(deps.home, c.req.param("dir"));
@@ -748,6 +750,47 @@ export function create_app(deps: AppDeps): Hono {
 }
 
 /** The agent of `:dir/:name`; `:dir` is a directory name or a session id. */
+/**
+ * `POST …/agents/:name/compact` (dogfood #45): starts pi's compaction in a hosted agent and
+ * writes `compacted <agent> at NN %` as `spinner`, with the figure the board showed (`?`
+ * while the window is unknown). A listed but stopped agent is a 409 with its state.
+ */
+async function compact_agent(c: Context, deps: AppDeps): Promise<Response> {
+    const name = c.req.param("name") ?? "";
+    const dir = c.req.param("dir") ?? "";
+    const summary = find_session(deps.home, dir);
+    if (summary === null) {
+        return c.json(error_body(`no session ${dir}`), 404);
+    }
+    const handle = deps.agents.get(summary.dir, name);
+    if (handle === null) {
+        const listed = summary.session.agents?.[name];
+        if (listed === undefined) {
+            return c.json(error_body(`agent ${name} is not in ${summary.dir}`), 404);
+        }
+        const body: AgentNotRunningResponse = {
+            error: `agent ${name} is not running (${listed.process})`,
+            process: listed.process,
+        };
+        return c.json(body, 409);
+    }
+    const pct = deps.view(summary).cost?.agents[name]?.context?.pct;
+    let disposition: string;
+    try {
+        disposition = await handle.compact();
+    } catch (error) {
+        return c.json(error_body(describe_error(error)), 500);
+    }
+    await deps.writer?.write(summary.dir, {
+        section: "log",
+        mode: "append",
+        author: SPEC_AUTHOR,
+        text: `compacted ${name} at ${pct === undefined ? "?" : String(pct)} %`,
+    });
+    const body: AgentCommandResponse = { ok: true, disposition };
+    return c.json(body);
+}
+
 function running_agent(deps: AppDeps, dir: string, name: string): AgentHandle | null {
     const summary = find_session(deps.home, dir);
     if (summary === null) {
@@ -884,13 +927,28 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     let costs: LedgerLoop | null = null;
     // Late-bound: `view_ctx` is built before `refresh`, which the tracker needs.
     let design: DesignTracker | null = null;
+    // The model list gives each agent's context window (#45); once it loads, every session
+    // republishes so the chips show the figure without waiting for the next event.
+    const catalog = new ModelCatalog(() => fetch_models(pi(), home.root), {
+        log,
+        on_loaded: () => {
+            for (const summary of list_sessions(home).sessions) {
+                publish_view(summary.dir);
+            }
+        },
+    });
     const view_ctx: ViewContext = {
         home,
         cwd,
         observation: (dir) => observer?.get(dir) ?? null,
         usage: (dir) => usage?.get(dir) ?? null,
         cost: (dir) =>
-            costs?.ledger.session_cost(dir) ?? { usd: 0, tokens_in: 0, tokens_out: 0, agents: {} },
+            costs?.ledger.session_cost(dir, (model) => catalog.window_of(model)) ?? {
+                usd: 0,
+                tokens_in: 0,
+                tokens_out: 0,
+                agents: {},
+            },
         agents_running: (dir) => agents.running(dir),
         diff: (summary) => diff.view(summary),
         design: (summary) => design?.view(summary),
@@ -1024,7 +1082,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         operator,
         usage: () => sampler.response(),
         cost_rows: () => costs?.ledger.rows() ?? [],
-        models: models_source(pi, home.root),
+        models: () => catalog.list(),
         bus,
         writer,
         deliverer,

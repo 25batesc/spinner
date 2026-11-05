@@ -1152,7 +1152,8 @@ export interface PiCommandInfo {
  */
 export interface AgentExtensionCommand {
     id: string;
-    type: "prompt" | "steer" | "abort" | "notify";
+    /** `compact` (dogfood #45) runs pi's compaction; like `abort`, it carries no text. */
+    type: "prompt" | "steer" | "abort" | "notify" | "compact";
     text?: string;
 }
 

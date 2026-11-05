@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type {
+    AgentContext,
     AgentCost,
     CostRow,
     OperatorCost,
@@ -87,8 +88,9 @@ export class CostLedger {
         return [...this.cache.keys()].sort();
     }
 
-    session_cost(dir: string): SessionCost {
-        return session_cost_of(this.rows_of(dir));
+    /** The session's cost; `window_of` gives a model's context window for `context`. */
+    session_cost(dir: string, window_of: WindowOf = no_window): SessionCost {
+        return session_cost_of(this.rows_of(dir), window_of);
     }
 
     operator_cost(): OperatorCost {
@@ -280,14 +282,21 @@ function timestamp_of(entry_ts: unknown, message_ts: unknown): string | null {
     return null;
 }
 
+/** A model's context window in tokens (`provider/id`), or null when it is not known. */
+export type WindowOf = (model: string) => number | null;
+
+const no_window: WindowOf = () => null;
+
 /**
- * Pure: rows of one session to its cost; each agent's model is that of its latest row. A row
- * with `child` sums into `children[child]`, not into its agent; the totals include all rows.
+ * Pure: rows of one session to its cost; each agent's model is that of its latest row, and
+ * its `context` is that row's prompt (`input + cacheRead + cacheWrite`) against the model's
+ * window (dogfood #45), null while the window is unknown. A row with `child` sums into
+ * `children[child]`, not into its agent; the totals include all rows.
  */
-export function session_cost_of(rows: CostRow[]): SessionCost {
+export function session_cost_of(rows: CostRow[], window_of: WindowOf = no_window): SessionCost {
     const agents: Record<string, AgentCost> = {};
     const children: Record<string, AgentCost> = {};
-    const latest = new Map<string, string>();
+    const latest = new Map<string, CostRow>();
     for (const row of rows) {
         const group = row.child === undefined ? agents : children;
         const key = row.child ?? row.agent;
@@ -297,17 +306,32 @@ export function session_cost_of(rows: CostRow[]): SessionCost {
         current.tokens_out += row.tokens_out;
         const slot = row.child === undefined ? `agent:${key}` : `child:${key}`;
         const seen = latest.get(slot);
-        if (seen === undefined || row.ts >= seen) {
-            latest.set(slot, row.ts);
+        if (seen === undefined || row.ts >= seen.ts) {
+            latest.set(slot, row);
             current.model = row.model;
         }
         group[key] = current;
+    }
+    for (const [key, cost] of Object.entries(agents)) {
+        const row = latest.get(`agent:${key}`);
+        assert.ok(row !== undefined, `agent ${key} must have a latest row`);
+        cost.context = context_of(row, window_of(row.model));
     }
     const cost: SessionCost = { ...totals_of(rows), agents };
     if (Object.keys(children).length > 0) {
         cost.children = children;
     }
     return cost;
+}
+
+/** The context use of a latest row, or null without a positive window. */
+export function context_of(row: CostRow, window: number | null): AgentContext | null {
+    if (window === null || !(window > 0)) {
+        return null;
+    }
+    const tokens = row.tokens_in + row.cache_read + row.cache_write;
+    assert.ok(tokens >= 0, "a row's token counts are not negative");
+    return { tokens, window, pct: Math.floor((tokens * 100) / window) };
 }
 
 export interface LedgerLoopInput {
