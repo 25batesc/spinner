@@ -12,6 +12,7 @@ import { DesignActions } from "./DesignActions.tsx";
 import { IconButton } from "./PaneHead.tsx";
 import { PipelineActions } from "./PipelineActions.tsx";
 import type { RunAction } from "./SessionForms.tsx";
+import { useMenu } from "./useMenu.ts";
 
 export interface SessionToolbarProps {
     dir: string | undefined;
@@ -63,16 +64,12 @@ export function useCompact(): boolean {
 export function SessionToolbar(props: SessionToolbarProps) {
     const { dir, busy, openPr, run, view } = props;
     const compact = useCompact();
-    const [open, setOpen] = useState(false);
     // The `archive` item asks once inside the menu; a closed menu forgets the question.
     const [asking, setAsking] = useState(false);
-    const toggleMenu = () => {
-        setOpen(!open);
-        setAsking(false);
-    };
+    const menu = useMenu<HTMLSpanElement>(() => setAsking(false));
     const off = dir === undefined || busy;
     const post = (action: SessionAction) => () => {
-        setOpen(false);
+        menu.close();
         void run(`/sessions/${dir}/${action}`);
     };
     const button = (action: SessionAction, label: string, danger = false) => (
@@ -106,8 +103,7 @@ export function SessionToolbar(props: SessionToolbarProps) {
         <DesignActions view={view} inMenu={compact} onError={props.onError ?? (() => undefined)} />
     );
     const archive = () => {
-        setOpen(false);
-        setAsking(false);
+        menu.close();
         if (dir !== undefined) {
             props.onArchive(dir);
         }
@@ -151,14 +147,14 @@ export function SessionToolbar(props: SessionToolbarProps) {
             {!compact && <span className="toolbar-sep" />}
             {!compact && pipeline}
             {!compact && <span className="toolbar-sep" />}
-            <span className="toolbar-group toolbar-menu">
+            <span className="toolbar-group toolbar-menu" ref={menu.ref}>
                 <IconButton
                     icon="more"
                     label="More session actions"
-                    active={open}
-                    onClick={toggleMenu}
+                    active={menu.open}
+                    onClick={menu.toggle}
                 />
-                {open && (
+                {menu.open && (
                     // The stack and end buttons close the menu themselves. The pipeline
                     // buttons do not: their confirm dialogs render inside the group, and a
                     // close would unmount them.

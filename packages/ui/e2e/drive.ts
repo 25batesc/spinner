@@ -37,7 +37,8 @@
 // `archive` archives from a card, from the context bar's menu and from a review card, and
 // reads the empty state (s038). Both run against the fixture only. The flow `questions` reads
 // the Open questions of the Implement rail, answers one under it and resolves one through the
-// route (#43); it runs against the fixture only.
+// route (#43); it runs against the fixture only. The flow `menus` opens the EGM ▾, ⋯ and
+// Track menus and closes each with an outside press and with Escape (r4.3); fixture only.
 // The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
@@ -483,6 +484,73 @@ if (flow === "questions") {
     await evaluate(`document.querySelector(".im-rail .mw-questions").scrollIntoView()`);
     await shot("q1-questions-resolved");
     console.log("questions ok");
+    await finish();
+}
+
+if (flow === "menus") {
+    // The toolbar menus close on an outside press and on Escape (dogfood row 8, r4.3): the
+    // EGM ▾ menu of the design group, the ⋯ menu and the Track menu of a design-track session.
+    // Each opens on its button, stays open on a pointerdown inside, closes on a real press on
+    // the sessions list (CDP Input events, so the browser fires pointerdown), opens again and
+    // closes on Escape. Fixture only.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".session", "CSV export \u00b7 design-review");
+    await until("design-review selected",
+        `${text(".context-title")} === "CSV export \u00b7 design-review"`);
+    const pressAt = async (selector: string) => {
+        const at = (await evaluate(`(() => {
+            const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        })()`)) as { x: number; y: number };
+        for (const type of ["mousePressed", "mouseReleased"]) {
+            await send("Input.dispatchMouseEvent", {
+                type, x: at.x, y: at.y, button: "left", buttons: 1, clickCount: 1,
+            });
+        }
+    };
+    const escape = async () => {
+        await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+        await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+    };
+    const menus: { name: string; button: string; menu: string; inside: string }[] = [
+        {
+            name: "EGM", button: ".context-bar .design-menu > button",
+            menu: ".context-bar .design-menu .menu", inside: ".context-bar .design-menu .menu",
+        },
+        {
+            name: "more", button: ".context-bar .toolbar-menu .icon-button",
+            menu: ".context-bar .toolbar-menu .menu", inside: ".context-bar .toolbar-menu .menu",
+        },
+        {
+            name: "track", button: ".context-bar .track-menu > button",
+            menu: ".context-bar .track-menu .menu", inside: ".context-bar .track-menu .menu",
+        },
+    ];
+    const shown = (selector: string) => `document.querySelector(${JSON.stringify(selector)})`;
+    for (const entry of menus) {
+        await pressAt(entry.button);
+        await until(`${entry.name} menu open`, `${shown(entry.menu)} !== null`);
+        // A pointerdown on the menu itself, without the click that would run an item.
+        await evaluate(`${shown(entry.inside)}.dispatchEvent(
+            new PointerEvent("pointerdown", { bubbles: true }))`);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await expectSame(`${entry.name} open after a press inside`,
+            await evaluate(`${shown(entry.menu)} !== null`), true);
+        await shot(`menus-${entry.name}-open`);
+        await pressAt(".side-title");
+        await until(`${entry.name} menu closed by an outside press`,
+            `${shown(entry.menu)} === null`);
+        await pressAt(entry.button);
+        await until(`${entry.name} menu open again`, `${shown(entry.menu)} !== null`);
+        await escape();
+        await until(`${entry.name} menu closed by Escape`, `${shown(entry.menu)} === null`);
+    }
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("menus ok");
     await finish();
 }
 

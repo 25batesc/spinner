@@ -2,7 +2,7 @@
 // pane header, the strip of a collapsed or popped-out pane, the activity bar at the far left
 // and the context bar that names the active session. Chrome shows icons with tooltips, never
 // link text.
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
@@ -22,6 +22,7 @@ import {
     stackUsageOf,
     type UsageSample,
 } from "./usage.ts";
+import { useMenu } from "./useMenu.ts";
 
 export type IconName =
     | "sessions"
@@ -391,10 +392,10 @@ function TrackChip(props: {
 }) {
     const { dir, track, onError } = props;
     const egm = useLoaded(`egm#${dir}`, fetchEgm).value?.egm ?? null;
-    const [open, setOpen] = useState(false);
+    const menu = useMenu<HTMLSpanElement>();
     const others = trackChoices(egm).filter((choice) => choice !== track);
     const pick = (choice: DesignTrack) => {
-        setOpen(false);
+        menu.close();
         putDesignTrack(dir, choice).catch((failure: unknown) => onError?.(String(failure)));
     };
     if (others.length === 0) {
@@ -405,17 +406,17 @@ function TrackChip(props: {
         );
     }
     return (
-        <span className="track-menu">
+        <span className="track-menu" ref={menu.ref}>
             <button
                 type="button"
                 className="pill track-chip"
                 title="The session's track; click to switch"
-                aria-expanded={open}
-                onClick={() => setOpen(!open)}
+                aria-expanded={menu.open}
+                onClick={menu.toggle}
             >
                 {track} {"\u25be"}
             </button>
-            {open && (
+            {menu.open && (
                 <div className="menu" role="menu" aria-label="Track">
                     {others.map((choice) => (
                         <button key={choice} type="button" onClick={() => pick(choice)}>

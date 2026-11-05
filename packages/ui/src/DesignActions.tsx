@@ -17,6 +17,7 @@ import {
     designPaths, egmMenu, primaryAction, type MenuField, type MenuItem,
 } from "./design.ts";
 import { deleteDesignApprove, postDesignRun } from "./remote.ts";
+import { useMenu } from "./useMenu.ts";
 
 export interface DesignActionsProps {
     /** A session with a `design` block. */
@@ -67,7 +68,7 @@ const REMOVE_TIP = "Remove the approval; the lead's code writes lock until you a
 
 export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
     const design = view.design;
-    const [menuOpen, setMenuOpen] = useState(false);
+    const menu = useMenu<HTMLSpanElement>();
     const [dialog, setDialog] = useState<Dialog | null>(null);
     const [posting, setPosting] = useState(false);
     if (design === undefined) {
@@ -104,7 +105,7 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
     // The same path for the primary button and the menu: a dialog where the skill asks for
     // something, else the run at once.
     const start = (item: Pick<MenuItem, "skill" | "field">) => {
-        setMenuOpen(false);
+        menu.close();
         if (item.skill === "egm-brainstorm") {
             setDialog({ kind: "concept" });
         } else if (item.skill === "egm-review") {
@@ -119,7 +120,7 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
         }
     };
     const removeApproval = () => {
-        setMenuOpen(false);
+        menu.close();
         setPosting(true);
         deleteDesignApprove(dir).then(
             () => setPosting(false),
@@ -200,17 +201,17 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
     return (
         <span className="toolbar-group design-group">
             {primaryButton}
-            <span className="design-menu">
+            <span className="design-menu" ref={menu.ref}>
                 <button
                     type="button"
                     aria-haspopup="menu"
-                    aria-expanded={menuOpen}
+                    aria-expanded={menu.open}
                     title="The EGM skills"
-                    onClick={() => setMenuOpen(!menuOpen)}
+                    onClick={menu.toggle}
                 >
                     EGM {"\u25be"}
                 </button>
-                {menuOpen && (
+                {menu.open && (
                     <div className="menu" role="menu" aria-label="EGM skills">
                         {menuItems}
                     </div>
