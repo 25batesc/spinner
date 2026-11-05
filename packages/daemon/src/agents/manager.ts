@@ -180,6 +180,36 @@ export class AgentManager {
         }
     }
 
+    /**
+     * A one-line notice from the daemon to one agent (the track change, dogfood #44), by the
+     * rule the review swarm uses for its verdict notice: a tty agent takes `notify`; an rpc
+     * agent gets a steer while it runs and a prompt while idle; a prompt that loses that race
+     * goes as a steer. A stopped agent, or a failed delivery, queues the text for its next
+     * prompt. Answers the disposition, or `queued`.
+     */
+    async deliver_notice(dir: string, name: string, text: string): Promise<string> {
+        assert.ok(text.trim().length > 0, "a notice must not be empty");
+        const handle = this.get(dir, name);
+        if (handle === null) {
+            this.queue_for_next_prompt(dir, name, text);
+            return "queued";
+        }
+        try {
+            if (handle.notify !== undefined) {
+                return await handle.notify(text);
+            }
+            if (this.is_busy(dir, name)) {
+                return await handle.steer(text);
+            }
+            return await handle.prompt(text).catch(() => handle.steer(text));
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.log(`${dir}/${name}: notice not delivered (${reason}); queued for the next`);
+            this.queue_for_next_prompt(dir, name, text);
+            return "queued";
+        }
+    }
+
     /** The texts waiting for the agent's next prompt, without taking them. */
     pending_for(dir: string, name: string): string[] {
         return [...(this.pending.get(key_of(dir, name)) ?? [])];

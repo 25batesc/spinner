@@ -262,6 +262,9 @@ It creates the `design` block when it is absent and answers with the session's v
 It answers 409 with `the build has started; the track is fixed` when a track is set and a repo has commits.
 It answers 409 with `EGM is not available: <reason>` for `design` when EGM is not `ready` or pi-subagents is not installed.
 On `design` it writes the Goal pointer and the one *Done when* item as author `spinner`.
+When a session that has a track gets another one, the route writes the `spinner` Log line `track: <new> (was <old>)` and sends the lead one line about the new track (dogfood #44).
+A tty lead gets the line as a notice; an rpc lead gets a steer while it runs and a prompt while it is idle; a stopped lead gets it with its next prompt.
+The first track of a new session, and the same track again, write no line and send nothing.
 
 `PUT /sessions/:dir/design/doc` takes `{ path }`, the absolute path of the doc.
 The designs directory is `spinner.yaml` `designs.dir` (default `docs/designs`) in the worktree of `designs.repo` (default the first repo).

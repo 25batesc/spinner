@@ -41,7 +41,7 @@ import {
     REVIEW_ARCHIVE_DIR,
     REVIEW_PRESETS,
 } from "@spinner/protocol";
-import { set_design_track, type ActionContext } from "../actions.js";
+import { TRACK_NOTICES, set_design_track, type ActionContext } from "../actions.js";
 import { events_of_transcript } from "../agents/history.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { SpinnerHome } from "../home.js";
@@ -115,12 +115,17 @@ export function mount_egm_routes(app: Hono, deps: EgmRouteDeps): void {
         }
         const egm = deps.fetcher.status();
         const next = track as DesignTrack;
+        const previous = read.summary.session.design?.track;
         try {
             await set_design_track(deps.ctx, deps.writer, read.summary, next, egm);
         } catch (error) {
             return c.json(error_body(describe_error(error)), 409);
         }
         await deps.design.refresh(dir);
+        // The lead's brief differs by track; the change reaches it at once (dogfood #44).
+        if (previous !== undefined && previous !== next) {
+            await deps.agents.deliver_notice(dir, LEAD_NAME, TRACK_NOTICES[next]);
+        }
         return session_response(c, deps, dir);
     });
 
