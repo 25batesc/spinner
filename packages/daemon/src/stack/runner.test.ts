@@ -1,7 +1,14 @@
 // Goal: `seed_links` links a directory only when the lockfile next to it is the same in the
 // primary checkout and the worktree; a changed lockfile means an install of its own.
 // Method: two temporary trees with and without a lockfile difference.
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    lstatSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,6 +49,21 @@ describe("link_seed_dirs", () => {
             },
         ]);
         expect(lstatSync(join(worktree, "apps", "api", ".venv")).isSymbolicLink()).toBe(true);
+    });
+
+    it("lists each link in the worktree's git exclude file, so git status stays clean", () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-links-"));
+        const primary = join(root, "primary");
+        const worktree = join(root, "worktree");
+        const git_dir = join(root, "repo.git", "worktrees", "wt");
+        mkdirSync(join(primary, "node_modules"), { recursive: true });
+        mkdirSync(worktree, { recursive: true });
+        mkdirSync(git_dir, { recursive: true });
+        writeFileSync(join(worktree, ".git"), `gitdir: ${git_dir}\n`);
+
+        const outcome = link_seed_dirs(primary, worktree, ["node_modules"]);
+        expect(outcome.linked).toEqual(["node_modules"]);
+        expect(readFileSync(join(git_dir, "info", "exclude"), "utf8")).toBe("/node_modules\n");
     });
 });
 

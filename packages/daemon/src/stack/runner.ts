@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+    appendFileSync,
     copyFileSync,
     cpSync,
     existsSync,
@@ -322,9 +323,30 @@ export function link_seed_dirs(repo_path: string, worktree: string, dirs: string
         }
         mkdirSync(dirname(target), { recursive: true });
         symlinkSync(source, target);
+        exclude_from_git(worktree, dir);
         outcome.linked.push(dir);
     }
     return outcome;
+}
+
+/**
+ * Lists the link in the worktree's `.git/info/exclude`. A `.gitignore` entry with a trailing
+ * slash (`node_modules/`) matches directories only, and git reports a symlink as a file, so
+ * without this the link shows as untracked and the reset's clean-tree check refuses.
+ */
+function exclude_from_git(worktree: string, dir: string): void {
+    const dot_git = join(worktree, ".git");
+    if (!existsSync(dot_git)) {
+        return;
+    }
+    const git_dir = statSync(dot_git).isDirectory()
+        ? dot_git
+        : readFileSync(dot_git, "utf8").replace(/^gitdir:\s*/u, "").trim();
+    if (git_dir.length === 0) {
+        return;
+    }
+    mkdirSync(join(git_dir, "info"), { recursive: true });
+    appendFileSync(join(git_dir, "info", "exclude"), `/${dir}\n`);
 }
 
 function same_file(a: string, b: string): boolean {
