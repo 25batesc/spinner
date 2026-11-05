@@ -490,7 +490,8 @@ function MachineLine({ usage }: { usage: UsageSample | null }) {
  * the PR header and the context bar. `reviewing` carries a working dot.
  */
 export function ReviewStatePills({ facts }: { facts: ReviewFacts }) {
-    const state = reviewStatePill(facts.state);
+    // After `cancel review` an idle review reads `cancelled` (r4.10, panels' review.ts).
+    const state = reviewStatePill(facts.state, facts.cancelled);
     const draft = draftPill(facts);
     return (
         <>

@@ -1208,6 +1208,11 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     var(--space-2); font-size: var(--text-dense);
 }
 .rv-card-actions button { height: var(--control-row); }
+/* Approve and cancel review on a review card and the PR header (r4.10, #22): one row of
+   buttons that wraps; on the card the group dissolves into the card's own action row. */
+.rv-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.rv-card-actions .rv-actions { display: contents; }
+.rv-card-actions { flex-wrap: wrap; }
 .rv-github { color: var(--link, var(--accent)); text-decoration: none; }
 .rv-github:hover { text-decoration: underline; }
 /* The middle pane of a review: the PR header, the swarm chips, the sub tabs. A chip's dot

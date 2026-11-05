@@ -40,7 +40,8 @@
 // route (#43); it runs against the fixture only. The flow `menus` opens the EGM ▾, ⋯ and
 // Track menus and closes each with an outside press and with Escape (r4.3); `context` reads
 // the agents' context figures on the chips, the card and the context bar, and compacts two
-// agents (r4.2); both fixture only.
+// agents (r4.2); `review-actions` cancels a running review and approves it from the PR
+// header (r4.10); all fixture only.
 // The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
@@ -149,6 +150,15 @@ const fill = (selector: string, value: string) =>
 
 const text = (selector: string) =>
     `(document.querySelector(${JSON.stringify(selector)})?.innerText ?? "")`;
+
+// The Activity drawer starts collapsed and opens itself only for a failure or a new needs-you
+// (r4.4); a routine job's line shows on the bar. `drawerText` reads the drawer or its bar;
+// `openDrawer` clicks the bar where a flow needs the job log or the events.
+const drawerText = `(${text(".drawer")} + ${text(".drawer-bar")})`;
+async function openDrawer(): Promise<void> {
+    await click(".drawer-bar");
+    await until("drawer open", `document.querySelector(".drawer") !== null`);
+}
 
 // `reset` and `archive` sit behind the toolbar's `⋯` menu in the context bar; `archive` asks
 // once inside the menu before it runs the `close` job (s038).
@@ -406,6 +416,7 @@ if (flow === "workspace") {
     await click(".mw-item[data-id='plan:3'] .mw-item-actions button", "note");
     await fill(".mw-item[data-id='plan:3'] textarea", "Use the idempotency key.");
     await click(".mw-item[data-id='plan:3'] .mw-inline .primary", "send");
+    await openDrawer();
     await until("note reached backend", `${text(".drawer")}.includes("operator → backend")`);
     // The filter narrows the feed to one agent.
     await click(".mw-filter-chip", "frontend");
@@ -622,6 +633,51 @@ if (flow === "context") {
     await finish();
 }
 
+if (flow === "review-actions") {
+    // Approve and cancel review (dogfood row 22, r4.10) against the fixture's review r77 (Dark
+    // mode for the settings page): once its swarm runs, the card and the PR header show
+    // `approve` and `cancel review`; cancel review in the header stops it: the state goes idle,
+    // the pill reads cancelled and cancel review goes; approve asks once with the PR's name
+    // and posts, after which the header reads posted. Fixture only.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".activity-bar button[aria-label='Show reviews']");
+    await until("reviews pane", `document.querySelector(".reviews-pane") !== null`);
+    await click(".rv-card-body", "Dark mode for the settings page");
+    await until("review pane", `${text(".rv-pane .rv-head")}.includes("Dark mode")`);
+    const started = await fetch(new URL("/sessions/r77-web-77/review", uiUrl), {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    await expectSame("swarm started", started.status < 300, true);
+    const buttons = (where: string) => `[...document.querySelectorAll(
+        ${JSON.stringify(where + " .rv-actions button")})].map((b) => b.textContent)`;
+    await until("header actions while reviewing",
+        `JSON.stringify(${buttons(".rv-head")}) === '["approve","cancel review"]'`);
+    await until("card actions while reviewing",
+        `JSON.stringify(${buttons(".rv-card-selected")}) === '["approve","cancel review"]'`);
+    await shot("review-actions-reviewing");
+    await click(".rv-head .rv-actions button", "cancel review");
+    const pill = `document.querySelector(".rv-head .rv-state")`;
+    await until("cancelled", `${pill}?.dataset.state === "idle"
+        && ${pill}.textContent === "cancelled"
+        && JSON.stringify(${buttons(".rv-head")}) === '["approve"]'`);
+    await shot("review-actions-cancelled");
+    await click(".rv-head .rv-actions button", "approve");
+    await until("approve confirm", `${text(".rv-head .rv-confirm")}.startsWith(
+        "Approve example/web#77 as you?")`);
+    await shot("review-actions-confirm");
+    await click(".rv-head .rv-confirm button", "approve");
+    await until("posted", `document.querySelector(".rv-head .rv-confirm") === null
+        && ${pill}?.textContent === "posted"`);
+    await shot("review-actions-posted");
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    console.log("review-actions ok");
+    await finish();
+}
+
 if (flow === "expanded") {
     // Expanded is one state with one exit. Expand: the previews are the only pane and fill
     // the window, no drawer, no strips, no handles. The activity bar's sessions icon does
@@ -642,6 +698,7 @@ if (flow === "expanded") {
         })`)) as Record<string, number>;
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     await until("three panes", `document.querySelectorAll(".pane").length === 3`);
+    await openDrawer();
     await until("drawer shown", `document.querySelectorAll(".drawer").length === 1`);
     const before = await widths();
     console.log("before:", JSON.stringify(before));
@@ -768,8 +825,9 @@ if (flow === "panes") {
     const wanted = {
         // The rail: sessions (lit), reviews, the operator, the gear; the panel titled.
         bar: 4, barOn: "true", title: "Sessions", popOuts: 1, top: 0, inSessions: 0,
-        // `$3.27` is the fixture session's cost (s013), between the stack and the PR badge.
-        context: ["Refund flow", "peer-review", "stack up", "$3.27", "⑂ 2",
+        // `$3.27` is the fixture session's cost (s013), between the stack and the PR badge;
+        // `backend 45 %` its fullest agent's context use (r4.2).
+        context: ["Refund flow", "peer-review", "stack up", "$3.27", "backend 45 %", "⑂ 2",
             "Approve the refund copy in PR #412"].join("\n"),
         links: 0, icons: 7,
     };
@@ -1542,13 +1600,15 @@ if (flow === "pipeline") {
     await shot("15-thread-replied-flagged");
     for (const action of ["create PR", "review", "fix"]) {
         await click(".actions button", action);
-        await until(`${action} finished`, `${text(".drawer")}.includes("ok")`);
+        await until(`${action} finished`, `${drawerText}.includes("ok")`);
         if (action === "review") {
             // The swarm (s015): the reviewers are agents of the session, so their chips show.
+            await openDrawer();
             await until("review log", `${text(".drawer")}.includes("POSTED")`);
             await until("reviewer chips",
                 `${text(".agents-pane .chips")}.includes("review-anthropic-claude-opus-5-5")`);
         }
+        await openDrawer();
         await click(".drawer button", "close");
     }
     await shot("16-pr-and-fix");
@@ -1556,13 +1616,15 @@ if (flow === "pipeline") {
     await until("post preview", `document.querySelector("[aria-label=Message]") !== null`);
     await shot("17-post-confirm");
     await click(".confirm button", "post this message");
-    await until("post finished", `${text(".drawer")}.includes("post · ok")`);
+    await until("post finished", `${drawerText}.includes("post · ok")`);
+    await openDrawer();
     await click(".drawer button", "close");
     await click(".actions button", "approve");
     await until("approve preview", `${text(".confirm")}.includes("open threads")`);
     await shot("18-approve-confirm");
     await click(".confirm button", "approve");
-    await until("approve finished", `${text(".drawer")}.includes("approve · ok")`);
+    await until("approve finished", `${drawerText}.includes("approve · ok")`);
+    await openDrawer();
     await click(".drawer button", "close");
     for (const action of ["land", "reset"] as const) {
         if (action === "reset") {
@@ -1570,7 +1632,8 @@ if (flow === "pipeline") {
         } else {
             await click(".actions button", action);
         }
-        await until(`${action} finished`, `${text(".drawer")}.includes("${action} · ok")`);
+        await until(`${action} finished`, `${drawerText}.includes("${action} · ok")`);
+        await openDrawer();
         await click(".drawer button", "close");
     }
     await shot("19-landed-reset");
@@ -1645,7 +1708,8 @@ if (flow === "m2-real") {
     const session = process.env["E2E_SESSION"] ?? "";
     const { readFileSync } = await import("node:fs");
     const finished = async (action: string) => {
-        await until(`${action} finished`, `${text(".drawer")}.includes("${action} · ok")`);
+        await until(`${action} finished`, `${drawerText}.includes("${action} · ok")`);
+        await openDrawer();
         await click(".drawer button", "close");
     };
     await click(".session", session);
@@ -2802,7 +2866,7 @@ if (flow === "reviews") {
         `${text(".rv-card-selected")}.includes("PR 9 of peanut")`);
     await until("box folded",
         `document.querySelector("textarea[aria-label='Pull requests to review']") === null`);
-    await until("job finished", `${text(".drawer")}.includes("ok")`);
+    await until("job finished", `${drawerText}.includes("ok")`);
     // The job started the lead and the swarm: the chips move on their own.
     const reviewers = `${chips}.filter((c) => c.dataset.name !== "lead")`;
     await until("chips queued", `${reviewers}.some((c) => c.dataset.state === "queued")`);
@@ -4211,7 +4275,7 @@ if (flow === "archive") {
     await click(".card-confirm button.danger", "archive");
     await until("selection on the next row", `${selectedDir} === ${JSON.stringify(second)}`);
     await until("card gone", `!${dirs}.includes(${JSON.stringify(first)})`);
-    await until("close ran", `${text(".drawer")}.includes("close · ok")`);
+    await until("close ran", `${drawerText}.includes("close · ok")`);
     await shot("archive-2-gone-next-selected");
     // The context bar's menu: the same question, the same move.
     await clickEndAction("archive");
@@ -4297,7 +4361,7 @@ await until(
         .some((b) => b.textContent === "run local" && !b.disabled)`,
 );
 await click(".actions button", "run local");
-await until("job log shows", `${text(".drawer")}.includes("up")`);
+await until("job log shows", `${drawerText}.includes("up")`);
 await shot("03-up-running");
 await click(".agents-pane .tab", "Services");
 await until(
@@ -4316,7 +4380,7 @@ await new Promise((resolve) => setTimeout(resolve, 2500));
 await click(".preview-bar button", "reload");
 await new Promise((resolve) => setTimeout(resolve, 2000));
 await until("preview frame", `document.querySelector(".preview-frame") !== null`);
-await until("job finished", `${text(".drawer")}.includes("ok")`);
+await until("job finished", `${drawerText}.includes("ok")`);
 await shot("04-previews");
 
 await until("verify enabled", `document.querySelector(".verified input")?.disabled === false`);
