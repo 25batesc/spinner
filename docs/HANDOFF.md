@@ -2,7 +2,7 @@
 
 This page is for the operator and for an agent that opens a new chat with no memory of the last one. It says what runs, where the state lives, how to resume the work, and what the open decisions are. [STATUS.md](STATUS.md) holds the full record per milestone. This page holds only what you need in the first ten minutes.
 
-Updated: 2026-11-03, after s037 and v0.14.0.
+Updated: 2026-11-04, after v0.15.2 and the first dogfooding day.
 
 ## State in one paragraph
 
@@ -57,7 +57,9 @@ Rules that bit and are now in the briefs: stage by path, never `git add -A` or `
 
 ## The operator's current work
 
-The operator adopted a real PR into a session, attached the project, brought the stack up, added an agent, and uses the desktop app. The next steps on that session are `fix` when the review bot posts, `verify`, `post`, `approve`, `land`. The last one is the live test of the merge-queue enqueue, the only M2 fact without a live run.
+The operator is dogfooding on real work (knit sessions s039 to s044 in `~/.spinner/sessions/`; the pre-EGM sessions are under `~/.spinner/archive/`). His notes go to `~/pi-docs/domain/spinner/dogfood-2026-11-03.md` (outside the repo): 32 numbered rows, each with the note, the cause, the proposed change and a status. The agent collects notes there and fixes only what the operator calls blocking. Fixed on the day: the review models (settings), `write_repos` for the knit repos (the project spec and the live sessions' copies), the Slack post shape and the verified tick (`v0.15.1`), pi's "Trust project folder?" dialog blocking every new agent (`--approve`, `v0.15.2`), the quiet pi startup (the operator's pi settings).
+
+The revision pass comes after the dogfooding: read the notes file first. The decided direction is #32: Spinner's own chat as the primary surface for every agent, the terminal opt-in; it folds #7, #20, #26, #30, #31. The large design items are #9 (Focus mode per project), #13 (the diff pane follows the selection; reviews need a branch), #16/#17 (one workspace: Brief · Design · Review · Implement · History, with the mission view kept as Implement and its Log grown into the timeline), #28 (a `fish` view), #29 (file editing). Each is a candidate for the design track on the Spinner repo, which is also the first real use of EGM on its own repo.
 
 ## Versions and rollback
 
@@ -82,7 +84,8 @@ pnpm install --frozen-lockfile && pnpm -r build
 
 ## Open work, by size
 
-- Small. `docs/designs/README.md` is a duplicate of `SITEMAP.md`; the guard blocks `rm` on READMEs, so the operator removes it. The context-bar title shrinks to "Spi…" at 1600 px beside the stepper and the badge. `packages/desktop/e2e/sample-session.ts` clicks a `Show side panel` label that no longer exists. The driver flows `pipeline` and `history` fail on the fixture; that is older than the sidebar work.
-- Queued, each its own session. The `docs` tab: mdview as a host process with its comments loop. Preview console errors, failed requests and a screenshot streamed to the agent (M4's exit criterion). `spinner init` from the recipes. The first live `land` on a real PR. The drift report as a weekly badge (D10).
-- EGM's own follow-ups from "Build findings" in the design doc. The ledger rename (D6 deferred). The foreground-Goldfish case in the watcher. An outcome metric read in Settings.
+- The dogfooding notes, `~/pi-docs/domain/spinner/dogfood-2026-11-03.md`: the revision pass works from that file, status column `open`.
+- Small, from before: `docs/designs/README.md` duplicates `SITEMAP.md` (the guard blocks `rm` on READMEs; the operator removes it); the context-bar title shrinks at 1600 px; `packages/desktop/e2e/sample-session.ts` clicks a label that no longer exists; the driver flows `pipeline` and `history` fail on the fixture.
+- Records: `docs/sessions/` has s001 to s037; s038 (the composer) has none yet; lessons 37 to 42 are in; STATUS stops at s037.
+- Queued, each its own session: the `docs` tab (mdview), preview signals to the agent (M4's exit criterion), `spinner init`, the first live `land`, the drift report badge (D10), the stacked-PRs decision.
 - M5: packaging, the public repository with a changelog.
