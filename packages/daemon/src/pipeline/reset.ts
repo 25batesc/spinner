@@ -23,6 +23,7 @@ import {
     read_session_spec,
     session_db,
     stack_down,
+    stack_has_database,
     stack_up,
     SESSION_SPEC,
 } from "../stack/runner.js";
@@ -108,17 +109,23 @@ export async function reset_session(
     const refreshed = refresh_session(previous, session, deps.config, now());
     write_session({ ...summary, session: refreshed.session });
     if (deps.stack === true && existsSync(join(summary.path, SESSION_SPEC))) {
-        if (was_up) {
+        const log = deps.log ?? (() => {});
+        const has_database = stack_has_database(read_session_spec(summary).spec);
+        if (!has_database) {
+            log("database: none (the spec has no database block)");
+        } else if (was_up) {
             // The server answered a moment ago (the stack was up), so the clone is dropped now
             // and the stack comes back on a fresh one.
-            await recreate_database(summary, deps.log ?? (() => {}));
-            const fresh = read_session(home, summary.dir);
-            assert.ok(fresh.ok, fresh.ok ? "" : fresh.error);
-            await stack_up(home, fresh.summary, { build: false }, deps.log ?? (() => {}));
+            await recreate_database(summary, log);
         } else {
             // With the stack down the server may be absent; the next `up` drops the clone.
             mark_database_stale(home, summary.dir);
-            deps.log?.(`database ${session_db(summary.session.id)}: re-cloned at the next up`);
+            log(`database ${session_db(summary.session.id)}: re-cloned at the next up`);
+        }
+        if (was_up) {
+            const fresh = read_session(home, summary.dir);
+            assert.ok(fresh.ok, fresh.ok ? "" : fresh.error);
+            await stack_up(home, fresh.summary, { build: false }, log);
         }
     }
     const check = read_session(home, summary.dir);

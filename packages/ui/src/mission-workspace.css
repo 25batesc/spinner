@@ -1,9 +1,8 @@
 /* The Implement view (`ImplementView.tsx` over the parts of `MissionWorkspaceView.tsx`;
    docs/designs/session-workspace.md, T6). It builds on the scales and the button kinds of
    `styles.css` (DESIGN-PASS.md) and adds the `.mw-*` classes of the parts and the `.im-*`
-   classes of the layout: a main column with the goal block, the sticky header and the phase
-   list, a rail with the roster, the questions and the contracts, and the Log across the
-   width. The layout follows the width of the pane, not of the window, through a container
+   classes of the layout: a main column with the goal block, the sticky header, the phase
+   list and the Log, and a rail with the roster, the questions and the contracts. The layout follows the width of the pane, not of the window, through a container
    query: in the app the agents pane is about 660 px wide in a 1500 px window and 280 px in a
    1000 px window; the rail goes under the main column below 900 px. */
 .mw {
@@ -260,15 +259,16 @@
     .mw-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
 }
 
-/* The Implement layout (T6): the main column and the rail, the Log across both. Under 900 px
-   of pane width the rail goes under the main column. */
+/* The Implement layout (T6): the main column (goal, header, phases, Log) and the rail, one
+   grid row. The Log is in the main column: as a second row it took the rail's height as its
+   offset, and a sticky grid item is bound by the grid, not its cell, so the rail slid over it.
+   Under 900 px of pane width the rail goes under the main column. */
 .im-grid {
     display: grid; grid-template-columns: minmax(0, 1fr); align-items: start;
     gap: var(--space-4);
 }
 .im-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .im-rail { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
-.im-grid > .mw-log { grid-column: 1 / -1; }
 @container mw (min-width: 900px) {
     .im-grid { grid-template-columns: minmax(0, 1fr) 300px; gap: var(--space-5); }
     .im-rail {

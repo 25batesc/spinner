@@ -22,6 +22,7 @@ import type { GhRunner, PrResponse } from "./github.js";
 import type { GithubWriter } from "./github-write.js";
 import { land_blocker, land_prs } from "./land.js";
 import { next_branch, reset_blocker, reset_session } from "./reset.js";
+import { SESSION_SPEC } from "../stack/runner.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = resolve(here, "..", "..", "test", "fixtures", "github");
@@ -409,6 +410,30 @@ describe("reset", () => {
         expect(mission).toContain("backend#4812 (merged)");
         expect(mission).toContain("- 10:00 a: b");
         expect(mission.indexOf("## Log")).toBeLessThan(mission.indexOf("## Previous rounds"));
+    });
+
+    // With the stack down, a reset marks the database stale for the next `up`; a spec without a
+    // database block has nothing to mark and says so.
+    it("marks the database stale only when the spec has a database block", async () => {
+        const spec = ["name: p", "base: develop", "repos:", "  backend: { path: ~/code/backend }"];
+        for (const database of [false, true]) {
+            const summary = session_with(pr_with({ state: "merged" }));
+            mkdirSync(join(summary.path, "stack"), { recursive: true });
+            const lines = database
+                ? [...spec, "services: {}", "database: { mode: template }"]
+                : [...spec, "services: {}"];
+            writeFileSync(join(summary.path, SESSION_SPEC), `${lines.join("\n")}\n`);
+            const log: string[] = [];
+            const result = await reset_session(home, summary, {}, {
+                git: fake.git,
+                config: config_with({}),
+                stack: true,
+                log: (line) => log.push(line),
+            });
+            expect(result.session.stack.db_stale).toBe(database ? true : undefined);
+            expect(log.some((line) => line.includes("re-cloned at the next up"))).toBe(database);
+            expect(log.includes("database: none (the spec has no database block)")).toBe(!database);
+        }
     });
 
     it("records each round in session.yaml rounds and keeps the design block (2.44)", async () => {
