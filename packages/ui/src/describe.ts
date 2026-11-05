@@ -1,5 +1,7 @@
 // One-line, human-readable text for an event, used by the activity feed. Returns null for
-// events the feed does not show, such as raw agent output, which would drown the feed.
+// events the feed does not show, such as raw agent output, which would drown the feed, and
+// the two that narrate every turn of a build (`mission.changed`, `agent.settled`): the Log
+// and the Implement view carry those (docs/designs/session-workspace.md, D6, T8).
 import type { SpinnerEvent } from "@spinner/protocol";
 
 function assertNever(value: never): never {
@@ -32,7 +34,8 @@ export function describeEvent(event: SpinnerEvent): string | null {
         case "agent.spawned":
             return `agent ${event.agent} started`;
         case "agent.settled":
-            return `agent ${event.agent} is idle`;
+            // Every turn ends with one; the chip's dot shows the state (D6).
+            return null;
         case "agent.exited":
             return `agent ${event.agent} exited (code ${event.code ?? "none"})`;
         case "stack.state":
@@ -48,7 +51,9 @@ export function describeEvent(event: SpinnerEvent): string | null {
             // operator tab follows the view.
             return null;
         case "mission.changed":
-            return `${event.author} changed ${event.sections.join(", ")}`;
+            // Agents write the Log and the Roster every few seconds; the Implement view and
+            // the Log show the change (D6).
+            return null;
         case "inbox.message":
             return `${event.from} \u2192 ${event.to}: ${event.subject}`;
         case "message.delivered":

@@ -2,9 +2,9 @@
 // rules: `count_listed_blockers` on the three report layouts EGM writes, a fenced heading and
 // a report with neither layout; the `Status:` rewrite; the build message. Method: fixture
 // texts in the layouts of `egm-resolve`, the synthesizer and `egm-review`'s cross-stage
-// synthesis. The approval itself (the 409s, the record, the copy, the Log line, the prompt)
-// runs through the routes in `routes.test.ts`, which has the session, the worktree and the
-// recording lead.
+// synthesis. The approval itself (the 409s, the seed, the record, the copy, the Log lines,
+// the prompt) runs through the routes in `routes.test.ts`, which has the session, the
+// worktree and the recording lead.
 import { describe, expect, it } from "vitest";
 import { build_message, count_listed_blockers, rewrite_status } from "./approve.js";
 
@@ -90,12 +90,33 @@ describe("rewrite_status and build_message (6.2)", () => {
         expect(rewrite_status(plain)).toBe(plain);
     });
 
-    it("names the doc, the hash prefix and mission_plan add", () => {
-        const text = build_message("/s/worktrees/web/docs/designs/csv.md", "0123456789abcdef");
+    it("names the doc, the hash prefix, the token, the #id convention and Open questions", () => {
+        const seed = {
+            doc_path: "docs/designs/csv.md",
+            sha12: "0123456789ab",
+            added: 23,
+            kept: 2,
+            stale: [],
+            orphaned: [],
+        };
+        const path = "/s/worktrees/web/docs/designs/csv.md";
+        const text = build_message(path, "0123456789abcdef", seed);
         const head = "The design is approved: /s/worktrees/web/docs/designs/csv.md";
         expect(text.startsWith(`${head} (sha256 0123456789ab).`)).toBe(true);
-        expect(text).toContain("mission_plan add");
-        expect(text).toContain("`plan <id>: <heading text>`");
-        expect(text).toContain("ask the operator to re-approve.");
+        expect(text).toContain("one item per plan entry (23 added, 2 kept)");
+        expect(text).toContain("`[n.n]` token");
+        expect(text).toContain("mission_plan add and `entry: \"n.n\"`");
+        expect(text).toContain("Roster Doing cell names `#id`");
+        expect(text).toContain("goes under Open questions with the entry id");
+        expect(text).not.toContain("add one MISSION.md Plan item per");
+        expect(text).not.toContain("plan <id>:");
+        expect(text).toContain("ask the operator to re-approve; the seed runs again.");
+        const flagged = build_message("/d.md", "0123456789abcdef", {
+            ...seed,
+            stale: ["2.4"],
+            orphaned: ["3.9"],
+        });
+        expect(flagged).toContain("stale (2.4) or orphaned (3.9)");
+        expect(flagged).toContain("mission_plan edit and a new token");
     });
 });

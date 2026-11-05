@@ -20,7 +20,7 @@ import type {
     SwarmState,
 } from "./session.js";
 import type { DiffView } from "./diff.js";
-import type { DesignView } from "./egm.js";
+import type { DesignView, SeedResult } from "./egm.js";
 import type { OperatorCost, SessionCost } from "./costs.js";
 import type { PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
@@ -266,11 +266,12 @@ export const ROUTES = {
     /** The design doc from the worktree of `design.repo`. 404 before `design.doc`. */
     "GET /sessions/:dir/design/doc": "text/markdown",
     /**
-     * Body: DesignApproveRequest. Approves the design doc (T10). 409 with a
-     * DesignApproveRefusal without a doc, while resolving, with an open gate, or when the
-     * newest report lists blockers that `blockers_confirmed` does not confirm.
+     * Body: DesignApproveRequest. Approves the design doc (T10) and seeds the Plan from its
+     * entries (session-workspace T4). 409 with a DesignApproveRefusal without a doc, while
+     * resolving, with an open gate, when the newest report lists blockers that
+     * `blockers_confirmed` does not confirm, or when the seed checks refuse the doc.
      */
-    "POST /sessions/:dir/design/approve": "SessionResponse",
+    "POST /sessions/:dir/design/approve": "DesignApproveResponse",
     /** Removes the approval and `approved.md`; `design.approvals` keeps its history. */
     "DELETE /sessions/:dir/design/approve": "SessionResponse",
     /** The doc as approved, `<session>/design/approved.md`. 404 before an approval. */
@@ -656,6 +657,9 @@ export interface SessionsResponse {
 export interface SessionResponse {
     session: SessionView;
 }
+
+/** `POST /sessions/:dir/design/approve`: the session and the seed's counts (T4). */
+export type DesignApproveResponse = SessionResponse & { seed: SeedResult };
 
 /** The actions the daemon runs as jobs. */
 export type JobAction =
@@ -1157,11 +1161,20 @@ export interface ModelsResponse {
     models: ModelView[];
 }
 
-/** A Plan item, from `- [ ] 3. text (owner)` or `- [x] 3. text (owner, 14:02)`. */
+/**
+ * A Plan item, from `- [ ] 3. text (owner)`, `- [x] 3. text (owner, 14:02)` or, linked to a
+ * doc entry, `- [ ] 3. [1.5] text (owner)`.
+ */
 export interface PlanItem {
     id: number;
+    /** The text without the entry token. */
     text: string;
     owner: string | null;
+    /**
+     * The doc entry the item came from: the `[1.5]` token at the start of the line, or the
+     * legacy `plan 1.5: ` prefix. Null for a free item.
+     */
+    entry: string | null;
     /**
      * `done` when ticked. `doing` when unticked and the owner's Roster `Doing` names `#id` or
      * `item id`, or is active (not `—`, empty or `done`) and this is that owner's lowest

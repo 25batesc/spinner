@@ -1,28 +1,37 @@
-// The mission view of the middle pane: the workspace over the structured mission, with the raw
-// MISSION.md behind a `source` toggle. This file owns the data and the actions; the look is
+// The Implement view of the middle pane (docs/designs/session-workspace.md, T6): the view over
+// the structured mission, with the raw MISSION.md behind a `source` toggle. This file owns the
+// data and the actions; the look is `ImplementView.tsx` over the parts of
 // `MissionWorkspaceView.tsx` (the props contract is under *Contracts* in the session's
 // MISSION.md). Every write goes to the daemon: an edit or a tick through the section route,
 // an answer as a steer to the asker, a note as an inbox message to the item's owner. Nothing
 // changes here until `mission.changed` brings the new view.
 import { useState } from "react";
 
-import type { MissionSection, MissionView } from "@spinner/protocol";
+import type { MissionSection, MissionView, SessionView } from "@spinner/protocol";
 
 import { postAgent } from "./events-client.ts";
+import { ImplementView } from "./ImplementView.tsx";
 import { Markdown } from "./Markdown.tsx";
-import { MissionWorkspaceView, type TickSection } from "./MissionWorkspaceView.tsx";
+import type { TickSection } from "./MissionWorkspaceView.tsx";
 import {
     fetchMission, fetchMissionView, postInbox, putMissionSection, useLoaded,
 } from "./remote.ts";
+import { needsHuman } from "./state.ts";
 
 export interface MissionWorkspaceProps {
     dir: string;
     /** Moves when the daemon sends `mission.changed` for this session. */
     revision: number;
-    /** The view the last `mission.changed` carried, from state; undefined before the first. */
-    view: MissionView | undefined;
+    /** The mission the last `mission.changed` carried, from state; undefined before the first. */
+    mission: MissionView | undefined;
+    /** The session, for the design block, the agent specs and `needs_human`. */
+    view: SessionView;
+    /** The design doc's text from the agents pane (D15); null before the fetch or without one. */
+    docText: string | null;
     /** The agents the daemon hosts now; an answer steers only one of them. */
     running: readonly string[];
+    onOpenAgent: (name: string) => void;
+    onOpenView: (id: "draft") => void;
 }
 
 /** Who the UI writes as: the Log and the Contracts prefix lines with it. */
@@ -66,7 +75,8 @@ function useWrites(): {
     return { pending, error, write };
 }
 
-export function MissionWorkspace({ dir, revision, view, running }: MissionWorkspaceProps) {
+export function MissionWorkspace(props: MissionWorkspaceProps) {
+    const { dir, revision, view, docText, running, onOpenAgent, onOpenView } = props;
     const [source, setSource] = useState(false);
     const [filter, setFilter] = useState<string | null>(null);
     const writes = useWrites();
@@ -75,7 +85,7 @@ export function MissionWorkspace({ dir, revision, view, running }: MissionWorksp
     const raw = useLoaded(`${dir}#${revision}#${source ? "source" : ""}`, (signal) =>
         source ? fetchMission(dir, signal) : Promise.resolve(""),
     );
-    const mission = view ?? loaded.value;
+    const mission = props.mission ?? loaded.value;
 
     const section = (body: Parameters<typeof putMissionSection>[1]) =>
         putMissionSection(dir, body);
@@ -162,7 +172,7 @@ export function MissionWorkspace({ dir, revision, view, running }: MissionWorksp
                     ? <p className="needs-human">{raw.error}</p>
                     : <Markdown text={raw.value ?? ""} label="MISSION.md" />
             ) : (
-                <MissionWorkspaceView
+                <ImplementView
                     mission={mission}
                     agents={mission.roster.map((row) => row.agent)}
                     filter={filter}
@@ -173,6 +183,13 @@ export function MissionWorkspace({ dir, revision, view, running }: MissionWorksp
                     onAnswer={onAnswer}
                     onNote={onNote}
                     onFilter={setFilter}
+                    docText={docText}
+                    design={view.design}
+                    agentsRunning={running}
+                    agentSpecs={view.summary.session.agents}
+                    needs={needsHuman(view)}
+                    onOpenAgent={onOpenAgent}
+                    onOpenView={onOpenView}
                 />
             )}
         </div>

@@ -3,6 +3,8 @@
 // and an "other answer" box. The resolve card answers `egm-resolve` Step 4 with one of its
 // three replies. Every answer is `POST …/design/answer`; nothing changes here on success,
 // because the daemon clears the gate and the next `session.updated` removes the card.
+// The `compact` form (docs/designs/session-workspace.md, K1, T5) is one line on the
+// Brainstorm or Review tab that opens Agents, where the card with its buttons is drawn.
 import { useMemo, useState, type FormEvent } from "react";
 
 import { DESIGN_ANSWER_MAX, RESOLVE_ANSWERS, type DesignGate as Gate } from "@spinner/protocol";
@@ -14,7 +16,37 @@ import "./markdown.css";
 
 export type DesignGateProps =
     | { kind: "gate"; dir: string; gate: Gate; onError: (message: string) => void }
-    | { kind: "resolve"; dir: string; onError: (message: string) => void };
+    | { kind: "resolve"; dir: string; onError: (message: string) => void }
+    | { kind: "gate"; gate: Gate; compact: true; onOpenAgent: (name: string) => void }
+    | { kind: "resolve"; compact: true; onOpenAgent: (name: string) => void };
+
+/** The characters of the question the compact line shows. */
+export const COMPACT_QUESTION_CHARS = 120;
+
+/** `The lead asks: <first 120 characters>`, on one line, without the emphasis marks. */
+export function compactQuestion(question: string): string {
+    const flat = question.replace(/[*`]/g, "").replace(/\s+/g, " ").trim();
+    return flat.length > COMPACT_QUESTION_CHARS
+        ? `${flat.slice(0, COMPACT_QUESTION_CHARS).trimEnd()}…`
+        : flat;
+}
+
+/** The compact line: the question's first characters and the link to Agents. */
+function CompactGate(props: Extract<DesignGateProps, { compact: true }>) {
+    const { kind, onOpenAgent } = props;
+    const text = kind === "gate"
+        ? `The lead asks: ${compactQuestion(props.gate.question)}`
+        : "Findings to resolve";
+    return (
+        <p className="design-gate design-gate-compact" data-kind={kind} role="status">
+            <span className="design-gate-compact-text">{text}</span>
+            {" → "}
+            <button type="button" className="link" onClick={() => onOpenAgent("lead")}>
+                {kind === "gate" ? "answer in Agents" : "open Agents"}
+            </button>
+        </p>
+    );
+}
 
 /** The resolve card's buttons, in the order and the words of `RESOLVE_ANSWERS`. */
 const RESOLVE_LABELS: Record<(typeof RESOLVE_ANSWERS)[number], string> = {
@@ -24,6 +56,13 @@ const RESOLVE_LABELS: Record<(typeof RESOLVE_ANSWERS)[number], string> = {
 };
 
 export function DesignGate(props: DesignGateProps) {
+    if ("compact" in props) {
+        return <CompactGate {...props} />;
+    }
+    return <GateCard {...props} />;
+}
+
+function GateCard(props: Exclude<DesignGateProps, { compact: true }>) {
     const { dir, onError } = props;
     const [posting, setPosting] = useState(false);
     const [other, setOther] = useState("");

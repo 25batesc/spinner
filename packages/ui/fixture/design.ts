@@ -4,10 +4,11 @@
 // skill, clears any gate and, for a review, starts the next review run. Each refuses as the
 // daemon does: 400 for a bad body, 409 while the lead is not running. The fixture does not run
 // a skill, so no stage moves. `POST …/design/approve` approves as the daemon's T10 steps 1, 2
-// and 5 do, through the blocker confirmation, and moves the stage to `approved`; `DELETE`
-// removes the approval (entry 6.18). `GET …/design/received` and `…/design/approve-received`
-// are the fixture's own routes: the answers, runs and approve bodies it received, for the
-// driver to read.
+// and 5 do, through the blocker confirmation, seeds the Plan from the doc's entries and
+// answers `DesignApproveResponse` with the counts (session-workspace.md T4, entry 2.29), and
+// moves the stage to `approved`; `DELETE` removes the approval (entry 6.18).
+// `GET …/design/received` and `…/design/approve-received` are the fixture's own routes: the
+// answers, runs and approve bodies it received, for the driver to read.
 import type { ServerResponse } from "node:http";
 
 import {
@@ -18,23 +19,77 @@ import {
     DESIGN_RUN_ARGS_MAX,
     EGM_SKILLS,
     REVIEW_PRESETS,
+    render_entry_token,
+    scan,
     type DesignApproval,
     type DesignApproveRefusal,
     type DesignApproveRequest,
+    type DesignApproveResponse,
     type DesignRunRequest,
     type DesignStage,
     type DesignView,
     type EgmSkill,
+    type PlanScan,
     type ReviewPreset,
+    type SeedResult,
     type SessionView,
 } from "@spinner/protocol";
 
 import { LISTED_BLOCKERS, gateNeeds } from "./data.ts";
+import { missionView } from "./mission-view.ts";
 
 /** The part of the fixture daemon these routes use. */
 export interface DesignHost {
     sessions: Map<string, SessionView>;
     update(next: SessionView): void;
+    /** The session's design doc, as `GET …/design/doc` answers it. */
+    doc(dir: string): string;
+    /** The session's MISSION.md. */
+    mission(dir: string): string;
+    /** Applies a change to MISSION.md and publishes `mission.changed`, as the daemon does. */
+    rewrite(dir: string, author: string, change: (text: string) => string): void;
+}
+
+/**
+ * The seed's counting over the Plan and the scan, as `seed_plan` counts (T4): an item whose
+ * entry is not in the doc is orphaned, one whose entry has another title is stale, the rest
+ * are kept; every entry without an item is added, appended in doc order with owner null.
+ */
+export function seedPlan(
+    mission: string, parsed: PlanScan,
+): Omit<SeedResult, "doc_path" | "sha12"> & { mission: string } {
+    const items = missionView(mission).plan;
+    const entries = new Map(parsed.entries.map((entry) => [entry.id, entry]));
+    const linked = new Set(items.map((item) => item.entry).filter((id) => id !== null));
+    const stale: string[] = [];
+    const orphaned: string[] = [];
+    for (const item of items) {
+        if (item.entry === null) {
+            continue;
+        }
+        const entry = entries.get(item.entry);
+        if (entry === undefined) {
+            orphaned.push(item.entry);
+        } else if (entry.title !== item.text) {
+            stale.push(item.entry);
+        }
+    }
+    const missing = parsed.entries.filter((entry) => !linked.has(entry.id));
+    const lines = mission.split("\n");
+    const start = lines.indexOf("## Plan");
+    const after = lines.findIndex((line, index) => index > start && line.startsWith("## "));
+    const end = after === -1 ? lines.length : after;
+    let next = items.reduce((top, item) => Math.max(top, item.id), 0);
+    const added = missing.map((entry) => {
+        next += 1;
+        return `- [ ] ${next}. ${render_entry_token(entry.id, entry.title)}`;
+    });
+    // The new lines go before the blank line that ends the section.
+    lines.splice(Math.max(start + 1, end - 1), 0, ...added);
+    return {
+        added: added.length, kept: items.length - stale.length - orphaned.length,
+        stale, orphaned, mission: lines.join("\n"),
+    };
 }
 
 /** What the fixture received per session, for `GET …/design/received`. */
@@ -272,6 +327,13 @@ export class DesignFixture {
             refuse("the lead is not running; resume it from its tab, or approve without the build",
                 null);
         } else {
+            // The seed checks run before the record (D11); the fixture doc has no duplicate
+            // and no empty title, so only a doc without entries refuses.
+            const parsed = scan(this.host.doc(dir));
+            if (parsed.entries.length === 0) {
+                refuse("no plan entries found under an Implementation Plan heading", null);
+                return;
+            }
             const approval: DesignApproval = {
                 path: design.doc, repo: design.repo ?? "web", sha256: APPROVED_SHA, at: now(),
                 blockers: listed, round: current.round ?? 1,
@@ -281,7 +343,20 @@ export class DesignFixture {
                 changed_after_approval: false,
             };
             this.write(current, change, null);
-            sendJson(response, { session: this.host.sessions.get(dir) });
+            let counts: Omit<SeedResult, "doc_path" | "sha12"> | null = null;
+            this.host.rewrite(dir, "spinner", (text) => {
+                const result = seedPlan(text, parsed);
+                counts = result;
+                return result.mission;
+            });
+            const seed: SeedResult = {
+                doc_path: design.doc, sha12: APPROVED_SHA.slice(0, 12),
+                ...(counts ?? { added: 0, kept: 0, stale: [], orphaned: [] }),
+            };
+            const body: DesignApproveResponse = {
+                session: this.host.sessions.get(dir) as SessionView, seed,
+            };
+            sendJson(response, body);
         }
     }
 

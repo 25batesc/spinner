@@ -224,6 +224,12 @@ describe("the lead role", () => {
                 author: "lead",
                 item: { command: "add", text: "contract", owner: "backend" },
             });
+            await run(pi, "mission_plan", { command: "add", text: "tests", entry: " 2.3 " });
+            expect((daemon.requests.at(-1)?.body as { item: unknown }).item).toEqual({
+                command: "add",
+                text: "tests",
+                entry: "2.3",
+            });
             await run(pi, "mission_plan", { command: "reorder", order: "3 1, 2" });
             expect((daemon.requests.at(-1)?.body as { item: unknown }).item).toEqual({
                 command: "reorder",

@@ -39,8 +39,8 @@ it("answers files, archived reports and the doc as markdown", async () => {
     const url = await base();
     const draft = await fetch(`${url}/s206-csv-resolving/design/files/design_draft.md`);
     expect(draft.headers.get("content-type")).toContain("text/markdown");
-    // Six sections; the seventh `## ` line sits in a code fence.
-    expect(outline(await draft.text())).toHaveLength(6);
+    // Seven sections, the plan included; the eighth `## ` line sits in a code fence.
+    expect(outline(await draft.text())).toHaveLength(7);
     const archived = await fetch(
         `${url}/s206-csv-resolving/design/reviews/r1/consolidated_review_report.md`,
     );

@@ -7,3 +7,4 @@ A doc on the base branch cannot become a later session's own design doc (`egm-ad
 | Link | Date | Author | Components | Description |
 |---|---|---|---|---|
 | [egm-adoption.md](egm-adoption.md) | 2026-11-02 | spinner-agent (the Elephant); approved by the operator | protocol, daemon, pi extension, cli, ui, docs | Spinner adopts EGM: the design doc becomes the session's spec. Reviewed, version 3, with 6 build sessions. |
+| [session-workspace.md](session-workspace.md) | 2026-11-04 | lead of s046 (the Elephant) | protocol, daemon, pi extension, ui, docs | One row of tabs in step order, Implement as a phase-first list, the Plan seeded from the doc's entries at approval and linked back to it. Version 2 (4 blockers and 17 majors of the review applied), with 2 build sessions. |

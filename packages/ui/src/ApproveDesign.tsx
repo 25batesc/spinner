@@ -3,10 +3,13 @@
 // section with its approved and current text side by side. `start the build` is checked by
 // default, so the confirm reads `approve and build`. A 409 that names listed blockers turns
 // the confirm into `approve with <N> listed blockers`, which posts again with
-// `blockers_confirmed: N`. The `session.updated` that follows moves the stepper.
-import { useState } from "react";
+// `blockers_confirmed: N`. The `session.updated` that follows moves the step marks. The
+// response carries the seed's counts (session-workspace.md T4, entry 2.22): the dialog shows
+// `23 added, 2 kept, 0 stale, 0 orphaned` for `SEED_SHOWN_MS` before it closes, or at once
+// when the build is off; a 409 from the seed checks shows its text as the other refusals do.
+import { useEffect, useState } from "react";
 
-import type { DesignChange, SessionView } from "@spinner/protocol";
+import type { DesignChange, SeedResult, SessionView } from "@spinner/protocol";
 
 import { approveLabel, blockersLabel, blockersLine } from "./design.ts";
 import { ApproveRefused, fetchDesignChanges, postDesignApprove, useLoaded } from "./remote.ts";
@@ -17,6 +20,15 @@ export interface ApproveDesignProps {
     onClose: () => void;
 }
 
+/** How long the seed counts show before the dialog closes after `approve and build`. */
+export const SEED_SHOWN_MS = 1000;
+
+/** `23 added, 2 kept, 0 stale, 0 orphaned`: the seed's counts on one line. */
+export function seedLine(seed: SeedResult): string {
+    return `${seed.added} added, ${seed.kept} kept, ${seed.stale.length} stale, ` +
+        `${seed.orphaned.length} orphaned`;
+}
+
 export function ApproveDesign({ view, onClose }: ApproveDesignProps) {
     const design = view.design;
     const dir = view.summary.dir;
@@ -25,17 +37,31 @@ export function ApproveDesign({ view, onClose }: ApproveDesignProps) {
     const [listed, setListed] = useState<number | null>(null);
     const [posting, setPosting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // The seed counts of the accepted approval; the dialog closes once they were shown.
+    const [seed, setSeed] = useState<SeedResult | null>(null);
     const changed = design?.changed_after_approval === true;
     const title = changed ? "Re-approve the design" : "Approve the design";
+    useEffect(() => {
+        if (seed === null) {
+            return;
+        }
+        if (!build) {
+            onClose();
+            return;
+        }
+        const timer = setTimeout(onClose, SEED_SHOWN_MS);
+        return () => clearTimeout(timer);
+        // `onClose` and `build` are read once the seed arrives.
+    }, [seed]);
 
     const approve = () => {
         setPosting(true);
         setError(null);
         const body = listed === null ? { build } : { build, blockers_confirmed: listed };
         postDesignApprove(dir, body).then(
-            () => {
+            (response) => {
                 setPosting(false);
-                onClose();
+                setSeed(response.seed);
             },
             (failure: unknown) => {
                 setPosting(false);
@@ -72,8 +98,18 @@ export function ApproveDesign({ view, onClose }: ApproveDesignProps) {
                 <p className="needs-human approve-blockers">{blockersLine(listed)}</p>
             )}
             {error !== null && <p className="needs-human approve-error">{error}</p>}
+            {seed !== null && (
+                <p className="approve-seed" role="status">
+                    Plan seeded: {seedLine(seed)}
+                </p>
+            )}
             <span className="confirm-actions">
-                <button type="button" className="primary" disabled={posting} onClick={approve}>
+                <button
+                    type="button"
+                    className="primary"
+                    disabled={posting || seed !== null}
+                    onClick={approve}
+                >
                     {listed === null ? approveLabel(build) : blockersLabel(listed)}
                 </button>
                 <button type="button" disabled={posting} onClick={onClose}>cancel</button>

@@ -49,7 +49,7 @@ const ARCHIVE_TIP =
 
 type SessionAction = keyof typeof SESSION_TIPS;
 
-/** True under `TOOLBAR_COMPACT_PX`; the toolbar and the EGM stepper fold on it. */
+/** True under `TOOLBAR_COMPACT_PX`; the toolbar folds on it. */
 export function useCompact(): boolean {
     const [compact, setCompact] = useState(window.innerWidth < TOOLBAR_COMPACT_PX);
     useEffect(() => {

@@ -1,5 +1,6 @@
-// The Brief tab of the design workspace (docs/designs/egm-adoption.md, entry 5.7): the gate
-// card while the lead asks, then `concepts_brief.md` rendered as markdown.
+// The Brainstorm tab (docs/designs/session-workspace.md, K1; docs/designs/egm-adoption.md,
+// entry 5.7): one line that opens Agents while the lead asks, then `concepts_brief.md`
+// rendered as markdown. The gate card with its buttons is drawn in Agents only.
 import { BRIEF_FILE, type SessionView } from "@spinner/protocol";
 
 import { hasBrief } from "./design-workspace.ts";
@@ -11,10 +12,11 @@ export interface DesignBriefProps {
     view: SessionView;
     /** The workspace's reload key (entry 5.6). */
     reload: string;
-    onError: (message: string) => void;
+    /** Opens the Agents view with the lead picked, where the gate card is. */
+    onOpenAgent: (name: string) => void;
 }
 
-export function DesignBrief({ view, reload, onError }: DesignBriefProps) {
+export function DesignBrief({ view, reload, onOpenAgent }: DesignBriefProps) {
     const design = view.design;
     const dir = view.summary.dir;
     if (design === undefined) {
@@ -24,7 +26,13 @@ export function DesignBrief({ view, reload, onError }: DesignBriefProps) {
     return (
         <div className="dw-tab-body">
             {gate !== null && (
-                <DesignGate key={gate.asked} kind="gate" dir={dir} gate={gate} onError={onError} />
+                <DesignGate
+                    key={gate.asked}
+                    kind="gate"
+                    gate={gate}
+                    compact
+                    onOpenAgent={onOpenAgent}
+                />
             )}
             {hasBrief(design) ? (
                 <MarkdownFile

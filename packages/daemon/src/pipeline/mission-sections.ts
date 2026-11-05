@@ -4,7 +4,9 @@
 // write the file. The daemon's serialized mission writer (ext, `store/mission-*.ts`) owns
 // tool writes; these are the pipeline's own, made from inside a job. Since s014 the file
 // also carries ids and times on list items (`- [x] 3. text (owner, 14:02)`); `parse_item`,
-// `render_item` and `mission_view` read and write that form, and the older ones.
+// `render_item` and `mission_view` read and write that form, and the older ones. Since
+// session-workspace (T3) a Plan line can start its text with an entry token (`[1.5] text`)
+// that links the item to a design doc entry; the token rule is `@spinner/protocol`'s.
 import assert from "node:assert/strict";
 import type {
     DoneWhenItem,
@@ -15,6 +17,7 @@ import type {
     QuestionItem,
     RosterRow,
 } from "@spinner/protocol";
+import { parse_entry_token, render_entry_token } from "@spinner/protocol";
 
 /** A `## ` heading and the lines under it, up to the next `## ` heading. */
 export interface MissionBlock {
@@ -94,8 +97,11 @@ export interface MissionItem {
     checked: boolean;
     /** The Plan number; null for a Done when line or a Plan line written before s014. */
     id: number | null;
+    /** The text without the entry token. */
     text: string;
     owner: string | null;
+    /** The doc entry of the `[1.5]` token or the legacy `plan 1.5: ` prefix; null without one. */
+    entry: string | null;
     /** `HH:MM` from the tick, or null. */
     ticked_at: string | null;
 }
@@ -107,13 +113,14 @@ const TIME = /^\d\d:\d\d$/;
 const OWNER = /^(?:the )?[A-Za-z0-9_.-]+$/;
 
 /** Upper bound on items in one section; a mission is meant to stay under 400 lines. */
-const ITEMS_MAX = 500;
+export const ITEMS_MAX = 500;
 
 /**
  * Reads `- [ ] 3. text (owner)`, `- [x] 3. text (owner, 14:02)` and the older forms without
  * an id or an owner. The last parenthesis is the owner and the time when its first part is a
- * name; other parts in it (`after 3`) go back into the text. Null for a line that is not a
- * checklist item, or an empty placeholder (`- [ ] 1. `).
+ * name; other parts in it (`after 3`) go back into the text. The entry token at the start
+ * of the text is read into `entry` on every checklist line (T3). Null for a line that is
+ * not a checklist item, or an empty placeholder (`- [ ] 1. `).
  */
 export function parse_item(line: string): MissionItem | null {
     const match = ITEM_LINE.exec(line);
@@ -125,14 +132,23 @@ export function parse_item(line: string): MissionItem | null {
     if (rest.length === 0) {
         return null;
     }
-    const item: MissionItem = {
+    const item = parse_owner({
         checked: mark === "x",
         id: id_text === undefined ? null : Number(id_text),
         text: rest,
         owner: null,
+        entry: null,
         ticked_at: null,
-    };
-    const paren = TRAILING_PAREN.exec(rest);
+    });
+    const token = parse_entry_token(item.text);
+    item.entry = token.entry;
+    item.text = token.rest;
+    return item;
+}
+
+/** Moves the trailing `(owner, HH:MM)` of `item.text` into `owner` and `ticked_at`. */
+function parse_owner(item: MissionItem): MissionItem {
+    const paren = TRAILING_PAREN.exec(item.text);
     if (paren === null) {
         return item;
     }
@@ -151,7 +167,10 @@ export function parse_item(line: string): MissionItem | null {
     return item;
 }
 
-/** The canonical line: `- [x] 3. text (owner, 14:02)`; a ticked item without an owner gets `?`. */
+/**
+ * The canonical line: `- [x] 3. [1.5] text (owner, 14:02)`, the token first; a ticked item
+ * without an owner gets `?`.
+ */
 export function render_item(item: MissionItem): string {
     assert.ok(item.text.length > 0, "an item needs text");
     const mark = item.checked ? "x" : " ";
@@ -161,7 +180,7 @@ export function render_item(item: MissionItem): string {
     if (owner !== null) {
         tail = item.ticked_at === null ? ` (${owner})` : ` (${owner}, ${item.ticked_at})`;
     }
-    return `- [${mark}] ${id}${item.text}${tail}`;
+    return `- [${mark}] ${id}${render_entry_token(item.entry, item.text)}${tail}`;
 }
 
 /** The items of a section body, in file order, with their line index. */
@@ -256,6 +275,7 @@ function parse_plan(body: string, roster: readonly RosterRow[]): PlanItem[] {
         id: item.id,
         text: item.text,
         owner: item.owner,
+        entry: item.entry,
         state: item.checked
             ? "done"
             : named.has(item.id) || first_open.get(item.owner ?? "") === item.id

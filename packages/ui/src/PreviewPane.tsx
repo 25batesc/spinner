@@ -79,6 +79,8 @@ function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: Sess
 
 /** The pane's two views. `diff` is offered once the daemon sends `SessionView.diff`. */
 const VIEWS = ["previews", "diff"] as const;
+/** The previews pane's view tabs: the id is the label. */
+const VIEW_TABS = VIEWS.map((id) => ({ id, label: id }));
 
 /** The preview the pane shows in the browser bar's place: what a pop-out takes along. */
 function shownPreview(
@@ -142,7 +144,7 @@ export function PreviewPane(props: PreviewPaneProps) {
         return (
             <section className="pane preview-pane" aria-label="Previews">
                 <ViewTabs
-                    labels={VIEWS}
+                    tabs={VIEW_TABS}
                     shown={tab}
                     onSelect={setTab}
                     controls={head}
@@ -162,7 +164,7 @@ export function PreviewPane(props: PreviewPaneProps) {
     return (
         <section className="pane preview-pane" aria-label="Previews">
             <ViewTabs
-                labels={hasDiff ? VIEWS : VIEWS.slice(0, 1)}
+                tabs={hasDiff ? VIEW_TABS : VIEW_TABS.slice(0, 1)}
                 shown="previews"
                 onSelect={setTab}
                 controls={head}

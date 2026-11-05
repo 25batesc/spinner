@@ -1,14 +1,16 @@
-// The design workspace's rules (entry 5.12). Method: each case builds the `DesignView` or the
-// `SessionView` facts the daemon sends and reads what a tab shows: the view tabs and the
-// default tab per track, the stepper's tabs, the reload key, the doc's sections and outline
+// The session workspace's rules (session-workspace.md 2.2; egm-adoption.md 5.12). Method: each
+// case builds the `DesignView` or the `SessionView` facts the daemon sends and reads what a
+// tab shows: the view tabs and the default view per track, the tab of each step, the marks
+// of the EGM tabs per stage, the reload key, the doc's sections and outline
 // (a heading inside a code fence stays text), the Review rows of the current and of an
 // archived run, the rounds and the approvals of History, newest first, with their marks.
 import type { DesignApproval, DesignView, RoundView, SessionView } from "@spinner/protocol";
 import { describe, expect, it } from "vitest";
 
+import { designSteps } from "./design.ts";
 import {
-    approvalRows, defaultTab, docSections, docSource, outline, reloadKey, revisionText,
-    roundRows, shownView, sizeLabel, stageRows, stepTab, viewTabs,
+    approvalRows, defaultView, docSections, docSource, outline, reloadKey, revisionText,
+    roundRows, shownView, sizeLabel, stageRows, stepTab, tabMarks, viewTabs,
 } from "./design-workspace.ts";
 
 function design(partial: Partial<DesignView> = {}): DesignView {
@@ -32,31 +34,90 @@ function session(
 
 const file = (name: string, mtime: string) => ({ name, bytes: 2048, mtime });
 
+const DIRECT_ROW = ["agents", "implement", "files", "history", "threads", "services"];
+
 describe("the view tabs", () => {
-    it("adds design after agents only for a session with a design block", () => {
-        expect(viewTabs(session({ design: design() }))).toEqual(
-            ["agents", "design", "mission", "threads", "services"],
-        );
-        expect(viewTabs(session())).toEqual(["agents", "mission", "threads", "services"]);
-        expect(viewTabs(undefined)).toEqual(["agents", "mission", "threads", "services"]);
+    it("shows the EGM tabs on the design track only; a legacy session takes the direct row", () => {
+        expect(viewTabs(session({ design: design() }))).toEqual([
+            "agents", "brainstorm", "draft", "review", "implement", "files", "history",
+            "threads", "services",
+        ]);
+        const direct = session({ design: design({ track: "direct", stage: null }) });
+        expect(viewTabs(direct)).toEqual(DIRECT_ROW);
+        expect(viewTabs(session())).toEqual(DIRECT_ROW);
+        expect(viewTabs(undefined)).toEqual(DIRECT_ROW);
     });
 
-    it("falls back to agents when the session has no design view", () => {
-        expect(shownView(session({ design: design() }), "design")).toBe("design");
-        expect(shownView(session(), "design")).toBe("agents");
+    it("opens on Agents on the design track and on Implement otherwise", () => {
+        expect(defaultView(session({ design: design() }))).toBe("agents");
+        expect(defaultView(session({ design: design({ track: "direct", stage: null }) })))
+            .toBe("implement");
+        expect(defaultView(session())).toBe("implement");
+    });
+
+    it("falls back to the default view when the session lacks the shown one", () => {
+        expect(shownView(session({ design: design() }), "draft")).toBe("draft");
+        expect(shownView(session(), "draft")).toBe("implement");
         expect(shownView(session(), "threads")).toBe("threads");
+        expect(shownView(session({ design: design() }), "design")).toBe("agents");
     });
 
-    it("opens on Brief on the design track and on Files on the direct track", () => {
-        expect(defaultTab(design())).toBe("brief");
-        expect(defaultTab(design({ track: "direct", stage: null }))).toBe("files");
-    });
-
-    it("maps each stepper step to its tab", () => {
-        expect(stepTab("brainstorm")).toBe("brief");
-        expect(stepTab("draft")).toBe("design");
+    it("maps all five steps onto four tabs", () => {
+        expect(stepTab("brainstorm")).toBe("brainstorm");
+        expect(stepTab("draft")).toBe("draft");
         expect(stepTab("review")).toBe("review");
-        expect(stepTab("approve")).toBe("design");
+        expect(stepTab("approve")).toBe("review");
+        expect(stepTab("build")).toBe("implement");
+    });
+});
+
+describe("tabMarks", () => {
+    const marks = (partial: Partial<DesignView>, needs: string | null = null) => {
+        const view = design(partial);
+        return tabMarks(designSteps(view, needs), view);
+    };
+
+    it("shows Approve's state on the Review tab at design-ready", () => {
+        const ready = marks({ stage: "design-ready" }, "approve the design");
+        expect(ready.review?.state).toBe("waiting");
+        expect(ready.review?.title).toBe(
+            "Review: done · Goldfish: $0.00\nApprove: waiting",
+        );
+        expect(ready.review?.suffix).toBeUndefined();
+        expect(ready.draft?.state).toBe("done");
+        expect(ready.implement?.state).toBe("todo");
+    });
+
+    it("marks Review active with the written stages while the review runs", () => {
+        const reviewing = marks({
+            stage: "design-review",
+            reviews: { "5": true, "6": true, "7": false, "8": false, "9": false },
+            cost_by_stage: { review: 1.2 },
+        });
+        expect(reviewing.review).toEqual({
+            state: "active", suffix: "2/5",
+            title: "Review: active · Goldfish: $1.20\nApprove: todo",
+        });
+    });
+
+    it("marks Implement active once approved and tooltips the Brainstorm cost", () => {
+        const approved = marks({ stage: "approved", cost_by_stage: { brainstorm: 0.5 } });
+        expect(approved.implement?.state).toBe("active");
+        expect(approved.brainstorm).toEqual({
+            state: "done", title: "Brainstorm: done · Goldfish: $0.50",
+        });
+        expect(Object.keys(approved).sort()).toEqual(
+            ["brainstorm", "draft", "implement", "review"],
+        );
+    });
+
+    it("adds the running Goldfish as a suffix", () => {
+        const fish = {
+            run: "r1", step: 0, agent: "goldfish", persona: null, model: null, state: "running",
+            design_step: "brainstorm", usd: 0, started: null, ended: null,
+        } as unknown as DesignView["goldfish"][number];
+        const live = marks({ stage: "brainstorm", goldfish: [fish, fish] });
+        expect(live.brainstorm?.suffix).toBe("2 live");
     });
 });
 
@@ -71,6 +132,11 @@ describe("reloadKey", () => {
         expect(reloadKey("s1", design({ doc: "docs/designs/x.md" }))).toBe(
             "s1##docs/designs/x.md",
         );
+    });
+
+    it("does not move with the mission revision: the doc is not refetched on a tick", () => {
+        const same = design({ doc: "docs/designs/x.md" });
+        expect(reloadKey("s1", same)).toBe(reloadKey("s1", { ...same }));
     });
 });
 

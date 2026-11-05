@@ -7,8 +7,7 @@ import { useState, type ReactNode } from "react";
 import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
 import { formatTokens, formatUsd } from "./costs.ts";
-import { trackChoices, type StepId } from "./design.ts";
-import { DesignStepper } from "./DesignStepper.tsx";
+import { trackChoices } from "./design.ts";
 import type { PaneName } from "./layout.ts";
 import {
     ciPill, decisionPill, draftPill, reviewFacts, reviewStatePill, type Pill, type ReviewFacts,
@@ -323,8 +322,6 @@ export interface ContextBarProps {
      * button that opens the card, in the `agents` view with `lead` picked.
      */
     onNeeds?: (() => void) | undefined;
-    /** Set for a session with a `design` block (entry 5.11): a step opens its workspace tab. */
-    onStep?: ((step: StepId) => void) | undefined;
     /** Set for a session with a `design` block (entry 5.11): the round badge opens History. */
     onRound?: (() => void) | undefined;
 }
@@ -504,7 +501,7 @@ export function ReviewPills({ facts }: { facts: ReviewFacts }) {
 }
 
 export function ContextBar(props: ContextBarProps) {
-    const { view, usage, operator, toolbar, onError, onNeeds, onStep, onRound } = props;
+    const { view, usage, operator, toolbar, onError, onNeeds, onRound } = props;
     if (view === undefined) {
         return (
             <div className="context-bar muted">
@@ -552,17 +549,7 @@ export function ContextBar(props: ContextBarProps) {
                 {view.summary.session.title}
             </span>
             <RoundBadge view={view} onRound={onRound} />
-            {view.design?.track === "design" ? (
-                <DesignStepper
-                    key={view.summary.dir}
-                    design={view.design}
-                    stage={stageOf(view)}
-                    needs={needs}
-                    onStep={onStep}
-                />
-            ) : (
-                <span className="badge">{stageOf(view)}</span>
-            )}
+            <span className="badge">{stageOf(view)}</span>
             <span className="pill context-stack">
                 <span className={`dot dot-${view.stack.state}`} />
                 stack {view.stack.state}

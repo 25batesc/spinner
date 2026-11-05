@@ -29,7 +29,8 @@ it("round-trips an item line", () => {
     const line = "- [x] 3. the Stripe call (backend, 10:12)";
     const item = parseItem(line);
     expect(item).toEqual({
-        checked: true, id: 3, text: "the Stripe call", owner: "backend", ticked_at: "10:12",
+        checked: true, id: 3, text: "the Stripe call", owner: "backend", entry: null,
+        ticked_at: "10:12",
     });
     expect(renderItem(item!)).toBe(line);
 });

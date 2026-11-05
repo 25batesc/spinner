@@ -395,6 +395,10 @@ function item_request(args: Record<string, unknown>): MissionItemRequest {
     if (typeof owner === "string" && owner.trim().length > 0) {
         request.owner = owner.trim();
     }
+    const entry = args["entry"];
+    if (typeof entry === "string" && entry.trim().length > 0) {
+        request.entry = entry.trim();
+    }
     const order = args["order"];
     if (typeof order === "string" && order.trim().length > 0) {
         request.order = order

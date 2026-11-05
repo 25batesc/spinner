@@ -28,6 +28,7 @@ import type {
 import type {
     AgentEventsResponse,
     DesignApproveRefusal,
+    DesignApproveResponse,
     DesignChangesResponse,
     DesignFilesResponse,
 } from "@spinner/protocol";
@@ -39,6 +40,7 @@ import { PiRpcHarness } from "../agents/harness.js";
 import { EventBus } from "../event-bus.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { JobRunner } from "../jobs/jobs.js";
+import { mission_view } from "../pipeline/mission-sections.js";
 import { create_app } from "../server.js";
 import { run_ok } from "../stack/shell.js";
 import { MissionWriter } from "../store/mission-writer.js";
@@ -50,7 +52,22 @@ import { EgmFetcher, egm_source_dir, marker_path } from "./fetch.js";
 import { GoldfishWatcher } from "./goldfish.js";
 import { EGM_PIN } from "./pins.js";
 
-const DOC_TEXT = "# CSV\n\n## Overview\n\nRows.\n\n## Detailed Implementation Plan\n\n1. A.\n";
+const DOC_TEXT = [
+    "# CSV",
+    "",
+    "## Overview",
+    "",
+    "Rows.",
+    "",
+    "## Detailed Implementation Plan",
+    "",
+    "#### Build session 1: the engine",
+    "",
+    "##### 1.1 `src/a.ts` (Create)",
+    "",
+    "##### 1.2 `src/b.ts` (Modify) **[D7]**",
+    "",
+].join("\n");
 
 let root: string;
 let home: SpinnerHome;
@@ -851,6 +868,97 @@ describe("design approval routes (6.2, 6.3, 6.6, 6.7)", () => {
         const copy = await app.request(`/sessions/${summary.dir}/design/approved`);
         expect(copy.status).toBe(200);
         expect(await copy.text()).toBe(doc);
+        // The seed (session-workspace T4): one item per entry, owner null, the token first,
+        // the seed Log line after the approval line, and the counts in the response.
+        const body = (await approved.json()) as DesignApproveResponse;
+        expect(body.seed).toEqual({
+            doc_path: "docs/designs/csv.md",
+            sha12,
+            added: 2,
+            kept: 0,
+            stale: [],
+            orphaned: [],
+        });
+        expect(body.session.design?.stage).toBe("approved");
+        const plan = mission_view(mission).plan;
+        expect(plan.map((item) => [item.id, item.entry, item.text, item.owner])).toEqual([
+            [1, "1.1", "`src/a.ts`", null],
+            [2, "1.2", "`src/b.ts`", null],
+        ]);
+        const seed_line =
+            `plan seeded from docs/designs/csv.md (${sha12}): ` +
+            "2 added, 0 kept, 0 stale, 0 orphaned";
+        const lines = mission.split("\n");
+        const approval_index = lines.findIndex((text) => text.includes(line));
+        expect(lines[approval_index + 1]).toContain(`spinner: ${seed_line}`);
+        expect(agents.sent[0]).toContain("2 added, 0 kept");
+        expect(agents.sent[0]).toContain("`[n.n]` token");
+    });
+
+    it("refuses with 409 and records nothing when the seed checks fail", async () => {
+        const app = await status_app();
+        const cases: [string, string][] = [
+            [
+                DOC_STATUS.replace("##### 1.2 ", "##### 1.1 "),
+                "the plan has duplicate entry ids: 1.1",
+            ],
+            [DOC_STATUS.replace("`src/b.ts` (Modify)", "(Modify)"), "entries without a title: 1.2"],
+            [
+                DOC_STATUS.replace("## Detailed Implementation Plan", "## Plan"),
+                "no plan entries found under an Implementation Plan heading",
+            ],
+        ];
+        for (const [text, reason] of cases) {
+            writeFileSync(join(designs, "csv.md"), text);
+            const refused = await approve(app, { build: true });
+            expect(refused.status, reason).toBe(409);
+            expect(await refused.json()).toEqual({ error: reason, blockers: null });
+            expect(stored().design?.approved).toBeUndefined();
+            expect(readFileSync(join(designs, "csv.md"), "utf8")).toBe(text);
+        }
+        expect(existsSync(join(summary.path, "design", "approved.md"))).toBe(false);
+        expect(agents.sent).toEqual([]);
+        expect(readFileSync(join(summary.path, "MISSION.md"), "utf8")).not.toContain("spinner:");
+    });
+
+    it("refuses a Plan that would pass ITEMS_MAX; a second seed adds the new only", async () => {
+        const app = await status_app();
+        const entries: string[] = [];
+        for (let n = 3; n <= 499; n += 1) {
+            entries.push(`##### 1.${n} \`src/${n}.ts\``);
+        }
+        const big = `${DOC_STATUS}\n${entries.join("\n\n")}\n`;
+        writeFileSync(join(designs, "csv.md"), big);
+        expect((await approve(app, { build: false })).status).toBe(200);
+        const seeded = readFileSync(join(summary.path, "MISSION.md"), "utf8");
+        expect(mission_view(seeded).plan).toHaveLength(499);
+        // A free item beside the 499 seeded ones; one more entry would make 501 items.
+        writeFileSync(
+            join(summary.path, "MISSION.md"),
+            seeded.replace("## Roster", "- [ ] 500. a free item (lead)\n\n## Roster"),
+        );
+        writeFileSync(join(designs, "csv.md"), `${big}\n##### 1.500 \`src/500.ts\`\n`);
+        await tracker.refresh(summary.dir);
+        const refused = await approve(app, { build: false });
+        expect(refused.status).toBe(409);
+        expect(await error_of(refused)).toBe("the Plan would hold 501 items; the bound is 500");
+        // A doc past the scan's own bound is refused too, not a 500.
+        const more = [500, 501].map((n) => `##### 1.${n} \`s${n}.ts\``).join("\n\n");
+        const past = `${big}\n${more}\n`;
+        writeFileSync(join(designs, "csv.md"), past);
+        await tracker.refresh(summary.dir);
+        const past_scan = await approve(app, { build: false });
+        expect(past_scan.status).toBe(409);
+        expect(await error_of(past_scan)).toBe("the plan has more than 500 entries");
+        // A re-approval of the doc adds nothing; a renamed entry reads stale.
+        writeFileSync(join(designs, "csv.md"), big.replace("`src/a.ts`", "`src/a2.ts`"));
+        await tracker.refresh(summary.dir);
+        const again = await approve(app, { build: false });
+        expect(again.status).toBe(200);
+        const body = (await again.json()) as DesignApproveResponse;
+        expect(body.seed).toMatchObject({ added: 0, kept: 499, stale: ["1.1"], orphaned: [] });
+        const final = readFileSync(join(summary.path, "MISSION.md"), "utf8");
+        expect(mission_view(final).plan).toHaveLength(500);
     });
 
     it("approves without the build prompt; refuses a build while the lead is stopped", async () => {

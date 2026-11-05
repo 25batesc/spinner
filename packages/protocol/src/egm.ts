@@ -385,6 +385,23 @@ export interface DesignApproveRequest {
     blockers_confirmed?: number;
 }
 
+/**
+ * What the seed did at approval (docs/designs/session-workspace.md, T4): one Plan item per
+ * doc entry, owner null. `stale` lists the entry ids of items whose entry's title changed;
+ * `orphaned` the ids of items whose entry left the doc. Both stay in place; the seed never
+ * rewrites a token.
+ */
+export interface SeedResult {
+    /** Repo-relative path of the doc. */
+    doc_path: string;
+    /** The first 12 characters of the approval hash. */
+    sha12: string;
+    added: number;
+    kept: number;
+    stale: string[];
+    orphaned: string[];
+}
+
 /** The 409 body of `POST /sessions/:dir/design/approve`. `blockers` is null for other refusals. */
 export interface DesignApproveRefusal {
     error: string;

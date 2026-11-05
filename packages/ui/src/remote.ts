@@ -16,6 +16,7 @@ import type {
     DesignAnswerRequest,
     DesignApproveRefusal,
     DesignApproveRequest,
+    DesignApproveResponse,
     DesignChange,
     DesignChangesResponse,
     DesignFilesResponse,
@@ -387,14 +388,15 @@ export class ApproveRefused extends Error {
 }
 
 /**
- * `POST /sessions/:dir/design/approve`: approves the doc and, with `build`, prompts the lead
- * with the build message. A 409 throws `ApproveRefused`; the dialog asks for the blocker
- * confirmation when its count is above 0.
+ * `POST /sessions/:dir/design/approve`: approves the doc, seeds the Plan from its entries
+ * (session-workspace.md T4; the counts come back in `seed`) and, with `build`, prompts the
+ * lead with the build message. A 409 throws `ApproveRefused`; the dialog asks for the blocker
+ * confirmation when its count is above 0, and shows the seed's refusal otherwise.
  */
 export async function postDesignApprove(
     dir: string,
     body: DesignApproveRequest,
-): Promise<SessionResponse> {
+): Promise<DesignApproveResponse> {
     const path = `/sessions/${dir}/design/approve`;
     const response = await fetch(path, {
         method: "POST",
@@ -407,7 +409,7 @@ export async function postDesignApprove(
     if (!response.ok) {
         throw await failure("POST", path, response);
     }
-    return (await response.json()) as SessionResponse;
+    return (await response.json()) as DesignApproveResponse;
 }
 
 /** `DELETE /sessions/:dir/design/approve`: removes the approval; the approvals keep it. */

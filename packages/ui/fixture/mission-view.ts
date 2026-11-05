@@ -1,17 +1,20 @@
 // The fixture's structured mission: `GET /sessions/:dir/mission/view` and the `item` mode of
 // the section route, in the daemon's format (`- [ ] 3. text (owner)`, `- [x] 3. text (owner,
-// 14:02)`). A compact mirror of `packages/daemon/src/pipeline/mission-sections.ts`, enough
-// for the UI drivers; the daemon's own tests cover the edge cases.
+// 14:02)`, `- [ ] 3. [1.5] text (owner)` with the entry token). A compact mirror of
+// `packages/daemon/src/pipeline/mission-sections.ts`, enough for the UI drivers; the daemon's
+// own tests cover the edge cases. The token rule is `@spinner/protocol`'s, as in the daemon.
 import type {
     DoneWhenItem, LogLine, MissionItemRequest, MissionLine, MissionView, PlanItem,
     QuestionItem, RosterRow,
 } from "@spinner/protocol";
+import { parse_entry_token, render_entry_token } from "@spinner/protocol";
 
 interface Item {
     checked: boolean;
     id: number | null;
     text: string;
     owner: string | null;
+    entry: string | null;
     ticked_at: string | null;
 }
 
@@ -29,20 +32,19 @@ export function parseItem(line: string): Item | null {
     }
     const item: Item = {
         checked: match[1] === "x", id: match[2] === undefined ? null : Number(match[2]),
-        text: match[3], owner: null, ticked_at: null,
+        text: match[3], owner: null, entry: null, ticked_at: null,
     };
     const paren = TRAILING_PAREN.exec(item.text);
-    if (paren === null || paren[1] === undefined || paren[2] === undefined) {
-        return item;
-    }
-    const parts = paren[2].split(",").map((part) => part.trim());
+    const parts = paren?.[2]?.split(",").map((part) => part.trim()) ?? [];
     const owner = parts[0] ?? "";
-    if (!OWNER.test(owner) || parts.length > 3) {
-        return item;
+    if (paren?.[1] !== undefined && OWNER.test(owner) && parts.length <= 3) {
+        item.owner = owner;
+        item.ticked_at = parts.slice(1).find((part) => TIME.test(part)) ?? null;
+        item.text = paren[1];
     }
-    item.owner = owner;
-    item.ticked_at = parts.slice(1).find((part) => TIME.test(part)) ?? null;
-    item.text = paren[1];
+    const token = parse_entry_token(item.text);
+    item.entry = token.entry;
+    item.text = token.rest;
     return item;
 }
 
@@ -53,7 +55,8 @@ export function renderItem(item: Item): string {
     if (owner !== null) {
         tail = item.ticked_at === null ? ` (${owner})` : ` (${owner}, ${item.ticked_at})`;
     }
-    return `- [${item.checked ? "x" : " "}] ${id}${item.text}${tail}`;
+    const text = render_entry_token(item.entry, item.text);
+    return `- [${item.checked ? "x" : " "}] ${id}${text}${tail}`;
 }
 
 function sectionLines(text: string, heading: string): { start: number; end: number } | null {
@@ -168,8 +171,8 @@ export function missionView(text: string): MissionView {
         const mention = new RegExp(`(?:#|\\bitem )${item.id}\\b`);
         const named = row !== undefined && mention.test(row.doing);
         return {
-            id: item.id, text: item.text, owner: item.owner, ticked_at: item.ticked_at,
-            state: item.checked ? "done" : named ? "doing" : "next",
+            id: item.id, text: item.text, owner: item.owner, entry: item.entry,
+            ticked_at: item.ticked_at, state: item.checked ? "done" : named ? "doing" : "next",
         };
     });
     const doneWhen: DoneWhenItem[] = items(body(text, "Done when")).map((item, index) => ({
@@ -219,7 +222,10 @@ export function applyItem(
         }
         const id = section === "plan" ? Math.max(0, ...withId.map((i) => i.id)) + 1 : null;
         const owner = section === "plan" ? (request.owner ?? author) : null;
-        const line = renderItem({ checked: false, id, text: request.text, owner, ticked_at: null });
+        const entry = section === "plan" ? (request.entry ?? null) : null;
+        const line = renderItem({
+            checked: false, id, text: request.text, owner, entry, ticked_at: null,
+        });
         const at = list.length === 0 ? span.start : (list[list.length - 1]?.line ?? span.start) + 1;
         lines.splice(at, 0, line);
         return { text: lines.join("\n") };
@@ -242,7 +248,10 @@ export function applyItem(
         if (request.text === undefined || request.text === "") {
             return { error: "edit needs text" };
         }
-        item.text = request.text;
+        // The entry link survives an edit; a new text that starts with a token moves the item.
+        const token = parse_entry_token(request.text);
+        item.text = token.rest;
+        item.entry = token.entry ?? item.entry;
     } else if (request.command === "assign") {
         item.owner = request.owner ?? null;
     } else {

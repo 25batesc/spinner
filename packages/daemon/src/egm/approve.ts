@@ -1,13 +1,20 @@
 // Design approval (docs/designs/egm-adoption.md, Technical Plan T10, entry 6.2). One click
 // pins the doc's normalized hash, copies the doc to `<session>/design/approved.md`, records
-// the approval in `session.yaml`, writes a Log line, and, with `build`, prompts the lead to
-// build the doc's plan. An edit to the doc afterwards invalidates the approval (the tracker,
-// 6.6); `clear_approval` removes it. The daemon does not parse the doc's plan (review B1):
-// the build message tells the lead to copy each plan entry into MISSION.md itself.
+// the approval in `session.yaml`, seeds the MISSION.md Plan from the doc's plan entries
+// (docs/designs/session-workspace.md, T2 and T4), writes two Log lines, and, with `build`,
+// prompts the lead to build the doc's plan. An edit to the doc afterwards invalidates the
+// approval (the tracker, 6.6); `clear_approval` removes it. The seed's checks run before any
+// write, next to the other refusals, so no approval is recorded that the seed cannot honour.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { DesignApproval, DesignApproveRequest, SessionSummary } from "@spinner/protocol";
+import type {
+    DesignApproval,
+    DesignApproveRequest,
+    PlanScan,
+    SeedResult,
+    SessionSummary,
+} from "@spinner/protocol";
 import {
     APPROVED_COPY,
     CONSOLIDATED_REPORT,
@@ -16,6 +23,8 @@ import {
     LEAD_NAME,
     RESOLVE_REPORT,
     REVIEW_STAGE_REPORTS,
+    headings,
+    scan,
 } from "@spinner/protocol";
 import type { AgentManager } from "../agents/manager.js";
 import type { SpinnerHome } from "../home.js";
@@ -24,6 +33,7 @@ import { SPEC_AUTHOR, type MissionWriter } from "../store/mission-writer.js";
 import { read_session, write_session } from "../store/session-store.js";
 import { normalized_doc_hash } from "./derive-design.js";
 import type { DesignTracker } from "./design.js";
+import { seed_checks, seed_log_line, seed_plan } from "./seed-plan.js";
 
 export interface ApproveDeps {
     home: SpinnerHome;
@@ -50,15 +60,22 @@ export const APPROVE_LEAD_NOT_RUNNING =
 /** The reports of the current run whose blockers the approval counts, newest kind first. */
 const BLOCKER_REPORTS = [RESOLVE_REPORT, CONSOLIDATED_REPORT, REVIEW_STAGE_REPORTS["9"]];
 
+/** `approve_design`'s result: the session after the record and what the seed did. */
+export interface ApproveResult {
+    summary: SessionSummary;
+    seed: SeedResult;
+}
+
 /**
- * T10 steps 1 to 7. Throws `ApproveRefusal` for each 409. With `build`, a lead without a
- * process is refused before any write, so an approval never stands without its build prompt.
+ * T10 steps 1 to 7 with the seed (session-workspace T4). Throws `ApproveRefusal` for each
+ * 409. With `build`, a lead without a process is refused before any write, so an approval
+ * never stands without its build prompt; the seed's checks refuse before any write too.
  */
 export async function approve_design(
     deps: ApproveDeps,
     summary: SessionSummary,
     request: DesignApproveRequest,
-): Promise<SessionSummary> {
+): Promise<ApproveResult> {
     const design = summary.session.design;
     if (design?.doc === undefined || design.repo === undefined) {
         throw new ApproveRefusal("no design doc yet", null);
@@ -82,8 +99,15 @@ export async function approve_design(
     if (request.build && lead === null) {
         throw new ApproveRefusal(APPROVE_LEAD_NOT_RUNNING, null);
     }
+    const read = readFileSync(doc_path, "utf8");
+    const entries = scan_for_seed(read);
+    const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
+    const refusal = seed_checks(mission, entries);
+    if (refusal !== null) {
+        throw new ApproveRefusal(refusal, null);
+    }
     // Step 3: the status line. Step 4: the hash and the copy.
-    const text = rewrite_status(readFileSync(doc_path, "utf8"));
+    const text = rewrite_status(read);
     writeFileSync(doc_path, text);
     const sha256 = normalized_doc_hash(text);
     mkdirSync(join(summary.path, EGM_ARTIFACT_DIR), { recursive: true });
@@ -106,18 +130,52 @@ export async function approve_design(
     state.approvals = [...(state.approvals ?? []), record].slice(-DESIGN_APPROVALS_MAX);
     delete state.changed_after_approval;
     write_session(fresh.summary);
-    // Step 6: the Log line. Step 7: the build message.
+    // The seed, after the record (D11). Step 6: the Log lines. Step 7: the build message.
     const sha12 = sha256.slice(0, 12);
+    const seed = await seed_mission(deps, summary.dir, design.doc, sha12, entries);
     await deps.writer.write(summary.dir, {
         section: "log",
         mode: "append",
         author: SPEC_AUTHOR,
         text: `design approved: ${design.doc} (${sha12}, ${blockers} listed blockers)`,
     });
+    await deps.writer.write(summary.dir, {
+        section: "log",
+        mode: "append",
+        author: SPEC_AUTHOR,
+        text: seed_log_line(design.doc, seed),
+    });
     if (lead !== null) {
-        await lead.prompt(build_message(doc_path, sha256));
+        await lead.prompt(build_message(doc_path, sha256, seed));
     }
-    return fresh.summary;
+    return { summary: fresh.summary, seed };
+}
+
+/** The doc's plan scan; a scan past its bounds is a refusal, not a 500. */
+function scan_for_seed(text: string): PlanScan {
+    try {
+        return scan(text);
+    } catch (error) {
+        throw new ApproveRefusal(error instanceof Error ? error.message : String(error), null);
+    }
+}
+
+/** Writes the seeded Plan through the writer's chain and returns the counts. */
+async function seed_mission(
+    deps: ApproveDeps,
+    dir: string,
+    doc_path: string,
+    sha12: string,
+    entries: PlanScan,
+): Promise<SeedResult> {
+    let counts: ReturnType<typeof seed_plan> | null = null;
+    await deps.writer.rewrite(dir, SPEC_AUTHOR, (mission) => {
+        counts = seed_plan(mission, entries);
+        return counts.mission_text;
+    });
+    assert.ok(counts !== null, "the rewrite must have run the seed");
+    const { added, kept, stale, orphaned } = counts as ReturnType<typeof seed_plan>;
+    return { doc_path, sha12, added, kept, stale, orphaned };
 }
 
 /** Removes `design.approved`, `changed_after_approval` and `approved.md`; keeps the history. */
@@ -133,18 +191,27 @@ export function clear_approval(deps: Pick<ApproveDeps, "home">, summary: Session
     rmSync(join(summary.path, EGM_ARTIFACT_DIR, APPROVED_COPY), { force: true });
 }
 
-/** The text the lead gets with `build` (6.2), with the absolute doc path. */
-export function build_message(doc_path: string, sha256: string): string {
+/** The text the lead gets with `build` (6.2, session-workspace T4 and T10). */
+export function build_message(doc_path: string, sha256: string, seed: SeedResult): string {
+    const flagged =
+        seed.stale.length === 0 && seed.orphaned.length === 0
+            ? ""
+            : ` Items marked stale (${seed.stale.join(", ") || "none"}) or orphaned (${
+                  seed.orphaned.join(", ") || "none"
+              }) no longer match the doc: re-point each with mission_plan edit and a new token.`;
     return [
         `The design is approved: ${doc_path} (sha256 ${sha256.slice(0, 12)}).`,
         "Build to its Detailed Implementation Plan.",
-        "First add one MISSION.md Plan item per plan entry (each `##### n.n` heading) with",
-        "mission_plan add, in the doc's order. The item text is `plan <id>: <heading text>`",
-        "without the trailing `( … )` part, because the Plan reads a trailing parenthesis as",
-        "the owner. Tick an item with mission_plan tick the moment its entry is done. Add a",
-        "worker per phase with agent_add when the work is parallel; its brief owns that",
-        "phase's files. A change to the design invalidates the approval and locks your code",
-        "writes: edit the doc, then ask the operator to re-approve.",
+        `The MISSION.md Plan holds one item per plan entry (${seed.added} added, ${seed.kept}`,
+        "kept), each linked to its entry by the `[n.n]` token at the start of the line; the",
+        "token survives mission_plan edit. Assign owners with mission_plan assign. Tick an item",
+        "with mission_plan tick the moment its entry is done; an entry's done mark follows its",
+        "linked items only. Split an entry with mission_plan add and `entry: \"n.n\"`. A",
+        "worker's Roster Doing cell names `#id` so the item reads doing. An entry that cannot",
+        "be built as written goes under Open questions with the entry id. Add a worker per",
+        "phase with agent_add when the work is parallel; its brief owns that phase's files. A",
+        "change to the design invalidates the approval and locks your code writes: edit the",
+        `doc, then ask the operator to re-approve; the seed runs again.${flagged}`,
     ].join(" ");
 }
 
@@ -164,33 +231,29 @@ export function newest_report_blockers(session_path: string): number {
     return 0;
 }
 
-const HEADING = /^(#{2,4})\s+(.*)$/u;
 const SEVERITY = /\bSeverity:\s*(Blocker|High)\b/iu;
 const SECTION = /(🔴|\bBlockers?\b)/iu;
-const FENCE = "```";
-/** Upper bound on lines read from a report. */
+/** A report is EGM's output, not ours; the shared walker throws past this many lines. */
 const REPORT_LINES_MAX = 100_000;
 
-interface Heading {
-    level: number;
-    text: string;
-}
-
 /**
- * The blockers a review report lists, from its headings only (6.2, review v2 N-11). Severity
- * mode counts headings with `Severity: Blocker` or `Severity: High`. When it finds none,
- * section mode counts the headings one level below a `🔴` or `Blockers` heading of level 2
- * or 3, up to the next heading of that level or higher. Lines inside code fences are skipped.
+ * The blockers a review report lists, from its `##` to `####` headings only (6.2, review v2
+ * N-11), read with the shared fence-aware walker (session-workspace D8). Severity mode counts
+ * headings with `Severity: Blocker` or `Severity: High`. When it finds none, section mode
+ * counts the headings one level below a `🔴` or `Blockers` heading of level 2 or 3, up to the
+ * next heading of that level or higher.
  */
 export function count_listed_blockers(text: string): number {
-    const headings = headings_of(text);
-    const severity = headings.filter((heading) => SEVERITY.test(heading.text)).length;
+    const listed = headings(text, REPORT_LINES_MAX).filter(
+        (heading) => heading.level >= 2 && heading.level <= 4,
+    );
+    const severity = listed.filter((heading) => SEVERITY.test(heading.text)).length;
     if (severity > 0) {
         return severity;
     }
     let section: number | null = null;
     let count = 0;
-    for (const heading of headings) {
+    for (const heading of listed) {
         if (section !== null && heading.level <= section) {
             section = null;
         }
@@ -205,26 +268,4 @@ export function count_listed_blockers(text: string): number {
         }
     }
     return count;
-}
-
-/** The `##` to `####` headings outside fenced code blocks, in order. */
-function headings_of(text: string): Heading[] {
-    // A report is EGM's output, not ours: past the bound the rest is not read.
-    const lines = text.replace(/\r\n/g, "\n").split("\n").slice(0, REPORT_LINES_MAX);
-    const headings: Heading[] = [];
-    let fenced = false;
-    for (const line of lines) {
-        if (line.startsWith(FENCE)) {
-            fenced = !fenced;
-            continue;
-        }
-        if (fenced) {
-            continue;
-        }
-        const match = HEADING.exec(line);
-        if (match !== null) {
-            headings.push({ level: (match[1] ?? "").length, text: match[2] ?? "" });
-        }
-    }
-    return headings;
 }

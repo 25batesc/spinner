@@ -17,7 +17,7 @@ import type {
     MissionSectionResponse,
     MissionView,
 } from "@spinner/protocol";
-import { MISSION_ITEM_COMMANDS } from "@spinner/protocol";
+import { MISSION_ITEM_COMMANDS, is_entry_id, parse_entry_token } from "@spinner/protocol";
 import {
     join_mission,
     mission_view,
@@ -133,6 +133,12 @@ function validate_item(request: MissionSectionRequest): string | null {
     if (item.owner !== undefined && /[|()\n]/.test(item.owner)) {
         return "item.owner must be one name";
     }
+    if (item.entry !== undefined && item.command !== "add") {
+        return `item.entry is for add only, not ${item.command}`;
+    }
+    if (item.entry !== undefined && !is_entry_id(item.entry)) {
+        return "item.entry must be an entry id such as `2.3`";
+    }
     if (item.command === "reorder") {
         const order = item.order;
         if (!Array.isArray(order) || order.length === 0) {
@@ -201,7 +207,8 @@ function apply_item(
             const owner = request.owner ?? (is_plan ? author : null);
             const id = is_plan ? items.reduce((max, item) => Math.max(max, item.id), 0) + 1 : null;
             const next = id ?? items.length + 1;
-            items.push({ checked: false, id: next, text, owner, ticked_at: null });
+            const entry = request.entry ?? null;
+            items.push({ checked: false, id: next, text, owner, entry, ticked_at: null });
             break;
         }
         case "tick":
@@ -215,10 +222,15 @@ function apply_item(
             target.checked = false;
             target.ticked_at = null;
             break;
-        case "edit":
+        case "edit": {
+            // The entry link survives an edit (T3); a new text that starts with a token moves
+            // the item to that entry.
             assert.ok(target !== undefined);
-            target.text = (request.text ?? "").trim();
+            const token = parse_entry_token((request.text ?? "").trim());
+            target.text = token.rest;
+            target.entry = token.entry ?? target.entry;
             break;
+        }
         case "assign":
             assert.ok(target !== undefined);
             target.owner = request.owner ?? null;
@@ -239,7 +251,7 @@ function apply_item(
 }
 
 /** Puts the items back: in place for an edit, after the other lines for a reorder or an add. */
-function write_items(
+export function write_items(
     block: MissionBlock,
     lines: string[],
     found: { line: number; item: MissionItem }[],
@@ -315,7 +327,7 @@ function plan_item(text: string): string {
 }
 
 /** The template's empty item (`- [ ] 1. `) goes when the first real item arrives. */
-const PLAN_PLACEHOLDER = /^- \[ \] \d+\.\s*$/;
+export const PLAN_PLACEHOLDER = /^- \[ \] \d+\.\s*$/;
 
 /** Appends `line` after the last non-blank line; the blank line before the next heading stays. */
 function append_line(block: MissionBlock, line: string): void {
@@ -499,6 +511,19 @@ export class MissionWriter {
             run.catch(() => undefined),
         );
         return run;
+    }
+
+    /**
+     * Reads `MISSION.md`, applies `change` to its text and writes the result, after every
+     * earlier write on the session and before the next one; publishes one `mission.changed`
+     * as `author` with the whole view. The seed uses it (session-workspace T4).
+     */
+    rewrite(dir: string, author: string, change: (text: string) => string): Promise<void> {
+        assert.ok(author.length > 0, "rewrite needs an author");
+        return this.serialized(dir, author, () => {
+            const file = join(this.home.sessions, dir, "MISSION.md");
+            writeFileSync(file, change(readFileSync(file, "utf8")));
+        });
     }
 
     /** The structured mission of `dir` as the file is now. */

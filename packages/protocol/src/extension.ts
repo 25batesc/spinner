@@ -216,7 +216,8 @@ export interface ExtensionToolArgs {
      */
     mission_done_when: { command: DoneWhenCommand; items?: string; id?: number; text?: string };
     /**
-     * The Plan: `add` takes `text` and `owner` (the caller when absent); `tick`, `untick`,
+     * The Plan: `add` takes `text`, `owner` (the caller when absent) and `entry` (the doc
+     * entry the item belongs to, `2.3`, written as the `[2.3]` token); `tick`, `untick`,
      * `edit` (with `text`) and `assign` (with `owner`) take `id`; `reorder` takes `order`,
      * ids separated by spaces (unlisted items follow in their old order).
      */
@@ -224,6 +225,7 @@ export interface ExtensionToolArgs {
         command: MissionItemCommand;
         text?: string;
         owner?: string;
+        entry?: string;
         id?: number;
         order?: string;
     };
@@ -621,12 +623,18 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         {
             name: "mission_plan",
             description:
-                "The Plan: add an item (text, owner), tick or untick one the moment it is done, " +
-                "edit its text, assign an owner, or reorder by ids. Ids never change.",
+                "The Plan: add an item (text, owner, entry), tick or untick one the moment it is " +
+                "done, edit its text, assign an owner, or reorder by ids. Ids never change. An " +
+                "item seeded from the design doc carries its entry as a `[2.3]` token at the " +
+                "start of its line; edit keeps it unless the new text starts with a token.",
             parameters: {
                 command: { type: "string", description: "What to do", enum: MISSION_ITEM_COMMANDS },
                 text: { type: "string", description: "For add and edit: the item text" },
                 owner: { type: "string", description: "For add and assign: the agent name" },
+                entry: {
+                    type: "string",
+                    description: "The doc entry this item belongs to, `2.3`; add only",
+                },
                 ...ITEM_ID_PARAM,
                 order: { type: "string", description: "For reorder: ids, space-separated" },
             },
@@ -747,6 +755,8 @@ export interface MissionItemRequest {
     id?: number;
     text?: string;
     owner?: string;
+    /** `add` only: the doc entry the item belongs to, written as the `[2.3]` token. */
+    entry?: string;
     order?: number[];
 }
 
