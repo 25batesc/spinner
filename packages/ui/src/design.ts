@@ -200,6 +200,49 @@ export function egmMenu(design: DesignView, changed: boolean): MenuItem[] {
     ];
 }
 
+/**
+ * The skill of the session's current step (dogfood row 25, r4.6), which the ▾ half of the
+ * split button marks: brainstorm while brainstorming, draft while drafting and once drafted,
+ * review design under review, resolve while resolving. None at intake, at design-ready, once
+ * approved, and on the direct track.
+ */
+export function currentSkill(design: DesignView): EgmSkill | null {
+    if (design.track !== "design") {
+        return null;
+    }
+    switch (design.stage) {
+        case "brainstorm":
+            return "egm-brainstorm";
+        case "drafting":
+        case "drafted":
+            return "egm-draft";
+        case "design-review":
+            return "egm-review";
+        case "resolving":
+            return "egm-resolve";
+        default:
+            return null;
+    }
+}
+
+/** One item of the split button's ▾ half: a menu item, marked when it is the current step. */
+export interface SplitItem extends MenuItem {
+    current: boolean;
+}
+
+/**
+ * The ▾ half of the design group's split button (row 25): the menu's skills without the one
+ * the primary half runs, so nothing is listed twice, with the current step's skill marked.
+ */
+export function splitMenu(design: DesignView, changed: boolean): SplitItem[] {
+    const primary = primaryAction(design);
+    const shown = primary?.kind === "run" ? primary.skill : null;
+    const current = currentSkill(design);
+    return egmMenu(design, changed)
+        .filter((item) => item.skill !== shown)
+        .map((item) => ({ ...item, current: item.skill === current }));
+}
+
 // The approve dialog's words (entry 6.16, D2 and D5).
 
 /** The dialog's confirm button: `approve and build` while `start the build` is checked. */

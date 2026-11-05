@@ -243,6 +243,13 @@ button.track-chip:hover { background: var(--fill); color: var(--text); }
     margin-left: -1px; border-radius: 0 var(--radius-control) var(--radius-control) 0;
 }
 .design-menu .menu button { justify-content: flex-start; height: auto; }
+/* The current step's skill in the split button's ▾ half (r4.6): an accent dot before it. */
+.menu .menu-current {
+    display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
+    background: var(--accent); vertical-align: 1px;
+}
+.menu button[data-current] { font-weight: 600; }
+.design-group > .primary + .design-menu > .design-more { padding: 0 6px; }
 /* `remove approval` ends the menu, apart from the skills, in the danger colour (entry 6.17). */
 .design-menu .menu .danger, .toolbar-menu .menu .design-group > .danger { color: var(--fail); }
 .menu [data-action=remove-approval] {

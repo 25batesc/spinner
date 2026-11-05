@@ -1,11 +1,13 @@
 // The toolbar's design group (docs/designs/egm-adoption.md, entry 3.19, Technical Plan T9 and
-// T13): one filled primary button whose label follows the design stage, and the `EGM ▾` menu
-// with the skills. `brainstorm` asks an optional concept, `review design` a preset, and the
-// menu's `review loop`, `resolve`, `drift report` and `bootstrap` one prefilled field; `draft`
-// runs at once. Each run is `POST …/design/run`; the daemon composes the arguments and the
-// `session.updated` that follows moves the stepper. A refusal goes to the drawer. At
-// `design-ready` the primary opens the approve dialog, and while an approval exists the menu
-// ends with `remove approval`, a `DELETE …/design/approve` (entry 6.17).
+// T13) as one split button (dogfood row 25, r4.6): the filled primary half runs the current
+// step's action, whose label follows the design stage, and the ▾ half lists the other skills
+// with the current step's skill marked, so nothing is listed twice. Without a primary (while a
+// skill runs) the ▾ half reads `EGM ▾`. `brainstorm` asks an optional concept, `review design`
+// a preset, and the menu's `review loop`, `resolve`, `drift report` and `bootstrap` one
+// prefilled field; `draft` runs at once. Each run is `POST …/design/run`; the daemon composes
+// the arguments and the `session.updated` that follows moves the tab marks. A refusal goes to
+// the drawer. At `design-ready` the primary opens the approve dialog, and while an approval
+// exists the menu ends with `remove approval`, a `DELETE …/design/approve` (entry 6.17).
 import { useState, type ReactNode } from "react";
 
 import {
@@ -14,7 +16,7 @@ import {
 
 import { ApproveDesign } from "./ApproveDesign.tsx";
 import {
-    designPaths, egmMenu, primaryAction, type MenuField, type MenuItem,
+    designPaths, egmMenu, primaryAction, splitMenu, type MenuField, type MenuItem,
 } from "./design.ts";
 import { deleteDesignApprove, postDesignRun } from "./remote.ts";
 import { useMenu } from "./useMenu.ts";
@@ -76,7 +78,9 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
     }
     const dir = view.summary.dir;
     const changed = Object.values(view.summary.session.repos).some((repo) => repo.changed);
+    // Every skill, for the dialogs; the ▾ half shows the split list without the primary's.
     const items = egmMenu(design, changed);
+    const split = splitMenu(design, changed);
     const primary = primaryAction(design);
     const paths = designPaths(view);
 
@@ -147,16 +151,21 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
             {primary.label}
         </button>
     );
-    const menuItems = items.map((item) => (
+    const menuItems = split.map((item) => (
         <button
             key={item.skill}
             type="button"
             role="menuitem"
             data-skill={item.skill}
+            data-current={item.current ? "true" : undefined}
+            aria-current={item.current ? "step" : undefined}
             disabled={posting || item.disabled !== null}
-            title={item.disabled ?? `/skill:${item.skill}`}
+            title={item.disabled ?? (item.current
+                ? `/skill:${item.skill} · the current step`
+                : `/skill:${item.skill}`)}
             onClick={() => start(item)}
         >
+            {item.current && <span className="menu-current" aria-hidden="true" />}
             {item.label}
         </button>
     ));
@@ -204,12 +213,14 @@ export function DesignActions({ view, inMenu, onError }: DesignActionsProps) {
             <span className="design-menu" ref={menu.ref}>
                 <button
                     type="button"
+                    className="design-more"
                     aria-haspopup="menu"
                     aria-expanded={menu.open}
-                    title="The EGM skills"
+                    aria-label={primaryButton === null ? "EGM skills" : "More EGM skills"}
+                    title="The other EGM skills"
                     onClick={menu.toggle}
                 >
-                    EGM {"\u25be"}
+                    {primaryButton === null ? `EGM ${"\u25be"}` : "\u25be"}
                 </button>
                 {menu.open && (
                     <div className="menu" role="menu" aria-label="EGM skills">

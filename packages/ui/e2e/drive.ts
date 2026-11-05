@@ -3549,9 +3549,11 @@ if (flow === "design-actions") {
     // The toolbar's design group (docs/designs/egm-adoption.md, entries 3.18 to 3.20, 3.24)
     // against the fixture. One filled primary per stage, left of the stack group; brainstorm
     // asks an optional concept, review design a preset with `consolidated report` checked,
-    // draft runs at once; drafting has no primary. The `EGM ▾` menu lists 7 skills with
-    // bootstrap disabled before approval, 2 on the direct track; resolve prefills the doc's
-    // absolute path. A refused run lands in the drawer. At 1100 px the group opens the `⋯` menu.
+    // draft runs at once; drafting has no primary. The design group is one split button (row
+    // 25, r4.6): the ▾ half lists the skills other than the primary's, with the current step's
+    // marked and bootstrap disabled before approval; 2 on the direct track, where it reads
+    // `EGM ▾`; resolve prefills the doc's absolute path. A refused run lands in the drawer. At
+    // 1100 px the group opens the `⋯` menu with the primary first and nothing twice.
     const primary = `document.querySelector(".context-bar .design-group > .primary")`;
     const dialog = `document.querySelector(".design-dialog")`;
     const pick = async (title: string) => {
@@ -3578,6 +3580,13 @@ if (flow === "design-actions") {
 
     await pick("CSV export \u00b7 brainstorm");
     await until("draft primary", `${primary}?.textContent === "draft"`);
+    // While brainstorming the primary is the next step, draft; the ▾ half marks brainstorm.
+    await click(".context-bar .design-menu > button");
+    await until("menu on brainstorm", `document.querySelector(".design-menu .menu") !== null`);
+    await expectSame("brainstorm menu", await evaluate(`[...document.querySelectorAll(
+        ".design-menu .menu button")].map((b) => [b.textContent, b.dataset.current === "true"])
+        .slice(0, 2)`), [["brainstorm", true], ["review design", false]]);
+    await click(".context-bar .design-menu > button");
     await click(".context-bar .design-group > .primary", "draft");
     await until("draft posted", `${dialog} === null`);
     await expectSame("draft run", await received("s202-csv-brainstorm"), {
@@ -3603,14 +3612,20 @@ if (flow === "design-actions") {
     await click(".design-dialog button", "run");
     await until("preset dialog closed", `${dialog} === null`);
 
-    // The menu: 7 skills, bootstrap disabled with the guard's reason.
-    await click(".context-bar .design-menu > button", "EGM");
+    // The split button (row 25): the ▾ half lists the other 6 skills, not the primary's
+    // `review design`, with the current step `draft` marked; bootstrap disabled with the
+    // guard's reason.
+    await expectSame("split halves", await evaluate(`[${primary}.textContent,
+        document.querySelector(".context-bar .design-menu > button").textContent,
+        document.querySelector(".context-bar .design-menu > button").getAttribute("aria-label")]`),
+    ["review design", "\u25be", "More EGM skills"]);
+    await click(".context-bar .design-menu > button");
     await until("EGM menu", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("menu", await evaluate(`[...document.querySelectorAll(
-        ".design-menu .menu button")].map((b) => [b.textContent, b.disabled])`), [
-        ["brainstorm", false], ["draft", false], ["review design", false],
-        ["review loop", false], ["resolve", false], ["drift report", false],
-        ["bootstrap", true],
+        ".design-menu .menu button")].map((b) => [b.textContent, b.disabled,
+        b.dataset.current === "true"])`), [
+        ["brainstorm", false, false], ["draft", false, true], ["review loop", false, false],
+        ["resolve", false, false], ["drift report", false, false], ["bootstrap", true, false],
     ]);
     const guard = await evaluate(
         `document.querySelector(".design-menu .menu button[data-skill=egm-bootstrap]").title`);
@@ -3625,7 +3640,7 @@ if (flow === "design-actions") {
     await shot("94-design-resolve-dialog");
     await click(".design-dialog button", "run");
     await until("resolve dialog closed", `${dialog} === null`);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu again", `document.querySelector(".design-menu .menu") !== null`);
     await click(".design-menu .menu button", "drift report");
     await until("drift dialog", `${dialog}?.getAttribute("aria-label") === "Drift report"`);
@@ -3643,7 +3658,7 @@ if (flow === "design-actions") {
 
     // A refusal goes to the drawer: a review with a preset before the doc exists is a 409.
     await pick("CSV export \u00b7 intake");
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu on intake", `document.querySelector(".design-menu .menu") !== null`);
     await click(".design-menu .menu button", "review design");
     await until("preset dialog on intake", `${dialog} !== null`);
@@ -3657,11 +3672,13 @@ if (flow === "design-actions") {
     // The direct track: drift report and bootstrap only.
     await pick("CSV export \u00b7 direct track");
     await until("no primary on direct", `${primary} === null`);
-    await click(".context-bar .design-menu > button", "EGM");
+    await expectSame("EGM label without a primary", await evaluate(
+        `document.querySelector(".context-bar .design-menu > button").textContent`), "EGM \u25be");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu on direct", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("direct menu", await evaluate(`[...document.querySelectorAll(
         ".design-menu .menu button")].map((b) => b.textContent)`), ["drift report", "bootstrap"]);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
 
     // Compact: the design group opens the `⋯` menu, the primary first.
     await pick("CSV export \u00b7 intake");
@@ -3676,8 +3693,8 @@ if (flow === "design-actions") {
         return [first.className, [...first.querySelectorAll("button")]
             .map((b) => b.textContent)];
     })()`), ["toolbar-group design-group", [
-        "brainstorm", "brainstorm", "draft", "review design", "review loop", "resolve",
-        "drift report", "bootstrap",
+        "brainstorm", "draft", "review design", "review loop", "resolve", "drift report",
+        "bootstrap",
     ]]);
     await shot("96-design-compact-menu");
     await send("Emulation.setDeviceMetricsOverride", {
@@ -3875,7 +3892,7 @@ if (flow === "approve-design") {
     await shot("102-approved-build");
 
     // `remove approval` ends the menu while an approval exists and takes the session back.
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("menu end", await evaluate(`[...document.querySelectorAll(
         ".design-menu .menu button")].slice(-2).map((b) => [b.textContent, b.disabled])`), [
@@ -3885,11 +3902,11 @@ if (flow === "approve-design") {
     await click(".design-menu .menu button", "remove approval");
     await until("approval removed", `${primary}?.textContent === "approve design"
         && ${tabState("review")} === "waiting"`);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
     await until("EGM menu again", `document.querySelector(".design-menu .menu") !== null`);
     await expectSame("no remove item", await evaluate(`[...document.querySelectorAll(
         ".design-menu .menu button")].some((b) => b.textContent === "remove approval")`), false);
-    await click(".context-bar .design-menu > button", "EGM");
+    await click(".context-bar .design-menu > button");
 
     // The changed session: the re-approve primary and needs line, the banner, the changes.
     await pick("CSV export \u00b7 changed");
