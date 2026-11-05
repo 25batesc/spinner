@@ -26,7 +26,7 @@ import { WebSocket } from "ws";
 
 import { initialDesignSessions, initialReviews, initialSessions } from "./data.ts";
 import { isReviewSession } from "./reviews.ts";
-import { startFixture } from "./server.ts";
+import { COMPACTED_PCT, startFixture } from "./server.ts";
 
 const servers: ReturnType<typeof startFixture>[] = [];
 afterEach(() => {
@@ -215,6 +215,27 @@ it("DELETE /sessions/:dir/verify clears the tick, answers the view, 404 without 
         method: "DELETE",
     });
     expect(missing.status).toBe(404);
+});
+
+it("compacts a hosted agent: its figure drops; 409 for an agent it does not host (#45)",
+    async () => {
+    const port = await start();
+    const base = `http://127.0.0.1:${port}/sessions/s17-refund-flow`;
+    const figure = async (name: string) => {
+        const body = (await (await fetch(base)).json()) as SessionResponse;
+        return body.session.cost?.agents[name]?.context?.pct;
+    };
+    expect(await figure("backend")).toBe(45);
+    const compact = (name: string) =>
+        fetch(`${base}/agents/${name}/compact`, { method: "POST", body: "{}" });
+    const done = await compact("backend");
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({ ok: true });
+    expect(await figure("backend")).toBe(COMPACTED_PCT);
+    // The frontend agent is not hosted: the daemon refuses, and the figure stays unknown.
+    const refused = await compact("frontend");
+    expect(refused.status).toBe(409);
+    expect(await figure("frontend")).toBeUndefined();
 });
 
 it("refuses post and approve without confirm and runs them with it", async () => {

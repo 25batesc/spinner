@@ -224,6 +224,38 @@ export function view(
     };
 }
 
+/** The window every fixture model has: 1M tokens, as the Opus and Sonnet models of pi. */
+export const FIXTURE_CONTEXT_WINDOW = 1_000_000;
+
+/**
+ * The view with a context figure per agent (dogfood row 45), as the daemon reads it from the
+ * agent's last assistant message: `pct` of the fixture window, or null for an unknown one.
+ * An agent the record does not name keeps the figure it had.
+ */
+export function withContext(
+    current: SessionView,
+    figures: Readonly<Record<string, number | null>>,
+): SessionView {
+    const cost = current.cost;
+    if (cost === undefined) {
+        return current;
+    }
+    const agents = { ...cost.agents };
+    for (const [name, pct] of Object.entries(figures)) {
+        const agent = agents[name];
+        if (agent === undefined) {
+            continue;
+        }
+        const context = pct === null ? null : {
+            tokens: Math.floor((FIXTURE_CONTEXT_WINDOW * pct) / 100),
+            window: FIXTURE_CONTEXT_WINDOW,
+            pct,
+        };
+        agents[name] = { ...agent, context };
+    }
+    return { ...current, cost: { ...cost, agents } };
+}
+
 /**
  * A review session (s015): `kind: review`, one PR, no stack, the branch and base of the PR,
  * and the review fields. The swarm's reviewers are tty agents of the session, so a chip
@@ -409,11 +441,14 @@ export function initialSessions(): SessionView[] {
         title: "Bootstrap: Spinner builds Spinner",
         created: "2026-10-27T09:00:00Z",
     });
+    const refundView = view(
+        "s17-refund-flow", refund, stackView("s17", "up"), [pr(412, "web"), pr(87, "api")],
+        ["backend"],
+    );
     return [
         view("s001-bootstrap", boot, stackView("s001", "none")),
-        view("s17-refund-flow", refund, stackView("s17", "up"), [pr(412, "web"), pr(87, "api")], [
-            "backend",
-        ]),
+        // The hosted backend's figure shows plain; the stopped frontend's is unknown.
+        withContext(refundView, { backend: 45, frontend: null }),
     ];
 }
 
@@ -690,7 +725,9 @@ function seededView(): SessionView {
         created: "2026-10-20T10:11:00Z", stage: "building", agents,
         repos: { web: { path: "~/src/web", worktree: "web", changed: true } },
     });
-    const plain = view(SEEDED_DIR, base, stackView("s213", "none"), [], ["lead", "engine", "ui"]);
+    const hosted = view(SEEDED_DIR, base, stackView("s213", "none"), [], ["lead", "engine", "ui"]);
+    // The three bands past the quiet one: lead hides its figure, engine amber, ui red.
+    const plain = withContext(hosted, { lead: 30, engine: 52, ui: 81 });
     const design = designView("approved", designsOf(SEEDED_DIR));
     return { ...plain, design, round: 1, rounds: [] };
 }
