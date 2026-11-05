@@ -35,7 +35,9 @@
 // The flow `composer` opens the composer in the working area from the sidebar, keeps its
 // draft across a switch, and starts a session that opens on its lead and a review (s038);
 // `archive` archives from a card, from the context bar's menu and from a review card, and
-// reads the empty state (s038). Both run against the fixture only.
+// reads the empty state (s038). Both run against the fixture only. The flow `questions` reads
+// the Open questions of the Implement rail, answers one under it and resolves one through the
+// route (#43); it runs against the fixture only.
 // The other flows work against the fixture server or the real daemon.
 import { writeFileSync } from "node:fs";
 
@@ -334,8 +336,8 @@ if (flow === "workspace") {
     // the counts, the Plan as one `Plan` group with a state dot per row (doing first), the
     // Done-when checklist, the Roster in the rail, one open question, the Contracts and the
     // Log newest first. A tick writes through the item mode and comes back with the time; an
-    // edit changes the text; a note reaches the owner's inbox; an answer steers the asker and
-    // lands in the Log; the filter narrows the feed; `source` shows the rendered MISSION.md.
+    // edit changes the text; a note reaches the owner's inbox; the filter narrows the feed;
+    // `source` shows the rendered MISSION.md. The flow `questions` answers and resolves.
     await click(".session", process.env["E2E_SESSION"] ?? "Refund flow");
     await click(".agents-pane .tab", "Implement");
     await until("workspace shown", `document.querySelector(".im") !== null`);
@@ -402,6 +404,55 @@ if (flow === "workspace") {
     await fill(".mw-item[data-id='plan:3'] textarea", "Use the idempotency key.");
     await click(".mw-item[data-id='plan:3'] .mw-inline .primary", "send");
     await until("note reached backend", `${text(".drawer")}.includes("operator → backend")`);
+    // The filter narrows the feed to one agent.
+    await click(".mw-filter-chip", "frontend");
+    const lines =
+        `[...document.querySelectorAll(".mw-feed .mw-line-text")].map((l) => l.textContent)`;
+    await until("frontend's line alone", `JSON.stringify(${lines}) === '["button wired"]'`);
+    await click(".mw-filter-chip", "all");
+    await until("every line again", `${lines}.length >= 3`);
+    await shot("82-workspace-after-actions");
+    // The source view: the rendered MISSION.md with the Roster table, and its raw toggle.
+    await click(".mission-head .link", "source");
+    await until("source rendered", `document.querySelector(".mission .md table") !== null`);
+    await until("tick in the source", `${text(".mission .md")}.includes("the form")`);
+    await shot("83-workspace-source");
+    await click(".mission-head .link", "workspace");
+    await until("workspace again", `document.querySelector(".im") !== null`);
+    console.log("workspace ok");
+    await finish();
+}
+
+if (flow === "questions") {
+    // The Open questions of the Implement rail (#43) against the fixture's Refund flow: the
+    // open question (an old unstamped line, so no time) and the answered one with its time and
+    // author, the "1 open" count and the folded resolved one. The rail's answer is written
+    // under the question through item mode, steers backend (running on the fixture), and
+    // adds no Log line; the question reads answered and leaves the pulse. The fold opens on a
+    // click and names who resolved the question, when and why; a resolve by the lead through
+    // the route moves question 1 into the fold.
+    await click(".session", "Refund flow");
+    await click(".agents-pane .tab", "Implement");
+    await until("rail shown", `document.querySelector(".im-rail .mw-questions") !== null`);
+    await expectSame("questions", await evaluate(`({
+        cards: [...document.querySelectorAll(".im-rail .mw-questions .mw-question")].map((q) => [
+            q.dataset.state, q.querySelector(".mw-time")?.textContent ?? null,
+            q.querySelector(".mw-owner")?.textContent ?? null,
+            q.querySelector(".mw-question-text").textContent,
+            [...q.querySelectorAll(".mw-answer")].map((a) => a.textContent)]),
+        count: document.querySelector(".im-rail .mw-questions .mw-count")?.textContent,
+        fold: document.querySelector(".im-rail .mw-resolved-toggle")?.textContent,
+        pulse: ${text(".im-header")}.includes("1 open question"),
+    })`), {
+        cards: [
+            ["open", null, "backend", "partial refunds in the first round?", []],
+            ["answered", "10:06", "frontend", "one refund button per order line?",
+                ["10:08 operator: one per order"]],
+        ],
+        count: "1 open", fold: "\u25b8 1 resolved", pulse: true,
+    });
+    await evaluate(`document.querySelector(".im-rail .mw-questions").scrollIntoView()`);
+    await shot("q0-questions");
     // The answer is written under the question (#43), steers backend (running on the
     // fixture), and adds no Log line; the question reads answered and leaves the pulse.
     await fill("input[aria-label='Answer 1']", "No, full refunds only in round one.");
@@ -430,23 +481,8 @@ if (flow === "workspace") {
     await until("question 1 folded", `${firstQuestion}?.dataset.state === "resolved"
         && ${text(".mw-resolved-toggle")}.endsWith("2 resolved")`);
     await evaluate(`document.querySelector(".im-rail .mw-questions").scrollIntoView()`);
-    await shot("81a-workspace-questions");
-    // The filter narrows the feed to one agent.
-    await click(".mw-filter-chip", "frontend");
-    const lines =
-        `[...document.querySelectorAll(".mw-feed .mw-line-text")].map((l) => l.textContent)`;
-    await until("frontend's line alone", `JSON.stringify(${lines}) === '["button wired"]'`);
-    await click(".mw-filter-chip", "all");
-    await until("every line again", `${lines}.length >= 3`);
-    await shot("82-workspace-after-actions");
-    // The source view: the rendered MISSION.md with the Roster table, and its raw toggle.
-    await click(".mission-head .link", "source");
-    await until("source rendered", `document.querySelector(".mission .md table") !== null`);
-    await until("tick in the source", `${text(".mission .md")}.includes("the form")`);
-    await shot("83-workspace-source");
-    await click(".mission-head .link", "workspace");
-    await until("workspace again", `document.querySelector(".im") !== null`);
-    console.log("workspace ok");
+    await shot("q1-questions-resolved");
+    console.log("questions ok");
     await finish();
 }
 
@@ -3304,6 +3340,15 @@ if (flow === "design-workspace") {
         const section = pane.querySelector("[data-heading-index='6']");
         const top = section.getBoundingClientRect().top - pane.getBoundingClientRect().top;
         return pane.scrollTop > 0 && top >= 0 && top < 120;
+    })()`);
+    // The smooth scroll can still run when the section is in place; under load its last frame
+    // landed after the tab switch's reset (scrollTop 1). The switch waits until two reads,
+    // one poll (200 ms) apart, are equal.
+    await until("draft scroll settled", `(() => {
+        const now = ${workspace}.scrollTop;
+        const same = now === window.__e2eLastTop;
+        window.__e2eLastTop = now;
+        return same;
     })()`);
     await click(".agents-pane .view-tab", "Implement");
     await until("implement at the top", `${tabOf} === "implement"
