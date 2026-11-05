@@ -3108,6 +3108,21 @@ if (flow === "design-workspace") {
             ["2.2", "none"], ["3.1", "none"], ["3.2", "none"],
         ],
     });
+    // The outline is a sticky left column (styles.css `@container dw`), so it stays in view
+    // after a jump and the next jump is one click away.
+    const outlineBox = `(() => {
+        const pane = ${workspace};
+        const outline = pane.querySelector(".dw-outline");
+        const doc = pane.querySelector(".dw-body");
+        return {
+            column: outline.getBoundingClientRect().right <= doc.getBoundingClientRect().left,
+            sticky: getComputedStyle(outline).position,
+            visible: outline.getBoundingClientRect().top >= pane.getBoundingClientRect().top,
+        };
+    })()`;
+    await expectSame("outline column", await evaluate(outlineBox), {
+        column: true, sticky: "sticky", visible: true,
+    });
     // A short window, so the doc overflows the pane and the outline has to scroll it.
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1920, height: 600, deviceScaleFactor: 1, mobile: false,
@@ -3119,6 +3134,9 @@ if (flow === "design-workspace") {
         const top = section.getBoundingClientRect().top - pane.getBoundingClientRect().top;
         return pane.scrollTop > 0 && top >= 0 && top < 120;
     })()`);
+    await expectSame("outline after the jump", await evaluate(outlineBox), {
+        column: true, sticky: "sticky", visible: true,
+    });
     await shot("93-workspace-design");
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1920, height: 1000, deviceScaleFactor: 1, mobile: false,
@@ -3221,6 +3239,22 @@ if (flow === "design-workspace") {
     await until("phase 1 done", `${phasesNow}[0][2] === "3 / 3"
         && ${phasesNow}[0][1] === "false"`);
     await until("entries count moved", `${body(".im-header")}.includes("entries done 3 / 7")`);
+    // The Log is the main column's last block and the rail a sticky column beside it, so a
+    // folded phase list neither pushes the Log down nor lets the rail slide over it.
+    await expectSame("implement layout", await evaluate(`(() => {
+        const pane = ${workspace};
+        const box = (s) => pane.querySelector(s).getBoundingClientRect();
+        const main = box(".im-main");
+        const rail = box(".im-rail");
+        const log = box(".mw-log");
+        const plan = box(".im-phase:last-of-type");
+        return {
+            logInMain: log.left >= main.left && log.right <= main.right,
+            logUnderPlan: log.top >= plan.bottom && log.top - plan.bottom < 60,
+            apart: log.right <= rail.left,
+            rail: getComputedStyle(pane.querySelector(".im-rail")).position,
+        };
+    })()`), { logInMain: true, logUnderPlan: true, apart: true, rail: "sticky" });
     await shot("97-implement-ticked");
     await click(".agents-pane .im-open-draft");
     await until("draft marks moved", `${tabOf} === "draft"
@@ -3230,6 +3264,23 @@ if (flow === "design-workspace") {
             ["done", "done 1 / 1"], ["done", "done 1 / 1"], ["done", "done 1 / 1"],
             ["doing", "doing"], ["none", ""], ["none", ""], ["none", ""]])`);
     await shot("98-draft-marks");
+    // The views share one scroll box; a view change opens at the top, not at the depth the
+    // Draft was read at. A short window, so both the Draft and Implement overflow the pane.
+    await send("Emulation.setDeviceMetricsOverride", {
+        width: 1920, height: 600, deviceScaleFactor: 1, mobile: false,
+    });
+    await click(".agents-pane .dw-outline-item", "Detailed Implementation Plan");
+    // The jump scrolls smoothly; the switch waits for the section to settle at the top.
+    await until("draft scrolled", `(() => {
+        const pane = ${workspace};
+        const section = pane.querySelector("[data-heading-index='6']");
+        const top = section.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+        return pane.scrollTop > 0 && top >= 0 && top < 120;
+    })()`);
+    await click(".agents-pane .view-tab", "Implement");
+    await until("implement at the top", `${tabOf} === "implement"
+        && ${workspace}.scrollHeight > ${workspace}.clientHeight
+        && ${workspace}.scrollTop === 0`);
     await send("Emulation.setDeviceMetricsOverride", {
         width: 1500, height: 900, deviceScaleFactor: 1, mobile: false,
     });
