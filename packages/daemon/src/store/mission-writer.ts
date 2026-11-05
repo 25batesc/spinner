@@ -17,10 +17,17 @@ import type {
     MissionSectionResponse,
     MissionView,
 } from "@spinner/protocol";
-import { MISSION_ITEM_COMMANDS, is_entry_id, parse_entry_token } from "@spinner/protocol";
+import {
+    LEAD_NAME,
+    MISSION_ITEM_COMMANDS,
+    QUESTION_ITEM_COMMANDS,
+    is_entry_id,
+    parse_entry_token,
+} from "@spinner/protocol";
 import {
     join_mission,
     mission_view,
+    parse_questions,
     render_item,
     section_items,
     split_mission,
@@ -50,8 +57,11 @@ const REPLACEABLE: readonly MissionSection[] = ["goal", "done_when"];
 /** Sections that take one appended line. The Roster takes rows, Goal and Done when bodies. */
 const APPENDABLE: readonly MissionSection[] = ["plan", "contracts", "open_questions", "log"];
 
-/** Sections the `item` mode works on (s014): checklists with ids and times. */
-const ITEM_SECTIONS: readonly MissionSection[] = ["plan", "done_when"];
+/** Sections the `item` mode works on: checklists (s014) and Open questions (dogfood #43). */
+const ITEM_SECTIONS: readonly MissionSection[] = ["plan", "done_when", "open_questions"];
+
+/** The authors that may resolve an Open question; anyone may ask and answer. */
+const QUESTION_RESOLVERS: readonly string[] = [LEAD_NAME, "operator"];
 
 /** Upper bound on one appended line or roster cell. Longer text belongs in NOTES.md. */
 const TEXT_LENGTH_MAX = 4_000;
@@ -104,13 +114,18 @@ export function validate_mission_write(request: MissionSectionRequest): string |
 /** The `item` mode's own checks: the section, the command and the arguments it needs. */
 function validate_item(request: MissionSectionRequest): string | null {
     if (!ITEM_SECTIONS.includes(request.section)) {
-        return `item is allowed on plan and done_when only, not ${request.section}`;
+        return `item is allowed on plan, done_when and open_questions only, not ${
+            request.section
+        }`;
     }
     const item = request.item;
     if (item === undefined) {
         return "item mode needs `item`: the command and its arguments";
     }
-    if (!MISSION_ITEM_COMMANDS.includes(item.command)) {
+    if (request.section === "open_questions") {
+        return validate_question_item(item, request.author);
+    }
+    if (!(MISSION_ITEM_COMMANDS as readonly string[]).includes(item.command)) {
         return `item.command must be one of ${MISSION_ITEM_COMMANDS.join(", ")}`;
     }
     const needs_id = item.command !== "add" && item.command !== "reorder";
@@ -151,6 +166,27 @@ function validate_item(request: MissionSectionRequest): string | null {
     return null;
 }
 
+/** The checks of `answer` and `resolve` on `open_questions` (dogfood #43). */
+function validate_question_item(item: MissionItemRequest, author: string): string | null {
+    if (!(QUESTION_ITEM_COMMANDS as readonly string[]).includes(item.command)) {
+        return `item.command must be one of ${QUESTION_ITEM_COMMANDS.join(", ")} on open_questions`;
+    }
+    if (item.id === undefined || !Number.isInteger(item.id) || item.id < 1) {
+        return `item.id must be a positive integer for ${item.command}`;
+    }
+    const text = item.text ?? "";
+    if (text.trim().length === 0 || text.includes("\n")) {
+        return `item.text must be one non-empty line for ${item.command}`;
+    }
+    if (text.length > TEXT_LENGTH_MAX) {
+        return `item.text longer than ${TEXT_LENGTH_MAX} characters`;
+    }
+    if (item.command === "resolve" && !QUESTION_RESOLVERS.includes(author)) {
+        return "only the lead or the operator resolves a question";
+    }
+    return null;
+}
+
 /** Applies one validated write. `time` is `HH:MM` from the daemon's clock. */
 export function apply_mission_write(
     text: string,
@@ -165,6 +201,9 @@ export function apply_mission_write(
         block.body = `${request.text.replace(/\n+$/, "")}\n\n`;
     } else if (request.mode === "append") {
         append_line(block, append_text(request, time));
+    } else if (request.mode === "item" && request.section === "open_questions") {
+        assert.ok(request.item !== undefined);
+        apply_question(block, request.item, request.author, time);
     } else if (request.mode === "item") {
         assert.ok(request.item !== undefined);
         apply_item(block, request.section, request.item, request.author, time);
@@ -250,6 +289,42 @@ function apply_item(
     write_items(block, lines, found, items, is_plan, request.command === "reorder");
 }
 
+/**
+ * `answer` or `resolve` on question `request.id` (its 1-based position): writes
+ * `  - HH:MM author: text`, with `[resolved] ` before a reason, after the question's last
+ * non-blank line. Throws `MissionWriteError` for an unknown id or a second resolve.
+ */
+function apply_question(
+    block: MissionBlock,
+    request: MissionItemRequest,
+    author: string,
+    time: string,
+): void {
+    const id = request.id ?? 0;
+    const question = parse_questions(block.body)[id - 1];
+    if (question === undefined) {
+        throw new MissionWriteError(`no item ${id} in open_questions`);
+    }
+    if (request.command === "resolve" && question.resolved !== null) {
+        throw new MissionWriteError(`question ${id} is resolved already`);
+    }
+    const lines = block.body.replace(/\n+$/, "").split("\n");
+    const heads = lines.flatMap((line, index) => (line.startsWith("- ") ? [index] : []));
+    const head = heads[id - 1];
+    assert.ok(head !== undefined, `question ${id} must have a line`);
+    const next = heads[id] ?? lines.length;
+    let last = head;
+    for (let index = head + 1; index < next; index += 1) {
+        if ((lines[index] ?? "").trim().length > 0) {
+            last = index;
+        }
+    }
+    const mark = request.command === "resolve" ? "[resolved] " : "";
+    lines.splice(last + 1, 0, `  - ${time} ${author}: ${mark}${(request.text ?? "").trim()}`);
+    block.body = `${lines.join("\n")}\n\n`;
+    assert.equal(parse_questions(block.body).length, heads.length, "the count must not change");
+}
+
 /** Puts the items back: in place for an edit, after the other lines for a reorder or an add. */
 export function write_items(
     block: MissionBlock,
@@ -312,7 +387,7 @@ function append_text(request: MissionSectionRequest, time: string): string {
         case "contracts":
             return `- ${time} ${request.author}: ${text}`;
         case "open_questions":
-            return `- ${request.author}: ${text}`;
+            return `- ${time} ${request.author}: ${text}`;
         case "plan":
             return plan_item(text);
         default:

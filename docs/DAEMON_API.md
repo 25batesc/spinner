@@ -587,7 +587,7 @@ truth. `mission.changed` carries the same `view` after a tool write and after a 
 | `plan[]` | `{ id, text, owner, entry, state: next \| doing \| done, ticked_at }`; `id` is the number in the file; `entry` is the doc entry of the `[1.5]` token (or the older `plan 1.5:` prefix) at the start of the line, null for a free item; `text` is the text without the token. |
 | `roster[]` | `{ agent, owns, doing, blocked, updated }`, the cells as written. |
 | `contracts[]` | `{ id, ts, author, text }`; nested lines join the text. |
-| `questions[]` | `{ id, author, text, answer }`; the indented lines under a question are the answer. |
+| `questions[]` | `{ id, ts, author, text, answer, resolved }`; `id` is the position; `ts` is the `HH:MM` of a stamped question, null for an older line; the indented lines under a question are the answer, except the first `[resolved]` line, which is `resolved: { ts, author, reason }`. |
 | `log[]` | `{ ts, author, text }`, file order, oldest first. |
 
 A Plan item is `doing` when it is unticked and its owner's Roster `Doing` names `#id` or
@@ -613,6 +613,13 @@ text starts with a token, which then replaces the entry. `assign` sets the owner
 takes the ids in their new order; unlisted items follow in their old order. Ids never
 change. A Plan line written before s014 without a number gets one on the first write to the
 section. A 400 names the first problem. An unknown id is one.
+
+Open questions (dogfood #43) are stamped: `append` on `open_questions` writes
+`- HH:MM author: text`. The `item` mode on `open_questions` takes `answer` and `resolve`
+with `id` (the question's position) and `text`. `answer` writes `  - HH:MM author: text`
+under the question; any author may answer. `resolve` writes `  - HH:MM author: [resolved]
+text`; only `lead` and `operator` may resolve, and a question resolves once. Neither writes
+a Log line. An older daemon reads the new lines as a question and its answer lines.
 
 ## Reviews
 

@@ -117,6 +117,8 @@ function render_lead_brief(input: BriefTemplateInput): string {
         "   what it must not edit, what done means. Steer it with `agent_steer`.",
         "6. A product, UX or preference call is the operator's: put it under Open questions with",
         "   `mission_question`, with the options and your recommendation, and continue elsewhere.",
+        "   Do not start the text with your name; the daemon stamps the time and the author. When",
+        "   a question is settled, close it with `mission_question` `resolve`, its id and why.",
         "7. A pull request the operator mentions later: `adopt` it. A PR of a repo the project",
         "   does not list is refused with the reason; say so.",
         "8. Stage by path. Never `git add -A`. Never push.",

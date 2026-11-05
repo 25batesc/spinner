@@ -417,6 +417,31 @@ describe("tools against the daemon routes", () => {
             });
             expect(writes[5]?.body).toEqual({ text: "fixed" });
             expect(writes[6]?.body).toEqual({ reason: "design" });
+            expect(writes[3]?.body).toEqual({
+                section: "open_questions",
+                mode: "append",
+                text: "v1?",
+                author: "alpha",
+            });
+
+            // A non-lead answers a question by its id and cannot resolve one (dogfood #43).
+            await run(pi, "mission_question", { command: "answer", id: 2, text: " v2 " });
+            expect(daemon.requests.at(-1)?.body).toEqual({
+                section: "open_questions",
+                mode: "item",
+                text: "",
+                author: "alpha",
+                item: { command: "answer", id: 2, text: "v2" },
+            });
+            await expect(
+                run(pi, "mission_question", { command: "resolve", id: 2, text: "done" }),
+            ).rejects.toThrow(/only the lead resolves/);
+            await expect(
+                run(pi, "mission_question", { command: "answer", text: "x" }),
+            ).rejects.toThrow(/`id` must be/);
+            await expect(
+                run(pi, "mission_question", { command: "close", id: 1, text: "x" }),
+            ).rejects.toThrow(/must be one of ask, answer, resolve/);
         } finally {
             daemon.close();
         }

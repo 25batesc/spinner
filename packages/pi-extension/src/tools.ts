@@ -9,6 +9,7 @@ import {
     DIFF_TOOL_TIMEOUT_MS,
     DONE_WHEN_COMMANDS,
     MISSION_ITEM_COMMANDS,
+    QUESTION_TOOL_COMMANDS,
 } from "@spinner/protocol";
 import type {
     DesignGateRequest,
@@ -23,6 +24,7 @@ import type {
     MissionItemRequest,
     MissionSectionRequest,
     MissionSectionResponse,
+    QuestionItemCommand,
     SessionResponse,
     PrThreadsView,
     SessionView,
@@ -189,12 +191,7 @@ export async function run_tool(
                 author: env.agent,
             });
         case "mission_question":
-            return mission_write(client, session, {
-                section: "open_questions",
-                mode: "append",
-                text: text("text"),
-                author: env.agent,
-            });
+            return mission_write(client, session, question_request(args, env));
         case "message": {
             const body = {
                 from: env.agent,
@@ -370,6 +367,31 @@ async function done_when_tool(
         author,
         item: item_request(args),
     });
+}
+
+/**
+ * `mission_question` (dogfood #43): `ask` (the default) appends a stamped question; `answer`
+ * and `resolve` are the `item` mode on question `id`. Only the lead resolves; the daemon
+ * refuses other authors too, so the check here only gives the model a clear message first.
+ */
+function question_request(args: Record<string, unknown>, env: SpinnerEnv): MissionSectionRequest {
+    const command = String(args["command"] ?? "ask");
+    const text = String(args["text"] ?? "");
+    if (!(QUESTION_TOOL_COMMANDS as readonly string[]).includes(command)) {
+        throw new Error(`\`command\` must be one of ${QUESTION_TOOL_COMMANDS.join(", ")}`);
+    }
+    if (command === "ask") {
+        return { section: "open_questions", mode: "append", text, author: env.agent };
+    }
+    if (command === "resolve" && env.role !== "lead") {
+        throw new Error("only the lead resolves a question; answer it instead");
+    }
+    const id = Number(args["id"]);
+    if (!Number.isInteger(id) || id < 1) {
+        throw new Error("`id` must be the question's number, as the mission shows it");
+    }
+    const item = { command: command as QuestionItemCommand, id, text: text.trim() };
+    return { section: "open_questions", mode: "item", text: "", author: env.agent, item };
 }
 
 /** The model's `mission_plan` or `mission_done_when` arguments as the route's `item`. */

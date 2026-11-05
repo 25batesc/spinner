@@ -203,6 +203,15 @@ describe("the lead role", () => {
                 body: { section: "goal", mode: "replace", text: "Ship refunds.", author: "lead" },
             });
 
+            await run(pi, "mission_question", { command: "resolve", id: 3, text: "built" });
+            expect(daemon.requests.at(-1)?.body).toEqual({
+                section: "open_questions",
+                mode: "item",
+                text: "",
+                author: "lead",
+                item: { command: "resolve", id: 3, text: "built" },
+            });
+
             const items = "API agreed\n- UI done\n";
             await run(pi, "mission_done_when", { command: "set", items });
             expect(daemon.requests.at(-1)?.body).toEqual({
