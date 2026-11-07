@@ -49,8 +49,8 @@ describe("the drawer opens itself only for what needs the operator (row 4)", () 
         expect(drawerOpens(failed, failed)).toBe(false);
     });
 
-    it("opens when the shown session's needs_human turns from none to a line", () => {
-        expect(drawerOpens(quiet, watch({ needs: "verify locally" }))).toBe(true);
+    it("stays shut when the shown session's needs_human turns from none to a line", () => {
+        expect(drawerOpens(quiet, watch({ needs: "verify locally" }))).toBe(false);
         const needs = watch({ needs: "verify locally" });
         expect(drawerOpens(needs, watch({ needs: "approve the design" }))).toBe(false);
         expect(drawerOpens(needs, quiet)).toBe(false);
