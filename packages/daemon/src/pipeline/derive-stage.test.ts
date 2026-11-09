@@ -80,6 +80,38 @@ describe("derive_stage: diff comments waiting on the operator", () => {
     });
 });
 
+describe("derive_stage: preview comments waiting on the operator", () => {
+    const waiting = (id: string) => ({ id, where: "admin /refunds · RefundRow" });
+
+    it("is the next action when nothing before it needs the operator", () => {
+        const one = derive_stage(facts({ prs: [], comments_waiting: [waiting("c2")] }));
+        expect(one.needs_human).toBe("answer preview comment c2 on admin /refunds · RefundRow");
+        const two = derive_stage(
+            facts({ prs: [], comments_waiting: [waiting("c2"), waiting("c4")] }),
+        );
+        expect(two.needs_human).toBe(
+            "answer preview comment c2 on admin /refunds · RefundRow and 1 more",
+        );
+    });
+
+    it("yields to the pipeline's own action and to a diff comment", () => {
+        const piped = derive_stage(facts({ comments_waiting: [waiting("c2")] }, [pr()]));
+        expect(piped.needs_human).toBe("verify locally (backend#412)");
+        const diff = {
+            repo: "backend",
+            thread: 7,
+            waiting_on: "human" as const,
+            path: "src/app.ts",
+            start_line: 4,
+            end_line: 4,
+        };
+        const both = derive_stage(
+            facts({ prs: [], diff_waiting: [diff], comments_waiting: [waiting("c2")] }),
+        );
+        expect(both.needs_human).toBe("answer diff comment #7 on backend src/app.ts:4");
+    });
+});
+
 describe("derive_stage: one row of the stage table per test", () => {
     it("planned: session created, no commits", () => {
         const result = derive_stage(facts({ has_commits: false }, []));

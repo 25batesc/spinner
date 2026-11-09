@@ -39,6 +39,7 @@ export function facts_from_session(
         bots_expected: config.github.bot_logins.length > 0,
         stale_after_hours: config.threads.stale_after_hours,
         diff_waiting: (session.diff?.threads ?? []).filter((t) => t.waiting_on === "human"),
+        comments_waiting: session.comments?.waiting ?? [],
         review_draft: session.review?.draft === true,
         ...design_facts(session),
     };

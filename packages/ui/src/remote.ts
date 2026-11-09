@@ -4,6 +4,10 @@
 import { useEffect, useState } from "react";
 
 import type {
+    AttachmentResponse,
+    CommentResponse,
+    CommentsResponse,
+    NewCommentRequest,
     AgentCommandResponse,
     AgentEventsResponse,
     ApproveResponse,
@@ -137,6 +141,31 @@ export async function threadAction(
     const id = encodeURIComponent(thread);
     const query = `?pr=${encodeURIComponent(repo)}`;
     await send("POST", `/sessions/${dir}/threads/${id}/${verb}${query}`, body);
+}
+
+/** Preview comments (s054), newest first. */
+export async function fetchComments(dir: string, signal: AbortSignal): Promise<CommentsResponse> {
+    return getJson<CommentsResponse>(`/sessions/${dir}/comments`, signal);
+}
+
+/** Saves a PNG (base64, no `data:` prefix) under the session; answers its path. */
+export async function postAttachment(dir: string, png: string): Promise<AttachmentResponse> {
+    return send("POST", `/sessions/${dir}/attachments`, { mime: "image/png", data: png });
+}
+
+export async function postComment(dir: string, body: NewCommentRequest): Promise<CommentResponse> {
+    return send("POST", `/sessions/${dir}/comments`, body);
+}
+
+/** The operator's reply or resolve on a preview comment. */
+export async function commentAction(
+    dir: string,
+    id: string,
+    verb: "reply" | "resolve",
+    text?: string,
+): Promise<CommentResponse> {
+    const body = text === undefined ? {} : { text };
+    return send("POST", `/sessions/${dir}/comments/${encodeURIComponent(id)}/${verb}`, body);
 }
 
 export async function fetchPost(dir: string, signal: AbortSignal): Promise<PostView> {

@@ -76,9 +76,11 @@ export interface Revisions {
     threads: number;
     pipeline: number;
     inbox: number;
+    /** Moves on `comment.updated`: the preview comments (s054). */
+    comments: number;
 }
 
-const NO_REVISIONS: Revisions = { mission: 0, threads: 0, pipeline: 0, inbox: 0 };
+const NO_REVISIONS: Revisions = { mission: 0, threads: 0, pipeline: 0, inbox: 0, comments: 0 };
 
 export type Action =
     | { kind: "snapshot"; sessions: SessionView[] }
@@ -205,6 +207,8 @@ function revisionKind(event: SpinnerEvent): keyof Revisions | null {
         case "inbox.message":
         case "message.delivered":
             return "inbox";
+        case "comment.updated":
+            return "comments";
         default:
             return null;
     }

@@ -5,9 +5,12 @@
 // through `deliverAs`) or `ctx.abort()`, and the next poll carries the ack. The lifecycle
 // events the daemon folds into `busy` and `agent.settled` are posted to `events` as pi hands
 // them to the extension. `session_shutdown` stops the loop; a reload starts a fresh one.
+import { readFileSync } from "node:fs";
 import type { AgentExtensionCommand } from "@spinner/protocol";
 import { agent_route_base, type SpinnerEnv } from "./env.js";
 import type {
+    ImageContent,
+    ToolTextContent,
     ExtensionAPI,
     ExtensionContext,
     LifecycleEvent,
@@ -200,7 +203,7 @@ export function act(
     // A notify is the daemon's own text; a prompt or a steer may start with `/skill:`.
     const text = command.type === "notify" ? raw : expand_skill(raw, pi.getCommands());
     if (command.type === "steer") {
-        pi.sendUserMessage(text, { deliverAs: "steer" });
+        pi.sendUserMessage(with_images(text, command.images), { deliverAs: "steer" });
         return idle ? "started" : "queued";
     }
     if (command.type === "notify") {
@@ -208,12 +211,38 @@ export function act(
         pi.sendMessage(message, idle ? { triggerTurn: true } : { deliverAs: "steer" });
         return idle ? "started" : "queued";
     }
+    const content = with_images(text, command.images);
     if (idle) {
-        pi.sendUserMessage(text);
+        pi.sendUserMessage(content);
         return "started";
     }
-    pi.sendUserMessage(text, { deliverAs: "followUp" });
+    pi.sendUserMessage(content, { deliverAs: "followUp" });
     return "queued";
+}
+
+/**
+ * The text alone, or the text and the PNGs at `paths` as images (a preview comment's
+ * screenshot, s054). pi turns a path in text into an image only when it is pasted into its
+ * editor, so the files are read here. A file that cannot be read is left out: the text names
+ * its path, and the agent can still `read` it.
+ */
+export function with_images(
+    text: string,
+    paths: readonly string[] | undefined,
+): string | (ToolTextContent | ImageContent)[] {
+    if (paths === undefined || paths.length === 0) {
+        return text;
+    }
+    const images: ImageContent[] = [];
+    for (const path of paths) {
+        try {
+            const data = readFileSync(path, "base64");
+            images.push({ type: "image", data, mimeType: "image/png" });
+        } catch {
+            continue;
+        }
+    }
+    return images.length === 0 ? text : [{ type: "text", text }, ...images];
 }
 
 /**

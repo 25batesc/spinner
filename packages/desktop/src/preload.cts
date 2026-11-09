@@ -11,6 +11,7 @@ import type {
     PaneName,
     PreviewEvent,
     PreviewKey,
+    PreviewPoint,
     PreviewRect,
     SpinnerDesktop,
     ZoomDirection,
@@ -33,6 +34,8 @@ const IPC = {
     previews_zoom: "previews:zoom",
     previews_find: "previews:find",
     previews_clear_storage: "previews:clearStorage",
+    previews_capture: "previews:capture",
+    previews_inspect: "previews:inspect",
     previews_event: "previews:event",
     panes_pop_out: "panes:popOut",
     panes_dock_back: "panes:dockBack",
@@ -72,6 +75,9 @@ const bridge: SpinnerDesktop = {
         find: (key: PreviewKey, text: string | null) =>
             ipcRenderer.invoke(IPC.previews_find, key, text),
         clearStorage: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_clear_storage, key),
+        capture: (key: PreviewKey) => ipcRenderer.invoke(IPC.previews_capture, key),
+        inspect: (key: PreviewKey, point: PreviewPoint) =>
+            ipcRenderer.invoke(IPC.previews_inspect, key, point),
         subscribe: (listener: (event: PreviewEvent) => void) =>
             subscribe(IPC.previews_event, listener),
     },

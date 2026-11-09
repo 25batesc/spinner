@@ -35,6 +35,7 @@ import type {
     ThreadsResponse,
 } from "@spinner/protocol";
 import type { SpinnerEnv } from "./env.js";
+import { run_comment_tool } from "./tools-comments.js";
 import { run_operator_tool, wait_job } from "./tools-operator.js";
 
 /** Time the daemon gets to answer one tool call. */
@@ -335,6 +336,10 @@ export async function run_tool(
                 "End your turn now. The answer arrives as your next message."
             );
         }
+        case "comments_list":
+        case "comment_reply":
+        case "comment_suggest_resolve":
+            return run_comment_tool(spec.name, args, client, session, env.agent, env.session_dir);
         default:
             throw new Error(`${spec.name} is not implemented in this role`);
     }

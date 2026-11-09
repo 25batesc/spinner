@@ -57,9 +57,13 @@ describe("reduce", () => {
                 type: "message.delivered", ts, session: "s17-refund-flow",
                 file: null, agent: "ui", how: "log",
             },
+            {
+                type: "comment.updated", ts, session: "s17-refund-flow",
+                id: "c1", state: "open", waiting_on: "operator", author: "lead",
+            },
         );
         expect(revisionsOf(state, "s17-refund-flow")).toEqual({
-            mission: 2, threads: 0, pipeline: 0, inbox: 1,
+            mission: 2, threads: 0, pipeline: 0, inbox: 1, comments: 1,
         });
         expect(revisionsOf(state, "s001-bootstrap").mission).toBe(0);
     });

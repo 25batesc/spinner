@@ -4,7 +4,9 @@
 // docks back. Method: a fake host records every call per view and can close a pop-out window.
 import { describe, expect, it } from "vitest";
 import {
+    console_error_line,
     integer_rect,
+    push_console_error,
     next_zoom_level,
     preview_partition,
     PreviewRegistry,
@@ -91,6 +93,15 @@ function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
                 clear_storage() {
                     this.calls.push("clear storage");
                     return Promise.resolve();
+                },
+                capture() {
+                    this.calls.push("capture");
+                    const shot = { png: "iVBOR", width: 300, height: 200, url: this.url };
+                    return Promise.resolve({ ...shot, console_errors: [] });
+                },
+                inspect(point) {
+                    this.calls.push(`inspect ${point.x},${point.y}`);
+                    return Promise.resolve(null);
                 },
                 destroy() {
                     this.destroyed = true;
@@ -314,6 +325,36 @@ describe("PreviewRegistry", () => {
             "zoom 0",
             "clear storage",
         ]);
+    });
+
+    it("comments: capture and inspect reach the view; a missing key answers null", async () => {
+        const host = fake_host();
+        const registry = new PreviewRegistry(host);
+        registry.set("s1-a/web", "http://web.s1.localhost", rect);
+        expect(await registry.capture("s1-a/web")).toMatchObject({
+            width: 300,
+            url: "http://web.s1.localhost",
+        });
+        expect(await registry.inspect("s1-a/web", { x: 4, y: 5 })).toBeNull();
+        expect(await registry.capture("none/none")).toBeNull();
+        expect(await registry.inspect("none/none", { x: 1, y: 1 })).toBeNull();
+        expect(() => registry.inspect("s1-a/web", { x: Number.NaN, y: 1 })).toThrow(/finite/);
+        expect(host.views.get("s1-a/web")?.calls.slice(3)).toEqual(["capture", "inspect 4,5"]);
+    });
+
+    it("console errors: one line with the source, the newest 20 kept", () => {
+        expect(console_error_line("TypeError: x", "http://a/app.js", 12)).toBe(
+            "TypeError: x (http://a/app.js:12)",
+        );
+        expect(console_error_line("boom", "", 0)).toBe("boom");
+        expect(console_error_line("y".repeat(900), "s", 1)).toHaveLength(500);
+        let errors: string[] = [];
+        for (let index = 1; index <= 25; index += 1) {
+            errors = push_console_error(errors, `e${index}`);
+        }
+        expect(errors).toHaveLength(20);
+        expect(errors[0]).toBe("e6");
+        expect(errors.at(-1)).toBe("e25");
     });
 
     it("find: the same text again finds the next match; null clears", async () => {

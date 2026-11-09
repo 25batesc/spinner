@@ -192,6 +192,22 @@
                 "outcomes": {
                     "$ref": "#/definitions/OutcomeCounts",
                     "description": "Absent in sessions created before EGM build session 6."
+                },
+                "comments": {
+                    "type": "object",
+                    "properties": {
+                        "waiting": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/CommentWaiting"
+                            }
+                        }
+                    },
+                    "required": [
+                        "waiting"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Preview comments (s054) that wait on the operator, oldest first, so the stage derivation can name them. The records are `artifacts/comments/<id>.json`. Absent while none waits."
                 }
             },
             "required": [
@@ -1125,6 +1141,24 @@
             ],
             "additionalProperties": false,
             "description": "The outcome counters (docs/designs/egm-adoption.md, 6.19 to 6.22): fixer rounds and the operator's steers to the lead, counted per session across rounds."
+        },
+        "CommentWaiting": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "where": {
+                    "type": "string",
+                    "description": "`comment_where` of the anchor."
+                }
+            },
+            "required": [
+                "id",
+                "where"
+            ],
+            "additionalProperties": false,
+            "description": "A comment waiting on the operator, as `session.yaml` keeps it (`comments.waiting`) so the stage derivation can name it without reading the records."
         },
         "BoardView": {
             "type": "object",

@@ -5,7 +5,12 @@
 // one fixture per table row proves the table.
 import assert from "node:assert/strict";
 import type { NeedsHuman, PipelineFacts, PrFacts, Stage, StageResult } from "@spinner/protocol";
-import { REVIEW_DRAFT_NEEDS_HUMAN, STAGES, diff_needs_human } from "@spinner/protocol";
+import {
+    REVIEW_DRAFT_NEEDS_HUMAN,
+    STAGES,
+    comments_needs_human,
+    diff_needs_human,
+} from "@spinner/protocol";
 
 /** Upper bound on PRs per session. A session spans a handful of repos, never hundreds. */
 const PRS_MAX = 100;
@@ -13,7 +18,8 @@ const PRS_MAX = 100;
 export function derive_stage(facts: PipelineFacts): StageResult {
     assert.ok(facts.prs.length <= PRS_MAX, `more than ${PRS_MAX} PRs in one session`);
     assert.ok(facts.stale_after_hours > 0, "stale_after_hours must be positive");
-    const result = with_design(facts, with_diff_comments(facts, derive_pipeline(facts)));
+    const diffed = with_diff_comments(facts, derive_pipeline(facts));
+    const result = with_design(facts, with_preview_comments(facts, diffed));
     return with_review_draft(facts, result);
 }
 
@@ -60,6 +66,18 @@ function with_diff_comments(facts: PipelineFacts, result: StageResult): StageRes
         return result;
     }
     return { ...result, needs_human: diff_needs_human(waiting.length, first) };
+}
+
+/**
+ * A preview comment waiting on the operator (s054) is the next action by the diff comments'
+ * rule: only when nothing before it needs the operator.
+ */
+function with_preview_comments(facts: PipelineFacts, result: StageResult): StageResult {
+    const waiting = facts.comments_waiting ?? [];
+    if (waiting.length === 0 || result.needs_human !== null || result.stage === "closed") {
+        return result;
+    }
+    return { ...result, needs_human: comments_needs_human(waiting) };
 }
 
 function derive_pipeline(facts: PipelineFacts): StageResult {

@@ -3,7 +3,10 @@
 // the next poll, and posts the lifecycle events. Method: a fake pi that records calls and
 // lets the test fire events, and a fake daemon (`node:http`) that hands out a scripted list
 // of commands and records every request.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentExtensionCommand } from "@spinner/protocol";
 import { register } from "./index.js";
@@ -11,7 +14,7 @@ import type { ExtensionAPI, ExtensionContext } from "./pi-api.js";
 import { act, expand_skill } from "./tty.js";
 
 interface FakePi extends ExtensionAPI {
-    sent: Array<{ text: string; deliverAs: string | undefined }>;
+    sent: Array<{ text: unknown; deliverAs: string | undefined }>;
     custom: Array<{ customType: string; content: string; options: unknown }>;
     handlers: Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>;
     fire(event: string, payload: unknown, ctx: ExtensionContext): Promise<void>;
@@ -24,7 +27,7 @@ function fake_pi(): FakePi {
         handlers: new Map(),
         registerTool: () => undefined,
         registerCommand: () => undefined,
-        sendUserMessage: (text: string, options?: { deliverAs?: string }) => {
+        sendUserMessage: (text: unknown, options?: { deliverAs?: string }) => {
             pi.sent.push({ text, deliverAs: options?.deliverAs });
         },
         sendMessage: (
@@ -292,5 +295,29 @@ describe("the tty channel", () => {
         expect(pi.custom).toEqual([
             { customType: "spinner_notice", content: "n", options: { deliverAs: "steer" } },
         ]);
+    });
+
+    it("act: a prompt or steer with image paths sends the text and the images (s054)", () => {
+        const dir = mkdtempSync(join(tmpdir(), "spinner-images-"));
+        const png = join(dir, "shot.png");
+        writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2]));
+        const pi = fake_pi();
+        const idle = fake_ctx(true, { count: 0 });
+        expect(act(pi, idle, { id: "c-1", type: "prompt", text: "p", images: [png] })).toBe(
+            "started",
+        );
+        act(pi, idle, { id: "c-2", type: "steer", text: "s", images: [join(dir, "gone.png")] });
+        expect(pi.sent).toEqual([
+            {
+                text: [
+                    { type: "text", text: "p" },
+                    { type: "image", data: "iVBORwEC", mimeType: "image/png" },
+                ],
+                deliverAs: undefined,
+            },
+            // A file that cannot be read leaves the text alone; it still names the path.
+            { text: "s", deliverAs: "steer" },
+        ]);
+        rmSync(dir, { recursive: true, force: true });
     });
 });

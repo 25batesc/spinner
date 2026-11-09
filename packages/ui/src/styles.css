@@ -885,6 +885,56 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     background: transparent; color: inherit; cursor: pointer; border-radius: 3px;
 }
 .menu button:hover { background: var(--fill); }
+/* Preview comments (s054): the frozen page, the marks over it, the comment box, the strip of
+   open comments above the bar, and the thumbnails in a thread. */
+.comment-mode {
+    flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--space-1);
+}
+.comment-toolbar {
+    display: flex; gap: var(--space-2); align-items: center; font-size: var(--text-dense);
+}
+.comment-toolbar > span:first-child { color: var(--muted); }
+.comment-stage {
+    position: relative; flex: 1; min-height: 0; overflow: auto;
+    border: 1px solid var(--accent); border-radius: var(--radius-box);
+}
+.comment-canvas { position: relative; user-select: none; }
+.comment-canvas.picking { cursor: crosshair; }
+.comment-shot { display: block; width: 100%; height: auto; }
+.comment-hover, .comment-mark { position: absolute; pointer-events: none; box-sizing: border-box; }
+.comment-hover {
+    border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.comment-mark {
+    border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.comment-pin {
+    position: absolute; transform: translate(-50%, -50%); padding: 0 5px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; color: white; background: var(--warn); pointer-events: auto;
+}
+.comment-composer {
+    position: sticky; bottom: 0; display: flex; flex-direction: column; gap: var(--space-1);
+    padding: var(--space-2); background: var(--surface); border-top: 1px solid var(--line-soft);
+}
+.comment-composer textarea { font: inherit; min-height: 56px; resize: vertical; }
+.comment-picked { margin: 0; font-size: var(--text-dense); overflow-wrap: anywhere; }
+.comment-send { display: flex; gap: var(--space-2); align-items: center; justify-content: flex-end; }
+.comment-note {
+    flex: none; background: var(--accent-tint); border-left-color: var(--accent);
+}
+.comment-strip { display: flex; flex-direction: column; gap: var(--space-1); }
+.comment-chips { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+.comment-chip {
+    font: inherit; font-size: var(--text-dense); padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--line-soft); background: var(--fill-soft); color: inherit;
+    cursor: pointer;
+}
+.comment-chip.chip-on { border-color: var(--accent); }
+.comment-thumb {
+    display: block; max-width: 100%; max-height: 120px; margin: var(--space-1) 0;
+    border: 1px solid var(--line-soft); border-radius: var(--radius-control);
+}
+.comment-source { margin: 0; font-size: var(--text-dense); font-family: var(--font-mono); }
 .find-field { display: flex; gap: 4px; align-items: center; }
 .find-field input { font: inherit; font-size: 12px; width: 140px; }
 .find-count { font-size: 11px; min-width: 28px; }

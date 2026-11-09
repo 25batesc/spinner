@@ -48,6 +48,7 @@ Without the app, the daemon shows the `osascript` banner as before.
 | `src/main.ts` | The main process: window, IPC, daemon link, events socket, tray. |
 | `src/previews.ts` | Pure registry: one view per `<session dir>/<service>`, shown one at a time, hidden views kept alive, destroyed on `session.closed`, bounded at 32. |
 | `src/electron-previews.ts` | The `WebContentsView` behind each registry entry; a failed load shows the error inside the view; pop-out moves it into a `BaseWindow`. |
+| `src/inspect-page.ts` | The script `previews.inspect` runs in the page's main world: selector, text, rect, React component and source. |
 | `src/pane-windows.ts` | Pure registry of pane windows: one per `(pane, session)`, closed with the session. |
 | `src/window-geometry.ts` | `SPINNER_DESKTOP_WINDOW` parsing. |
 | `src/daemon.ts` | Probe `/health`; start a daemon and poll for 30 s; never start one after a loss. |
@@ -76,6 +77,33 @@ reload; the renderer confirms first). A `navigated` event through `previews.subs
 carries `url`, `title`, `canGoBack`, `canGoForward` and `loading` on `did-navigate`,
 `did-navigate-in-page`, `page-title-updated`, `did-start-loading` and `did-stop-loading`.
 Navigation stays inside the view; a `target=_blank` link still opens the external browser.
+
+## Preview comments
+
+The bar's comment button (s054) freezes the preview. Nothing the renderer draws can sit
+over a live `WebContentsView`, so the renderer hides the view and shows a picture of the
+page in its place. The operator marks the picture; the UI sends the comment to the daemon
+(DAEMON_API.md, "Preview comments"). Two bridge methods carry it:
+
+- `previews.capture(key)` returns `PreviewCapture`: the visible page as a PNG
+  (`webContents.capturePage()`, base64, at the screen's pixel density), the viewport
+  `width` and `height` in CSS pixels (the zoom is taken out), the page's `url`, and
+  `console_errors`. The view collects each `console-message` at level error from its
+  creation, at most `CONSOLE_ERRORS_MAX` (20, the newest kept), each cut at
+  `CONSOLE_ERROR_CHARS_MAX` (500) characters. A capture takes the collection and starts a
+  new one. Null for an unknown key or a failed capture.
+- `previews.inspect(key, point)` returns `PreviewElement` for the element at `point` (CSS
+  pixels of the viewport): a CSS `selector` (an id, else a tag path with `:nth-of-type`),
+  the visible `text`, the `rect`, the React `component` and its `source`. The script from
+  `src/inspect-page.ts` runs through `executeJavaScript` in the page's main world, because
+  React's `__reactFiber$*` keys are not visible from an isolated world. `source` is
+  `_debugSource` on React 18 and older. React 19 has no `_debugSource`, so `source` is the
+  first frame of `_debugStack` outside React: the dev server's module URL and line, which
+  can differ from the line in the source file. Null for an unknown key, no element, or a
+  page that refuses the script.
+
+Both methods are optional on `SpinnerDesktop`. A desktop build older than v0.21.0 lacks
+them, and the UI then shows no comment button.
 
 ## Test
 
