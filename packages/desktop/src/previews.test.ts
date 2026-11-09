@@ -38,6 +38,9 @@ function fake_host(): PreviewHost & { views: Map<string, FakeView> } {
                     this.url = url;
                     this.calls.push(`load ${url}`);
                 },
+                host(window) {
+                    this.calls.push(window === null ? "host main" : "host pane");
+                },
                 set_bounds(rect) {
                     this.calls.push(`bounds ${rect.x},${rect.y} ${rect.width}x${rect.height}`);
                 },
@@ -142,6 +145,32 @@ describe("PreviewRegistry", () => {
         // A second show is a no-op on the view: no flicker from redundant calls.
         registry.show("s1-a/web");
         expect(host.views.get("s1-a/web")?.calls.filter((c) => c === "show")).toHaveLength(2);
+    });
+
+    it("a popped-out previews pane holds its views; each window shows one; close rehomes", () => {
+        const host = fake_host();
+        const registry = new PreviewRegistry(host);
+        const pane = {};
+        registry.set("s1-a/web", "http://web.s1.localhost", rect);
+        registry.set("s2-b/web", "http://web.s2.localhost", rect, pane);
+        registry.set("s2-b/api", "http://api.s2.localhost", rect, pane);
+        const calls = (key: string) => host.views.get(key)?.calls ?? [];
+        expect(calls("s2-b/web")).toContain("host pane");
+        expect(calls("s1-a/web")).not.toContain("host pane");
+        // The pane window's second tab hides the first; the main window's view stays shown.
+        expect(calls("s2-b/web").at(-1)).toBe("hide");
+        expect(calls("s1-a/web").at(-1)).toBe("show");
+        // The window closes: its views come back to the main window, hidden.
+        expect(registry.rehome(pane)).toBe(2);
+        expect(calls("s2-b/api").slice(-2)).toEqual(["hide", "host main"]);
+        expect(calls("s1-a/web").at(-1)).toBe("show");
+        // The main window places one of them again: no second host call.
+        registry.set("s2-b/api", "http://api.s2.localhost", rect);
+        expect(calls("s2-b/api").filter((c) => c.startsWith("host"))).toEqual([
+            "host pane",
+            "host main",
+        ]);
+        expect(calls("s2-b/api").at(-1)).toBe("show");
     });
 
     it("hide, reload and devtools reach the view; unknown keys are ignored", () => {

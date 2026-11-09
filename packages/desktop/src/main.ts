@@ -108,8 +108,15 @@ function send_to_renderer(channel: string, payload: unknown): void {
     }
 }
 
-/** A pane window: the UI's one-pane route, cascaded from the main window like a pop-out. */
-function electron_pane_host(main: BrowserWindow): PaneWindowHost {
+/**
+ * A pane window: the UI's one-pane route, cascaded from the main window like a pop-out. A
+ * previews pane window holds the session's preview views; `on_close` runs before the window
+ * goes away so the registry can take them back.
+ */
+function electron_pane_host(
+    main: BrowserWindow,
+    on_close: (window: BrowserWindow) => void,
+): PaneWindowHost {
     return {
         open(popped, url, on_closed) {
             const bounds = main.getBounds();
@@ -128,6 +135,7 @@ function electron_pane_host(main: BrowserWindow): PaneWindowHost {
             });
             // The page sets its own title; the window keeps the pane and session as its name.
             created.on("page-title-updated", (event) => event.preventDefault());
+            created.on("close", () => on_close(created));
             created.on("closed", on_closed);
             void created.loadURL(url);
             return {
@@ -303,12 +311,16 @@ async function ensure_daemon(): Promise<void> {
 }
 
 function register_ipc(views: PreviewRegistry, windows: PaneWindows): void {
-    ipcMain.handle(IPC.previews_set, (_event, key: unknown, url: unknown, rect: unknown) => {
+    ipcMain.handle(IPC.previews_set, (event, key: unknown, url: unknown, rect: unknown) => {
         assert.equal(typeof key, "string");
         assert.equal(typeof url, "string");
         assert.equal(typeof rect, "object");
         debug(`set ${String(key)} ${String(url)} ${JSON.stringify(rect)}`);
-        views.set(key as string, url as string, rect as PreviewRect);
+        // The view goes in the window that asked: the main window, or a popped-out previews
+        // pane, so every tab of the session follows that window.
+        const sender = BrowserWindow.fromWebContents(event.sender);
+        const pane_window = sender !== null && sender !== window ? sender : null;
+        views.set(key as string, url as string, rect as PreviewRect, pane_window);
     });
     const with_key =
         (name: string, handler: (key: string) => void) => (_event: unknown, key: unknown) => {
@@ -406,7 +418,15 @@ function open_window(): void {
                 debug,
             ),
         );
-        panes = new PaneWindows(electron_pane_host(window), daemon_url);
+        panes = new PaneWindows(
+            electron_pane_host(window, (closing) => {
+                const moved = registry?.rehome(closing) ?? 0;
+                if (moved > 0) {
+                    log(`pane window closing: ${moved} preview view(s) back in the main window`);
+                }
+            }),
+            daemon_url,
+        );
         render_window();
     } else {
         window.show();

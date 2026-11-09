@@ -1,6 +1,8 @@
 // The preview registry: one view per preview key, created on demand, shown one at a time,
 // hidden views kept alive so a page keeps its state, destroyed when the session closes. A
-// popped-out view lives in its own window: the registry neither places nor hides it. This
+// popped-out view lives in its own window: the registry neither places nor hides it. A
+// popped-out previews pane is a pane window: its views are placed there (`set` with the
+// window) and come back to the main window when it closes (`rehome`). This
 // file is pure so Vitest can drive it: the registry takes a `PreviewHost` that makes views and
 // calls their methods; `main.ts` supplies the Electron one.
 import assert from "node:assert/strict";
@@ -12,9 +14,17 @@ import {
     type ZoomDirection,
 } from "@spinner/protocol";
 
+/**
+ * A window a view can live in: the main window (null) or a popped-out previews pane. The
+ * registry compares handles only; the Electron host moves the `WebContentsView` between them.
+ */
+export type PreviewWindow = object;
+
 /** What the registry needs from one `WebContentsView`. */
 export interface PreviewView {
     load(url: string): void;
+    /** Moves the view under `window`'s content view; null is the main window. */
+    host(window: PreviewWindow | null): void;
     set_bounds(rect: PreviewRect): void;
     set_visible(visible: boolean): void;
     reload(): void;
@@ -51,9 +61,11 @@ interface Entry {
     view: PreviewView;
     /** The URL of the last `set`, so a repeated `set` with the same URL only moves the view. */
     url: string;
-    /** Shown in the main window. Never true while `popped`. */
+    /** Shown in its window. Never true while `popped`. */
     visible: boolean;
     popped: boolean;
+    /** The window the view is placed in: null for the main window, else a pane window. */
+    window: PreviewWindow | null;
     /** Monotonic tick of the last `set` or `show`, for eviction order. */
     shown_at: number;
     /** The text of the last `find`, so the same text again finds the next match. */
@@ -97,8 +109,17 @@ export class PreviewRegistry {
         assert.ok(views_max >= 1, "the registry must hold at least one view");
     }
 
-    /** Creates or reuses the view for `key`, loads `url` if it changed, places and shows it. */
-    set(key: PreviewKey, url: string, rect: PreviewRect): void {
+    /**
+     * Creates or reuses the view for `key`, loads `url` if it changed, places and shows it.
+     * `window` is the window the caller renders in: the main window (null), or a popped-out
+     * previews pane, which takes every tab of its session with it (dogfooding, 2026-11-06).
+     */
+    set(
+        key: PreviewKey,
+        url: string,
+        rect: PreviewRect,
+        window: PreviewWindow | null = null,
+    ): void {
         assert_key(key);
         assert_url(url);
         const bounds = integer_rect(rect);
@@ -110,6 +131,7 @@ export class PreviewRegistry {
                 url: "",
                 visible: false,
                 popped: false,
+                window: null,
                 shown_at: 0,
                 finding: null,
             };
@@ -122,8 +144,31 @@ export class PreviewRegistry {
         if (entry.popped) {
             return;
         }
+        if (entry.window !== window) {
+            entry.window = window;
+            entry.view.host(window);
+        }
         entry.view.set_bounds(bounds);
         this.show(key);
+    }
+
+    /**
+     * Puts every view of `window` back under the main window, hidden, before that window
+     * closes; the main window's next `set` places them again.
+     */
+    rehome(window: PreviewWindow): number {
+        let moved = 0;
+        for (const entry of this.entries.values()) {
+            if (entry.window !== window) {
+                continue;
+            }
+            entry.window = null;
+            entry.visible = false;
+            entry.view.set_visible(false);
+            entry.view.host(null);
+            moved += 1;
+        }
+        return moved;
     }
 
     show(key: PreviewKey): void {
@@ -134,7 +179,8 @@ export class PreviewRegistry {
         this.tick += 1;
         entry.shown_at = this.tick;
         for (const [other_key, other] of this.entries) {
-            if (other.popped) {
+            // One view shows per window: a pane window and the main window each show theirs.
+            if (other.popped || other.window !== entry.window) {
                 continue;
             }
             const visible = other_key === key;

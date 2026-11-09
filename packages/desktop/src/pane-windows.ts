@@ -17,8 +17,11 @@ export interface PaneWindowHost {
     open(pane: PoppedPane, url: string, on_closed: () => void): PaneWindow;
 }
 
-/** The panes a page can show alone. The previews pane pops out per key, not as a page. */
-export const PAGE_PANES: readonly PaneName[] = ["sessions", "agents"];
+/**
+ * The panes a page can show alone. The previews pane is one since 2026-11-06: its window
+ * carries every tab of the session, and the views follow it (`PreviewRegistry.set`).
+ */
+export const PAGE_PANES: readonly PaneName[] = ["sessions", "agents", "previews"];
 
 export function pane_url(daemon_url: string, pane: PaneName, session: string): string {
     const url = new URL(daemon_url);

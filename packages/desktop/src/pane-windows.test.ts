@@ -1,6 +1,6 @@
 // Goal: one window per (pane, session), a second pop-out focuses it, dock back closes it
 // without the close callback, the close button reports once, a session close takes its
-// windows, and the previews pane has no page of its own. Method: a fake host records opens.
+// windows, the previews pane among them. Method: a fake host records opens.
 import { describe, expect, it } from "vitest";
 import { pane_url, PaneWindows, type PaneWindowHost } from "./pane-windows.js";
 
@@ -78,11 +78,13 @@ describe("PaneWindows", () => {
         expect(panes.close_session("s1-a")).toEqual([]);
     });
 
-    it("the previews pane has no page of its own", () => {
+    it("the previews pane is a page of its own: one window carries every tab", () => {
         const host = fake_host();
         const panes = new PaneWindows(host, "http://127.0.0.1:7777");
-        expect(panes.pop_out("previews", "s1-a", () => undefined)).toBe(false);
-        expect(host.windows).toEqual([]);
+        expect(panes.pop_out("previews", "s1-a", () => undefined)).toBe(true);
+        expect(host.windows.map((w) => w.url)).toEqual([
+            "http://127.0.0.1:7777/?pane=previews&session=s1-a",
+        ]);
     });
 });
 

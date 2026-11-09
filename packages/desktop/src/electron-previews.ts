@@ -16,7 +16,12 @@ import type {
     PreviewRect,
 } from "@spinner/protocol";
 import { error_page } from "./pages.js";
-import { preview_partition, type PreviewHost, type PreviewView } from "./previews.js";
+import {
+    preview_partition,
+    type PreviewHost,
+    type PreviewView,
+    type PreviewWindow,
+} from "./previews.js";
 
 /** Chromium's `net::ERR_ABORTED`: a navigation the page itself replaced, not a failure. */
 const ERR_ABORTED = -3;
@@ -62,6 +67,8 @@ class ElectronPreviewView implements PreviewView {
     private url = "";
     /** The window the view lives in while popped out; null while docked. */
     private popout: BaseWindow | null = null;
+    /** The window the view is a child of while docked: the main window or a pane window. */
+    private parent: BaseWindow;
 
     constructor(
         private readonly window: BrowserWindow,
@@ -78,6 +85,7 @@ class ElectronPreviewView implements PreviewView {
             },
         });
         this.view.setVisible(false);
+        this.parent = window;
         window.contentView.addChildView(this.view);
         const contents = this.view.webContents;
         contents.setWindowOpenHandler(({ url }) => {
@@ -121,6 +129,22 @@ class ElectronPreviewView implements PreviewView {
         this.url = url;
         // Rejections surface as `did-fail-load`; the promise itself is not the signal.
         this.view.webContents.loadURL(url).catch(() => undefined);
+    }
+
+    host(window: PreviewWindow | null): void {
+        assert.equal(this.destroyed, false);
+        const target = (window as BaseWindow | null) ?? this.window;
+        if (target === this.parent || this.popout !== null) {
+            return;
+        }
+        if (!this.parent.isDestroyed()) {
+            this.parent.contentView.removeChildView(this.view);
+        }
+        this.parent = target;
+        if (!target.isDestroyed()) {
+            target.contentView.addChildView(this.view);
+        }
+        this.debug(`host ${this.key} ${target === this.window ? "main" : "pane window"}`);
     }
 
     set_bounds(rect: PreviewRect): void {
@@ -247,7 +271,7 @@ class ElectronPreviewView implements PreviewView {
             title: popout_title(this.key, this.view.webContents.getTitle()),
         });
         this.popout = popout;
-        this.window.contentView.removeChildView(this.view);
+        this.parent.contentView.removeChildView(this.view);
         popout.contentView.addChildView(this.view);
         const fit = () => {
             const { width, height } = popout.getContentBounds();
@@ -283,8 +307,8 @@ class ElectronPreviewView implements PreviewView {
     private adopt_back(popout: BaseWindow): void {
         popout.contentView.removeChildView(this.view);
         this.view.setVisible(false);
-        if (!this.window.isDestroyed()) {
-            this.window.contentView.addChildView(this.view);
+        if (!this.parent.isDestroyed()) {
+            this.parent.contentView.addChildView(this.view);
         }
         this.debug(`dock back ${this.key}`);
     }
@@ -297,8 +321,8 @@ class ElectronPreviewView implements PreviewView {
             this.popout = null;
             popout.contentView.removeChildView(this.view);
             popout.close();
-        } else if (!this.window.isDestroyed()) {
-            this.window.contentView.removeChildView(this.view);
+        } else if (!this.parent.isDestroyed()) {
+            this.parent.contentView.removeChildView(this.view);
         }
         this.view.webContents.close();
     }

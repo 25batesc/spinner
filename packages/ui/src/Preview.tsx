@@ -126,9 +126,11 @@ function watchDocked(
 }
 
 /**
- * The desktop path. The previews pane pops out the view of the tab on show: the window adopts
- * the existing `WebContentsView`, no reload (contract: `previews.popOut`). The other panes
- * open a `BrowserWindow` on the `?pane=` route (`panes.popOut`).
+ * The desktop path. Every pane, the previews pane included, opens a `BrowserWindow` on the
+ * `?pane=` route (`panes.popOut`). A previews pane window carries every tab of the session:
+ * the desktop places the session's `WebContentsView`s in the window that renders them, so
+ * the tabs switch there with no reload (2026-11-06; before, one view popped out alone and
+ * the other tabs stayed behind).
  */
 function popOutInDesktop(
     bridge: SpinnerDesktop,
@@ -139,15 +141,6 @@ function popOutInDesktop(
         return "Select a session before popping a pane out.";
     }
     const session = request.session;
-    if (request.pane === "previews") {
-        const key = request.preview?.key;
-        if (key === undefined) {
-            return "No live preview to pop out.";
-        }
-        void bridge.previews.popOut(key);
-        const popped = { pane: "previews" as const, session, key };
-        return watchDocked(bridge, popped, () => bridge.previews.dockBack(key), onDocked);
-    }
     void bridge.panes.popOut(request.pane, session);
     const popped = { pane: request.pane, session };
     const dockBack = () => bridge.panes.dockBack(request.pane, session);
