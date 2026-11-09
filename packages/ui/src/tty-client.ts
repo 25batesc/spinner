@@ -139,3 +139,12 @@ export function connectTty(url: string, handlers: TtyHandlers): TtyConnection {
         },
     };
 }
+
+/**
+ * The text a drop on the terminal pastes: each path with its spaces escaped and a space
+ * after it, so the shell-style path pi expects stays one token
+ * (`/a/My Shot.png` becomes `/a/My\ Shot.png `).
+ */
+export function droppedPathsText(paths: readonly string[]): string {
+    return paths.map((path) => `${path.replace(/ /g, "\\ ")} `).join("");
+}

@@ -20,6 +20,17 @@ export interface SpinnerDesktop {
     daemon: DesktopDaemon;
     /** Absent in a desktop build older than #12; the UI checks before it subscribes. */
     sessions?: DesktopSessions;
+    /** Absent in a desktop build older than v0.20.1; the UI checks before a drop. */
+    files?: DesktopFiles;
+}
+
+export interface DesktopFiles {
+    /**
+     * The path on disk of a file the operator dropped on the page (Electron's
+     * `webUtils.getPathForFile`). A web page cannot read it alone, so a drop on the terminal
+     * works in the desktop app only; the path is pasted into the pty as iTerm would do.
+     */
+    pathOf(file: File): string;
 }
 
 export interface DesktopSessions {

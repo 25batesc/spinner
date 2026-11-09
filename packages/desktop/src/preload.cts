@@ -93,6 +93,9 @@ const bridge: SpinnerDesktop = {
         subscribeFocus: (listener: (session: string) => void) =>
             subscribe(IPC.sessions_focus, listener),
     },
+    files: {
+        pathOf: (file: File) => electron.webUtils.getPathForFile(file),
+    },
 };
 
 contextBridge.exposeInMainWorld("spinnerDesktop", bridge);

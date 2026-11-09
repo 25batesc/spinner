@@ -5,12 +5,18 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
 import { terminalTheme, THEME_EVENT } from "./theme.ts";
-import { connectTty, ttyUrl, type TtyConnection, type TtyStatus } from "./tty-client.ts";
+import {
+    connectTty,
+    droppedPathsText,
+    ttyUrl,
+    type TtyConnection,
+    type TtyStatus,
+} from "./tty-client.ts";
 
 export interface AgentTerminalProps {
     /** The socket path, `tty_path(dir, name)`. */
@@ -188,9 +194,38 @@ export function AgentTerminal({ path, running, visible, onResume }: AgentTermina
         };
     }, [visible]);
 
+    // A file dropped on the terminal pastes its path, as iTerm does: pi reads an image path
+    // in the prompt as an attachment. The page learns the path from the desktop bridge only.
+    const [dropNote, setDropNote] = useState<string | null>(null);
+    const onDrop = (event: DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        const files = [...event.dataTransfer.files];
+        if (files.length === 0) {
+            return;
+        }
+        const pathOf = window.spinnerDesktop?.files?.pathOf;
+        if (pathOf === undefined) {
+            setDropNote("Dropping a file needs the desktop app; in a browser, paste its path.");
+            return;
+        }
+        const paths = files.map((file) => pathOf(file)).filter((path) => path.length > 0);
+        const terminal = opened.current?.terminal;
+        if (paths.length === 0 || terminal === undefined) {
+            return;
+        }
+        setDropNote(null);
+        terminal.paste(droppedPathsText(paths));
+        terminal.focus();
+    };
+
     const line = statusLine(status, running);
     return (
-        <div className="agent-terminal" hidden={!visible}>
+        <div
+            className="agent-terminal"
+            hidden={!visible}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={onDrop}
+        >
             {(line !== null || failure !== null) && (
                 <p className="muted tty-status">
                     {line !== null && <span>{line} </span>}
@@ -202,6 +237,7 @@ export function AgentTerminal({ path, running, visible, onResume }: AgentTermina
                     {failure !== null && <span className="error"> {failure}</span>}
                 </p>
             )}
+            {dropNote !== null && <p className="muted tty-status">{dropNote}</p>}
             <div className="terminal-host" ref={host} />
         </div>
     );

@@ -10,6 +10,7 @@ import { tty_path } from "@spinner/protocol";
 import { startFixture } from "../fixture/server.ts";
 import {
     connectTty,
+    droppedPathsText,
     exitCodeOf,
     nextReconnectDelay,
     resizeFrame,
@@ -173,5 +174,15 @@ describe("the exit frame", () => {
         expect(client.statuses.at(-1)).toEqual({ state: "exited", code: 0 });
         await until(() => client.statuses.filter((s) => s.state === "connecting").length === 2,
             "a retry after the exit");
+    });
+});
+
+describe("droppedPathsText", () => {
+    it("escapes spaces and ends each path with a space, so pi reads one token per file", () => {
+        expect(droppedPathsText(["/a/shot.png"])).toBe("/a/shot.png ");
+        expect(droppedPathsText(["/a/My Shot.png", "/b/c.png"])).toBe(
+            "/a/My\\ Shot.png /b/c.png ",
+        );
+        expect(droppedPathsText([])).toBe("");
     });
 });
