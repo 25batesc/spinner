@@ -1,6 +1,6 @@
 // Tests drive the reducer with API v1 events built on the fixture sessions, so they check what
 // a user would see after the stream: which sessions exist, which jobs run, what the feed says.
-import type { Job, SpinnerEvent } from "@spinner/protocol";
+import type { Job, SessionView, SpinnerEvent } from "@spinner/protocol";
 import { describe, expect, it } from "vitest";
 
 import { initialSessions, session, stackView, view } from "../fixture/data.ts";
@@ -13,6 +13,8 @@ import {
     revisionsOf,
     runningJob,
     sortedSessions,
+    agentWorking,
+    agoText,
     type UiState,
 } from "./state.ts";
 
@@ -34,6 +36,25 @@ describe("reduce", () => {
             "s17-refund-flow",
             "s001-bootstrap",
         ]);
+    });
+
+    it("the session the operator spoke to last comes before a newer one he never spoke to", () => {
+        const [, [quietDir, quiet]] = sortedSessions(loaded) as [unknown, [string, SessionView]];
+        const older = {
+            ...quiet,
+            summary: {
+                ...quiet.summary,
+                session: {
+                    ...quiet.summary.session,
+                    created: "2020-01-01T00:00:00Z",
+                    last_interaction: "2027-01-01T00:00:00Z",
+                },
+            },
+        };
+        const state: UiState = { ...loaded, sessions: { ...loaded.sessions, [quietDir]: older } };
+        // Created long ago, but spoken to last: it leads the sessions that do not need him.
+        const order = sortedSessions(state).map(([dir]) => dir);
+        expect(order[1]).toBe(quietDir);
     });
 
     it("replaces a session with the view in session.updated and drops it on session.closed", () => {
@@ -149,5 +170,46 @@ describe("reduce", () => {
         });
         expect(bare.missions).toEqual({});
         expect(revisionsOf(bare, "s17-refund-flow").mission).toBe(1);
+    });
+});
+
+describe("agentWorking and agoText", () => {
+    it("reads a running agent and words the time since the last interaction", () => {
+        const fixture = loaded.sessions["s17-refund-flow"]!;
+        // The fixture's refund session has a running agent; the same with every agent idle:
+        const idleAgents = Object.fromEntries(
+            Object.entries(fixture.summary.session.agents ?? {}).map(([name, agent]) => [
+                name,
+                { ...agent, process: "idle" as const },
+            ]),
+        );
+        const view = {
+            ...fixture,
+            summary: {
+                ...fixture.summary,
+                session: { ...fixture.summary.session, agents: idleAgents },
+            },
+        };
+        const running = {
+            ...view,
+            summary: {
+                ...view.summary,
+                session: {
+                    ...view.summary.session,
+                    agents: {
+                        lead: { harness: "tty" as const, model: "m", process: "running" as const },
+                    },
+                },
+            },
+        };
+        expect(agentWorking(view)).toBe(false);
+        expect(agentWorking(running)).toBe(true);
+        const now = new Date("2026-11-09T12:00:00Z");
+        expect(agoText(undefined, now)).toBeNull();
+        expect(agoText("not a date", now)).toBeNull();
+        expect(agoText("2026-11-09T11:59:40Z", now)).toBe("just now");
+        expect(agoText("2026-11-09T11:55:00Z", now)).toBe("5 min ago");
+        expect(agoText("2026-11-09T09:00:00Z", now)).toBe("3 h ago");
+        expect(agoText("2026-11-07T11:00:00Z", now)).toBe("2 d ago");
     });
 });

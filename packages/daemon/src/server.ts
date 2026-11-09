@@ -111,7 +111,12 @@ import {
 } from "./requests.js";
 import { start_lead_session } from "./agents/lead.js";
 import { MissionWriter, SPEC_AUTHOR } from "./store/mission-writer.js";
-import { find_session, list_sessions, read_session } from "./store/session-store.js";
+import {
+    find_session,
+    list_sessions,
+    read_session,
+    touch_interaction,
+} from "./store/session-store.js";
 import {
     build_session_view,
     session_spec_or_null,
@@ -541,6 +546,9 @@ export function create_app(deps: AppDeps): Hono {
                 if (clear_gate(deps.home, summary.dir)) {
                     await deps.design.refresh(summary.dir);
                 }
+            }
+            if (request.source === "operator") {
+                touch_interaction(deps.home, summary.dir, new Date());
             }
             try {
                 const disposition = await handle[command](request.text);

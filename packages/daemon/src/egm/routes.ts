@@ -48,7 +48,7 @@ import type { SpinnerHome } from "../home.js";
 import { rounds_of } from "../pipeline/rounds.js";
 import type { JobRunner, JobWork } from "../jobs/jobs.js";
 import type { MissionWriter } from "../store/mission-writer.js";
-import { read_session, write_session } from "../store/session-store.js";
+import { read_session, write_session, touch_interaction } from "../store/session-store.js";
 import type { ViewBuilder } from "../watcher.js";
 import { ApproveRefusal, approve_design, clear_approval } from "./approve.js";
 import { DesignDocConflict, DesignDocRefused, type DesignTracker } from "./design.js";
@@ -395,6 +395,7 @@ function mount_gate_routes(app: Hono, deps: EgmRouteDeps): void {
             return c.json(error_body(LEAD_NOT_RUNNING), 409);
         }
         clear_gate(deps.home, dir);
+        touch_interaction(deps.home, dir, new Date());
         const disposition = await lead.prompt(text);
         await deps.design.refresh(dir);
         const answer: AgentCommandResponse = { ok: true, disposition };

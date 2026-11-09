@@ -456,6 +456,17 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 16px;
     line-height: 16px;
 }
+/* An agent of the session runs a turn: a green dot before the title that breathes. */
+.session-working {
+    display: inline-block; vertical-align: middle; margin-right: 6px; width: 8px; height: 8px;
+    background: var(--ok); border-color: var(--ok);
+    animation: session-working-pulse 1.6s ease-in-out infinite;
+}
+@keyframes session-working-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+.session .badges .session-ago { order: 3; }
 /* The composer (s038): the middle pane holds one large box in its centre and nothing else, as
    in Devin. Under the box: the PRs found, then the project at the left and the one primary
    button at the right. The drawer keeps its place at the bottom of the pane. */

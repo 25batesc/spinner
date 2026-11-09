@@ -244,6 +244,12 @@ export interface Session {
     project?: string;
     /** ISO 8601 date or timestamp. */
     created: string;
+    /**
+     * When the operator last spoke to an agent of this session (a prompt or steer from the
+     * UI's box, Enter in its terminal, a design answer), ISO 8601. The sidebar sorts by it
+     * and shows "n min ago". Absent until the first.
+     */
+    last_interaction?: string;
     stage: Stage;
     /** The single next action for the operator, or null. */
     needs_human: string | null;

@@ -23,7 +23,7 @@ import type {
 } from "@spinner/protocol";
 import { OPERATOR_TTY_PATH, TTY_ATTACHMENTS_MAX, TTY_DIMENSION_MAX } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
-import { find_session } from "../store/session-store.js";
+import { find_session, touch_interaction } from "../store/session-store.js";
 import type { Ack } from "./extension-channel.js";
 import type { AgentManager } from "./manager.js";
 import type { OperatorHost } from "./operator.js";
@@ -37,6 +37,10 @@ const HELLO_BODY_BYTES_MAX = 1024 * 1024;
 
 /** Upper bound on one keystroke frame; a paste is far smaller. */
 const INPUT_FRAME_BYTES_MAX = 1024 * 1024;
+/** Carriage return: Enter in the terminal, the operator sending a line to the agent. */
+const ENTER = 0x0d;
+/** The least time between two `last_interaction` stamps from one terminal client. */
+const TOUCH_GAP_MS = 5000;
 
 export interface TtyRouteDeps {
     home: SpinnerHome;
@@ -150,8 +154,9 @@ export function tty_upgrader(deps: TtyRouteDeps): TtyUpgrader {
                 refuse(socket, 409, `${TTY_ATTACHMENTS_MAX} clients are attached to ${name}`);
                 return true;
             }
+            const session_dir = session_dir_of_path(path);
             sockets.handleUpgrade(request, socket, head, (client) => {
-                attach_socket(agent, client, log);
+                attach_socket(agent, client, log, deps, session_dir);
             });
             return true;
         },
@@ -182,7 +187,19 @@ function pty_of_path(deps: TtyRouteDeps, path: string): TtyAgent | string | null
 }
 
 /** Wires one `ws` socket to the pty: scrollback and chunks down, keystrokes and resizes up. */
-function attach_socket(agent: TtyAgent, client: WebSocket, log: (line: string) => void): void {
+/** The session dir of a `/sessions/:dir/agents/:name/tty` path; null for the operator's. */
+function session_dir_of_path(path: string): string | null {
+    const match = TTY_PATH.exec(path);
+    return match === null ? null : decodeURIComponent(match[1] ?? "");
+}
+
+function attach_socket(
+    agent: TtyAgent,
+    client: WebSocket,
+    log: (line: string) => void,
+    deps: TtyRouteDeps,
+    dir: string | null,
+): void {
     const tty_client: TtyClient = {
         send_bytes: (chunk) => {
             if (client.readyState === client.OPEN) {
@@ -197,6 +214,9 @@ function attach_socket(agent: TtyAgent, client: WebSocket, log: (line: string) =
         close: (code, reason) => client.close(code, reason),
     };
     const detach = agent.attach(tty_client);
+    // Enter in the terminal is the operator speaking to the agent: stamp the session, at
+    // most once per `TOUCH_GAP_MS`, so a held key does not rewrite session.yaml per frame.
+    let touched_at = 0;
     client.on("message", (data, is_binary) => {
         const bytes = Buffer.isBuffer(data) ? data : Buffer.concat(as_buffers(data));
         if (is_binary) {
@@ -205,6 +225,10 @@ function attach_socket(agent: TtyAgent, client: WebSocket, log: (line: string) =
                 return;
             }
             agent.write(bytes);
+            if (dir !== null && bytes.includes(ENTER) && Date.now() - touched_at > TOUCH_GAP_MS) {
+                touched_at = Date.now();
+                touch_interaction(deps.home, dir, new Date(touched_at));
+            }
             return;
         }
         const resize = parse_resize(bytes.toString("utf8"));

@@ -282,13 +282,51 @@ export function needsHuman(view: SessionView): string | null {
 }
 
 /** Sessions waiting on the operator first, then newest first. Returns `[dir, view]` pairs. */
+/**
+ * The sessions that need the operator first; then the one he spoke to last (a prompt, a
+ * steer, Enter in its terminal, a design answer); a session he never spoke to sorts by its
+ * creation. So the session he is talking to stays at the top (dogfooding, 2026-11-09).
+ */
 export function sortedSessions(state: UiState): [string, SessionView][] {
     const waiting = (view: SessionView) => (needsHuman(view) === null ? 1 : 0);
+    const recency = (view: SessionView) =>
+        view.summary.session.last_interaction ?? view.summary.session.created;
     return Object.entries(state.sessions).sort(
-        ([, a], [, b]) =>
-            waiting(a) - waiting(b) ||
-            b.summary.session.created.localeCompare(a.summary.session.created),
+        ([, a], [, b]) => waiting(a) - waiting(b) || recency(b).localeCompare(recency(a)),
     );
+}
+
+/** True while any agent of the session runs a turn (`process: running`). */
+export function agentWorking(view: SessionView): boolean {
+    return Object.values(view.summary.session.agents ?? {}).some(
+        (agent) => agent.process === "running",
+    );
+}
+
+/**
+ * "just now", "5 min ago", "3 h ago", "2 d ago" for the card's last interaction; null when
+ * the operator never spoke to the session or the stamp does not parse.
+ */
+export function agoText(iso: string | undefined, now: Date): string | null {
+    if (iso === undefined) {
+        return null;
+    }
+    const then = Date.parse(iso);
+    if (!Number.isFinite(then)) {
+        return null;
+    }
+    const minutes = Math.floor((now.getTime() - then) / 60_000);
+    if (minutes < 1) {
+        return "just now";
+    }
+    if (minutes < 60) {
+        return `${minutes} min ago`;
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        return `${hours} h ago`;
+    }
+    return `${Math.floor(hours / 24)} d ago`;
 }
 
 /** The job that is running on a session, if any. Used to disable that session's buttons. */

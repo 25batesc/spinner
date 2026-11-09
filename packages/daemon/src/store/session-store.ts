@@ -90,6 +90,19 @@ export function write_session(summary: SessionSummary): void {
     writeFileSync(join(summary.path, "session.yaml"), stringify(summary.session));
 }
 
+/**
+ * Stamps `last_interaction` with `now`: the operator spoke to an agent of the session. A
+ * missing session is ignored (it may have been archived under the operator's hands).
+ */
+export function touch_interaction(home: SpinnerHome, dir: string, now: Date): void {
+    const read = read_session(home, dir);
+    if (!read.ok) {
+        return;
+    }
+    read.summary.session.last_interaction = now.toISOString();
+    write_session(read.summary);
+}
+
 /** Finds a session by directory name (`s17-refund-flow`) or by id (`s17`). */
 export function find_session(home: SpinnerHome, name: string): SessionSummary | null {
     assert.ok(name.length > 0, "session name must not be empty");

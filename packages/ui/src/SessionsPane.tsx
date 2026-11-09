@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { SessionView } from "@spinner/protocol";
 
@@ -6,7 +6,7 @@ import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
 import { designSteps, stepperText } from "./design.ts";
 import { ContextFigure, CostFigure, PrBadge, RoundBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
-import { needsHuman, stageOf } from "./state.ts";
+import { agentWorking, agoText, needsHuman, stageOf } from "./state.ts";
 import type { RunAction } from "./SessionForms.tsx";
 import { NewButton } from "./Sidebar.tsx";
 import { stackLine, stackUsageOf, type UsageSample } from "./usage.ts";
@@ -58,10 +58,14 @@ function SessionCard(props: {
     onSelect: (dir: string) => void;
     onArchive: (dir: string) => void;
     usage: UsageSample | null;
+    /** The clock for the "n min ago" text; the pane ticks it once a minute. */
+    now: Date;
 }) {
     const { dir, view, selected, onSelect, usage } = props;
     const [asking, setAsking] = useState(false);
     const needs = needsHuman(view);
+    const working = agentWorking(view);
+    const ago = agoText(view.summary.session.last_interaction, props.now);
     const stack = stackUsageOf(view, usage);
     const prs = view.board?.prs ?? [];
     const detail = [dir, ...prs.map(prLine)].join("\n");
@@ -86,7 +90,16 @@ function SessionCard(props: {
                 title={detail}
                 data-dir={dir}
             >
-                <strong className="session-title">{view.summary.session.title}</strong>
+                <strong className="session-title">
+                    {working && (
+                        <span
+                            className="dot session-working"
+                            title="An agent is working"
+                            aria-label="An agent is working"
+                        />
+                    )}
+                    {view.summary.session.title}
+                </strong>
                 <span className="badges">
                     <span className="badge">{stageOf(view)}</span>
                     <CardDots view={view} needs={needs} />
@@ -99,6 +112,7 @@ function SessionCard(props: {
                     <CostFigure cost={view.cost} />
                     <ContextFigure view={view} />
                     <PrBadge prs={prs} />
+                    {ago !== null && <span className="muted session-ago">{ago}</span>}
                 </span>
                 <span className="needs-human session-needs">{needs ?? ""}</span>
             </button>
@@ -107,8 +121,19 @@ function SessionCard(props: {
     );
 }
 
+/** The "n min ago" texts move with the clock: one re-render a minute. */
+function useMinuteClock(): Date {
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 60_000);
+        return () => clearInterval(timer);
+    }, []);
+    return now;
+}
+
 export function SessionsPane(props: SessionsPaneProps) {
     const { sessions, selected, onSelect, usage } = props;
+    const now = useMinuteClock();
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
             <div className="side-compose">
@@ -124,6 +149,7 @@ export function SessionsPane(props: SessionsPaneProps) {
                         selected={dir === selected}
                         onSelect={onSelect}
                         onArchive={props.onArchive}
+                        now={now}
                     />
                 ))}
                 {sessions.length === 0 && <li className="muted">No sessions yet.</li>}
