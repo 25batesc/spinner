@@ -48,6 +48,13 @@ WebSockets below.
 | `POST /sessions/:dir/threads/:id/reply` | `ThreadReplyRequest` | `ThreadResponse` | As the operator. |
 | `POST /sessions/:dir/threads/:id/resolve` | | `ThreadResponse` | 409 without a reply, or for a human thread when `resolve_human` is off. |
 | `POST /sessions/:dir/threads/:id/flag` | `ThreadFlagRequest` | `ThreadResponse` | Flags the thread for the operator. |
+| `POST /sessions/:dir/attachments` | `AttachmentRequest` | `AttachmentResponse` | 201. Saves a PNG as `artifacts/comments/<name>`. 400 for a bad body, 413 past `ATTACHMENT_BYTES_MAX` (8 MiB decoded). Preview comments, below. |
+| `GET /sessions/:dir/attachments/:name` | | `image/png` | One saved attachment. 404 for a bad or unknown name. |
+| `GET /sessions/:dir/comments` | | `CommentsResponse` | Every preview comment, newest first. |
+| `POST /sessions/:dir/comments` | `NewCommentRequest` | `CommentResponse` | 201. Writes the comment and delivers it to the agent with the screenshot as an image; below. 400 for a bad body or a `doc` anchor, 404 for an agent the session does not list, 409 past `COMMENTS_MAX` (500). |
+| `POST /sessions/:dir/comments/:id/reply` | `CommentReplyRequest` | `CommentResponse` | The operator's reply goes to the agent; an agent's reply (`author`) waits on the operator. 409 on a resolved comment or past `COMMENT_MESSAGES_MAX` (100). |
+| `POST /sessions/:dir/comments/:id/suggest-resolve` | `CommentReplyRequest` | `CommentResponse` | The agent's suggestion; state `suggested`. 400 with `author: operator`. |
+| `POST /sessions/:dir/comments/:id/resolve` | | `CommentResponse` | The operator resolves. A resolved comment answers unchanged. |
 | `GET /sessions/:dir/post` | | `PostResponse` | The composed Slack message. |
 | `POST /sessions/:dir/post` | `PostRequest` | `JobResponse` | `confirm: true` or 400. |
 | `GET /sessions/:dir/approve` | | `ApproveResponse` | Head, diff stat and open threads per PR. |
@@ -190,6 +197,13 @@ ack in 30 s the route answers 504. The extension acts as follows:
 | `abort` | `ctx.abort()` | `aborted` |
 | `notify`, pi idle | `pi.sendMessage({ customType: "spinner_notice", content, display: true }, { triggerTurn: true })` | `started` |
 | `notify`, pi busy | `pi.sendMessage(..., { deliverAs: "steer" })` | `queued` |
+
+A `prompt` or a `steer` can carry `images`: absolute paths of PNG files (a preview comment's
+screenshot, below). pi turns a path in text into an image only when it is pasted into its
+editor. So the extension reads each file and calls `pi.sendUserMessage` with a content array:
+the text, then one `{ type: "image", data, mimeType: "image/png" }` per file. It skips a
+file it cannot read; the text still names the path. The `rpc` harness sends the same images
+in the `images` field of pi's `prompt` and `steer` commands.
 
 ### `POST /sessions/:dir/agents/:name/events`
 
@@ -818,6 +832,67 @@ then every valid user file by name, each as `{ name, source: "builtin" | "user",
 a built-in name, does not parse, or has a bad name is `invalid` too, with `missing` empty. An
 invalid theme is not under `themes` and `PUT /settings` refuses it. `validate_palette` in the
 protocol package is the same check, for a UI preview.
+
+## Preview comments
+
+In the desktop app, the operator freezes a preview, marks an element, an area or the whole
+page, writes a comment and sends it to an agent (s054). Each comment is a thread under the
+session: `artifacts/comments/<id>.json`, with its screenshot beside it as
+`shot-<date>-<time>-<hex>.png`. Nothing goes into a repo worktree. The types are in
+`packages/protocol/src/comments.ts`.
+
+The UI sends a comment in two calls:
+
+1. `POST /sessions/:dir/attachments` with `{ "mime": "image/png", "data": <base64> }`. The
+   answer is `{ name, path }`; `path` is relative to the session directory.
+2. `POST /sessions/:dir/comments` with `{ agent, text, anchor }`. The `preview` anchor holds
+   `service`, `url`, `selector`, `text`, `component`, `source`, `rect`, `screenshot` (the
+   `path` of step 1, or null) and `console_errors`. A `doc` anchor is reserved for the docs
+   tab; the daemon refuses it with 400 for now.
+
+The daemon numbers the comment `c<n>` per session. Before it writes the record, it redacts
+secrets: the values of secret-looking query parameters in `url` (`redact_url`), and every
+secret value of its environment in the text, the URL, the element text, the selector and
+the console errors (`redact`, the job-log redaction). Then it delivers the comment to the
+agent through `deliver_message`:
+
+- The text is `comment_prompt_text`: the operator's sentence, a `Where:` list (service,
+  URL, selector, element text, component, source, area, the screenshot's absolute path,
+  the console errors), and the instruction to answer with `comment_reply` and
+  `comment_suggest_resolve`.
+- The screenshot goes with the text as an image ("Extension routes" above, or the rpc
+  `images` field).
+- An idle agent gets a prompt, a busy one a steer. A stopped agent gets the text with its
+  next prompt, without the image; `delivered` is then `stopped`.
+
+`CommentResponse.delivered` is pi's disposition (`started`, `queued`) or `stopped`. It is
+absent when nothing went to the agent: an agent's own reply, a suggestion, a resolve.
+
+The states follow the diff viewer's threads:
+
+| Call | Author | `state` | `waiting_on` | Goes to the agent |
+|---|---|---|---|---|
+| create | operator | `open` | `agent` | the comment and the image |
+| reply | operator | `open` | `agent` | `comment_reply_text` |
+| reply | the agent | unchanged | `operator` | nothing |
+| suggest-resolve | the agent | `suggested` | `operator` | nothing |
+| resolve | operator | `resolved` | unchanged | nothing |
+
+`author` in `CommentReplyRequest` is `operator` by default. Any other author must be an
+agent the session lists, else 400. The extension's tools send the agent's name.
+
+After each change, the daemon mirrors the comments that wait on the operator (state not
+`resolved`, `waiting_on: operator`) into `session.yaml` as `comments.waiting`, oldest
+first. The stage derivation reads it: while nothing in the pipeline needs the operator, the
+oldest one becomes `needs_human`, `answer preview comment c1 on web /refunds · RefundRow`,
+with `and N more` for the rest. The daemon then publishes the session view and one
+`comment.updated` event: `{ id, state, waiting_on, author }`. The UI reloads
+`GET /sessions/:dir/comments` on that event.
+
+The agent tools ("What the pi extension provides" in SESSION_PROTOCOL.md) call these
+routes. `comments_list` prints the open comments, or every comment with `all: yes`, with
+the screenshot's absolute path for the `read` tool. `comment_reply` and
+`comment_suggest_resolve` post with the agent's name as `author`.
 
 ## Agent records in `session.yaml`
 

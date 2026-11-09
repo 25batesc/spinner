@@ -13,6 +13,7 @@ import type {
     SessionUsage,
     SessionView,
 } from "./api.js";
+import type { CommentState, CommentWaitingOn } from "./comments.js";
 import type { CostTotals, SessionCost } from "./costs.js";
 import type { Settings } from "./theme.js";
 import type { AgentProcessState, PullRequest, Stage, StackStateName } from "./session.js";
@@ -262,6 +263,19 @@ export interface ReviewUpdatedEvent extends EventBase {
 }
 
 /**
+ * A preview comment (s054) was created, answered, suggested for resolution or resolved. The
+ * UI reloads `GET /sessions/:dir/comments`; the event carries what the feed line needs.
+ */
+export interface CommentUpdatedEvent extends EventBase {
+    type: "comment.updated";
+    id: string;
+    state: CommentState;
+    waiting_on: CommentWaitingOn;
+    /** Who made the change: `operator` or an agent name. */
+    author: string;
+}
+
+/**
  * One local notification: a pipeline transition or a landed PR (#12). The desktop app posts it
  * as its own banner, so macOS shows Spinner's name and icon and a click opens the session.
  * The daemon runs its `osascript` banner only while no desktop client is connected to
@@ -310,6 +324,7 @@ export type SpinnerEvent =
     | OperatorUpdatedEvent
     | CostsEvent
     | ReviewUpdatedEvent
+    | CommentUpdatedEvent
     | NotifyEvent;
 
 export type SpinnerEventType = SpinnerEvent["type"];
@@ -342,5 +357,6 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "operator.updated",
     "costs",
     "review.updated",
+    "comment.updated",
     "notify",
 ];

@@ -45,6 +45,31 @@ function fake_pi(): FakePi {
     return pi;
 }
 
+/** A preview comment as the daemon returns it (s054). */
+function preview_comment(id: string, state: "open" | "suggested" | "resolved"): unknown {
+    return {
+        id,
+        agent: "alpha",
+        anchor: {
+            kind: "preview",
+            service: "admin",
+            url: "http://admin.s1.localhost/refunds",
+            selector: "#queue > li",
+            text: "Refund 41",
+            component: "RefundRow",
+            source: "src/RefundQueue.tsx:41",
+            rect: { x: 1, y: 2, width: 3, height: 4 },
+            screenshot: "artifacts/comments/shot-20261109-160000-abcdef.png",
+            console_errors: ["TypeError: x"],
+        },
+        messages: [{ author: "operator", text: "Bold the amount.", created: "t" }],
+        state,
+        waiting_on: "agent",
+        created: "2026-11-09T16:00:00Z",
+        updated: "2026-11-09T16:00:00Z",
+    };
+}
+
 interface Recorded {
     method: string;
     path: string;
@@ -69,6 +94,12 @@ async function fake_daemon(
             };
             if (path.startsWith("/nope")) {
                 answer(404, { error: `no route ${path}` });
+            } else if (path.endsWith("/comments") && request.method === "GET") {
+                const comments = [preview_comment("c2", "open"), preview_comment("c1", "resolved")];
+                answer(200, { comments });
+            } else if (/\/comments\/c[0-9]+\/(reply|suggest-resolve)$/.test(path)) {
+                const suggest = path.endsWith("suggest-resolve");
+                answer(200, { comment: preview_comment("c2", suggest ? "suggested" : "open") });
             } else if (path.endsWith("/diff/comments")) {
                 const command = (body as { command: string }).command;
                 const refused = command === "suggest-resolve";
@@ -588,6 +619,46 @@ describe("tools against the daemon routes", () => {
                 { command: "show", threads: [12, 15] },
                 { command: "reply", threads: [12], text: "done" },
                 { command: "suggest-resolve", threads: [99], text: "fixed in abc" },
+            ]);
+        } finally {
+            daemon.close();
+        }
+    });
+
+    it("lists, answers and suggests resolving preview comments as the agent (s054)", async () => {
+        const daemon = await fake_daemon(false);
+        try {
+            const pi = fake_pi();
+            register(pi, { env: env_for("worker", daemon.url) });
+            const listed = await run(pi, "comments_list", {});
+            expect(listed.split("\n")).toEqual([
+                "c2 · open · waits on agent · to alpha",
+                "  on admin /refunds · RefundRow",
+                "  url: http://admin.s1.localhost/refunds",
+                "  selector: #queue > li",
+                "  component: RefundRow",
+                "  source: src/RefundQueue.tsx:41",
+                `  screenshot: ${session_dir}/artifacts/comments/shot-20261109-160000-abcdef.png`,
+                "  console error: TypeError: x",
+                "  operator: Bold the amount.",
+            ]);
+            expect(await run(pi, "comments_list", { all: "yes" })).toContain("c1 · resolved");
+            expect(await run(pi, "comment_reply", { id: "c2", text: "On it." })).toBe(
+                "Replied on c2; it now waits on the operator.",
+            );
+            const suggest = await run(pi, "comment_suggest_resolve", { id: "c2", text: "Done." });
+            expect(suggest).toBe("Suggested resolving c2 (suggested); the operator resolves it.");
+            await expect(run(pi, "comment_reply", { id: "T1", text: "x" })).rejects.toThrow(
+                /comment id/,
+            );
+            const dir = session_dir.split("/").pop() ?? "";
+            const writes = daemon.requests.filter((r) => r.method === "POST");
+            expect(writes.map((r) => [r.path, r.body])).toEqual([
+                [`/sessions/${dir}/comments/c2/reply`, { text: "On it.", author: "alpha" }],
+                [
+                    `/sessions/${dir}/comments/c2/suggest-resolve`,
+                    { text: "Done.", author: "alpha" },
+                ],
             ]);
         } finally {
             daemon.close();

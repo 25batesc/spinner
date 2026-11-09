@@ -366,6 +366,18 @@ function register_ipc(views: PreviewRegistry, windows: PaneWindows): void {
         log(`clearStorage ${String(key)}`);
         return views.clear_storage(key as string);
     });
+    ipcMain.handle(IPC.previews_capture, (_event, key: unknown) => {
+        assert.equal(typeof key, "string");
+        debug(`capture ${String(key)}`);
+        return views.capture(key as string);
+    });
+    ipcMain.handle(IPC.previews_inspect, (_event, key: unknown, point: unknown) => {
+        assert.equal(typeof key, "string");
+        assert.ok(typeof point === "object" && point !== null, "inspect takes a point");
+        const { x, y } = point as { x: unknown; y: unknown };
+        assert.ok(typeof x === "number" && typeof y === "number", "a point is two numbers");
+        return views.inspect(key as string, { x, y });
+    });
     ipcMain.handle(IPC.previews_pop_out, with_key("popOut", (key) => pop_out_preview(views, key)));
     ipcMain.handle(
         IPC.previews_dock_back,

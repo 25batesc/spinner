@@ -3,6 +3,7 @@
 // docs/SESSION_PROTOCOL.md, section "session.yaml". The JSON schema in `schema/session.json`
 // is generated from this file; run `pnpm --filter @spinner/protocol schema` after an edit.
 
+import type { CommentWaiting } from "./comments.js";
 import type { DesignState } from "./egm.js";
 
 /** The schema version this package understands. The daemon migrates older files forward. */
@@ -295,6 +296,12 @@ export interface Session {
     rounds?: RoundRecord[];
     /** Absent in sessions created before EGM build session 6. */
     outcomes?: OutcomeCounts;
+    /**
+     * Preview comments (s054) that wait on the operator, oldest first, so the stage
+     * derivation can name them. The records are `artifacts/comments/<id>.json`. Absent while
+     * none waits.
+     */
+    comments?: { waiting: CommentWaiting[] };
 }
 
 /**

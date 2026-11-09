@@ -17,6 +17,9 @@ export const IPC = {
     previews_zoom: "previews:zoom",
     previews_find: "previews:find",
     previews_clear_storage: "previews:clearStorage",
+    /** Preview comments (s054): a picture of the page, and the element under a point. */
+    previews_capture: "previews:capture",
+    previews_inspect: "previews:inspect",
     /** Main to renderer: one `PreviewEvent` per message. */
     previews_event: "previews:event",
     panes_pop_out: "panes:popOut",

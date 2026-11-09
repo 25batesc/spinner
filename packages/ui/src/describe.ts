@@ -78,6 +78,11 @@ export function describeEvent(event: SpinnerEvent): string | null {
                         : "";
             return `review: ${done} of ${swarm.length} done${lead}, ${event.data.threads} threads`;
         }
+        case "comment.updated": {
+            // A preview comment (s054): who moved it and who answers next.
+            const next = event.state === "resolved" ? "resolved" : `waits on ${event.waiting_on}`;
+            return `comment ${event.id} by ${event.author}: ${next}`;
+        }
         case "notify":
             // The desktop app posts the banner (#12); the feed already has the transition.
             return null;

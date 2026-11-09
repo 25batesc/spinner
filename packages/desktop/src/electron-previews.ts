@@ -8,16 +8,23 @@
 // the view, so its login stays.
 import assert from "node:assert/strict";
 import { BaseWindow, session, shell, WebContentsView, type BrowserWindow } from "electron";
-import type {
-    FindResult,
-    PreviewEvent,
-    PreviewKey,
-    PreviewNavigation,
-    PreviewRect,
+import {
+    COMMENT_ELEMENT_TEXT_MAX,
+    type FindResult,
+    type PreviewCapture,
+    type PreviewElement,
+    type PreviewEvent,
+    type PreviewKey,
+    type PreviewNavigation,
+    type PreviewPoint,
+    type PreviewRect,
 } from "@spinner/protocol";
+import { inspect_script } from "./inspect-page.js";
 import { error_page } from "./pages.js";
 import {
+    console_error_line,
     preview_partition,
+    push_console_error,
     type PreviewHost,
     type PreviewView,
     type PreviewWindow,
@@ -69,6 +76,8 @@ class ElectronPreviewView implements PreviewView {
     private popout: BaseWindow | null = null;
     /** The window the view is a child of while docked: the main window or a pane window. */
     private parent: BaseWindow;
+    /** The page's console errors since the last `capture`, oldest first, bounded (s054). */
+    private console_errors: string[] = [];
 
     constructor(
         private readonly window: BrowserWindow,
@@ -114,6 +123,14 @@ class ElectronPreviewView implements PreviewView {
         contents.on("page-title-updated", navigated);
         contents.on("did-start-loading", navigated);
         contents.on("did-stop-loading", navigated);
+        contents.on("console-message", (event) => {
+            if (event.level === "error") {
+                this.console_errors = push_console_error(
+                    this.console_errors,
+                    console_error_line(event.message, event.sourceId, event.lineNumber),
+                );
+            }
+        });
         contents.on("did-fail-load", (_event, code, description, failed_url, is_main_frame) => {
             if (!is_main_frame || code === ERR_ABORTED) {
                 return;
@@ -253,6 +270,45 @@ class ElectronPreviewView implements PreviewView {
         await this.view.webContents.session.clearStorageData({ origin });
         this.debug(`cleared storage of ${origin} for ${this.key}`);
         this.reload();
+    }
+
+    async capture(): Promise<PreviewCapture | null> {
+        assert.equal(this.destroyed, false);
+        const contents = this.view.webContents;
+        const console_errors = this.console_errors;
+        this.console_errors = [];
+        try {
+            const image = await contents.capturePage();
+            if (image.isEmpty()) {
+                return null;
+            }
+            // The view's bounds are DIP; the page's CSS pixels are DIP over the zoom factor.
+            const bounds = this.view.getBounds();
+            const zoom = contents.getZoomFactor();
+            return {
+                png: image.toPNG().toString("base64"),
+                width: Math.round(bounds.width / zoom),
+                height: Math.round(bounds.height / zoom),
+                url: this.current_url(),
+                console_errors,
+            };
+        } catch (error) {
+            this.debug(`capture ${this.key} failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    async inspect(point: PreviewPoint): Promise<PreviewElement | null> {
+        assert.equal(this.destroyed, false);
+        const script = inspect_script(point.x, point.y, COMMENT_ELEMENT_TEXT_MAX);
+        try {
+            // The page's own world: the React fiber fields are not visible from a preload.
+            const found: unknown = await this.view.webContents.executeJavaScript(script);
+            return found === null || typeof found !== "object" ? null : (found as PreviewElement);
+        } catch (error) {
+            this.debug(`inspect ${this.key} failed: ${String(error)}`);
+            return null;
+        }
     }
 
     pop_out(on_closed: () => void): void {

@@ -6,9 +6,11 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import type {
+    Comment,
     FindResult,
     PaneName,
     PoppedPane,
+    PreviewCapture,
     PreviewKey,
     PreviewNavigation,
     PreviewRect,
@@ -17,6 +19,7 @@ import type {
 } from "@spinner/protocol";
 
 import { Icon, IconButton } from "./PaneHead.tsx";
+import { PreviewComment } from "./PreviewComment.tsx";
 
 export interface PreviewProps {
     /** `<session dir>/<service name>` from `preview_key`: the desktop keeps one view per key. */
@@ -31,6 +34,16 @@ export interface PreviewProps {
      * takes focus on its own.
      */
     focus?: boolean | undefined;
+    /** What comment mode needs (s054); absent where a preview takes no comments. */
+    comments?: PreviewComments | undefined;
+}
+
+/** The session facts comment mode needs: who can get a comment, and the open pins. */
+export interface PreviewComments {
+    dir: string;
+    service: string;
+    agents: string[];
+    comments: Comment[];
 }
 
 /** Rounds a DOM rectangle to the integer CSS pixels a native view can be placed at. */
@@ -196,6 +209,8 @@ export interface BrowserBarProps {
     onBack?: (() => void) | undefined;
     onForward?: (() => void) | undefined;
     onDevtools?: (() => void) | undefined;
+    /** Freezes the page for a comment (s054). Desktop only, and only where comments go. */
+    onComment?: (() => void) | undefined;
     /** The ellipsis menu: zoom, find in page, clear storage. Desktop only. */
     menu?:
         | {
@@ -298,7 +313,7 @@ function BrowserMenu({
  */
 export function BrowserBar(props: BrowserBarProps) {
     const { nav, onNavigate, onReload, onOpenExternal, onBack, onForward, onDevtools } = props;
-    const { menu } = props;
+    const { menu, onComment } = props;
     const [draft, setDraft] = useState(nav.url);
     const [editing, setEditing] = useState(false);
     const [finding, setFinding] = useState(false);
@@ -351,6 +366,9 @@ export function BrowserBar(props: BrowserBarProps) {
                     onChange={(event) => setDraft(event.target.value)}
                 />
             </form>
+            {onComment !== undefined && (
+                <IconButton icon="comment" label="Comment on this page" onClick={onComment} />
+            )}
             <IconButton icon="globe" label="Open in the browser" onClick={onOpenExternal} />
             {onDevtools !== undefined && (
                 <IconButton icon="devtools" label="Developer tools" onClick={onDevtools} />
@@ -379,12 +397,22 @@ function BridgePreview({
     bridge,
     previewKey,
     url,
-}: Pick<PreviewProps, "previewKey" | "url"> & { bridge: SpinnerDesktop }) {
+    comments,
+}: Pick<PreviewProps, "previewKey" | "url" | "comments"> & { bridge: SpinnerDesktop }) {
     const box = useRef<HTMLDivElement>(null);
     const [nav, setNav] = useState(() => initialNavigation(url));
+    // Comment mode (s054): the page as a still picture while the native view is hidden.
+    const [frozen, setFrozen] = useState<PreviewCapture | null>(null);
+    const [note, setNote] = useState<string | null>(null);
+    const isFrozen = frozen !== null;
 
     useEffect(() => {
         const element = box.current;
+        if (isFrozen) {
+            // The UI draws over the picture; the live view must not cover it.
+            void bridge.previews.hide(previewKey);
+            return;
+        }
         if (element === null) {
             return;
         }
@@ -419,7 +447,15 @@ function BridgePreview({
             }
             void bridge.previews.hide(previewKey);
         };
-    }, [bridge, previewKey, url]);
+    }, [bridge, previewKey, url, isFrozen]);
+
+    useEffect(() => {
+        if (note === null) {
+            return;
+        }
+        const timer = setTimeout(() => setNote(null), NOTE_MS);
+        return () => clearTimeout(timer);
+    }, [note]);
 
     useEffect(() => {
         setNav(initialNavigation(url));
@@ -432,6 +468,15 @@ function BridgePreview({
     }, [bridge, previewKey, url]);
 
     const call = (method: (key: PreviewKey) => Promise<unknown>) => () => void method(previewKey);
+    const capture = bridge.previews.capture;
+    const inspect = bridge.previews.inspect;
+    const canComment = comments !== undefined && capture !== undefined && inspect !== undefined;
+    const freeze = () => {
+        void capture?.(previewKey).then((picture) => {
+            setNote(picture === null ? "The page could not be captured; reload, try again." : null);
+            setFrozen(picture);
+        });
+    };
     return (
         <>
             <BrowserBar
@@ -442,16 +487,36 @@ function BridgePreview({
                 onBack={call((key) => bridge.previews.back(key))}
                 onForward={call((key) => bridge.previews.forward(key))}
                 onDevtools={call((key) => bridge.previews.devtools(key))}
+                onComment={canComment && !isFrozen ? freeze : undefined}
                 menu={{
                     onZoom: (direction) => void bridge.previews.zoom(previewKey, direction),
                     onFind: (text) => bridge.previews.find(previewKey, text),
                     onClearStorage: call((key) => bridge.previews.clearStorage(key)),
                 }}
             />
-            <div ref={box} className="preview-frame preview-box" data-preview={previewKey} />
+            {note !== null && <p className="preview-note comment-note">{note}</p>}
+            {frozen !== null && comments !== undefined && inspect !== undefined ? (
+                <PreviewComment
+                    dir={comments.dir}
+                    service={comments.service}
+                    agents={comments.agents}
+                    comments={comments.comments}
+                    capture={frozen}
+                    onInspect={(point) => inspect(previewKey, point)}
+                    onClose={(sent) => {
+                        setFrozen(null);
+                        setNote(sent);
+                    }}
+                />
+            ) : (
+                <div ref={box} className="preview-frame preview-box" data-preview={previewKey} />
+            )}
         </>
     );
 }
+
+/** How long the line about a sent comment stays under the bar. */
+const NOTE_MS = 6000;
 
 /**
  * The iframe path. The bar's URL field starts at the URL Spinner set; Enter reloads the frame
@@ -502,10 +567,12 @@ function TopLevelNote({ url }: Pick<PreviewProps, "url">) {
     );
 }
 
-export function Preview({ previewKey, url, title, topLevel, focus }: PreviewProps) {
+export function Preview({ previewKey, url, title, topLevel, focus, comments }: PreviewProps) {
     const bridge = window.spinnerDesktop;
     if (bridge !== undefined) {
-        return <BridgePreview bridge={bridge} previewKey={previewKey} url={url} />;
+        return (
+            <BridgePreview bridge={bridge} previewKey={previewKey} url={url} comments={comments} />
+        );
     }
     return <FramePreview url={url} title={title} topLevel={topLevel} focus={focus} />;
 }

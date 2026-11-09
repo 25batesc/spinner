@@ -7,9 +7,14 @@
 // calls their methods; `main.ts` supplies the Electron one.
 import assert from "node:assert/strict";
 import {
+    CONSOLE_ERROR_CHARS_MAX,
+    CONSOLE_ERRORS_MAX,
     preview_key_session,
     type FindResult,
+    type PreviewCapture,
+    type PreviewElement,
     type PreviewKey,
+    type PreviewPoint,
     type PreviewRect,
     type ZoomDirection,
 } from "@spinner/protocol";
@@ -47,6 +52,13 @@ export interface PreviewView {
     stop_find(): void;
     /** Clears the storage of the page's current origin, then reloads. */
     clear_storage(): Promise<void>;
+    /**
+     * A picture of the visible page and the console errors since the previous capture (s054);
+     * null when the capture failed.
+     */
+    capture(): Promise<PreviewCapture | null>;
+    /** The element under a point in CSS pixels of the viewport; null when none or refused. */
+    inspect(point: PreviewPoint): Promise<PreviewElement | null>;
     destroy(): void;
 }
 
@@ -262,6 +274,18 @@ export class PreviewRegistry {
         return entry === undefined ? Promise.resolve() : entry.view.clear_storage();
     }
 
+    /** Preview comments (s054): null when the key has no view. */
+    capture(key: PreviewKey): Promise<PreviewCapture | null> {
+        const entry = this.entries.get(key);
+        return entry === undefined ? Promise.resolve(null) : entry.view.capture();
+    }
+
+    inspect(key: PreviewKey, point: PreviewPoint): Promise<PreviewElement | null> {
+        assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y), "a point is finite");
+        const entry = this.entries.get(key);
+        return entry === undefined ? Promise.resolve(null) : entry.view.inspect(point);
+    }
+
     /**
      * Moves the view into its own window; false when the key has no view yet. The main window
      * stops showing it; `set` and `show` leave it alone until `dock_back`. `on_closed` fires
@@ -372,6 +396,18 @@ export class PreviewRegistry {
         const on_screen = this.visible_key() !== undefined || this.popped_keys().length > 0;
         assert.ok(this.entries.size < this.views_max || on_screen);
     }
+}
+
+/** `message (source:line)`, cut at `CONSOLE_ERROR_CHARS_MAX` characters. */
+export function console_error_line(message: string, source: string, line: number): string {
+    const where = source === "" ? "" : ` (${source}:${line})`;
+    return `${message}${where}`.slice(0, CONSOLE_ERROR_CHARS_MAX);
+}
+
+/** `errors` with `line` appended, the oldest dropped past `CONSOLE_ERRORS_MAX`. */
+export function push_console_error(errors: readonly string[], line: string): string[] {
+    const next = [...errors, line];
+    return next.length > CONSOLE_ERRORS_MAX ? next.slice(next.length - CONSOLE_ERRORS_MAX) : next;
 }
 
 /** `setBounds` takes integers; the renderer measures fractional CSS pixels. */

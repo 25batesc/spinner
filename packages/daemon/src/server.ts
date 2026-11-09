@@ -63,6 +63,7 @@ import { PiRpcHarness, type AgentHandle } from "./agents/harness.js";
 import { PiTtyHarness } from "./agents/tty-harness.js";
 import { mount_tty_routes, tty_upgrader } from "./agents/routes-tty.js";
 import { mount_operator_routes } from "./agents/routes-operator.js";
+import { mount_comment_routes } from "./agents/routes-comments.js";
 import { OperatorHost } from "./agents/operator.js";
 import { agent_history } from "./agents/history.js";
 import { AgentManager, FIRST_TURN } from "./agents/manager.js";
@@ -747,6 +748,16 @@ export function create_app(deps: AppDeps): Hono {
         // ext: mission section, inbox, context
         mount_agent_routes(app, { ...deps, writer: deps.writer, deliverer: deps.deliverer });
     }
+    // s054: attachments and preview comments, delivered to the agents
+    mount_comment_routes(app, {
+        home: deps.home,
+        agents: deps.agents,
+        bus: deps.bus,
+        refresh: deps.refresh,
+        log: deps.log,
+        cwd: deps.ctx.cwd,
+        ...(deps.ctx.env === undefined ? {} : { env: deps.ctx.env }),
+    });
     if (deps.tty !== undefined && deps.tty !== null) {
         mount_tty_routes(app, {
             home: deps.home,

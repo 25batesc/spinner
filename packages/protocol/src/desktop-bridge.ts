@@ -115,6 +115,21 @@ export interface DesktopPreviews {
      */
     clearStorage(key: PreviewKey): Promise<void>;
     /**
+     * Preview comments (s054). A picture of the view's visible page as it is now, for the
+     * renderer to show in the view's place while the operator marks it: nothing the renderer
+     * draws can sit over a live native view. Takes the console errors collected since the
+     * previous capture and starts a new collection. Null when the view does not exist or the
+     * capture failed. Absent in a desktop build older than v0.21.0.
+     */
+    capture?(key: PreviewKey): Promise<PreviewCapture | null>;
+    /**
+     * The element under `point` (CSS pixels of the page viewport, as `PreviewCapture` measures
+     * them), found in the page's own JavaScript world so the React fiber fields are visible.
+     * Null when no element is there, the view does not exist, or the page refused the script.
+     * Absent in a desktop build older than v0.21.0.
+     */
+    inspect?(key: PreviewKey, point: PreviewPoint): Promise<PreviewElement | null>;
+    /**
      * Main process to renderer: the load state of a view and, as `navigated`, what a
      * browser bar shows. Returns the unsubscribe function.
      */
@@ -122,6 +137,44 @@ export interface DesktopPreviews {
 }
 
 export type ZoomDirection = "in" | "out" | "reset";
+
+export interface PreviewPoint {
+    x: number;
+    y: number;
+}
+
+/** What `previews.capture` returns. */
+export interface PreviewCapture {
+    /** The PNG, base64 without a `data:` prefix, at the screen's pixel density. */
+    png: string;
+    /** The page viewport in CSS pixels: the image's size divided by its pixels per CSS px. */
+    width: number;
+    height: number;
+    /** The page's URL at the capture. */
+    url: string;
+    /**
+     * The page's console errors since the previous capture of this view, oldest first, at
+     * most `CONSOLE_ERRORS_MAX`, each cut at `CONSOLE_ERROR_CHARS_MAX` characters.
+     */
+    console_errors: string[];
+}
+
+/** What `previews.inspect` finds under a point. */
+export interface PreviewElement {
+    /** A CSS selector that names the element: an id, else a tag path with `:nth-of-type`. */
+    selector: string;
+    /** The element's visible text, whitespace folded, cut at `COMMENT_ELEMENT_TEXT_MAX`. */
+    text: string;
+    /** `getBoundingClientRect()`, CSS pixels of the page viewport. */
+    rect: PreviewRect;
+    /** The nearest React component above the element; null on a page without React. */
+    component: string | null;
+    /**
+     * `file:line[:column]` of that component: `_debugSource` on React 18 and older, else the
+     * first frame of `_debugStack` outside React (React 19: the served module URL and line).
+     */
+    source: string | null;
+}
 
 export interface FindResult {
     matches: number;

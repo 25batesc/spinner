@@ -550,6 +550,7 @@ export function App() {
             busy={busy}
             run={run}
             unverify={app.unverify}
+            commentsRevision={revisionsOf(state, selected).comments}
             diffJob={selected === undefined ? undefined : diffJob(state, selected)}
             controls={
                 inRoute

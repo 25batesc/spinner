@@ -2,15 +2,17 @@
 // A stand-in for `pi --mode rpc` in tests: the same JSONL framing and record shapes as pi's
 // docs/rpc.md and docs/json.md, with no model behind it. A `prompt` answers with a fixed
 // text run; `steer` and `abort` are acknowledged; `get_state` and `get_available_models`
-// return canned data. It records its argv in FAKE_PI_ARGS_FILE when that is set, so a test
-// can check the flags the daemon passed. Exits when stdin closes. Plain TypeScript that Node 24
-// runs directly, like the UI's fixture server.
+// return canned data. A `prompt` with `images` echoes `[<n> image(s) of <m> bytes]` after its
+// text, so a test can see that the images arrived. It records its argv in FAKE_PI_ARGS_FILE
+// when that is set, so a test can check the flags the daemon passed. Exits when stdin closes.
+// Plain TypeScript that Node 24 runs directly, like the UI's fixture server.
 import { writeFileSync } from "node:fs";
 
 interface Command {
     id?: string;
     type: string;
     message?: string;
+    images?: { type: string; data: string; mimeType: string }[];
 }
 
 const args_file = process.env["FAKE_PI_ARGS_FILE"];
@@ -81,7 +83,7 @@ function handle(command: Command): void {
                 return;
             }
             respond(command, { disposition: running ? "queued" : "started" });
-            run(command.message ?? "");
+            run(`${command.message ?? ""}${images_suffix(command)}`);
             return;
         case "steer":
             steers.push(command.message ?? "");
@@ -109,6 +111,16 @@ function handle(command: Command): void {
         default:
             refuse(command, "unknown");
     }
+}
+
+/** ` [n image(s) of m bytes]` when the command carries images, else nothing. */
+function images_suffix(command: Command): string {
+    const images = command.images ?? [];
+    if (images.length === 0) {
+        return "";
+    }
+    const bytes = images.reduce((sum, image) => sum + Buffer.from(image.data, "base64").length, 0);
+    return ` [${images.length} image(s) of ${bytes} bytes]`;
 }
 
 /**

@@ -387,6 +387,7 @@ export function AgentsPane(props: AgentsPaneProps) {
                     <ThreadsPanel
                         dir={view.summary.dir}
                         revision={revisions.threads}
+                        commentsRevision={revisions.comments}
                         busy={busy}
                         run={run}
                     />

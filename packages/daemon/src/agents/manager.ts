@@ -210,6 +210,37 @@ export class AgentManager {
         }
     }
 
+    /**
+     * A message from the operator with images (a preview comment, s054): a prompt while the
+     * agent is idle, a steer while it runs, and a steer when the prompt loses that race. A
+     * stopped agent, or a failed delivery, keeps the text for its next prompt (the text names
+     * the image's path; the image itself is not kept) and answers `stopped` or `queued`.
+     */
+    async deliver_message(
+        dir: string,
+        name: string,
+        text: string,
+        images: readonly string[],
+    ): Promise<string> {
+        assert.ok(text.trim().length > 0, "a message must not be empty");
+        const handle = this.get(dir, name);
+        if (handle === null) {
+            this.queue_for_next_prompt(dir, name, text);
+            return "stopped";
+        }
+        try {
+            if (this.is_busy(dir, name)) {
+                return await handle.steer(text, images);
+            }
+            return await handle.prompt(text, images).catch(() => handle.steer(text, images));
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.log(`${dir}/${name}: message not delivered (${reason}); queued for the next`);
+            this.queue_for_next_prompt(dir, name, text);
+            return "queued";
+        }
+    }
+
     /** The texts waiting for the agent's next prompt, without taking them. */
     pending_for(dir: string, name: string): string[] {
         return [...(this.pending.get(key_of(dir, name)) ?? [])];
@@ -430,20 +461,20 @@ export class AgentManager {
             pid: handle.pid,
             pi_session_id: handle.pi_session_id,
             exited: handle.exited,
-            steer: (text) => handle.steer(text),
+            steer: (text, images) => handle.steer(text, images),
             abort: () => handle.abort(),
             compact: () => handle.compact(),
             ...(notify === undefined ? {} : { notify }),
             commands: () => handle.commands(),
             on_event: (listener) => handle.on_event(listener),
             stop: () => handle.stop(),
-            prompt: (text: string) => {
+            prompt: (text: string, images?: readonly string[]) => {
                 const queued = this.pending.get(key) ?? [];
                 this.pending.delete(key);
                 if (queued.length === 0) {
-                    return handle.prompt(text);
+                    return handle.prompt(text, images);
                 }
-                return handle.prompt(`${queued.join("\n\n")}\n\n---\n\n${text}`);
+                return handle.prompt(`${queued.join("\n\n")}\n\n---\n\n${text}`, images);
             },
         };
     }

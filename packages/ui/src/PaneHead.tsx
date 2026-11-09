@@ -42,7 +42,8 @@ export type IconName =
     | "minimize"
     | "gear"
     | "operator"
-    | "pull-request";
+    | "pull-request"
+    | "comment";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
 const GLYPHS: Record<IconName, string> = {
@@ -68,6 +69,8 @@ const GLYPHS: Record<IconName, string> = {
     "pull-request":
         "M4 5v8M4 5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M4 13a1.5 1.5 0 1 0 0 3" +
         "M12 13V8a3 3 0 0 0-3-3H7M9 3L7 5l2 2M12 13a1.5 1.5 0 1 0 0 3",
+    // A speech bubble: comment on the preview (s054).
+    comment: "M2.5 3.5h11v7.5h-6l-3 2.5V11h-2z",
     // A headset: the operator agent, the one that talks back.
     operator:
         "M3 9V8a5 5 0 0 1 10 0v1M2.5 9h2v4h-2zM11.5 9h2v4h-2z" +

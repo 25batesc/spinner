@@ -4,6 +4,7 @@
 // docs/SESSION_PROTOCOL.md. Nothing here is specific to one team: defaults describe a plain
 // GitHub repo with no bots, no approval check and no merge queue.
 
+import type { CommentWaiting } from "./comments.js";
 import type { DesignStage } from "./egm.js";
 import type { ApprovalRole, DiffThreadRecord, Pipeline, PullRequest, Stage } from "./session.js";
 
@@ -97,6 +98,11 @@ export interface PipelineFacts {
      * pipeline needs the operator, the first one becomes `needs_human`.
      */
     diff_waiting?: DiffThreadRecord[];
+    /**
+     * Preview comments waiting on the operator (s054), oldest first. Like `diff_waiting`,
+     * the first one becomes `needs_human` when nothing in the pipeline needs the operator.
+     */
+    comments_waiting?: CommentWaiting[];
     /**
      * True while the review lead's draft waits in `artifacts/review-draft.json` (s016). It
      * wins over the pipeline's own `needs_human`: the operator posts or drops it first.

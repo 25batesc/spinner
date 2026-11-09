@@ -85,7 +85,11 @@ export class ExtensionChannel {
      * poll receives the command at once; otherwise the next poll does. Rejects after
      * `ack_timeout_ms` without an ack, or when the channel closes.
      */
-    enqueue(type: AgentExtensionCommand["type"], text?: string): Promise<string> {
+    enqueue(
+        type: AgentExtensionCommand["type"],
+        text?: string,
+        images: readonly string[] = [],
+    ): Promise<string> {
         if (this.closed !== null) {
             return Promise.reject(this.closed);
         }
@@ -94,12 +98,15 @@ export class ExtensionChannel {
         const bare = type === "abort" || type === "compact";
         assert.ok(bare || has_text, `${type} needs text`);
         assert.ok(!bare || text === undefined, `${type} carries no text`);
+        const with_images = type === "prompt" || type === "steer";
+        assert.ok(with_images || images.length === 0, `${type} carries no images`);
         const id = `c-${this.next_id}`;
         this.next_id += 1;
         const command: AgentExtensionCommand = {
             id,
             type,
             ...(text === undefined ? {} : { text }),
+            ...(images.length === 0 ? {} : { images: [...images] }),
         };
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {

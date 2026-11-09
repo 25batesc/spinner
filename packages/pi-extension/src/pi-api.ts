@@ -11,6 +11,13 @@ export interface ToolTextContent {
     text: string;
 }
 
+/** An image in a user message: base64 data, as pi's `ImageContent`. */
+export interface ImageContent {
+    type: "image";
+    data: string;
+    mimeType: string;
+}
+
 export interface ToolResult {
     content: ToolTextContent[];
     details: unknown;
@@ -134,8 +141,14 @@ export interface RegisteredCommand {
 export interface ExtensionAPI {
     registerTool(tool: ToolDefinition): void;
     registerCommand(name: string, command: RegisteredCommand): void;
-    /** Sends a user message; it starts a turn, or queues as a steer or follow-up when busy. */
-    sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void;
+    /**
+     * Sends a user message; it starts a turn, or queues as a steer or follow-up when busy.
+     * The array form carries images with the text.
+     */
+    sendUserMessage(
+        content: string | (ToolTextContent | ImageContent)[],
+        options?: { deliverAs?: "steer" | "followUp" },
+    ): void;
     /**
      * Sends a custom message (from an extension, not a person). `triggerTurn` starts a run
      * when idle; `deliverAs` queues it into a running one.

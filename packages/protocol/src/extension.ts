@@ -97,6 +97,9 @@ export const EXTENSION_TOOLS = [
     "review_draft",
     "design_doc",
     "ask_question",
+    "comments_list",
+    "comment_reply",
+    "comment_suggest_resolve",
 ] as const;
 
 /** What `mission_plan` does; `mission_done_when` takes the first four. */
@@ -271,6 +274,15 @@ export interface ExtensionToolArgs {
      * gate payload, `[{ question, options, is_multi_select }]` or `{ questions: [...] }`.
      */
     ask_question: { questions: string };
+    /**
+     * The session's preview comments (s054): the open ones by default, each with its place
+     * and its messages; `all` adds the resolved ones.
+     */
+    comments_list: { all?: string };
+    /** Reply in a preview comment thread, as the agent; it then waits on the operator. */
+    comment_reply: { id: string; text: string };
+    /** Tell the operator the change is made and ask to resolve; the operator resolves. */
+    comment_suggest_resolve: { id: string; text: string };
 }
 
 /** A tool's JSON-schema parameters, in the subset pi's `Type.Object` can express. */
@@ -314,6 +326,10 @@ const OPERATOR: readonly ExtensionRole[] = ["operator"];
 const OPERATOR_OR_LEAD: readonly ExtensionRole[] = ["operator", "lead"];
 const WORKER_OR_LEAD: readonly ExtensionRole[] = ["worker", "lead"];
 const LEAD: readonly ExtensionRole[] = ["lead"];
+
+const COMMENT_ID_PARAM = {
+    id: { type: "string", description: "The comment id, `c3`, as comments_list shows it" },
+} as const satisfies Record<string, ToolParameterSpec>;
 
 const ITEM_ID_PARAM = {
     id: { type: "number", description: "The item's id, as the mission shows it" },
@@ -768,6 +784,45 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["questions"],
             roles: LEAD,
             route: "PUT /sessions/:dir/design/gate",
+        },
+        {
+            name: "comments_list",
+            description:
+                "List the operator's preview comments: the open ones with their place (service, " +
+                "URL, selector, component, source file:line), the screenshot path, the console " +
+                "errors and the messages. Read a screenshot with the read tool.",
+            parameters: {
+                all: { type: "string", description: "`yes` to include resolved comments" },
+            },
+            required: [],
+            roles: SESSION_ROLES,
+            route: "GET /sessions/:dir/comments",
+        },
+        {
+            name: "comment_reply",
+            description:
+                "Reply in a preview comment thread: what you changed, or a question. The " +
+                "comment then waits on the operator.",
+            parameters: {
+                ...COMMENT_ID_PARAM,
+                text: { type: "string", description: "The reply" },
+            },
+            required: ["id", "text"],
+            roles: SESSION_ROLES,
+            route: "POST /sessions/:dir/comments/:id/reply",
+        },
+        {
+            name: "comment_suggest_resolve",
+            description:
+                "Suggest that a preview comment is resolved, after the change is made; say " +
+                "what changed. Only the operator resolves.",
+            parameters: {
+                ...COMMENT_ID_PARAM,
+                text: { type: "string", description: "What changed, one or two lines" },
+            },
+            required: ["id", "text"],
+            roles: SESSION_ROLES,
+            route: "POST /sessions/:dir/comments/:id/suggest-resolve",
         },
     ],
 };

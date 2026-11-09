@@ -375,6 +375,20 @@ describe("ExtensionChannel", () => {
         await expect(channel.enqueue("prompt", "y")).rejects.toThrow(/gone/);
     });
 
+    it("carries image paths on a prompt or a steer, and on nothing else (s054)", async () => {
+        const channel = new ExtensionChannel(1_000);
+        const prompt = channel.enqueue("prompt", "look", ["/s/artifacts/comments/a.png"]);
+        expect(await channel.poll(null, 1_000)).toEqual({
+            id: "c-1",
+            type: "prompt",
+            text: "look",
+            images: ["/s/artifacts/comments/a.png"],
+        });
+        await channel.poll({ id: "c-1", disposition: "started" }, 1);
+        expect(await prompt).toBe("started");
+        expect(() => channel.enqueue("notify", "x", ["/a.png"])).toThrow(/no images/);
+    });
+
     it("a waiting poll gets a command at once; a newer poll replaces an older one", async () => {
         const channel = new ExtensionChannel(1_000);
         const first = channel.poll(null, 1_000);

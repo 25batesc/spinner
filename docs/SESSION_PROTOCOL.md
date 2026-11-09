@@ -63,6 +63,7 @@ Rules:
 │   └── admin-98.md
 ├── log/                  # rotated MISSION log chunks, stack logs, daemon events
 └── artifacts/            # screenshots, test reports, PR bodies, anything worth keeping
+    └── comments/         # preview comments: c<n>.json per thread, shot-*.png beside it (written by spinnerd)
 ```
 
 ## Context chain
@@ -158,7 +159,16 @@ agents:
     model: openrouter/openai/gpt-5
     process: running
     pid: 48250
+comments:                     # absent while no preview comment waits on the operator
+  waiting:                    # oldest first; the records are artifacts/comments/<id>.json
+    - id: c1
+      where: admin /refunds · RefundQueue
 ```
+
+`comments.waiting` mirrors the preview comments that wait on the operator (DAEMON_API.md,
+"Preview comments"). The daemon rewrites it after each change to a comment. While nothing
+in the pipeline needs the operator, the oldest one becomes `needs_human`:
+`answer preview comment c1 on admin /refunds · RefundQueue`.
 
 ### The `design` block and `rounds`
 
@@ -478,7 +488,7 @@ Commands and what they change:
 So that agents follow the protocol without being told every turn, `spinnerd` loads a pi extension into each agent session:
 
 - **System prompt section**: session id, hostnames, the agent's `BRIEF.md`, the full `MISSION.md`, and a one-line digest per other agent (`admin-ui: blocked on /refunds`).
-- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text, command?, id?)` (`ask` by default; `answer` under question `id`; `resolve` for the lead), `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The worker role also has `mission_plan(tick|untick)` on its own and unowned items. The lead role (s014) adds `session_title(title)` (refused while the operator's rename pins the title; every change is a Log line `title: <new> (was <old>)`), `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, where `add` takes `entry` (the doc entry the item belongs to, `2.3`, written as the `[2.3]` token), `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. The lead's `ask_question(questions)` asks one EGM gate. `questions` is the JSON text of EGM's payload, `[{"question": "...", "options": ["...", "..."], "is_multi_select": false}]` or `{"questions": [...]}`, with exactly one single-select question and 2 to 6 options. The tool refuses any other payload and calls nothing. Otherwise it writes `design.gate` and tells the lead to end its turn. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
+- **Tools**: `mission_roster(doing, blocked)`, `mission_log(text)`, `mission_contract(text)`, `mission_question(text, command?, id?)` (`ask` by default; `answer` under question `id`; `resolve` for the lead), `message(to, text)`, `stack(show|logs|restart <service>)`, `pr(show)`, and for the fixer role `thread_list(pr?)`, `thread_reply(thread, text)`, `thread_resolve(thread)`, `thread_flag(thread, reason)`. The worker role also has `mission_plan(tick|untick)` on its own and unowned items. The lead role (s014) adds `session_title(title)` (refused while the operator's rename pins the title; every change is a Log line `title: <new> (was <old>)`), `mission_goal(text)`, `mission_done_when(set|tick|untick|edit)`, `mission_plan(add|tick|untick|edit|assign|reorder)`, where `add` takes `entry` (the doc entry the item belongs to, `2.3`, written as the `[2.3]` token), `agent_add`, `agent_steer` and `adopt(refs)`. The lead's `design_doc(path)` names the design doc it wrote, by its absolute path; the daemon accepts only a new `.md` file directly in the designs directory with `## Overview` and `## Detailed Implementation Plan` headings. The lead's `ask_question(questions)` asks one EGM gate. `questions` is the JSON text of EGM's payload, `[{"question": "...", "options": ["...", "..."], "is_multi_select": false}]` or `{"questions": [...]}`, with exactly one single-select question and 2 to 6 options. The tool refuses any other payload and calls nothing. Otherwise it writes `design.gate` and tells the lead to end its turn. Every session role has the preview comment tools (s054): `comments_list(all?)` lists the operator's open comments (`all: yes` adds the resolved ones), each with its place (service, URL, selector, component, source `file:line`), the screenshot's absolute path, the console errors and the messages; `comment_reply(id, text)` answers in the thread, which then waits on the operator; `comment_suggest_resolve(id, text)` says what changed and asks the operator to resolve. Only the operator resolves. A new comment reaches the agent as a message with the screenshot attached as an image. Tool writes are serialized by the daemon, so no two agents edit `MISSION.md` at the same moment; `thread_resolve` refuses human threads when `threads.resolve_human` is off, and always refuses a thread that has not been replied to.
 - **Hooks**: a `beforeTool` guard that warns when an `edit`/`write` targets a path outside the agent's owned globs, and asks it to log first. On the design track it also refuses a lead's `edit`/`write` outside the designs directory and the session's files. The refusal holds until the design is approved, and again while a changed design waits for re-approval. `bash` is not covered.
 - **Redaction** (dogfood #48): an agent inherits the operator's secrets through the daemon's environment, and pi records every tool result in its transcript. The extension replaces the value of `SLACK_USER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` and every variable named `*_TOKEN`, `*_SECRET` or `*_API_KEY` (8 characters or more) with `[redacted:<NAME>]` in each tool result before pi records it. The daemon does the same to each job log line and a job's error. A value the agent types into a command itself still reaches the model; do not print the environment.
 

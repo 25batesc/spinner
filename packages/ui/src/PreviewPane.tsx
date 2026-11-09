@@ -2,11 +2,13 @@ import { useState } from "react";
 
 import { preview_key, type Job, type ServiceView, type SessionView } from "@spinner/protocol";
 
+import { CommentStrip } from "./CommentThreads.tsx";
 import { diffPreviewService, diffRepos, diffSelected } from "./diff-view.ts";
 import { isReview } from "./review.ts";
 import { DiffPage } from "./DiffPage.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
 import { Preview, type PopOutRequest } from "./Preview.tsx";
+import { fetchComments, useLoaded } from "./remote.ts";
 import type { RunAction } from "./SessionsPane.tsx";
 import { Tabs } from "./Tabs.tsx";
 import { ViewTabs } from "./ViewTabs.tsx";
@@ -19,6 +21,8 @@ export interface PreviewPaneProps {
     diffJob?: Job | undefined;
     /** Clears the verify tick (`DELETE /sessions/:dir/verify`); errors go where `run`'s go. */
     unverify: (dir: string) => Promise<void>;
+    /** Moves on `comment.updated` for the session: the preview comments reload (s054). */
+    commentsRevision?: number | undefined;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?:
         | {
@@ -104,7 +108,7 @@ function shownPreview(
 }
 
 export function PreviewPane(props: PreviewPaneProps) {
-    const { view, busy, run, unverify, controls, diffJob } = props;
+    const { view, busy, run, unverify, controls, diffJob, commentsRevision = 0 } = props;
     const [picked, setPicked] = useState<string | undefined>(undefined);
     // A review session (s015) opens on the diff at the PR head; it has no stack to preview.
     const [tabPicked, setTab] = useState<string | undefined>(undefined);
@@ -118,6 +122,12 @@ export function PreviewPane(props: PreviewPaneProps) {
     const hasDiff = view?.diff !== undefined;
     const shown =
         view === undefined ? undefined : shownPreview(view, tab, service, repoPicked);
+    const dir = view?.summary.dir ?? "";
+    const loaded = useLoaded(`${dir}#${commentsRevision}`, (signal) =>
+        dir === "" ? Promise.resolve({ comments: [] }) : fetchComments(dir, signal),
+    );
+    const comments = loaded.value?.comments ?? [];
+    const agents = Object.keys(view?.summary.session.agents ?? {});
     const head: IconButtonProps[] | undefined =
         controls === undefined
             ? undefined
@@ -184,12 +194,14 @@ export function PreviewPane(props: PreviewPaneProps) {
             </div>
             {view !== undefined && service?.url != null && isLive(service) ? (
                 <>
+                    <CommentStrip dir={dir} service={service.name} comments={comments} />
                     <Preview
                         key={service.url}
                         previewKey={preview_key(view.summary.dir, service.name)}
                         url={service.url}
                         title={service.name}
                         topLevel={service.preview === "top-level"}
+                        comments={{ dir, service: service.name, agents, comments }}
                     />
                 </>
             ) : (

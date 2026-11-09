@@ -136,6 +136,30 @@ export const ROUTES = {
     "POST /sessions/:dir/threads/:id/resolve": "ThreadResponse",
     /** Flag a thread for the operator. Body: ThreadFlagRequest. */
     "POST /sessions/:dir/threads/:id/flag": "ThreadResponse",
+    /**
+     * Body: AttachmentRequest, a PNG as base64. Saves it as `artifacts/comments/<name>`. 400
+     * for a bad body, 413 past `ATTACHMENT_BYTES_MAX`.
+     */
+    "POST /sessions/:dir/attachments": "AttachmentResponse",
+    /** One saved attachment, `image/png`. 400 for a bad name, 404 when absent. */
+    "GET /sessions/:dir/attachments/:name": "image/png",
+    /** Every preview comment of the session, newest first (s054). */
+    "GET /sessions/:dir/comments": "CommentsResponse",
+    /**
+     * Body: NewCommentRequest. Writes `artifacts/comments/<id>.json` with secrets redacted and
+     * sends the agent the text, the place and the screenshot as an image. 201. 404 for an
+     * agent the session does not list; 409 past `COMMENTS_MAX`.
+     */
+    "POST /sessions/:dir/comments": "CommentResponse",
+    /**
+     * Body: CommentReplyRequest. The operator's reply goes to the agent and makes the comment
+     * wait on it; the agent's reply makes it wait on the operator. 409 on a resolved comment.
+     */
+    "POST /sessions/:dir/comments/:id/reply": "CommentResponse",
+    /** Body: CommentReplyRequest from the agent. State `suggested`, waiting on the operator. */
+    "POST /sessions/:dir/comments/:id/suggest-resolve": "CommentResponse",
+    /** The operator resolves; nothing waits on the comment any more. */
+    "POST /sessions/:dir/comments/:id/resolve": "CommentResponse",
     /** The composed Slack message, before anything is sent. */
     "GET /sessions/:dir/post": "PostResponse",
     /** Post the composed message. Body: PostRequest with `confirm: true`; 400 otherwise. */
@@ -1192,6 +1216,13 @@ export interface AgentExtensionCommand {
     /** `compact` (dogfood #45) runs pi's compaction; like `abort`, it carries no text. */
     type: "prompt" | "steer" | "abort" | "notify" | "compact";
     text?: string;
+    /**
+     * Absolute paths of PNG files to attach to a `prompt` or a `steer` (a preview comment's
+     * screenshot, s054). pi turns a path in text into an image only when it is pasted into
+     * its editor, so the extension reads each file and passes it to `sendUserMessage` as an
+     * image. Absent on every other command.
+     */
+    images?: string[];
 }
 
 /** `GET /sessions/:dir/agents/:name/commands`: 200 with one command, or 204 after 30 s. */

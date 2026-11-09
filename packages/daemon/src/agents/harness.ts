@@ -12,7 +12,7 @@
 // builder both share. A lead in an EGM session also gets the EGM skills, the adapters and
 // the run directory (Technical Plan T3 of the EGM design).
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PiEvent, SessionSummary } from "@spinner/protocol";
@@ -52,10 +52,14 @@ export interface AgentHandle {
     pid: number;
     /** pi's session id for the transcript, for the UI and for resume. */
     pi_session_id: string;
-    /** Sends a prompt; resolves with pi's disposition (`started`, `queued`, `handled`). */
-    prompt(text: string): Promise<string>;
+    /**
+     * Sends a prompt; resolves with pi's disposition (`started`, `queued`, `handled`).
+     * `images` are absolute paths of PNG files that go with the text as images (a preview
+     * comment's screenshot, s054).
+     */
+    prompt(text: string, images?: readonly string[]): Promise<string>;
     /** Queues a steer; it enters after the current turn and its tool calls. */
-    steer(text: string): Promise<string>;
+    steer(text: string, images?: readonly string[]): Promise<string>;
     abort(): Promise<void>;
     /**
      * Starts pi's compaction of the agent's context (dogfood #45) and answers at once with
@@ -289,15 +293,23 @@ class PiHandle implements AgentHandle {
         this.exited = process_.exited;
     }
 
-    async prompt(text: string): Promise<string> {
+    async prompt(text: string, images: readonly string[] = []): Promise<string> {
         assert.ok(text.length > 0, "a prompt must not be empty");
-        const response = await this.process_.send({ type: "prompt", message: text });
+        const response = await this.process_.send({
+            type: "prompt",
+            message: text,
+            ...rpc_images(images),
+        });
         return disposition_of(response.data);
     }
 
-    async steer(text: string): Promise<string> {
+    async steer(text: string, images: readonly string[] = []): Promise<string> {
         assert.ok(text.length > 0, "a steer must not be empty");
-        const response = await this.process_.send({ type: "steer", message: text });
+        const response = await this.process_.send({
+            type: "steer",
+            message: text,
+            ...rpc_images(images),
+        });
         return disposition_of(response.data);
     }
 
@@ -330,6 +342,34 @@ class PiHandle implements AgentHandle {
         return this.process_.stop();
     }
 }
+
+/**
+ * pi's rpc `images` field (docs/rpc-commands.md: `{ type: "image", data, mimeType }`) for
+ * PNG files on disk; nothing for none. A file that cannot be read is skipped: the text still
+ * names its path.
+ */
+function rpc_images(paths: readonly string[]): { images?: RpcImage[] } {
+    assert.ok(paths.length <= IMAGES_MAX, `at most ${IMAGES_MAX} images go with one message`);
+    const images: RpcImage[] = [];
+    for (const path of paths) {
+        try {
+            const data = readFileSync(path, "base64");
+            images.push({ type: "image", data, mimeType: "image/png" });
+        } catch {
+            continue;
+        }
+    }
+    return images.length === 0 ? {} : { images };
+}
+
+interface RpcImage {
+    type: "image";
+    data: string;
+    mimeType: "image/png";
+}
+
+/** Upper bound on images with one prompt or steer; a preview comment sends one. */
+export const IMAGES_MAX = 4;
 
 function disposition_of(data: unknown): string {
     if (typeof data === "object" && data !== null && "disposition" in data) {

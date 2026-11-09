@@ -325,14 +325,14 @@ class PiTtyHandle implements AgentHandle {
         this.exited = tty.exited;
     }
 
-    prompt(text: string): Promise<string> {
+    prompt(text: string, images: readonly string[] = []): Promise<string> {
         assert.ok(text.length > 0, "a prompt must not be empty");
-        return this.tty.channel.enqueue("prompt", text);
+        return this.tty.channel.enqueue("prompt", text, images);
     }
 
-    steer(text: string): Promise<string> {
+    steer(text: string, images: readonly string[] = []): Promise<string> {
         assert.ok(text.length > 0, "a steer must not be empty");
-        return this.tty.channel.enqueue("steer", text);
+        return this.tty.channel.enqueue("steer", text, images);
     }
 
     async abort(): Promise<void> {

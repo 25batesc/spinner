@@ -9,6 +9,7 @@ import {
     useLoaded,
     type ThreadVerb,
 } from "./remote.ts";
+import { CommentsSection } from "./CommentThreads.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
 
 export interface ThreadsPanelProps {
@@ -19,6 +20,8 @@ export interface ThreadsPanelProps {
     run: RunAction;
     /** False hides `fix`: a review session (s015) has no pipeline but `review`. */
     fixable?: boolean;
+    /** The preview comments' revision (s054); the section shows only when it is given. */
+    commentsRevision?: number | undefined;
 }
 
 /** `05:08` in the operator's time zone; the full timestamp stays in the tooltip. */
@@ -135,7 +138,7 @@ function Pr({ pr, dir, busy, run, fixable }: PrProps) {
 
 /** One block per PR with every thread's state, author kind, location, body and flag. */
 export function ThreadsPanel(props: ThreadsPanelProps) {
-    const { dir, revision, busy, run, fixable = true } = props;
+    const { dir, revision, busy, run, fixable = true, commentsRevision } = props;
     const loaded = useLoaded(`${dir}#${revision}`, (signal) => fetchThreads(dir, signal));
     const [error, setError] = useState<string | null>(null);
     const view = loaded.value;
@@ -172,6 +175,9 @@ export function ThreadsPanel(props: ThreadsPanelProps) {
             ))}
             {view !== undefined && view.prs.length === 0 && (
                 <p className="muted">No PRs with threads.</p>
+            )}
+            {commentsRevision !== undefined && (
+                <CommentsSection dir={dir} revision={commentsRevision} />
             )}
         </div>
     );
