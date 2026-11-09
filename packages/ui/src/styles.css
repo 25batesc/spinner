@@ -452,6 +452,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 }
 .session .badges .usage-line { order: 2; font-variant-numeric: tabular-nums; }
 .session .badges .pr-badge { order: 1; }
+.session .badges .sync-badge { order: 1; }
 .session-needs {
     flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 16px;
     line-height: 16px;

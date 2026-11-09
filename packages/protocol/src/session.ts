@@ -81,6 +81,27 @@ export interface SessionRepo {
     changed: boolean;
     /** The PR for this repo, or null when none has been opened. */
     pr?: PullRequest | null;
+    /** The worktree against its remote branch (the daemon's sync round). Absent before one. */
+    sync?: RepoSync;
+}
+
+/**
+ * What the worktree holds that the remote branch lacks, and the reverse. The daemon pushes
+ * `ahead` commits itself when `upstream` is true, so `ahead` stays 0 unless a push failed.
+ */
+export interface RepoSync {
+    /** Tracked files with uncommitted changes. */
+    dirty: number;
+    /** Local commits the upstream lacks. */
+    ahead: number;
+    /** Upstream commits the worktree lacks. */
+    behind: number;
+    /** True when the branch tracks a remote branch; false before the first push. */
+    upstream: boolean;
+    /** ISO 8601 time of the daemon's last push of this worktree. */
+    pushed?: string;
+    /** The first line of the last push failure; null when the last push succeeded. */
+    error?: string | null;
 }
 
 /**

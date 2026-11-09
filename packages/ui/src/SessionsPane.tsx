@@ -4,7 +4,7 @@ import type { SessionView } from "@spinner/protocol";
 
 import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
 import { designSteps, stepperText } from "./design.ts";
-import { ContextFigure, CostFigure, PrBadge, RoundBadge } from "./PaneHead.tsx";
+import { ContextFigure, CostFigure, PrBadge, RoundBadge, SyncBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
 import { agentWorking, agoText, needsHuman, stageOf } from "./state.ts";
 import type { RunAction } from "./SessionForms.tsx";
@@ -112,6 +112,7 @@ function SessionCard(props: {
                     <CostFigure cost={view.cost} />
                     <ContextFigure view={view} />
                     <PrBadge prs={prs} />
+                    <SyncBadge view={view} />
                     {ago !== null && <span className="muted session-ago">{ago}</span>}
                 </span>
                 <span className="needs-human session-needs">{needs ?? ""}</span>

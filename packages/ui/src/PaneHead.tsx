@@ -314,6 +314,49 @@ export function StatePill({ pill, className }: { pill: Pill; className: string }
     );
 }
 
+/**
+ * What the worktrees hold that the remote branch lacks (the daemon's sync facts, dogfooding
+ * 2026-11-09): `push failed` in red when a push was refused, `↑n unpushed` in amber for
+ * commits the remote lacks (a branch without a remote yet counts too), `n uncommitted` in
+ * amber for changed tracked files. Nothing when every worktree is on the remote.
+ */
+export function SyncBadge({ view }: { view: SessionView }) {
+    const repos = Object.entries(view.summary.session.repos ?? {});
+    const synced = repos.filter(([, repo]) => repo.sync !== undefined);
+    if (synced.length === 0) {
+        return null;
+    }
+    const failed = synced.filter(([, repo]) => repo.sync?.error != null);
+    const ahead = synced.reduce((sum, [, repo]) => sum + (repo.sync?.ahead ?? 0), 0);
+    const dirty = synced.reduce((sum, [, repo]) => sum + (repo.sync?.dirty ?? 0), 0);
+    const names = (list: [string, unknown][]) => list.map(([name]) => name).join(", ");
+    if (failed.length > 0) {
+        const reasons = failed.map(([name, repo]) => `${name}: ${repo.sync?.error}`).join("\n");
+        return (
+            <span className="pill pill-fail sync-badge" title={reasons}>
+                push failed
+            </span>
+        );
+    }
+    if (ahead > 0) {
+        const title = `${ahead} commit(s) not on the remote (${names(synced)})`;
+        return (
+            <span className="pill pill-warn sync-badge" title={title}>
+                ↑{ahead} unpushed
+            </span>
+        );
+    }
+    if (dirty > 0) {
+        const title = `${dirty} changed file(s) not committed (${names(synced)})`;
+        return (
+            <span className="pill pill-warn sync-badge" title={title}>
+                {dirty} uncommitted
+            </span>
+        );
+    }
+    return null;
+}
+
 /** `⑂ 4`: the session's PR count; green once every PR's checks are green. */
 export function PrBadge({ prs }: { prs: PrFacts[] }) {
     if (prs.length === 0) {
@@ -586,6 +629,7 @@ export function ContextBar(props: ContextBarProps) {
             <ContextFigure view={view} />
             <MachineLine usage={usage} />
             <PrBadge prs={view.board?.prs ?? []} />
+            <SyncBadge view={view} />
             {needs !== null && <NeedsPill needs={needs} onNeeds={onNeeds} />}
             <OperatorNotice operator={operator} />
             {view.design !== undefined && (

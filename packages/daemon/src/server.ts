@@ -81,11 +81,12 @@ import { clear_gate } from "./egm/gate.js";
 import { GoldfishWatcher } from "./egm/goldfish.js";
 import { mount_egm_routes } from "./egm/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
-import type { GithubWriter } from "./pipeline/github-write.js";
+import { git_runner, type GithubWriter, type GitRunner } from "./pipeline/github-write.js";
 import { event_notifier, macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
 import { count_outcome, counts_as_operator_steer } from "./pipeline/outcomes.js";
 import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
+import { start_syncer, SYNC_SECONDS_DEFAULT, type Syncer } from "./pipeline/sync.js";
 import { mount_review_routes } from "./pipeline/review-routes.js";
 import { start_review_lead } from "./agents/review-lead.js";
 import { create_reviews, type CreateReviewsInput } from "./pipeline/reviews.js";
@@ -152,6 +153,8 @@ export interface DaemonOptions {
     notify?: Notifier;
     /** GitHub poll interval. 0 disables the poller. */
     poll_seconds?: number;
+    /** Seconds between worktree sync rounds (`pipeline/sync.ts`); 0 is off. Default 15. */
+    sync_seconds?: number;
     /** The built UI. Null means none; `GET /` then says how to build it. */
     ui_dir?: string | null;
     observe_interval_ms?: number;
@@ -1055,6 +1058,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     // The poller starts after the port opens; a posted review asks it for a round through
     // this closure, or runs one round itself when polling is off.
     let poller: Poller | null = null;
+    let syncer: Syncer | null = null;
     const poll_options = poll_options_for(ctx, notify, log);
     const poll = async (): Promise<void> => {
         if (poller !== null) {
@@ -1130,6 +1134,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const ttys = tty_upgrader({ home, agents, tty, operator, log });
     const sockets = attach_events_socket(server, bus, desktop, log, ttys.handle);
     poller = start_github_poller(options, poll_options, log);
+    syncer = start_worktree_syncer(options, options.writer?.git ?? git_runner, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
     for (const resumed of await agents.adopt_all()) {
         log(`adopt: resumed tty agent ${resumed} on its transcript`);
@@ -1161,6 +1166,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             goldfish.close();
             await agents.stop_all();
             poller?.stop();
+            syncer?.stop();
             observer?.stop();
             sampler.stop();
             costs?.stop();
@@ -1186,6 +1192,27 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
  * turns into `session.updated`; the notifier publishes `notify`. `poll_seconds: 0` is
  * off, for tests and for a machine without `gh`.
  */
+/**
+ * The worktree sync (`pipeline/sync.ts`): pushes each session branch that has a remote and
+ * records what is not on the remote. Off with `sync_seconds: 0`, and off, like the GitHub
+ * poller, when `poll_seconds` is 0 (tests, a machine without a remote).
+ */
+function start_worktree_syncer(
+    options: DaemonOptions,
+    git: GitRunner,
+    log: (line: string) => void,
+): Syncer | null {
+    const seconds = options.sync_seconds ?? SYNC_SECONDS_DEFAULT;
+    if (seconds === 0 || options.poll_seconds === 0) {
+        return null;
+    }
+    return start_syncer(options.home, { git, push: true, log }, seconds * 1000, (report) => {
+        for (const pushed of report.pushed) {
+            log(`sync ${pushed.dir} ${pushed.repo}: ${pushed.commits} commit(s) pushed`);
+        }
+    });
+}
+
 function start_github_poller(
     options: DaemonOptions,
     poll_options: PollOptions,

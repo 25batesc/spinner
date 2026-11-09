@@ -843,3 +843,7 @@ when that snapshot is absent, removes the snapshots of other commits, and serves
 the copy. `<commit>` is the checkout's short commit, or `unversioned` outside git. A rebuild
 of `dist` does not change a running daemon's UI; a restart takes the new build. `GET /health`
 names the snapshot in `ui_commit`, null when no UI is served.
+
+## Worktree sync
+
+Every 15 seconds (`sync_seconds`; 0 is off, and off when `poll_seconds` is 0) the daemon reads each session worktree and writes `repos.<key>.sync` into `session.yaml`: `dirty` (changed tracked files), `ahead` and `behind` (against the upstream branch), `upstream` (true once the branch tracks a remote branch), `pushed` (the time of the daemon's last push), `error` (the first line of a refused push, else null). When `upstream` is true and `ahead` is above 0, the daemon runs `git push origin HEAD`, never a force. A refused push fetches the branch so `behind` is current. A worktree with a PR and no upstream gets `origin/<branch>` as its upstream first. The card and the context bar show `push failed`, `↑n unpushed` or `n uncommitted` from these facts. Agents never push themselves: the extension guard refuses `git push`, and the daemon keeps the remote branch current.
