@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { preview_key, type Job, type ServiceView, type SessionView } from "@spinner/protocol";
 
@@ -8,6 +8,12 @@ import { isReview } from "./review.ts";
 import { DiffPage } from "./DiffPage.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
 import { Preview, type PopOutRequest } from "./Preview.tsx";
+import {
+    loadPreviewChoice,
+    localChoiceStorage,
+    savePreviewChoice,
+    type PreviewChoice,
+} from "./preview-choice.ts";
 import { fetchComments, useLoaded } from "./remote.ts";
 import type { RunAction } from "./SessionsPane.tsx";
 import { Tabs } from "./Tabs.tsx";
@@ -109,11 +115,37 @@ function shownPreview(
 
 export function PreviewPane(props: PreviewPaneProps) {
     const { view, busy, run, unverify, controls, diffJob, commentsRevision = 0 } = props;
-    const [picked, setPicked] = useState<string | undefined>(undefined);
+    // The tabs are remembered per session in localStorage, which a popped-out pane window
+    // shares with the main window: the pop-out opens on the tab the operator was on.
+    const sessionDir = view?.summary.dir;
+    const saved = useMemo(
+        () => (sessionDir === undefined ? {} : loadPreviewChoice(localChoiceStorage(), sessionDir)),
+        [sessionDir],
+    );
+    const remember = (patch: PreviewChoice) => {
+        if (sessionDir !== undefined) {
+            savePreviewChoice(localChoiceStorage(), sessionDir, patch);
+        }
+    };
+    const [pickedState, setPickedState] = useState<string | undefined>(undefined);
+    const picked = pickedState ?? saved.service;
+    const setPicked = (name: string) => {
+        setPickedState(name);
+        remember({ service: name });
+    };
     // A review session (s015) opens on the diff at the PR head; it has no stack to preview.
-    const [tabPicked, setTab] = useState<string | undefined>(undefined);
-    const tab = tabPicked ?? (isReview(view) ? "diff" : "previews");
-    const [repoPicked, setRepoPicked] = useState<string | undefined>(undefined);
+    const [tabState, setTabState] = useState<string | undefined>(undefined);
+    const tab = tabState ?? saved.tab ?? (isReview(view) ? "diff" : "previews");
+    const setTab = (name: string) => {
+        setTabState(name);
+        remember({ tab: name });
+    };
+    const [repoState, setRepoState] = useState<string | undefined>(undefined);
+    const repoPicked = repoState ?? saved.repo;
+    const setRepoPicked = (name: string) => {
+        setRepoState(name);
+        remember({ repo: name });
+    };
     const services = (view?.stack.services ?? []).filter((service) => service.url !== null);
     const names = services.map((service) => service.name);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];

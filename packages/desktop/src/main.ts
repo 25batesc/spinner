@@ -121,9 +121,11 @@ function electron_pane_host(
         open(popped, url, on_closed) {
             const bounds = main.getBounds();
             const content = main.getContentBounds();
+            // A previews window is a page to look at: a large rectangle, most of the main
+            // window. The other panes are lists and chats: a third of its width, full height.
+            const size = pane_window_size(popped.pane, content);
             const created = new BrowserWindow({
-                width: Math.max(POPOUT_MIN.width, Math.round(content.width / 3)),
-                height: Math.max(POPOUT_MIN.height, content.height),
+                ...size,
                 x: bounds.x + POPOUT_CASCADE_PX,
                 y: bounds.y + POPOUT_CASCADE_PX,
                 title: `${popped.session} \u2014 ${popped.pane}`,
@@ -146,6 +148,23 @@ function electron_pane_host(
                 },
             };
         },
+    };
+}
+
+/** The initial size of a pane window from the main window's content size. */
+export function pane_window_size(
+    pane: PaneName,
+    content: { width: number; height: number },
+): { width: number; height: number } {
+    if (pane === "previews") {
+        return {
+            width: Math.max(POPOUT_MIN.width, Math.round(content.width * 0.8)),
+            height: Math.max(POPOUT_MIN.height, Math.round(content.height * 0.8)),
+        };
+    }
+    return {
+        width: Math.max(POPOUT_MIN.width, Math.round(content.width / 3)),
+        height: Math.max(POPOUT_MIN.height, content.height),
     };
 }
 
