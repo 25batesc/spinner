@@ -190,6 +190,8 @@ describe("POST /sessions/extract", () => {
 describe("POST /sessions with text", () => {
     it("creates, adopts, starts the lead with its brief and the paste as its message", async () => {
         const args_file = join(root, "args.json");
+        // The operator's setting reaches the lead's pi at the spawn (agents.github).
+        writeFileSync(join(home.root, "settings.yaml"), "theme: system\nagents:\n  github: full\n");
         process.env["FAKE_PI_ARGS_FILE"] = args_file;
         const text = `Land the refund flow before Friday.\nSee ${PR_URL} and backend#4825.`;
         const started = await call("POST", "/sessions", { text, project: "acme", adopt: [PR_URL] });
@@ -226,6 +228,7 @@ describe("POST /sessions with text", () => {
             env: Record<string, string>;
         };
         expect(spawned.env["SPINNER_ROLE"]).toBe("lead");
+        expect(spawned.env["SPINNER_GITHUB"]).toBe("full");
         expect(realpathSync(spawned.cwd)).toBe(realpathSync(worktree));
         const brief = readFileSync(join(read.summary.path, "agents", "lead", "BRIEF.md"), "utf8");
         expect(brief).toContain("You own the mission");

@@ -242,6 +242,7 @@ describe("AgentManager with PiRpcHarness", () => {
             SPINNER_SESSION_DIR: summary.path,
             SPINNER_AGENT: "backend",
             SPINNER_ROLE: "worker",
+            SPINNER_GITHUB: "guarded",
         });
         const agents_file = readFileSync(join(summary.path, "AGENTS.md"), "utf8");
         expect(agents_file).toContain(`${summary.path}/MISSION.md`);
