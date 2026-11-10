@@ -77,6 +77,12 @@ describe("settings", () => {
         expect(unknown_body.error).toMatch(/unknown key "colour"/);
         const bad_harness = await call("PUT", "/settings", { agents: { harness: "pty" } });
         expect(bad_harness.status).toBe(400);
+        const bad_github = await call("PUT", "/settings", {
+            theme: "dark",
+            agents: { github: "admin" },
+        });
+        expect(bad_github.status).toBe(400);
+        expect(((await bad_github.json()) as { error: string }).error).toMatch(/guarded, full/);
         const no_theme = await call("PUT", "/settings", { theme: "solarized" });
         expect(no_theme.status).toBe(400);
         expect(((await no_theme.json()) as { error: string }).error).toMatch(/unknown theme/);
@@ -87,14 +93,14 @@ describe("settings", () => {
         const written = await call("PUT", "/settings", {
             theme: "dark",
             default_model: "anthropic/claude-x",
-            agents: { harness: "rpc" },
+            agents: { harness: "rpc", github: "full" },
         });
         expect(written.status).toBe(200);
         const body = (await written.json()) as SettingsResponse;
         expect(body.settings).toEqual({
             theme: "dark",
             default_model: "anthropic/claude-x",
-            agents: { harness: "rpc" },
+            agents: { harness: "rpc", github: "full" },
         });
         expect(parse(readFileSync(body.path, "utf8"))).toEqual(body.settings);
         const published = events.filter((event) => event.type === "settings");

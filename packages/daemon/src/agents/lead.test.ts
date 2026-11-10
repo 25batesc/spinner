@@ -230,7 +230,8 @@ describe("POST /sessions with text", () => {
         const brief = readFileSync(join(read.summary.path, "agents", "lead", "BRIEF.md"), "utf8");
         expect(brief).toContain("You own the mission");
         expect(brief).toContain("session_title");
-        expect(brief).toContain("Do not push, post, approve, land, reset or close");
+        expect(brief).toContain("Do not post to Slack, approve, land, reset or close");
+        expect(brief).toContain("GitHub (push, pull requests, comments, reviews)");
         // The design-track brief (3.13, 3.14): the new step 3 and the Design (EGM) section.
         expect(brief).toContain(
             "3. On the `direct` track, write the Goal with `mission_goal` (one paragraph), the " +

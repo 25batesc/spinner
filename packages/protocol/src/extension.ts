@@ -33,6 +33,8 @@ export const EXTENSION_ENV = {
      * long-poll, posts `hello` and the lifecycle events. Absent (or `rpc`) under `--mode rpc`.
      */
     harness: "SPINNER_HARNESS",
+    /** `full` when `settings.agents.github` is `full`: the lead's GitHub guard is off. */
+    github: "SPINNER_GITHUB",
     /** The EGM checkout root (`<home>/egm/src`); set only on a lead of an EGM session. */
     egm_root: "SPINNER_EGM_ROOT",
     /** The EGM artifact directory (`<session>/design`); set only on a lead of an EGM session. */

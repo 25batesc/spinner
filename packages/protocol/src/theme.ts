@@ -139,6 +139,9 @@ export interface ThemesResponse {
  * `~/.spinner/settings.yaml`: the operator's preferences, which the UI and the desktop read.
  * The daemon's own configuration (`pi_bin`, `port`, Slack) stays in `config.yaml`.
  */
+/** `Settings.agents.github`: what a lead may do on GitHub. */
+export type GithubAccess = "guarded" | "full";
+
 export interface Settings {
     /** `system`, `light`, `dark`, or the name of a `~/.spinner/themes/<name>.json`. */
     theme: string;
@@ -146,6 +149,13 @@ export interface Settings {
     default_model?: string;
     agents?: {
         harness?: "tty" | "rpc";
+        /**
+         * What a session's lead may do on GitHub from its shell. `guarded` (the default): the
+         * extension refuses `git push`, `gh pr create|merge|review|close|comment` and a
+         * writing `gh api`; the operator does those. `full`: the lead does them as the
+         * operator. Slack posts, `land`, `reset` and `close` stay the operator's either way.
+         */
+        github?: GithubAccess;
     };
     /**
      * The review swarm (s015): one tty agent per model, each with the review brief. Absent

@@ -306,6 +306,36 @@ describe("the operator role", () => {
         expect(refuse_operator_bash("gh pr view 7")).toBeNull();
     });
 
+    it("full GitHub access lets a lead push, comment, review and merge; spinner stays", () => {
+        const allowed = [
+            "git push origin feat/x",
+            "gh pr create --title t --body b",
+            "gh pr comment 7 --body ok",
+            "gh pr review 7 --approve",
+            "gh pr merge 7 --squash",
+            "gh api -X POST repos/o/r/pulls/7/comments -f body=x",
+        ];
+        for (const command of allowed) {
+            expect(refuse_operator_bash(command), command).not.toBeNull();
+            expect(refuse_operator_bash(command, "full"), command).toBeNull();
+        }
+        expect(refuse_operator_bash("spinner land s3", "full")).toMatch(/operator must do it/);
+        expect(refuse_operator_bash("spinner post s3", "full")).toMatch(/operator must do it/);
+        // A lead with SPINNER_GITHUB=full pushes; the operator agent with it does not.
+        const run = (role: string): ToolCallResult | undefined => {
+            const pi = fake_pi();
+            const env = { ...env_for(""), SPINNER_AGENT: role, SPINNER_ROLE: role };
+            register(pi, { env: { ...env, SPINNER_GITHUB: "full" } });
+            const handler = pi.handlers.get("tool_call")?.[0];
+            const event: ToolCallEvent = { toolName: "bash", input: { command: "git push" } };
+            return handler?.(event as never, { cwd: operator_dir, hasUI: false } as never) as
+                | ToolCallResult
+                | undefined;
+        };
+        expect(run("lead")).toBeUndefined();
+        expect(run("operator")?.block).toBe(true);
+    });
+
     it("refuses pkill and killall for every role: a pattern can match the operator's apps", () => {
         const sweep = 'pkill -f "fixture/server.ts" -n 2>/dev/null; sleep 1';
         expect(refuse_process_sweep(sweep)).toMatch(/`pkill` is refused/);

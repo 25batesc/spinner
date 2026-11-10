@@ -573,6 +573,7 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 | `theme` | `system`, `light`, `dark`, `rainbow`, or the name of a valid `~/.spinner/themes/<name>.json`. `system` follows the OS. |
 | `default_model` | Optional. `provider/model` for an agent tab that names none. |
 | `agents.harness` | Optional. `tty` or `rpc`. |
+| `agents.github` | Optional. `guarded` (the default) or `full`. With `full` a session's lead may run `git push`, `gh pr create`, `comment`, `review`, `merge` and a writing `gh api` as the operator; the extension reads it at each spawn as `SPINNER_GITHUB`. Slack posts, `approve`, `land`, `reset` and `close` stay the operator's. The operator agent stays guarded. |
 | `operator.enabled` | Optional, default false since s014. The daemon starts the operator agent at boot when true. |
 | `operator.model` | Optional. `provider/model` for the operator agent; else `default_model`, else the daemon's default. |
 | `review.models` | Optional. The swarm's models, `provider/model`; default `x-ai/grok-4.6`, `anthropic/claude-opus-5-5`, `openai/gpt-6-luna`. |

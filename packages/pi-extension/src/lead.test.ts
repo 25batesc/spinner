@@ -178,6 +178,21 @@ describe("the lead role", () => {
         expect(section).toContain("You are the lead");
         expect(section).toContain("`mission_plan`");
         expect(section).toContain("You own it.");
+        expect(section).toContain("The operator pushes, posts, approves");
+        expect(section).not.toContain("GitHub access: full");
+    });
+
+    it("says the lead acts on GitHub as the operator when the setting is full", async () => {
+        const pi = fake_pi();
+        register(pi, { env: { ...env_for(""), SPINNER_GITHUB: "full" } });
+        const handler = pi.handlers.get("before_agent_start")?.[0];
+        const event: BeforeAgentStartEvent = { systemPromptOptions: { sections: {} } };
+        await handler?.(event as never, {} as never);
+        const section = event.systemPromptOptions.sections["spinner_session"] ?? "";
+        expect(section).toContain("GitHub access: full");
+        expect(section).toContain("`gh pr comment`");
+        expect(section).toContain("stay the operator's");
+        expect(section).not.toContain("The operator pushes, posts, approves");
     });
 
     it("turns each tool into the route's body on its own session", async () => {

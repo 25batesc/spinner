@@ -116,11 +116,16 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
         }
         const guarded = env.role === "operator" || env.role === "lead";
         if (guarded && event.toolName === "bash") {
-            // The operator agent and the lead never push, post, approve, land, reset or
+            // The operator agent and the lead never post to Slack, approve, land, reset or
             // close (MISSION.md s013 and s014, Contracts); the person does, in the UI or
-            // with `spinner`.
+            // with `spinner`. GitHub writes are refused too, unless the operator's settings
+            // give the lead full GitHub access (`agents.github: full`).
             const command = event.input["command"];
-            const reason = refuse_operator_bash(typeof command === "string" ? command : "");
+            const github = env.role === "lead" ? env.github : "guarded";
+            const reason = refuse_operator_bash(
+                typeof command === "string" ? command : "",
+                github,
+            );
             if (reason === null) {
                 return undefined;
             }

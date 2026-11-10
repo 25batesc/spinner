@@ -24,17 +24,26 @@ import { section_body } from "./prompt.js";
  * (s016: the lead drafts, the operator posts). The message says the operator must do it.
  * Null when the command is allowed.
  */
-export function refuse_operator_bash(command: string): string | null {
+export function refuse_operator_bash(
+    command: string,
+    github: "guarded" | "full" = "guarded",
+): string | null {
     const method = /(?:-X|--method)[\s=]+(?!GET\b)\w+/.source;
     const fields = /--input\b|\s-[fF]\s|--(?:raw-)?field\b/.source;
     const GH_API_WRITE = new RegExp(`(^|[\\s;&|])gh\\s+api\\b[^;&|]*(?:${method}|${fields})`);
     const actions = OPERATOR_REFUSED_ACTIONS.join("|");
     const checks: Array<[RegExp, string]> = [
         [new RegExp(`(^|[\\s;&|])spinner\\s+(${actions})\\b`), "spinner $2"],
-        [/(^|[\s;&|])git\s+(?:[^\s;&|]+\s+)*push\b/, "git push"],
-        [/(^|[\s;&|])gh\s+pr\s+(create|merge|review|close|comment)\b/, "gh pr $2"],
-        [GH_API_WRITE, "gh api (a write)"],
     ];
+    // `settings.agents.github: full` lets the lead act on GitHub as the operator; the
+    // `spinner` actions (Slack post, approve, land, reset, close) stay the operator's.
+    if (github !== "full") {
+        checks.push(
+            [/(^|[\s;&|])git\s+(?:[^\s;&|]+\s+)*push\b/, "git push"],
+            [/(^|[\s;&|])gh\s+pr\s+(create|merge|review|close|comment)\b/, "gh pr $2"],
+            [GH_API_WRITE, "gh api (a write)"],
+        );
+    }
     for (const [pattern, what] of checks) {
         const match = pattern.exec(command);
         if (match !== null) {

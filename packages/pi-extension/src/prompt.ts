@@ -57,6 +57,24 @@ export function load_session_files(env: SpinnerEnv, view: SessionView | null): S
 }
 
 /** Pure: the section text. A newer `session.yaml` than this extension knows is refused. */
+/**
+ * What the lead may do on GitHub, by the operator's `agents.github` setting. `full` overrides
+ * an older brief's "do not push" line, which sessions made before the setting still carry.
+ */
+function github_lines(github: SpinnerEnv["github"]): string[] {
+    if (github === "full") {
+        return [
+            "GitHub access: full. The operator's settings let you act on GitHub as the operator:",
+            "`git push` (never a force), `gh pr create`, `gh pr comment`, `gh pr review`,",
+            "review-thread replies and resolves, `gh pr merge` when the operator asked for the",
+            "merge. This overrides a brief line that says you do not push. Say in the Log what",
+            "you posted and where. Slack posts, `spinner approve`, `land`, `reset` and `close`",
+            "stay the operator's.",
+        ];
+    }
+    return ["The operator pushes, posts, approves, lands, resets and closes; you do not."];
+}
+
 export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): string {
     if (files.version !== null && files.version > SESSION_VERSION) {
         return [
@@ -77,9 +95,9 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
             "You are the lead (MISSION.md s014): you own the mission. `session_title` sets the",
             "title; `mission_goal`, `mission_done_when` and `mission_plan` write Goal, Done when",
             "and the Plan (ids never change; tick an item the moment it is done); `agent_add`",
-            "and `agent_steer` run the other agents; `adopt` brings a pull request in. The",
-            "operator pushes, posts, approves, lands, resets and closes; you do not.",
+            "and `agent_steer` run the other agents; `adopt` brings a pull request in.",
         );
+        lines.push(...github_lines(env.github));
         if (env.egm_root !== null) {
             lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? "", files.designs_dir));
         }

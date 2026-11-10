@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PiEvent, SessionSummary } from "@spinner/protocol";
+import type { GithubAccess, PiEvent, SessionSummary } from "@spinner/protocol";
 import {
     EXTENSION_ENV,
     SUBAGENTS_TEMP_ROOT_ENV,
@@ -92,6 +92,8 @@ export interface PiHarnessOptions {
     on_stderr?: (agent: string, line: string) => void;
     /** The daemon's base URL for the extension's tools, known once the server listens. */
     daemon_url?: () => string;
+    /** `settings.agents.github`, read at each spawn; `guarded` when absent. */
+    github_access?: () => GithubAccess;
     /** The extension entry; `default_extension_path()` when absent, none when null. */
     extension?: string | null;
     /** `provider/model` for an agent that names none (`config.yaml` `default_model`). */
@@ -221,6 +223,7 @@ export function pi_spawn_plan(input: PiSpawnInput, options: PiHarnessOptions): P
         [EXTENSION_ENV.agent]: input.name,
         [EXTENSION_ENV.daemon_url]: options.daemon_url?.() ?? "",
         [EXTENSION_ENV.role]: input.role,
+        [EXTENSION_ENV.github]: options.github_access?.() ?? "guarded",
     };
     const egm = input.egm;
     if (egm !== undefined && existsSync(egm.skills_dir)) {

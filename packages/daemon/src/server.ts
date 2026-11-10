@@ -16,6 +16,7 @@ import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import { parse } from "yaml";
 import type {
+    GithubAccess,
     AgentCommandResponse,
     AgentEventsResponse,
     CostRow,
@@ -907,6 +908,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         pi,
         on_stderr: (agent: string, line: string) => log(`pi ${agent}: ${line}`),
         daemon_url: () => `http://${host}:${bound_port}`,
+        github_access: () => github_access_of(home),
         ...(options.extension === undefined ? {} : { extension: options.extension }),
         ...(options.default_model === undefined ? {} : { default_model: options.default_model }),
     };
@@ -1203,6 +1205,15 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
  * turns into `session.updated`; the notifier publishes `notify`. `poll_seconds: 0` is
  * off, for tests and for a machine without `gh`.
  */
+/** `settings.agents.github`; `guarded` when absent or when the file does not parse. */
+function github_access_of(home: SpinnerHome): GithubAccess {
+    try {
+        return read_settings(home).settings.agents?.github ?? "guarded";
+    } catch {
+        return "guarded";
+    }
+}
+
 /**
  * The worktree sync (`pipeline/sync.ts`): pushes each session branch that has a remote and
  * records what is not on the remote. Off with `sync_seconds: 0`, and off, like the GitHub

@@ -230,6 +230,20 @@ export function SettingsPane(props: SettingsPaneProps) {
                         <option value="rpc">rpc (headless chat)</option>
                     </select>
                 </label>
+                <label className="setting">
+                    <span>GitHub access of the lead</span>
+                    <select
+                        aria-label="GitHub access of the lead"
+                        value={settings.agents?.github ?? "guarded"}
+                        onChange={(event) => {
+                            const github = event.target.value === "full" ? "full" : "guarded";
+                            change({ ...settings, agents: { ...settings.agents, github } });
+                        }}
+                    >
+                        <option value="guarded">guarded (you push, comment and merge)</option>
+                        <option value="full">full (the lead pushes, comments and merges)</option>
+                    </select>
+                </label>
                 <ReviewBlock settings={settings} onSave={change} />
                 {error !== null && <p className="needs-human">{error}</p>}
                 <AboutEgm jobs={jobs} />

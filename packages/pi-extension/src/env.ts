@@ -17,6 +17,8 @@ export interface SpinnerEnv {
     role: ExtensionRole;
     /** True under `SPINNER_HARNESS=tty`: pi runs in the daemon's pty and the tty channel opens. */
     tty: boolean;
+    /** `full` when the operator's settings let the lead act on GitHub; else `guarded`. */
+    github: "guarded" | "full";
     /** The EGM checkout root of a lead in an EGM session, else null. */
     egm_root: string | null;
     /** The EGM artifact directory of a lead in an EGM session, else null. */
@@ -58,7 +60,8 @@ export function read_env(env: NodeJS.ProcessEnv): SpinnerEnv | null {
     const tty = env[EXTENSION_ENV.harness] === "tty";
     const egm_root = non_empty(env[EXTENSION_ENV.egm_root]);
     const egm_artifacts = non_empty(env[EXTENSION_ENV.egm_artifacts]);
-    return { session_dir, dir, agent, daemon_url, role, tty, egm_root, egm_artifacts };
+    const github = env[EXTENSION_ENV.github] === "full" ? "full" : "guarded";
+    return { session_dir, dir, agent, daemon_url, role, tty, github, egm_root, egm_artifacts };
 }
 
 function non_empty(value: string | undefined): string | null {

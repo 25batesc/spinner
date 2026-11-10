@@ -33,7 +33,7 @@ const THEMES_MAX = 200;
 const THEME_FILE_BYTES_MAX = 256 * 1024;
 
 const SETTINGS_KEYS = ["theme", "default_model", "agents", "operator", "review"];
-const AGENTS_KEYS = ["harness"];
+const AGENTS_KEYS = ["harness", "github"];
 const OPERATOR_KEYS = ["enabled", "model"];
 const REVIEW_KEYS = ["models", "n", "skill"];
 
@@ -125,6 +125,13 @@ export function validate_settings(input: unknown, home: SpinnerHome): Settings |
                 return "`agents.harness` must be one of tty, rpc";
             }
             settings.agents.harness = harness;
+        }
+        const github = block["github"];
+        if (github !== undefined) {
+            if (github !== "guarded" && github !== "full") {
+                return "`agents.github` must be one of guarded, full";
+            }
+            settings.agents.github = github;
         }
     }
     const operator = record["operator"];
