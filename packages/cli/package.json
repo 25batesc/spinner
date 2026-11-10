@@ -1,6 +1,6 @@
 {
     "name": "@spinner/cli",
-    "version": "0.23.1",
+    "version": "0.23.2",
     "private": true,
     "description": "spinner: the command-line client for Spinner sessions.",
     "license": "MIT",
