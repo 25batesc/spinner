@@ -29,7 +29,7 @@ import { IPC } from "./ipc.js";
 import { NotificationPoster } from "./notifications.js";
 import { down_page, starting_page } from "./pages.js";
 import { PaneWindows, type PaneWindowHost } from "./pane-windows.js";
-import { PreviewRegistry } from "./previews.js";
+import { PreviewRegistry, window_rect } from "./previews.js";
 import { repo_root, run_start_command, start_command } from "./start-daemon.js";
 import { create_tray, type TrayWindow } from "./tray.js";
 import { window_geometry } from "./window-geometry.js";
@@ -339,7 +339,9 @@ function register_ipc(views: PreviewRegistry, windows: PaneWindows): void {
         // pane, so every tab of the session follows that window.
         const sender = BrowserWindow.fromWebContents(event.sender);
         const pane_window = sender !== null && sender !== window ? sender : null;
-        views.set(key as string, url as string, rect as PreviewRect, pane_window);
+        // The page measured CSS pixels; the view is placed in window pixels.
+        const placed = window_rect(rect as PreviewRect, event.sender.getZoomFactor());
+        views.set(key as string, url as string, placed, pane_window);
     });
     const with_key =
         (name: string, handler: (key: string) => void) => (_event: unknown, key: unknown) => {

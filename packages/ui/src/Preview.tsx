@@ -417,14 +417,19 @@ function BridgePreview({
             return;
         }
         let last: PreviewRect | null = null;
+        // The page's zoom (Cmd +/-) shows as the pixel ratio. The desktop scales the
+        // rectangle by the zoom, so a zoom change sends again even for an equal rectangle.
+        let lastRatio = 0;
         let frame = 0;
         const measure = () => {
             frame = 0;
             const rect = previewRect(element.getBoundingClientRect());
-            if (sameRect(last, rect)) {
+            const ratio = window.devicePixelRatio;
+            if (sameRect(last, rect) && ratio === lastRatio) {
                 return;
             }
             last = rect;
+            lastRatio = ratio;
             void bridge.previews.set(previewKey, url, rect);
         };
         // Many events arrive per frame during a drag; one measurement per frame is enough.

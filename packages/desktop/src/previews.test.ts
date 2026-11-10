@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
     console_error_line,
     integer_rect,
+    window_rect,
     push_console_error,
     next_zoom_level,
     preview_partition,
@@ -405,6 +406,16 @@ describe("next_zoom_level", () => {
         expect(next_zoom_level(ZOOM_LEVEL_MIN, "out")).toBe(ZOOM_LEVEL_MIN);
         expect(next_zoom_level(2.5, "reset")).toBe(0);
         expect(() => next_zoom_level(Number.NaN, "in")).toThrow(/number/);
+    });
+});
+
+describe("window_rect", () => {
+    it("scales a CSS-pixel rectangle by the page's zoom factor; 1 leaves it alone", () => {
+        const rect = { x: 400, y: 50, width: 600, height: 300 };
+        expect(window_rect(rect, 1)).toEqual(rect);
+        expect(window_rect(rect, 1.25)).toEqual({ x: 500, y: 62.5, width: 750, height: 375 });
+        expect(window_rect(rect, 0.8)).toEqual({ x: 320, y: 40, width: 480, height: 240 });
+        expect(() => window_rect(rect, 0)).toThrow(/zoom factor/);
     });
 });
 

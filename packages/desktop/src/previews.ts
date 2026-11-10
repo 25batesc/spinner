@@ -410,6 +410,21 @@ export function push_console_error(errors: readonly string[], line: string): str
     return next.length > CONSOLE_ERRORS_MAX ? next.slice(next.length - CONSOLE_ERRORS_MAX) : next;
 }
 
+/**
+ * The rectangle in window pixels of a rectangle the UI page measured in its CSS pixels. The
+ * two differ by the page's zoom factor (Cmd +/- on the workbench): without this a zoomed UI
+ * placed the preview at the unzoomed position and size, over or short of its box.
+ */
+export function window_rect(rect: PreviewRect, zoom_factor: number): PreviewRect {
+    assert.ok(Number.isFinite(zoom_factor) && zoom_factor > 0, "a zoom factor is positive");
+    return {
+        x: rect.x * zoom_factor,
+        y: rect.y * zoom_factor,
+        width: rect.width * zoom_factor,
+        height: rect.height * zoom_factor,
+    };
+}
+
 /** `setBounds` takes integers; the renderer measures fractional CSS pixels. */
 export function integer_rect(rect: PreviewRect): PreviewRect {
     assert_finite(rect.x, "x");
