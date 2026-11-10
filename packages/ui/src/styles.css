@@ -467,7 +467,14 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     0%, 100% { opacity: 1; }
     50% { opacity: 0.35; }
 }
-.session .badges .session-ago { order: 3; }
+/* The last line of a card: the needs-you text at the left, "n min ago" at the right; the
+   ago text never drops out, unlike a badge past the row's width. */
+.session-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+    flex: none; min-width: 0; height: 16px; line-height: 16px;
+}
+.session-foot .session-needs { flex: 1 1 auto; min-width: 0; }
+.session-ago { flex: none; font-size: var(--text-meta); white-space: nowrap; }
 /* The composer (s038): the middle pane holds one large box in its centre and nothing else, as
    in Devin. Under the box: the PRs found, then the project at the left and the one primary
    button at the right. The drawer keeps its place at the bottom of the pane. */

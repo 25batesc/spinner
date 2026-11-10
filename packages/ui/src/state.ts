@@ -287,24 +287,32 @@ export function needsHuman(view: SessionView): string | null {
 
 /** Sessions waiting on the operator first, then newest first. Returns `[dir, view]` pairs. */
 /**
- * The sessions that need the operator first; then the one he spoke to last (a prompt, a
- * steer, Enter in its terminal, a design answer); a session he never spoke to sorts by its
- * creation. So the session he is talking to stays at the top (dogfooding, 2026-11-09).
+ * The session the operator spoke to last first (a prompt, a steer, Enter in its terminal, a
+ * design answer); a session he never spoke to sorts by its creation. A session that needs
+ * him keeps its line and the rail badge, not a place at the top (dogfooding, 2026-11-10).
  */
 export function sortedSessions(state: UiState): [string, SessionView][] {
-    const waiting = (view: SessionView) => (needsHuman(view) === null ? 1 : 0);
     const recency = (view: SessionView) =>
         view.summary.session.last_interaction ?? view.summary.session.created;
-    return Object.entries(state.sessions).sort(
-        ([, a], [, b]) => waiting(a) - waiting(b) || recency(b).localeCompare(recency(a)),
+    return Object.entries(state.sessions).sort(([, a], [, b]) =>
+        recency(b).localeCompare(recency(a)),
     );
 }
 
-/** True while any agent of the session runs a turn (`process: running`). */
+/**
+ * True while the session works: an agent in a turn (`process: running`), a Goldfish of the
+ * lead still running, or a reviewer of the swarm. The lead settles while its Goldfish run,
+ * so the agents alone would read idle during a brainstorm or a review.
+ */
 export function agentWorking(view: SessionView): boolean {
-    return Object.values(view.summary.session.agents ?? {}).some(
-        (agent) => agent.process === "running",
-    );
+    const agents = Object.values(view.summary.session.agents ?? {});
+    if (agents.some((agent) => agent.process === "running")) {
+        return true;
+    }
+    if ((view.design?.goldfish_live ?? 0) > 0) {
+        return true;
+    }
+    return (view.review?.swarm ?? []).some((member) => member.state === "reading");
 }
 
 /**

@@ -31,10 +31,10 @@ function apply(state: UiState, ...events: SpinnerEvent[]): UiState {
 const loaded = reduce(initialState, { kind: "snapshot", sessions: initialSessions() });
 
 describe("reduce", () => {
-    it("lists the session that needs the operator first", () => {
+    it("lists the newest session first when the operator spoke to none", () => {
         expect(sortedSessions(loaded).map(([dir]) => dir)).toEqual([
-            "s17-refund-flow",
             "s001-bootstrap",
+            "s17-refund-flow",
         ]);
     });
 
@@ -52,9 +52,9 @@ describe("reduce", () => {
             },
         };
         const state: UiState = { ...loaded, sessions: { ...loaded.sessions, [quietDir]: older } };
-        // Created long ago, but spoken to last: it leads the sessions that do not need him.
+        // Created long ago, but spoken to last: it leads, needs-you or not.
         const order = sortedSessions(state).map(([dir]) => dir);
-        expect(order[1]).toBe(quietDir);
+        expect(order[0]).toBe(quietDir);
     });
 
     it("replaces a session with the view in session.updated and drops it on session.closed", () => {

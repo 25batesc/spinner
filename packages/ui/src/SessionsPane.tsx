@@ -113,9 +113,11 @@ function SessionCard(props: {
                     <ContextFigure view={view} />
                     <PrBadge prs={prs} />
                     <SyncBadge view={view} />
+                </span>
+                <span className="session-foot">
+                    <span className="needs-human session-needs">{needs ?? ""}</span>
                     {ago !== null && <span className="muted session-ago">{ago}</span>}
                 </span>
-                <span className="needs-human session-needs">{needs ?? ""}</span>
             </button>
             <ArchiveButton onClick={() => setAsking(true)} />
         </li>
