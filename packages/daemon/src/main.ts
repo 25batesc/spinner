@@ -6,6 +6,7 @@
 // SPINNER_GITHUB_FIXTURE. Writes `<home>/daemon.pid` once it listens, so `spinner daemon
 // status|stop` find it, and refuses to start while another daemon holds that file. Stops on
 // SIGINT or SIGTERM.
+import { AssertionError } from "node:assert";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -101,6 +102,16 @@ const stop = (signal: string): void => {
 };
 process.once("SIGINT", () => stop("SIGINT"));
 process.once("SIGTERM", () => stop("SIGTERM"));
+
+// The daemon hosts every agent's pty, so a rejected background probe (a `docker ps` killed
+// at a shutdown ended the daemon on 2026-11-10) is logged and survived. A failed assertion
+// is a programmer error: the only correct response to that is to stop.
+process.on("unhandledRejection", (reason) => {
+    console.error("spinnerd: unhandled rejection:", reason);
+    if (reason instanceof AssertionError) {
+        process.exit(70);
+    }
+});
 
 function integer_env(name: string): number | undefined {
     const text = process.env[name];

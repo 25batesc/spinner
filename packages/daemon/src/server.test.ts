@@ -112,7 +112,12 @@ describe("REST", () => {
     it("GET /health reports the home", async () => {
         const response = await fetch(`${base}/health`);
         expect(response.status).toBe(200);
-        expect(await response.json()).toMatchObject({ ok: true, home: home.root });
+        // A temporary home is not `~/.spinner`: the UI's note about a foreign home reads this.
+        expect(await response.json()).toMatchObject({
+            ok: true,
+            home: home.root,
+            home_default: false,
+        });
     });
 
     it("GET /sessions reads sessions fresh from disk", async () => {

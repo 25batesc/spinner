@@ -4,6 +4,7 @@ import {
     EVENT_TYPES,
     EVENTS_PATH,
     type AgentEventsResponse,
+    type HealthResponse,
     type Job,
     type JobResponse,
     type ModelsResponse,
@@ -72,6 +73,19 @@ export async function fetchSettings(signal: AbortSignal): Promise<Settings | nul
         return null;
     }
     return ((await response.json()) as SettingsResponse).settings;
+}
+
+/**
+ * The daemon's home when it is not `~/.spinner`, else null. A daemon started with a stray
+ * `SPINNER_HOME` shows an empty list; the sidebar names the home so that is not a mystery.
+ */
+export async function fetchForeignHome(signal: AbortSignal): Promise<string | null> {
+    const response = await fetch("/health", { signal });
+    if (!response.ok) {
+        return null;
+    }
+    const health = (await response.json()) as HealthResponse;
+    return health.home_default === false ? health.home : null;
 }
 
 /** Where the settings file lives, for the hint in the settings view. */

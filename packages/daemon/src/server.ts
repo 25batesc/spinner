@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, Server } from "node:http";
+import { homedir } from "node:os";
 import type { Duplex } from "node:stream";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -274,6 +275,7 @@ export function create_app(deps: AppDeps): Hono {
         const body: HealthResponse = {
             ok: true,
             home: deps.home.root,
+            home_default: deps.home.root === join(homedir(), ".spinner"),
             started: deps.started,
             build: deps.build,
             ui_commit: deps.ui_commit,
@@ -1024,6 +1026,10 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             on_change: (dir) => {
                 usage?.wake();
                 publish_view(dir);
+            },
+            on_error: (dir, error) => {
+                const reason = error instanceof Error ? error.message : String(error);
+                log(`stack observer ${dir}: ${reason.split("\n")[0]}`);
             },
         },
         options.observe_interval_ms ?? OBSERVE_INTERVAL_MS,

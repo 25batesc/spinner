@@ -4,8 +4,10 @@ import type { SessionView } from "@spinner/protocol";
 
 import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
 import { designSteps, stepperText } from "./design.ts";
+import { fetchForeignHome } from "./events-client.ts";
 import { ContextFigure, CostFigure, PrBadge, RoundBadge, SyncBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
+import { useLoaded } from "./remote.ts";
 import { agentWorking, agoText, needsHuman, stageOf } from "./state.ts";
 import type { RunAction } from "./SessionForms.tsx";
 import { NewButton } from "./Sidebar.tsx";
@@ -137,11 +139,18 @@ function useMinuteClock(): Date {
 export function SessionsPane(props: SessionsPaneProps) {
     const { sessions, selected, onSelect, usage } = props;
     const now = useMinuteClock();
+    const foreignHome = useLoaded("foreign-home", fetchForeignHome).value ?? null;
     return (
         <section className="pane sessions-pane" aria-label="Sessions">
             <div className="side-compose">
                 <NewButton label="New session" active={props.composing} onClick={props.onNew} />
             </div>
+            {foreignHome !== null && (
+                <p className="needs-human home-note" title={foreignHome}>
+                    This daemon reads {foreignHome}, not ~/.spinner. Your sessions are in the
+                    other home: restart the daemon without SPINNER_HOME.
+                </p>
+            )}
             <ul className="session-list">
                 {sessions.map(([dir, view]) => (
                     <SessionCard

@@ -18,6 +18,12 @@ export interface ObserverInput {
     /** Called for each session whose statuses changed since the last round. */
     on_change: (dir: string, observation: StackObservation) => void;
     now?: () => Date;
+    /**
+     * Called when a probe of one session throws (docker stopped, a `docker ps` killed at a
+     * shutdown). The session keeps its last observation and the loop goes on: a failed probe
+     * must never end the daemon, as it did on 2026-11-10 (an unhandled rejection).
+     */
+    on_error?: (dir: string, error: unknown) => void;
     /** The docker and HTTP probes, replaceable in tests. */
     docker?: (project: string) => Promise<DockerStatus[]>;
     answers?: (port: number, path: string) => Promise<boolean>;
@@ -47,7 +53,13 @@ export function start_stack_observer(input: ObserverInput, interval_ms: number):
                 continue;
             }
             seen.add(summary.dir);
-            const observation = await observe_stack(summary, spec, { docker, answers, now });
+            let observation: StackObservation;
+            try {
+                observation = await observe_stack(summary, spec, { docker, answers, now });
+            } catch (error) {
+                input.on_error?.(summary.dir, error);
+                continue;
+            }
             const before = cache.get(summary.dir);
             cache.set(summary.dir, observation);
             if (before === undefined || !same_statuses(before.statuses, observation.statuses)) {
@@ -64,6 +76,9 @@ export function start_stack_observer(input: ObserverInput, interval_ms: number):
         in_round = round();
         try {
             await in_round;
+        } catch (error) {
+            // `sessions()` or `on_change` threw: report it and keep the loop alive.
+            input.on_error?.("", error);
         } finally {
             in_round = null;
         }

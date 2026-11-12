@@ -379,6 +379,12 @@ export interface HealthResponse {
     ok: true;
     /** Absolute path of the Spinner home the daemon reads, normally `~/.spinner`. */
     home: string;
+    /**
+     * False when `home` is not `~/.spinner` (a `SPINNER_HOME` in the daemon's environment).
+     * The UI then says so: an empty session list in a scratch home looks like lost work.
+     * Absent from a daemon older than v0.24.1.
+     */
+    home_default?: boolean;
     /** Process start time, ISO 8601. */
     started: string;
     /** What runs: for `spinner daemon status` and for telling a stale build from a fresh one. */

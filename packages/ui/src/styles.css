@@ -457,6 +457,8 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 16px;
     line-height: 16px;
 }
+/* The daemon reads a home that is not ~/.spinner: said above the list, wrapped. */
+.home-note { margin: 0 0 var(--space-2); white-space: normal; overflow-wrap: anywhere; }
 /* An agent of the session runs a turn: a green dot before the title that breathes. */
 .session-working {
     display: inline-block; vertical-align: middle; margin-right: 6px; width: 8px; height: 8px;
