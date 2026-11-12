@@ -116,6 +116,35 @@ describe("sync_once", () => {
         expect(git(origin, "log", "--oneline", "feat/sync").split("\n")[0]).toContain("remote");
     });
 
+    it("compares with the remote branch of the same name, not the upstream", async () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-sync-"));
+        const home = home_in(root);
+        const { origin } = repo_with_origin(root);
+        const session_path = join(home.sessions, "s9-sync");
+        mkdirSync(session_path, { recursive: true });
+        const worktree = join(session_path, "worktrees", "app");
+        git(root, "clone", "--quiet", origin, worktree);
+        git(worktree, "config", "user.email", "t@example.com");
+        git(worktree, "config", "user.name", "t");
+        // A branch made from `origin/main` tracks `origin/main`; it is pushed under its own
+        // name. Against its upstream it is one commit ahead for ever.
+        git(worktree, "checkout", "--quiet", "-b", "feat/sync", "--track", "origin/main");
+        writeFileSync(join(worktree, "b.txt"), "b\n");
+        git(worktree, "add", "b.txt");
+        git(worktree, "commit", "--quiet", "-m", "one");
+        git(worktree, "push", "--quiet", "origin", "HEAD");
+        const session = session_with(root, "worktrees/app");
+        write_session({ dir: "s9-sync", path: session_path, session });
+        const round = await sync_once(home, { git: git_runner, push: true });
+        expect(round.pushed).toEqual([]);
+        const facts = read_session(home, "s9-sync");
+        expect(facts.ok && facts.summary.session.repos["app"]?.sync).toMatchObject({
+            ahead: 0,
+            behind: 0,
+            upstream: true,
+        });
+    });
+
     it("without an upstream nothing is pushed and the facts say so", async () => {
         const root = mkdtempSync(join(tmpdir(), "spinner-sync-"));
         const home = home_in(root);

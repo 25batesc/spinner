@@ -80,27 +80,29 @@ async function sync_worktree(
 ): Promise<RepoSync> {
     const log = options.log ?? (() => {});
     const dirty = await dirty_count(options.git, worktree);
-    let upstream = await has_upstream(options.git, worktree);
+    // The remote branch of the same name is what `git push origin HEAD` writes to, so it is
+    // what the worktree is compared with. The branch's configured upstream can be another
+    // branch (a branch made from `origin/<other>` tracks that one): comparing with it showed
+    // commits as unpushed for ever and pushed again every round.
+    const branch = await current_branch(options.git, worktree);
+    let remote = branch === null ? null : await remote_ref(options.git, worktree, branch);
     const pr = session.repos[repo]?.pr;
-    // A branch pushed by `create PR` has an upstream. One that lost it (a round's new
-    // worktree) but has a PR gets it back from the remote branch of the same name.
-    if (!upstream && pr != null && options.push) {
+    // A worktree whose pull request exists but whose remote branch is not fetched yet (a
+    // round's new worktree) gets it from the remote.
+    if (remote === null && branch !== null && pr != null && options.push) {
         try {
-            await options.git(worktree, ["fetch", "origin", session.branch]);
-            await options.git(worktree, [
-                "branch",
-                `--set-upstream-to=origin/${session.branch}`,
-            ]);
-            upstream = true;
+            await options.git(worktree, ["fetch", "origin", branch]);
+            remote = await remote_ref(options.git, worktree, branch);
         } catch {
-            upstream = false;
+            remote = null;
         }
     }
+    const upstream = remote !== null;
     const facts: RepoSync = { dirty, ahead: 0, behind: 0, upstream, error: null };
-    if (!upstream) {
+    if (remote === null || branch === null) {
         return facts;
     }
-    const counts = await ahead_behind(options.git, worktree);
+    const counts = await ahead_behind(options.git, worktree, remote);
     facts.ahead = counts.ahead;
     facts.behind = counts.behind;
     if (facts.ahead === 0 || !options.push) {
@@ -120,8 +122,8 @@ async function sync_worktree(
         // The remote moved: fetch it, so `behind` says by how much. A round fetches only
         // here, not every 15 s for every worktree.
         try {
-            await options.git(worktree, ["fetch", "origin", session.branch]);
-            const fresh = await ahead_behind(options.git, worktree);
+            await options.git(worktree, ["fetch", "origin", branch]);
+            const fresh = await ahead_behind(options.git, worktree, remote);
             facts.ahead = fresh.ahead;
             facts.behind = fresh.behind;
         } catch {
@@ -137,22 +139,34 @@ async function dirty_count(git: GitRunner, worktree: string): Promise<number> {
     return out.split("\n").filter((line) => line.trim().length > 0).length;
 }
 
-async function has_upstream(git: GitRunner, worktree: string): Promise<boolean> {
+/** The checked-out branch; null on a detached HEAD. */
+async function current_branch(git: GitRunner, worktree: string): Promise<string | null> {
+    const name = (await git(worktree, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    return name.length === 0 || name === "HEAD" ? null : name;
+}
+
+/** `refs/remotes/origin/<branch>` when the remote branch is known here, else null. */
+async function remote_ref(
+    git: GitRunner,
+    worktree: string,
+    branch: string,
+): Promise<string | null> {
+    const ref = `refs/remotes/origin/${branch}`;
     try {
-        const args = ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"];
-        const out = await git(worktree, args);
-        return out.trim().length > 0;
+        await git(worktree, ["rev-parse", "--verify", "--quiet", ref]);
+        return ref;
     } catch {
-        return false;
+        return null;
     }
 }
 
-/** `git rev-list --left-right --count @{u}...HEAD` prints `<behind>\t<ahead>`. */
+/** `git rev-list --left-right --count <remote>...HEAD` prints `<behind>\t<ahead>`. */
 export async function ahead_behind(
     git: GitRunner,
     worktree: string,
+    remote: string,
 ): Promise<{ ahead: number; behind: number }> {
-    const out = await git(worktree, ["rev-list", "--left-right", "--count", "@{u}...HEAD"]);
+    const out = await git(worktree, ["rev-list", "--left-right", "--count", `${remote}...HEAD`]);
     const [behind_text, ahead_text] = out.trim().split(/\s+/);
     const behind = Number.parseInt(behind_text ?? "0", 10);
     const ahead = Number.parseInt(ahead_text ?? "0", 10);

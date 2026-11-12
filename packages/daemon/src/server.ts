@@ -1262,11 +1262,8 @@ function start_worktree_syncer(
     if (seconds === 0 || options.poll_seconds === 0) {
         return null;
     }
-    return start_syncer(options.home, { git, push: true, log }, seconds * 1000, (report) => {
-        for (const pushed of report.pushed) {
-            log(`sync ${pushed.dir} ${pushed.repo}: ${pushed.commits} commit(s) pushed`);
-        }
-    });
+    // `sync_worktree` logs each push and each refusal itself.
+    return start_syncer(options.home, { git, push: true, log }, seconds * 1000, () => {});
 }
 
 function start_github_poller(
