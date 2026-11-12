@@ -17,6 +17,7 @@ import type {
     DiffCommentsResponse,
     ExtensionToolSpec,
     InboxMessageResponse,
+    Job,
     JobResponse,
     OkResponse,
     ReviewDraftResponse,
@@ -141,6 +142,40 @@ export function schema_of(spec: ExtensionToolSpec): TSchema {
 }
 
 /**
+ * A lead writes to GitHub as the operator only with `settings.agents.github: full`
+ * (talk-change-ship.md, 1.4). The fixer is started by the operator's `fix`, so it is not held
+ * to the setting.
+ */
+function refuse_guarded(env: SpinnerEnv, what: string): void {
+    if (env.role === "lead" && env.github !== "full") {
+        throw new Error(
+            `${what} writes to GitHub as the operator, and GitHub access is guarded ` +
+                "(settings: agents.github). Say what is ready; the operator does it.",
+        );
+    }
+}
+
+/**
+ * `stack up`: the `run local` job, waited for. A stack that needs longer than the wait (a
+ * first install) keeps starting; the answer says how to look again.
+ */
+async function stack_up(client: DaemonClient, session: string, poll_ms?: number): Promise<string> {
+    const started = await client.send<JobResponse>("POST", `${session}/up`, {});
+    let job: Job;
+    try {
+        job = await wait_job(client, started.job, poll_ms);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (reason.includes("is still running")) {
+            return "The stack is still starting. Look again with `stack` `show` in a minute.";
+        }
+        throw error;
+    }
+    const tail = job.log.slice(-8).map((line) => `  ${line}`);
+    return ["The stack is up. The job's last lines:", ...tail].join("\n");
+}
+
+/**
  * Runs one tool: the manifest's route with the model's arguments. Returns the model's text.
  * A session agent's tools act on its own session; the operator agent names one in `session`.
  */
@@ -220,10 +255,24 @@ export async function run_tool(
                     ),
                 );
             }
+            if (command === "up") {
+                return stack_up(client, session, poll_ms);
+            }
             return render_stack(await client.get<{ session: SessionView }>(session), command);
         }
-        case "pr":
-            return render_prs(await client.get<{ session: SessionView }>(session));
+        case "pr": {
+            if (text("command") !== "open") {
+                return render_prs(await client.get<{ session: SessionView }>(session));
+            }
+            if (env.role !== "lead") {
+                throw new Error("`pr open` is the lead's; ask the lead, or the operator");
+            }
+            refuse_guarded(env, "`pr open`");
+            const started = await client.send<JobResponse>("POST", `${session}/pr`, {});
+            const job = await wait_job(client, started.job, poll_ms);
+            const tail = job.log.slice(-8).map((line) => `  ${line}`);
+            return ["The pull request job ran. Its last lines:", ...tail].join("\n");
+        }
         case "thread_list": {
             const view = await client.get<ThreadsResponse>(`${session}/threads`);
             const repo = args["pr"] === undefined ? null : text("pr");
@@ -232,10 +281,12 @@ export async function run_tool(
             );
         }
         case "thread_reply":
+            refuse_guarded(env, "`thread_reply`");
             return thread_action(client, session, "reply", args, { text: text("text") });
         case "thread_flag":
             return thread_action(client, session, "flag", args, { reason: text("reason") });
         case "thread_resolve": {
+            refuse_guarded(env, "`thread_resolve`");
             const view = await client.get<ThreadsResponse>(`${session}/threads`);
             const found = find_thread(view.threads.prs, text("thread"), args["pr"]);
             if (found === null) {

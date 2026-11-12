@@ -528,6 +528,10 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-1);
 }
 .compose-project { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.compose-plan {
+    display: flex; align-items: center; gap: 6px; margin-right: var(--space-3);
+    color: var(--muted); font-size: var(--text-dense); cursor: pointer; white-space: nowrap;
+}
 .compose-actions button { height: var(--control-form); padding: 0 14px; }
 /* The card's `archive` (s038): a small pill at the top right that shows on hover and on
    keyboard focus; its confirm takes the card's place with a red hairline. */

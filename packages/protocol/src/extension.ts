@@ -163,7 +163,7 @@ export const OPERATOR_REFUSED_ACTIONS = [
 
 export type ExtensionTool = (typeof EXTENSION_TOOLS)[number];
 
-export type StackToolCommand = "show" | "logs" | "restart";
+export type StackToolCommand = "show" | "logs" | "restart" | "up";
 
 /** The arguments of each tool, as the model supplies them. */
 export interface ExtensionToolArgs {
@@ -323,7 +323,8 @@ const SESSION_PARAM = {
 
 const SESSION_ROLES: readonly ExtensionRole[] = ["worker", "fixer", "lead"];
 const EVERY_ROLE: readonly ExtensionRole[] = ["worker", "fixer", "lead", "operator"];
-const FIXER: readonly ExtensionRole[] = ["fixer"];
+/** The review-thread tools: the fixer, and the lead that keeps its own PR ready. */
+const THREADS: readonly ExtensionRole[] = ["fixer", "lead"];
 const OPERATOR: readonly ExtensionRole[] = ["operator"];
 const OPERATOR_OR_LEAD: readonly ExtensionRole[] = ["operator", "lead"];
 const WORKER_OR_LEAD: readonly ExtensionRole[] = ["worker", "lead"];
@@ -405,12 +406,13 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             name: "stack",
             description:
                 "Show the session's stack (and why its last job failed), tail a service's " +
-                "logs, or restart a service.",
+                "logs, restart a service, or bring the whole stack up (`up`, as the " +
+                "operator's `run local`) to test a change.",
             parameters: {
                 command: {
                     type: "string",
                     description: "What to do",
-                    enum: ["show", "logs", "restart"],
+                    enum: ["show", "logs", "restart", "up"],
                 },
                 service: { type: "string", description: "Service name, for logs and restart" },
                 lines: { type: "number", description: "Log lines to tail (default 100, max 2000)" },
@@ -425,9 +427,16 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         },
         {
             name: "pr",
-            description: "Show the session's PRs: stage, checks, review and open threads.",
+            description:
+                "Show the session's PRs: stage, checks, review and open threads. The lead " +
+                "also opens them (`open`): push, one PR per changed repo, the body from the " +
+                "mission; allowed when the operator's settings give GitHub access.",
             parameters: {
-                command: { type: "string", description: "Only `show`", enum: ["show"] },
+                command: {
+                    type: "string",
+                    description: "`show`, or `open` (the lead)",
+                    enum: ["show", "open"],
+                },
                 session: {
                     type: "string",
                     description: "Session directory; needed in the operator role, ignored else",
@@ -442,7 +451,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             description: "List the open review threads of one PR or of every PR.",
             parameters: { pr: { type: "string", description: "Repo key; all PRs when absent" } },
             required: [],
-            roles: FIXER,
+            roles: THREADS,
             route: "GET /sessions/:dir/threads",
         },
         {
@@ -453,7 +462,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 text: { type: "string", description: "The reply" },
             },
             required: ["thread", "text"],
-            roles: FIXER,
+            roles: THREADS,
             route: "POST /sessions/:dir/threads/:id/reply",
         },
         {
@@ -462,7 +471,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 "Resolve a thread you replied to, after the fix is pushed and checks are green.",
             parameters: THREAD_PARAMS,
             required: ["thread"],
-            roles: FIXER,
+            roles: THREADS,
             route: "POST /sessions/:dir/threads/:id/resolve",
         },
         {
@@ -473,7 +482,7 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 reason: { type: "string", description: "One line" },
             },
             required: ["thread", "reason"],
-            roles: FIXER,
+            roles: THREADS,
             route: "POST /sessions/:dir/threads/:id/flag",
         },
         {

@@ -3,7 +3,13 @@
 // `github.poll_seconds` (60 by default). A round that changes nothing writes nothing and
 // notifies nobody.
 import assert from "node:assert/strict";
-import type { PipelineConfig, PrFacts, Session, SessionSummary } from "@spinner/protocol";
+import type {
+    PipelineConfig,
+    PrFacts,
+    PrThreadsView,
+    Session,
+    SessionSummary,
+} from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { list_sessions, write_session } from "../store/session-store.js";
 import { existsSync } from "node:fs";
@@ -28,6 +34,7 @@ import {
     write_pr_threads,
 } from "./threads.js";
 import { apply_pr_facts, refresh_session, session_prs, type Transition } from "./tracker.js";
+import { autopilot_step, baseline_autopilot } from "./autopilot.js";
 
 export interface PollOptions {
     gh: GhRunner;
@@ -38,6 +45,16 @@ export interface PollOptions {
     log?: (line: string) => void;
     /** Reads replies under a session's Slack post. No Slack poll when absent. */
     slack?: (summary: SessionSummary) => SlackClient;
+    /**
+     * The autopilot (docs/designs/talk-change-ship.md, 1.5). `enabled` is read each round
+     * (`settings.agents.github: full`); `tell` sends the text to the session's lead and
+     * answers false when it could not (no lead, pi did not start), so the facts are told at
+     * the next round. No autopilot when absent.
+     */
+    autopilot?: {
+        enabled: () => boolean;
+        tell: (dir: string, text: string) => Promise<boolean>;
+    };
 }
 
 export interface PollReport {
@@ -127,6 +144,7 @@ async function poll_session(
     now: Date,
 ): Promise<Transition | null> {
     let session = entry.session;
+    const views: PrThreadsView[] = [];
     for (const pr of open) {
         const ref = parse_pr_url(pr.url);
         assert.ok(ref !== null, `${entry.dir}: repo ${pr.repo} has a PR without a GitHub URL`);
@@ -138,9 +156,11 @@ async function poll_session(
         const previous = read_pr_threads(entry, pr.repo, pr.number);
         const view = threads_from_response(pr.repo, response, context, previous);
         write_pr_threads(entry, view, previous);
+        views.push(view);
         session = apply_pr_facts(session, pr.repo, with_flagged(facts, view.flagged));
     }
     const refreshed = refresh_session(entry.session, session, config, now);
+    await run_autopilot(entry, refreshed.session, views, options);
     const changed = JSON.stringify(refreshed.session) !== JSON.stringify(entry.session);
     if (changed) {
         write_session({ ...entry, session: refreshed.session });
@@ -154,6 +174,37 @@ async function poll_session(
         await options.notify("Spinner", message, entry.dir);
     }
     return refreshed.transition;
+}
+
+/**
+ * Tells the lead what is new on the session's pull requests and records it in `session`
+ * (mutated: the caller writes it). A session seen without a state gets the baseline and no
+ * message. A message that cannot be delivered leaves the state as it was.
+ */
+async function run_autopilot(
+    entry: SessionSummary,
+    session: Session,
+    views: readonly PrThreadsView[],
+    options: PollOptions,
+): Promise<void> {
+    const autopilot = options.autopilot;
+    if (autopilot === undefined || !autopilot.enabled() || session.kind === "review") {
+        return;
+    }
+    const pipeline = session.pipeline ?? { verified_locally: false, slack_post: null };
+    session.pipeline = pipeline;
+    if (pipeline.autopilot === undefined) {
+        pipeline.autopilot = baseline_autopilot(session, views);
+        return;
+    }
+    const step = autopilot_step(session, views, pipeline.autopilot);
+    for (const line of step.stopped) {
+        (options.log ?? (() => {}))(`autopilot ${entry.dir}: stopped: ${line}`);
+        await options.notify("Spinner", `${session.id} autopilot stopped: ${line}`, entry.dir);
+    }
+    if (step.message === null || (await autopilot.tell(entry.dir, step.message))) {
+        pipeline.autopilot = step.state;
+    }
 }
 
 export function transition_message(session: Session, transition: Transition): string {

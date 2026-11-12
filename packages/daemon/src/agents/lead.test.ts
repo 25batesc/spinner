@@ -235,18 +235,22 @@ describe("POST /sessions with text", () => {
         expect(brief).toContain("session_title");
         expect(brief).toContain("Do not post to Slack, approve, land, reset or close");
         expect(brief).toContain("GitHub (push, pull requests, comments, reviews)");
-        // The design-track brief (3.13, 3.14): the new step 3 and the Design (EGM) section.
+        // The fast path comes first (talk-change-ship.md, 1.2): no gate, no plan to approve.
+        expect(brief).toContain("## How you work: the fast path (track `direct`, the default)");
+        expect(brief).toContain("1. Start now.");
+        expect(brief).toContain("2. Decide, do not ask.");
+        expect(brief).toContain("7. Open the pull request with the `pr` tool (`open`)");
+        expect(brief).toContain("8. Keep it ready.");
+        expect(brief).not.toContain("propose a track");
+        // EGM is one section, for the design track only, and the lead never starts it.
         expect(brief).toContain(
-            "3. On the `direct` track, write the Goal with `mission_goal` (one paragraph), the " +
-                "Done\n   when list with `mission_done_when`",
+            "## Planning first: EGM (track `design`, only when the operator picks it)",
         );
-        expect(brief).toContain("`mission_plan` (one owner per item; yourself until the work");
-        expect(brief).toContain("On the `design`\n   track, skip this step");
-        expect(brief).toContain("## Design (EGM)\n1. In your first answer, propose a track");
-        expect(brief).toContain("the operator starts each EGM skill. You never start one on");
-        expect(brief).toContain("3. Ask each EGM gate that has options with `ask_question`");
+        expect(brief).toContain("Never propose it, never start it");
+        expect(brief).toContain("1. The operator starts each EGM skill. You never start one on");
+        expect(brief).toContain("2. Ask each EGM gate that has options with `ask_question`");
         expect(brief).toContain("write only the design doc and the session's files.");
-        expect(brief).not.toContain("3. Write the Goal with `mission_goal`");
+        expect(brief.indexOf("## How you work")).toBeLessThan(brief.indexOf("## Planning first"));
         const mission = readFileSync(join(read.summary.path, "MISSION.md"), "utf8");
         expect(mission).toContain("the lead agent owns the mission");
         expect(mission).toContain(`- ${PR_URL}`);
@@ -414,7 +418,11 @@ describe("the EGM step of a lead start", () => {
     let last: Session | null = null;
 
     /** Starts a lead; with `design`, the tracker and the writer join the deps (2.23). */
-    async function start(egm: EgmFetcher | undefined, design = false): Promise<string[]> {
+    async function start(
+        egm: EgmFetcher | undefined,
+        design = false,
+        track?: "design" | "direct",
+    ): Promise<string[]> {
         const summary = create_session(home, { title: "Egm lead", lead: true });
         const lines: string[] = [];
         const writer = new MissionWriter(home, daemon.bus);
@@ -438,7 +446,7 @@ describe("the EGM step of a lead start", () => {
             const started = await start_lead_session(
                 deps,
                 summary,
-                { text: "Add a flag" },
+                { text: "Add a flag", ...(track === undefined ? {} : { track }) },
                 (line) => lines.push(line),
             );
             expect(started.session.agents?.["lead"]?.process).toBe("idle");
@@ -482,16 +490,26 @@ describe("the EGM step of a lead start", () => {
         expect(lines.filter((line) => line.includes("EGM"))).toEqual([]);
     });
 
-    it("gives a ready EGM the design track (2.23, 3.1, 3.14)", async () => {
-        expect(DESIGN_DEFAULT_TRACK).toBe("design");
+    it("gives a new session the direct track, the fast path, with EGM ready", async () => {
+        expect(DESIGN_DEFAULT_TRACK).toBe("direct");
         fetched_home();
         const lines = await start(new EgmFetcher(home, pi_env(true), failing), true);
+        expect(lines).toContain("track: direct");
+        expect(last?.design?.track).toBe("direct");
+    });
+
+    it("gives the design track when the request asks for it and EGM is ready", async () => {
+        fetched_home();
+        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true, "design");
         expect(lines).toContain("track: design");
         expect(last?.design?.track).toBe("design");
     });
 
-    it("gives a failed fetch the direct track", async () => {
-        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true);
+    it("gives a failed fetch the direct track, and says so when design was asked", async () => {
+        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true, "design");
+        expect(lines).toContain(
+            "track: design was asked for, but EGM is not ready or a PR was adopted",
+        );
         expect(lines).toContain("track: direct");
         expect(last?.design?.track).toBe("direct");
     });

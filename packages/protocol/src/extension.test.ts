@@ -102,7 +102,7 @@ describe("extension manifest", () => {
         }
     });
 
-    it("gives the lead the mission, review and comment tools, agent_add and adopt", () => {
+    it("gives the lead the mission, thread, review and comment tools, agent_add, adopt", () => {
         const lead_tools = EXTENSION_MANIFEST.tools
             .filter((tool) => tool.roles.includes("lead"))
             .map((tool) => tool.name);
@@ -114,6 +114,10 @@ describe("extension manifest", () => {
             "message",
             "stack",
             "pr",
+            "thread_list",
+            "thread_reply",
+            "thread_resolve",
+            "thread_flag",
             "agent_add",
             "agent_steer",
             "diff_comments",

@@ -1078,7 +1078,13 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     // this closure, or runs one round itself when polling is off.
     let poller: Poller | null = null;
     let syncer: Syncer | null = null;
-    const poll_options = poll_options_for(ctx, notify, log);
+    const poll_options: PollOptions = {
+        ...poll_options_for(ctx, notify, log),
+        autopilot: {
+            enabled: () => github_access_of(home) === "full",
+            tell: (dir, text) => tell_lead(agents, dir, text, log),
+        },
+    };
     const poll = async (): Promise<void> => {
         if (poller !== null) {
             await poller.round();
@@ -1211,6 +1217,28 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
  * turns into `session.updated`; the notifier publishes `notify`. `poll_seconds: 0` is
  * off, for tests and for a machine without `gh`.
  */
+/**
+ * The autopilot's message to a session's lead (docs/designs/talk-change-ship.md, 1.5): a
+ * stopped lead is resumed for it. False when the session has no lead or pi does not start;
+ * the poller then tells the same facts at its next round.
+ */
+async function tell_lead(
+    agents: AgentManager,
+    dir: string,
+    text: string,
+    log: (line: string) => void,
+): Promise<boolean> {
+    try {
+        await agents.ensure_running(dir, LEAD_NAME);
+    } catch (error) {
+        log(`autopilot ${dir}: the lead was not reached: ${describe_error(error)}`);
+        return false;
+    }
+    const delivered = await agents.deliver_message(dir, LEAD_NAME, text, []);
+    log(`autopilot ${dir}: told the lead (${delivered})`);
+    return true;
+}
+
 /** `settings.agents.github`; `guarded` when absent or when the file does not parse. */
 function github_access_of(home: SpinnerHome): GithubAccess {
     try {

@@ -305,8 +305,13 @@ export const DESIGN_DEFAULT_DIR = "docs/designs";
 /** The tracker lists at most this many files in `<session>/design/`; past it the newest win. */
 export const DESIGN_FILES_MAX = 200;
 
-/** The track a new paste session gets when EGM is ready and pi-subagents is installed. */
-export const DESIGN_DEFAULT_TRACK: DesignTrack = "design";
+/**
+ * The track a new paste session gets. `direct` since 2026-11-12: the lead builds, verifies,
+ * opens the pull request and keeps it ready, with no gate. The operator found the `design`
+ * default too heavy for most work; EGM is a tool he picks (`NewSessionRequest.track`, the
+ * composer's "Plan first" box, or the track chip), for a large change.
+ */
+export const DESIGN_DEFAULT_TRACK: DesignTrack = "direct";
 
 // Gates and skills in the app (docs/designs/egm-adoption.md, build session 3, T8, T9).
 

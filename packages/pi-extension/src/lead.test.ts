@@ -79,7 +79,12 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 answer(200, { ok: true, sections: [(body as { section: string }).section] });
             } else if (path.startsWith(`/sessions/${DIR}/title`)) {
                 answer(200, { session: { summary: { session: { title: "x" } } } });
-            } else if (path === `/sessions/${DIR}/adopt`) {
+            } else if (
+                path === `/sessions/${DIR}/adopt` ||
+                path === `/sessions/${DIR}/pr` ||
+                path === `/sessions/${DIR}/up`
+            ) {
+                polls = 0;
                 answer(202, { job: job("running") });
             } else if (path === "/jobs/j-7") {
                 polls += 1;
@@ -169,7 +174,9 @@ describe("the lead role", () => {
         expect(names).toContain("agent_add");
         expect(names).toContain("agent_steer");
         expect(names).not.toContain("session_new");
-        expect(names).not.toContain("thread_reply");
+        // The lead keeps its own pull request ready (talk-change-ship.md, 1.4).
+        expect(names).toContain("thread_reply");
+        expect(names).toContain("thread_resolve");
         expect(names).toContain("design_doc");
         const handler = pi.handlers.get("before_agent_start")?.[0];
         const event: BeforeAgentStartEvent = { systemPromptOptions: { sections: {} } };
@@ -193,6 +200,36 @@ describe("the lead role", () => {
         expect(section).toContain("`gh pr comment`");
         expect(section).toContain("stay the operator's");
         expect(section).not.toContain("The operator pushes, posts, approves");
+    });
+
+    it("opens the pull request and starts the stack itself; GitHub writes need full", async () => {
+        const daemon = await fake_daemon();
+        try {
+            // Guarded (the default): the lead is told the operator does it; nothing is sent.
+            const guarded = fake_pi();
+            register(guarded, { env: env_for(daemon.url), job_poll_ms: 5 });
+            await expect(run(guarded, "pr", { command: "open" })).rejects.toThrow(
+                /GitHub access is guarded/,
+            );
+            const reply = { thread: "T1", pr: "backend", text: "fixed" };
+            await expect(run(guarded, "thread_reply", reply)).rejects.toThrow(/guarded/);
+            expect(daemon.requests).toEqual([]);
+            // The stack is local: no setting holds it back.
+            expect(await run(guarded, "stack", { command: "up" })).toContain("The stack is up.");
+            expect(daemon.requests[0]).toMatchObject({
+                method: "POST",
+                path: `/sessions/${DIR}/up`,
+            });
+
+            const full = fake_pi();
+            const env = { ...env_for(daemon.url), SPINNER_GITHUB: "full" };
+            register(full, { env, job_poll_ms: 5 });
+            const opened = await run(full, "pr", { command: "open" });
+            expect(opened).toContain("The pull request job ran.");
+            expect(daemon.requests.some((r) => r.path === `/sessions/${DIR}/pr`)).toBe(true);
+        } finally {
+            daemon.close();
+        }
     });
 
     it("turns each tool into the route's body on its own session", async () => {

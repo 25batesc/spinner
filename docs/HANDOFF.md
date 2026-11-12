@@ -2,7 +2,7 @@
 
 This page is for the operator and for an agent that opens a new chat with no memory of the last one. It says what runs, where the state lives, how to resume the work, and what the open decisions are. [STATUS.md](STATUS.md) holds the full record per milestone. This page holds only what you need in the first ten minutes.
 
-Updated: 2026-11-04, after v0.15.2 and the first dogfooding day.
+Updated: 2026-11-12, after v0.25.0 and the approved redesign.
 
 ## State in one paragraph
 
@@ -58,6 +58,10 @@ curl -s localhost:7777/health
    The spawn of an agent drops the other agent's `SPINNER_*` and `PI_SUBAGENT*` variables (s046 r3.7), so `agents.test.ts` passes from a lead's shell.
 
 Rules that bit and are now in the briefs: stage by path, never `git add -A` or `git stash`. Log times from `date`. Wait on an artifact, not on a Log timestamp. Scratch with `mktemp -d`, reported, never deleted. One retry on a repo-side failure, then stop. Never print a file that can hold a secret. Never raise or move a window over the operator's. Destructive e2e only against a scratch daemon, and a driver never defaults to the operator's port. Never signal a pid without its identity. A driver closes its CDP target when it ends.
+
+## The direction since 2026-11-12
+
+Read `docs/designs/talk-change-ship.md` first. The operator approved it. Spinner's main job is a request in and a mergeable pull request out, kept ready by the agent. The fast path is the default; EGM planning is a tool he picks. Step 1 is built (v0.25.0): the `direct` track by default, the lead's fast-path brief, `pr` `open`, `stack` `up`, the thread tools for the lead, and the autopilot. Steps 2 to 5 are approved in outline: several changes in one session, the stack following a change, plans as a library, the chat as the centre. Detail each step with the operator before it is built. The Agents view design (session s052) is paused until steps 2 and 5.
 
 ## The operator's current work
 

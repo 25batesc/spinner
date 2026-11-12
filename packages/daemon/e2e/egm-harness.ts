@@ -175,7 +175,7 @@ async function main(): Promise<void> {
     check(egm["subagents"] === true, "pi-subagents is in the operator's pi settings");
 
     step("POST /sessions with the paste");
-    const started = await post("/sessions", { text: PASTE, project });
+    const started = await post("/sessions", { text: PASTE, project, track: "design" });
     check(started.status === 202, `POST /sessions → ${started.status}`);
     const { job } = (await started.json()) as { job: { id: string; session: string | null } };
     session_dir = job.session ?? "";

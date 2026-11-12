@@ -50,4 +50,10 @@ it("sends the text, the project and the ticked PRs in the extraction's order", (
         adopt: [url(3), url(1)],
     });
     expect(startBody("x", "", new Set(), [])).toEqual({ text: "x", adopt: [] });
+    // `Plan first` asks for the design track; the fast path sends no track.
+    expect(startBody("x", "", new Set(), [], true)).toEqual({
+        text: "x",
+        adopt: [],
+        track: "design",
+    });
 });

@@ -160,6 +160,8 @@ export interface ComposeFormProps {
 export interface ComposeDraft {
     text: string;
     project: string;
+    /** Plan first with EGM (the design track); off means the fast path. */
+    planFirst?: boolean;
 }
 
 export const EMPTY_DRAFT: ComposeDraft = { text: "", project: "" };
@@ -177,7 +179,11 @@ export function ComposeForm({ run, draft, onDraft, starting }: ComposeFormProps)
         if (text.trim() === "" || starting) {
             return;
         }
-        void run("/sessions", startBody(text, project, extraction.ticked, extraction.prs));
+        const planFirst = draft.planFirst === true;
+        void run(
+            "/sessions",
+            startBody(text, project, extraction.ticked, extraction.prs, planFirst),
+        );
     };
 
     return (
@@ -199,6 +205,17 @@ export function ComposeForm({ run, draft, onDraft, starting }: ComposeFormProps)
                     <span className="field-label">Project</span>
                     <ProjectSelect projects={projects} value={project} onChange={setProject} />
                 </label>
+                <label
+                    className="compose-plan"
+                    title={PLAN_FIRST_TIP}
+                >
+                    <input
+                        type="checkbox"
+                        checked={draft.planFirst === true}
+                        onChange={(event) => onDraft({ ...draft, planFirst: event.target.checked })}
+                    />
+                    <span>Plan first (EGM)</span>
+                </label>
                 <button
                     type="submit"
                     className="primary"
@@ -210,6 +227,10 @@ export function ComposeForm({ run, draft, onDraft, starting }: ComposeFormProps)
         </form>
     );
 }
+
+const PLAN_FIRST_TIP =
+    "Off: the lead builds, tests, opens the pull request and keeps it ready. " +
+    "On: brainstorm, draft and review a design with EGM first; for a large change.";
 
 const SESSION_PLACEHOLDER =
     "What should this session be about? Paste a ticket, a PR link, or a sentence.";

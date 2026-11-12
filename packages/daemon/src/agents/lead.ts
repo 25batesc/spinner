@@ -5,7 +5,12 @@
 // PRs. Every step is one job log line, so the UI's job panel tells the story. A session
 // created with a `title` alone still takes the old path (`actions.attach_new_session`).
 import assert from "node:assert/strict";
-import type { NewSessionRequest, SessionSummary, StackSpec } from "@spinner/protocol";
+import type {
+    DesignTrack,
+    NewSessionRequest,
+    SessionSummary,
+    StackSpec,
+} from "@spinner/protocol";
 import { DESIGN_DEFAULT_TRACK } from "@spinner/protocol";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
@@ -76,7 +81,7 @@ export async function start_lead_session(
     if (deps.egm !== undefined) {
         await prepare_egm(deps.home, deps.egm, log);
     }
-    current = await choose_track(deps, current, adopt.length, log);
+    current = await choose_track(deps, current, adopt.length, request.track, log);
     log(`starting ${LEAD_NAME}${repo === undefined ? "" : ` in the ${repo} worktree`}`);
     const handle = await deps.agents.add(current, {
         name: LEAD_NAME,
@@ -119,14 +124,16 @@ async function prepare_egm(home: SpinnerHome, egm: EgmFetcher, log: Log): Promis
 }
 
 /**
- * The track of a new paste session (D1, D12, 2.23): `DESIGN_DEFAULT_TRACK` when EGM is ready
- * with pi-subagents and nothing was adopted, else `direct`. Without the fetcher, the tracker
- * and the writer, no `design` block: the session behaves as one from before the EGM design.
+ * The track of a new paste session: what the request asks for, else `DESIGN_DEFAULT_TRACK`
+ * (`direct`, the fast path). `design` holds only when EGM is ready with pi-subagents and
+ * nothing was adopted (D12), else `direct`. Without the fetcher, the tracker and the writer,
+ * no `design` block: the session behaves as one from before the EGM design.
  */
 async function choose_track(
     deps: LeadStartDeps,
     summary: SessionSummary,
     adopted: number,
+    requested: DesignTrack | undefined,
     log: Log,
 ): Promise<SessionSummary> {
     if (deps.egm === undefined || deps.design === undefined || deps.writer === undefined) {
@@ -134,7 +141,11 @@ async function choose_track(
     }
     const status = deps.egm.status();
     const ready = status.state === "ready" && status.subagents;
-    const track = ready && adopted === 0 ? DESIGN_DEFAULT_TRACK : "direct";
+    const wanted = requested ?? DESIGN_DEFAULT_TRACK;
+    const track = wanted === "design" && ready && adopted === 0 ? "design" : "direct";
+    if (wanted === "design" && track === "direct") {
+        log("track: design was asked for, but EGM is not ready or a PR was adopted");
+    }
     await actions.set_design_track(deps.ctx, deps.writer, summary, track, status);
     log(`track: ${track}`);
     await deps.design.refresh(summary.dir);

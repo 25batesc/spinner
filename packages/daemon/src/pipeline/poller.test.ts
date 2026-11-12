@@ -268,6 +268,47 @@ describe("poll_once", () => {
         expect(banners).toEqual([]);
     });
 
+    it("autopilot: a first sight is the baseline; new threads go to the lead once", async () => {
+        const dir = await adopt();
+        const told: string[] = [];
+        let reachable = true;
+        const autopilot = {
+            enabled: () => true,
+            tell: async (session_dir: string, text: string): Promise<boolean> => {
+                if (reachable) {
+                    told.push(`${session_dir}: ${text}`);
+                }
+                return reachable;
+            },
+        };
+        const options = { gh: gh.runner, notify, cwd: root, autopilot };
+        // First sight of an adopted pull request: what stands is recorded, nothing is sent.
+        await poll_once(home, options);
+        expect(told).toEqual([]);
+        expect(read_yaml(dir).pipeline?.autopilot).toEqual({ red: {}, threads: [] });
+        // Two open threads arrive (the fixing fixture). The lead cannot be reached: nothing
+        // is recorded, so the next round tells the same facts.
+        // The fixture is another pull request (#4825); once its facts are in the session the
+        // poller asks for that number.
+        gh.responses.set(4812, load("pr-fixing"));
+        gh.responses.set(4825, load("pr-fixing"));
+        reachable = false;
+        await poll_once(home, options);
+        expect(read_yaml(dir).pipeline?.autopilot?.threads).toEqual([]);
+        reachable = true;
+        await poll_once(home, options);
+        expect(told).toHaveLength(1);
+        expect(told[0]).toContain(`${dir}: Spinner autopilot`);
+        expect(told[0]).toMatch(/2 new review thread\(s\) on backend#\d+: T1, T2\./);
+        expect(read_yaml(dir).pipeline?.autopilot?.threads).toHaveLength(2);
+        // Nothing new: nothing sent. Off (`agents.github: guarded`): nothing sent either.
+        await poll_once(home, options);
+        expect(told).toHaveLength(1);
+        const off = { ...autopilot, enabled: () => false };
+        await poll_once(home, { ...options, autopilot: off });
+        expect(told).toHaveLength(1);
+    });
+
     it("verify moves the session to peer-review; a push clears the tick", async () => {
         const dir = await adopt();
         const { config } = load_pipeline_config(project, home, root);

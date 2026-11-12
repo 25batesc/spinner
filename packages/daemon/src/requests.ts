@@ -61,6 +61,13 @@ export function parse_new_session(input: unknown): NewSessionRequest | string {
     } else if (project !== undefined) {
         return "`project` must be a non-empty string when given";
     }
+    const track = record["track"];
+    if (track !== undefined) {
+        if (track !== "design" && track !== "direct") {
+            return "`track` must be one of design, direct when given";
+        }
+        request.track = track;
+    }
     return request;
 }
 

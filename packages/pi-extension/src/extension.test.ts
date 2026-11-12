@@ -403,7 +403,18 @@ describe("prompt section", () => {
             await pi.handlers.get("before_agent_start")?.[0]?.(event as never, {} as never);
             return event.systemPromptOptions.sections["spinner_session"] ?? "";
         };
+        // Off the design track (no state file yet, or `direct`): the fast path, EGM named as
+        // a tool the operator turns on, and none of the Elephant's lines.
+        const fast = await section_for({ ...env_for("lead", ""), ...egm });
+        expect(fast).toContain("Track: direct, the fast path.");
+        expect(fast).toContain("open the pull\nrequest with `pr` `open`");
+        expect(fast).toContain("EGM planning is installed but off");
+        expect(fast).not.toContain("You are the Elephant");
+        const state = join(session_dir, "design", ".state.json");
+        mkdirSync(join(session_dir, "design"), { recursive: true });
+        writeFileSync(state, JSON.stringify({ track: "design", designs_dir: null }));
         const lead = await section_for({ ...env_for("lead", ""), ...egm });
+        expect(lead).not.toContain("the fast path");
         expect(lead).toContain("EGM (Elephant-Goldfish Model, Apache-2.0) is loaded.");
         expect(lead).toContain(
             `EGM plugin root: /home/egm/src. EGM artifact directory: ${session_dir}/design.`,
@@ -414,10 +425,8 @@ describe("prompt section", () => {
             "For an EGM gate with options, call ask_question with the gate's JSON payload, " +
             "then end your turn.";
         expect(lead).toContain(gate_line);
-        // Without `.state.json` the two designs-directory lines stay out (3.6).
+        // Without a designs directory the two designs-directory lines stay out (3.6).
         expect(lead).not.toContain("Designs directory:");
-        const state = join(session_dir, "design", ".state.json");
-        mkdirSync(join(session_dir, "design"), { recursive: true });
         const designs = "/w/web/docs/designs";
         writeFileSync(state, JSON.stringify({ track: "direct", designs_dir: designs }));
         expect(await section_for({ ...env_for("lead", ""), ...egm })).not.toContain("Designs");
@@ -430,8 +439,10 @@ describe("prompt section", () => {
         );
         const worker = await section_for({ ...env_for("worker", ""), ...egm });
         expect(worker).not.toContain("EGM");
+        rmSync(state);
         const plain = await section_for(env_for("lead", ""));
         expect(plain).toContain("You are the lead");
+        expect(plain).toContain("Track: direct, the fast path.");
         expect(plain).not.toContain("EGM");
     });
 

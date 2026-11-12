@@ -20,7 +20,7 @@ import type {
     SwarmState,
 } from "./session.js";
 import type { DiffView } from "./diff.js";
-import type { DesignView, SeedResult } from "./egm.js";
+import type { DesignTrack, DesignView, SeedResult } from "./egm.js";
 import type { OperatorCost, SessionCost } from "./costs.js";
 import type { PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
@@ -821,6 +821,12 @@ export interface NewSessionRequest {
     project?: string;
     /** PR URLs from `ExtractResponse.prs` to adopt: a worktree on each PR's head branch. */
     adopt?: string[];
+    /**
+     * `design` to plan first with EGM (brainstorm, draft, review, approve, then build). Absent
+     * means `DESIGN_DEFAULT_TRACK`, the fast path. `design` falls back to `direct` when EGM
+     * is not ready or a pull request was adopted.
+     */
+    track?: DesignTrack;
 }
 
 /** `POST /sessions/extract`: the PR references in `text`, resolved against `project`'s repos. */

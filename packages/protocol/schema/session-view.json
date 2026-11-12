@@ -562,6 +562,10 @@
                 "slack_activity": {
                     "$ref": "#/definitions/SlackActivity",
                     "description": "Replies and reactions under the Slack post, as the daemon last polled them."
+                },
+                "autopilot": {
+                    "$ref": "#/definitions/AutopilotState",
+                    "description": "What the autopilot told the lead about this round's pull requests (docs/designs/talk-change-ship.md, 1.5). Absent until `pr` opens a pull request or the poller first sees one; what stands then is recorded as told, without a message."
                 }
             },
             "required": [
@@ -600,6 +604,44 @@
             ],
             "additionalProperties": false,
             "description": "What the daemon reads under the session's Slack post. Read-only; counts drive the board."
+        },
+        "AutopilotState": {
+            "type": "object",
+            "properties": {
+                "red": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "head": {
+                                "type": "string"
+                            },
+                            "rounds": {
+                                "type": "number"
+                            }
+                        },
+                        "required": [
+                            "head",
+                            "rounds"
+                        ],
+                        "additionalProperties": false
+                    },
+                    "description": "Per repo key: the head whose red checks the lead was told about, and how many red heads in a row it was told about. A green head removes the entry."
+                },
+                "threads": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Ids of the review threads the lead was told about, oldest first, bounded."
+                }
+            },
+            "required": [
+                "red",
+                "threads"
+            ],
+            "additionalProperties": false,
+            "description": "The daemon's memory of the failed checks and review threads it sent to the lead."
         },
         "StackState": {
             "type": "object",

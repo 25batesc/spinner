@@ -124,7 +124,29 @@ export interface Pipeline {
     approved_heads?: Record<string, string>;
     /** Replies and reactions under the Slack post, as the daemon last polled them. */
     slack_activity?: SlackActivity;
+    /**
+     * What the autopilot told the lead about this round's pull requests
+     * (docs/designs/talk-change-ship.md, 1.5). Absent until `pr` opens a pull request or the
+     * poller first sees one; what stands then is recorded as told, without a message.
+     */
+    autopilot?: AutopilotState;
 }
+
+/** The daemon's memory of the failed checks and review threads it sent to the lead. */
+export interface AutopilotState {
+    /**
+     * Per repo key: the head whose red checks the lead was told about, and how many red
+     * heads in a row it was told about. A green head removes the entry.
+     */
+    red: Record<string, { head: string; rounds: number }>;
+    /** Ids of the review threads the lead was told about, oldest first, bounded. */
+    threads: string[];
+}
+
+/** After this many red heads in a row on one pull request, the autopilot stops telling. */
+export const AUTOPILOT_RED_MAX = 5;
+/** The thread ids the autopilot remembers; past it the oldest go. */
+export const AUTOPILOT_THREADS_MAX = 500;
 
 /** What the daemon reads under the session's Slack post. Read-only; counts drive the board. */
 export interface SlackActivity {

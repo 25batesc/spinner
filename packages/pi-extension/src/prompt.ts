@@ -31,6 +31,8 @@ export interface SessionFiles {
      * (3.6). The tracker writes that file; the extension reads JSON, not `session.yaml`.
      */
     designs_dir: string | null;
+    /** `track` of the same file: `design` or `direct`; null when the file is absent. */
+    track: string | null;
 }
 
 /** Reads the session files. `view` is the daemon's answer to `GET /sessions/:dir`, if any. */
@@ -53,6 +55,7 @@ export function load_session_files(env: SpinnerEnv, view: SessionView | null): S
         mission: read_or_empty(join(env.session_dir, "MISSION.md")).slice(0, MISSION_CHARS_MAX),
         hosts,
         designs_dir: design_designs_dir(env.session_dir),
+        track: design_track(env.session_dir),
     };
 }
 
@@ -98,8 +101,10 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
             "and `agent_steer` run the other agents; `adopt` brings a pull request in.",
         );
         lines.push(...github_lines(env.github));
-        if (env.egm_root !== null) {
+        if (env.egm_root !== null && files.track === "design") {
             lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? "", files.designs_dir));
+        } else {
+            lines.push(...fast_path_lines(env.egm_root));
         }
     }
     const hosts = Object.entries(files.hosts);
@@ -120,6 +125,21 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
         files.mission.trim(),
     );
     return lines.join("\n");
+}
+
+/** `track` of the tracker's `.state.json`; null when the file is absent or unreadable. */
+function design_track(session_dir: string): string | null {
+    const text = read_or_empty(join(session_dir, EGM_ARTIFACT_DIR, DESIGN_STATE_FILE));
+    if (text.length === 0) {
+        return null;
+    }
+    try {
+        const state: unknown = JSON.parse(text);
+        const track = (state as { track?: unknown } | null)?.track;
+        return typeof track === "string" ? track : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -146,6 +166,27 @@ function design_designs_dir(session_dir: string): string | null {
         return null;
     }
     return typeof designs_dir === "string" && designs_dir.length > 0 ? designs_dir : null;
+}
+
+/**
+ * The lead's lines off the design track: the fast path is the way of working, and EGM is a
+ * tool the operator picks (2026-11-12). With EGM installed, where it is, in case he runs a
+ * skill from the menu.
+ */
+function fast_path_lines(egm_root: string | null): string[] {
+    const lines = [
+        "Track: direct, the fast path. Build the change, verify it yourself, open the pull",
+        "request with `pr` `open`, and keep it ready: Spinner sends you failed checks and new",
+        "review comments; fix them and answer the threads without waiting for the operator.",
+        "Decide open points yourself and log the assumption; do not ask for a plan approval.",
+    ];
+    if (egm_root !== null) {
+        lines.push(
+            "EGM planning is installed but off: only the operator turns it on (the track chip).",
+            `If he starts an EGM skill, read ${egm_root}/docs/harnesses.md first.`,
+        );
+    }
+    return lines;
 }
 
 /** The lead's EGM lines (docs/designs/egm-adoption.md, 1.23, 3.6). */

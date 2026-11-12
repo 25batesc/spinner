@@ -197,6 +197,9 @@ describe("spinner pr", () => {
         ) as Session;
         expect(session.repos["backend"]?.pr?.number).toBe(4825);
         expect(session.repos["backend"]?.pr?.title).toContain("example feature");
+        // A pull request opened here starts with an empty autopilot state: its first failed
+        // check and review threads go to the lead (talk-change-ship.md, 1.5).
+        expect(session.pipeline?.autopilot).toEqual({ red: {}, threads: [] });
         // The title comes from the collector, so a later poll keeps it.
         const polled = pr_facts_from_response(load("pr-fixing"), {
             config: spec_with([]).github,

@@ -24,6 +24,7 @@ import { github_write, repo_of_checkout, type GithubWriter } from "./github-writ
 import { append_log_line, pr_body_from_mission } from "./mission-sections.js";
 import { threads_from_response, with_flagged, write_pr_threads } from "./threads.js";
 import { apply_pr_facts, refresh_session } from "./tracker.js";
+import { empty_autopilot } from "./autopilot.js";
 
 export type Log = (line: string) => void;
 
@@ -111,6 +112,13 @@ export async function open_prs(
         outcomes.push({ repo, outcome: "opened", url });
     }
     const refreshed = refresh_session(summary.session, session, deps.config, now());
+    // A pull request opened here starts with an empty autopilot state, so its first failed
+    // check and its first review threads are told to the lead (talk-change-ship.md, 1.5).
+    const pipeline = refreshed.session.pipeline;
+    const opened = outcomes.some((outcome) => outcome.outcome === "opened");
+    if (opened && pipeline !== undefined && pipeline.autopilot === undefined) {
+        pipeline.autopilot = empty_autopilot();
+    }
     write_session({ ...summary, session: refreshed.session });
     log_opened(summary, outcomes, now());
     const check = read_session(home, summary.dir);

@@ -20,7 +20,7 @@ WebSockets below.
 | `GET /sessions` | | `SessionsResponse` | Every session as the daemon sees it. |
 | `GET /sessions/:dir` | | `SessionResponse` | 404 without the session. |
 | `GET /sessions/:dir/mission` | | `text/markdown` | The raw `MISSION.md`. |
-| `POST /sessions` | `NewSessionRequest` | `JobResponse` | With `title`: the job attaches the project. With `text` (chat first, below): the job attaches, adopts, starts the lead and sends it the text. |
+| `POST /sessions` | `NewSessionRequest` | `JobResponse` | With `title`: the job attaches the project. With `text` (chat first, below): the job attaches, adopts, starts the lead and sends it the text. `track: design` asks for the EGM design track; absent means `direct`, the fast path. `design` falls back to `direct` when EGM is not ready or a pull request is adopted. |
 | `POST /sessions/extract` | `ExtractRequest` | `ExtractResponse` | The PR references in a paste, resolved against the project and looked up. Synchronous; below. |
 | `POST /sessions/adopt` | `AdoptRequest` | `JobResponse` | PRs opened outside Spinner. |
 | `POST /reviews` | `ReviewsRequest` | `JobResponse` | One session of `kind: review` per PR reference in `text`, with its `lead` and its swarm started; below. 409 without a reference. |
@@ -573,7 +573,7 @@ Slack) stays in `config.yaml`. The document is `Settings`:
 | `theme` | `system`, `light`, `dark`, `rainbow`, or the name of a valid `~/.spinner/themes/<name>.json`. `system` follows the OS. |
 | `default_model` | Optional. `provider/model` for an agent tab that names none. |
 | `agents.harness` | Optional. `tty` or `rpc`. |
-| `agents.github` | Optional. `guarded` (the default) or `full`. With `full` a session's lead may run `git push`, `gh pr create`, `comment`, `review`, `merge` and a writing `gh api` as the operator; the extension reads it at each spawn as `SPINNER_GITHUB`. Slack posts, `approve`, `land`, `reset` and `close` stay the operator's. The operator agent stays guarded. |
+| `agents.github` | Optional. `guarded` (the default) or `full`. With `full` a session's lead acts on GitHub as the operator. Its shell may run `git push`, `gh pr create`, `comment`, `review`, `merge` and a writing `gh api`. Its tools `pr` `open`, `thread_reply` and `thread_resolve` work. The autopilot runs (below). The extension reads the setting at each spawn as `SPINNER_GITHUB`. Slack posts, `approve`, `land`, `reset` and `close` stay the operator's. The operator agent stays guarded. |
 | `operator.enabled` | Optional, default false since s014. The daemon starts the operator agent at boot when true. |
 | `operator.model` | Optional. `provider/model` for the operator agent; else `default_model`, else the daemon's default. |
 | `review.models` | Optional. The swarm's models, `provider/model`; default `x-ai/grok-4.6`, `anthropic/claude-opus-5-5`, `openai/gpt-6-luna`. |
@@ -923,3 +923,20 @@ names the snapshot in `ui_commit`, null when no UI is served.
 ## Worktree sync
 
 Every 15 seconds (`sync_seconds`; 0 is off, and off when `poll_seconds` is 0) the daemon reads each session worktree and writes `repos.<key>.sync` into `session.yaml`: `dirty` (changed tracked files), `ahead` and `behind` (against the upstream branch), `upstream` (true once the branch tracks a remote branch), `pushed` (the time of the daemon's last push), `error` (the first line of a refused push, else null). When `upstream` is true and `ahead` is above 0, the daemon runs `git push origin HEAD`, never a force. A refused push fetches the branch so `behind` is current. A worktree with a PR and no upstream gets `origin/<branch>` as its upstream first. The card and the context bar show `push failed`, `↑n unpushed` or `n uncommitted` from these facts. Agents never push themselves: the extension guard refuses `git push`, and the daemon keeps the remote branch current.
+
+## The fast path and the autopilot
+
+The design is `docs/designs/talk-change-ship.md`, step 1. A new session is on the `direct` track. Its lead builds the change, verifies it, opens the pull request and keeps it ready. No gate asks the operator for a plan.
+
+The lead's tools for it:
+
+- `stack` `up` runs the `up` job and waits up to 2 minutes. A longer start keeps running; `stack` `show` reads it.
+- `pr` `open` runs the `pr` job: a push, one pull request per changed repo, the body from the mission. It needs `agents.github: full`.
+- `thread_list`, `thread_reply`, `thread_resolve` and `thread_flag` are the lead's as well as the fixer's. For a lead, `thread_reply` and `thread_resolve` need `agents.github: full`.
+
+The autopilot runs inside the GitHub poll, for each session with an open pull request, when `agents.github` is `full`. It sends one message to the session's lead per poll, with what is new:
+
+- The checks are red at a head the lead was not told about. The message names the pull request, the head and the failing checks.
+- Open review threads the lead was not told about, from bots and from people. Flagged threads are left out.
+
+A stopped lead is resumed for the message. A lead that cannot be reached is told at the next poll. The daemon keeps what it told in `session.yaml` under `pipeline.autopilot`: `red` (per repo key, the head and the count of red heads in a row) and `threads` (the thread ids, at most 500). The `pr` job starts a pull request with an empty state. A pull request that the poller sees with no state gets the baseline: what stands is recorded as told and no message is sent, so an adopted pull request does not flood its lead with history. After 5 red heads in a row on one pull request the autopilot stops telling the lead about its checks and notifies the operator; a green head resets the count. `reset` clears the state with the rest of `pipeline`.
