@@ -88,6 +88,13 @@ export const FIRST_TURN =
 export class AgentManager {
     private readonly hosted = new Map<string, Hosted>();
     private readonly pending = new Map<string, string[]>();
+    /**
+     * True from `stop_all`: the daemon stops its agents to shut down. Their exits are then
+     * not recorded, so `session.yaml` keeps them `idle` or `running` and the next daemon's
+     * `adopt_all` resumes them. Recording `exited` here left every agent dead after a
+     * restart, with nothing to say so but a small line under the terminal (dogfood 49, 57).
+     */
+    private shutting_down = false;
     private readonly now: () => Date;
     private readonly log: (line: string) => void;
     private readonly running_max: number;
@@ -264,11 +271,14 @@ export class AgentManager {
         if (this.at_cap) {
             throw new Error(`${this.running_max} agents running; the cap is reached`);
         }
-        const cwd = agent_cwd(summary, request.repo);
-        ensure_brief(summary, request);
         // The caller's summary may predate an earlier run; the file has the model it used.
         const fresh = read_session(this.home, summary.dir);
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;
+        // A resume that names no repo (the tab's `resume`) runs where the agent ran before,
+        // not in the session directory.
+        const repo = request.repo ?? listed?.repo;
+        const cwd = agent_cwd(summary, repo);
+        ensure_brief(summary, request);
         // `default` is the placeholder `record` writes for pi's own choice, not a model id.
         const listed_model = listed?.model === "default" ? undefined : listed?.model;
         // The operator's `settings.yaml` sits between the request and `config.yaml`: the
@@ -303,7 +313,7 @@ export class AgentManager {
             process: "idle",
             pid: handle.pid,
             ...(started === null ? {} : { started }),
-            ...(request.repo === undefined ? {} : { repo: request.repo }),
+            ...(repo === undefined ? {} : { repo }),
             ...(skills === undefined ? {} : { skills }),
         };
         this.record(summary.dir, request.name, spec);
@@ -391,8 +401,31 @@ export class AgentManager {
         await entry.handle.stop();
     }
 
-    /** Stops every agent, for daemon shutdown. */
+    /**
+     * The running agent, or a listed and stopped one resumed on its transcript. For a message
+     * the operator sends from a place with no `resume` button (an EGM gate card, a skill
+     * button): the message must not fail because a restart stopped the agent. Throws when
+     * the session does not list the agent or pi does not start.
+     */
+    async ensure_running(dir: string, name: string): Promise<AgentHandle> {
+        const running = this.get(dir, name);
+        if (running !== null) {
+            return running;
+        }
+        const read = read_session(this.home, dir);
+        if (!read.ok) {
+            throw new Error(read.error);
+        }
+        if (read.summary.session.agents?.[name] === undefined) {
+            throw new Error(`agent ${name} is not in ${dir}`);
+        }
+        this.log(`resume ${dir}/${name}: a message arrived while it was stopped`);
+        return this.add(read.summary, { name });
+    }
+
+    /** Stops every agent, for daemon shutdown. Their exits stay unrecorded; see the flag. */
     async stop_all(): Promise<void> {
+        this.shutting_down = true;
         await Promise.all([...this.hosted.values()].map((entry) => entry.handle.stop()));
     }
 
@@ -486,6 +519,10 @@ export class AgentManager {
         }
         entry.unsubscribe();
         this.hosted.delete(key);
+        if (this.shutting_down) {
+            this.log(`agent ${entry.name} in ${entry.dir} stopped with the daemon`);
+            return;
+        }
         this.record(entry.dir, entry.name, { process: "exited" }, true);
         this.bus.publish({
             type: "agent.exited",

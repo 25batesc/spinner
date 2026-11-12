@@ -97,6 +97,20 @@ class RecordingAgents extends AgentManager {
         return super.notify_all(dir, text, options);
     }
 
+    /** The agents `add` was asked to resume, as `dir/name`. */
+    resumed: string[] = [];
+
+    /** A resume starts the recorded lead instead of a real pi. */
+    override async add(summary: SessionSummary, request: { name: string }): Promise<AgentHandle> {
+        this.resumed.push(`${summary.dir}/${request.name}`);
+        this.running_lead = true;
+        const handle = this.get(summary.dir, request.name);
+        if (handle === null) {
+            throw new Error(`cannot start ${request.name}`);
+        }
+        return handle;
+    }
+
     override get(dir: string, name: string): AgentHandle | null {
         if (name !== "lead" || !this.running_lead) {
             return super.get(dir, name);
@@ -427,13 +441,27 @@ describe("PUT /sessions/:dir/design/gate and POST …/design/answer (3.9)", () =
         expect(agents.sent).toEqual([]);
     });
 
+    it("resumes a listed, stopped lead for an answer: a gate card needs no resume", async () => {
+        const app = await named_app();
+        expect((await put(app, "gate", GATE)).status).toBe(200);
+        patch_session((session) => {
+            session.agents = { lead: { harness: "tty", model: "default", process: "exited" } };
+        });
+        agents.running_lead = false;
+        const response = await post(app, "answer", { text: "Review with Goldfishes" });
+        expect(response.status).toBe(200);
+        expect(agents.resumed).toEqual([`${summary.dir}/lead`]);
+        expect(agents.sent).toEqual(["Review with Goldfishes"]);
+        expect(stored().design?.gate ?? null).toBeNull();
+    });
+
     it("answers 409 for a stopped lead and keeps the gate", async () => {
         const app = await named_app();
         expect((await put(app, "gate", GATE)).status).toBe(200);
         agents.running_lead = false;
         const response = await post(app, "answer", { text: "Review with Goldfishes" });
         expect(response.status).toBe(409);
-        expect(await error_of(response)).toBe("the lead is not running; resume it from its tab");
+        expect(await error_of(response)).toMatch(/^the lead is not running; resume it from/);
         expect(stored().design?.gate).toMatchObject(GATE);
         const run = await post(app, "run", { skill: "egm-draft" });
         expect(run.status).toBe(409);
@@ -580,7 +608,7 @@ describe("POST /sessions/:dir/design/run (3.9)", () => {
         agents.running_lead = false;
         const stopped = await post(app, "run", { skill: "egm-brainstorm" });
         expect(stopped.status).toBe(409);
-        expect(await error_of(stopped)).toBe("the lead is not running; resume it from its tab");
+        expect(await error_of(stopped)).toMatch(/^the lead is not running; resume it from its tab/);
         expect(agents.sent).toEqual([]);
     });
 

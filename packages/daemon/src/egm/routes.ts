@@ -390,9 +390,12 @@ function mount_gate_routes(app: Hono, deps: EgmRouteDeps): void {
         if (text.length > DESIGN_ANSWER_MAX) {
             return c.json(error_body(`text must be at most ${DESIGN_ANSWER_MAX} characters`), 400);
         }
-        const lead = deps.agents.get(dir, LEAD_NAME);
-        if (lead === null) {
-            return c.json(error_body(LEAD_NOT_RUNNING), 409);
+        // A gate card has no `resume` button: a stopped lead is resumed for the answer.
+        let lead;
+        try {
+            lead = await deps.agents.ensure_running(dir, LEAD_NAME);
+        } catch (error) {
+            return c.json(error_body(`${LEAD_NOT_RUNNING} (${describe_error(error)})`), 409);
         }
         clear_gate(deps.home, dir);
         touch_interaction(deps.home, dir, new Date());
@@ -416,9 +419,11 @@ function mount_gate_routes(app: Hono, deps: EgmRouteDeps): void {
         if (!read.ok) {
             return c.json(error_body(read.error), 404);
         }
-        const lead = deps.agents.get(dir, LEAD_NAME);
-        if (lead === null) {
-            return c.json(error_body(LEAD_NOT_RUNNING), 409);
+        let lead;
+        try {
+            lead = await deps.agents.ensure_running(dir, LEAD_NAME);
+        } catch (error) {
+            return c.json(error_body(`${LEAD_NOT_RUNNING} (${describe_error(error)})`), 409);
         }
         const composed = compose_run(deps.design, read.summary, request);
         if (composed.status !== 200) {

@@ -726,6 +726,14 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     color: var(--muted); font: inherit; font-size: 11px; line-height: 1; cursor: pointer;
 }
 .chip-compact:hover:not(:disabled) { color: var(--accent); background: var(--accent-tint); }
+/* A stopped agent's chip offers the way back: `resume`, in the needs-you colour. */
+.chip-resume {
+    display: inline-flex; align-items: center; height: 18px; margin-right: 3px;
+    padding: 0 8px; border: 0; border-radius: 999px; background: var(--warn-tint);
+    color: var(--warn); font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
+    cursor: pointer;
+}
+.chip-resume:hover { filter: brightness(1.15); }
 .chip-compact:disabled { opacity: 0.5; cursor: default; }
 /* The fullest agent's figure on the session card and the context bar (r4.2). */
 .context-figure { font-variant-numeric: tabular-nums; flex: none; }
@@ -1108,6 +1116,12 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 }
 .agent-terminal[hidden] { display: none; }
 .tty-status { margin: 0; font-size: var(--text-dense); color: var(--muted); }
+/* The agent is stopped: the line and its `resume` button must not read as a footnote. */
+.tty-status.tty-stopped { color: var(--warn); font-size: var(--text-body); }
+.tty-status.tty-stopped button {
+    margin-left: var(--space-2); background: var(--warn-tint); color: var(--warn);
+    border-color: var(--warn); font-weight: 600;
+}
 .terminal-host {
     flex: 1; min-height: 0; background: var(--terminal-background); padding: var(--space-2);
     border: 1px solid var(--line-soft); border-radius: var(--radius-box);

@@ -42,7 +42,7 @@ const FIT_DEBOUNCE_MS = 50;
 /** The one-line status for the tab's header; null while the socket is open. */
 export function statusLine(status: TtyStatus | null, running: boolean): string | null {
     if (!running) {
-        return "not running: resume the agent to open its terminal";
+        return "This agent is stopped. Resume it to continue on its transcript.";
     }
     if (status === null || status.state === "connecting") {
         return "connecting to the agent's terminal…";
@@ -227,7 +227,7 @@ export function AgentTerminal({ path, running, visible, onResume }: AgentTermina
             onDrop={onDrop}
         >
             {(line !== null || failure !== null) && (
-                <p className="muted tty-status">
+                <p className={running ? "muted tty-status" : "tty-status tty-stopped"}>
                     {line !== null && <span>{line} </span>}
                     {!running && onResume !== undefined && (
                         <button type="button" disabled={busy} onClick={act(onResume)}>

@@ -5,7 +5,15 @@
 // an exit frame, and a second daemon on the same home resumes the agent. Method: a real
 // daemon on port 0 with a fake interactive pi (test/fixtures/fake-pi-tty.ts) that speaks the
 // extension's half of the contract over HTTP, driven with `ws` clients and `fetch`.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -269,17 +277,13 @@ describe("the tty harness through the daemon", () => {
         expect(before?.process).toBe("idle");
         const old_pid = before?.pid ?? 0;
 
-        // The first daemon stops its agents on close; make the file look like a crash instead,
-        // so adopt_all sees a listed agent whose pid is gone.
+        // The first daemon stops its agents on close and leaves their records as they were
+        // (`stop_all`), so adopt_all sees a listed agent whose pid is gone, as after a crash.
         await daemon.close();
-        writeFileSync(
-            join(summary.path, "session.yaml"),
-            readFileSync(join(summary.path, "session.yaml"), "utf8").replace(
-                "process: exited",
-                `process: idle\n    pid: ${old_pid}\n    started: "gone"`,
-            ),
-        );
-        expect(session_yaml(summary.path).agents["ui"]?.process).toBe("idle");
+        expect(session_yaml(summary.path).agents["ui"]).toMatchObject({
+            process: "idle",
+            pid: old_pid,
+        });
 
         daemon = await start_daemon(options());
         events = [];
@@ -292,6 +296,45 @@ describe("the tty harness through the daemon", () => {
         await until(() => client.text().includes("fake pi tty ready"));
         client.socket.close();
     }, 30_000);
+
+    it("a resume that names no repo runs in the worktree the agent ran in before", async () => {
+        const summary = create_session(home, { title: "Resume in place" });
+        const worktree = join(summary.path, "worktrees", "app");
+        mkdirSync(worktree, { recursive: true });
+        const yaml = join(summary.path, "session.yaml");
+        writeFileSync(
+            yaml,
+            readFileSync(yaml, "utf8").replace(
+                "repos: {}",
+                [
+                    "repos:",
+                    "  app:",
+                    "    path: /nowhere",
+                    "    worktree: worktrees/app",
+                    "    changed: false",
+                ].join("\n"),
+            ),
+        );
+        mkdirSync(join(summary.path, "agents", "ui"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "ui", "BRIEF.md"), "# ui\n");
+        const args_file = join(home.root, "resume-args.json");
+        process.env["FAKE_PI_ARGS_FILE"] = args_file;
+        try {
+            const body = { name: "ui", repo: "app" };
+            expect((await call("POST", `/sessions/${summary.dir}/agents`, body)).status).toBe(201);
+            const stop = await call("POST", `/sessions/${summary.dir}/agents/ui/stop`, {});
+            expect(stop.status).toBe(200);
+            await until(() => session_yaml(summary.path).agents["ui"]?.process === "exited");
+            // The tab's `resume` sends the name only.
+            const resumed = await call("POST", `/sessions/${summary.dir}/agents`, { name: "ui" });
+            expect(resumed.status).toBe(201);
+            const spawned = JSON.parse(readFileSync(args_file, "utf8")) as { cwd: string };
+            expect(realpathSync(spawned.cwd)).toBe(realpathSync(worktree));
+            expect(session_yaml(summary.path).agents["ui"]?.repo).toBe("app");
+        } finally {
+            delete process.env["FAKE_PI_ARGS_FILE"];
+        }
+    });
 
     it("a failed stack job is recorded in session.yaml and pushed to the tty agent", async () => {
         const summary = create_session(home, { title: "Broken stack" });

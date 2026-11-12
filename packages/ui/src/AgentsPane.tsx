@@ -161,8 +161,9 @@ function AgentChips(props: {
     onAdd: () => void;
     onStop: (name: string) => void;
     onCompact: (name: string) => Promise<void>;
+    onResume: (name: string) => void;
 }) {
-    const { view, selected, adding, onPick, onAdd, onStop, onCompact } = props;
+    const { view, selected, adding, onPick, onAdd, onStop, onCompact, onResume } = props;
     const agents = view.summary.session.agents;
     return (
         <div className="chips" role="tablist" aria-label="Agents">
@@ -193,6 +194,16 @@ function AgentChips(props: {
                             name={name}
                             onCompact={() => onCompact(name)}
                         />
+                        {!hosted && !name.startsWith("review-") && (
+                            <button
+                                type="button"
+                                className="chip-resume"
+                                title="Start the agent again on its transcript"
+                                onClick={() => onResume(name)}
+                            >
+                                resume
+                            </button>
+                        )}
                         {current && hosted && (
                             <button
                                 type="button"
@@ -420,6 +431,13 @@ export function AgentsPane(props: AgentsPaneProps) {
                                 postAgent(`${agentBase(view.summary.dir, name)}/compact`, {})
                                     .catch((failure: unknown) => props.onError(String(failure)))
                             }
+                            onResume={(name) => {
+                                setPicked(name);
+                                setAdding(false);
+                                setFish(null);
+                                postAgent(`/sessions/${view.summary.dir}/agents`, { name })
+                                    .catch((failure: unknown) => props.onError(String(failure)));
+                            }}
                         />
                     )}
                     {view !== undefined && design !== undefined &&
