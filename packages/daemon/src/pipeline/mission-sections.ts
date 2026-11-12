@@ -71,18 +71,21 @@ export function append_log_line(text: string, time: string, author: string, line
     return join_mission(blocks);
 }
 
-/** The PR body `spinner pr` writes: Goal, Done when and the Log of the session. */
+/**
+ * The PR body `spinner pr` writes: Goal, Done when and the Log of the session. A Done when
+ * list with no item written (the fast path writes a Goal only) is left out, not shown as an
+ * empty checkbox.
+ */
 export function pr_body_from_mission(text: string, session_id: string): string {
     const goal = mission_section(text, "Goal");
     const done_when = mission_section(text, "Done when");
     const log = mission_section(text, "Log");
+    const has_items = done_when.split("\n").some((line) => /^- \[( |x)\]\s*\S/.test(line));
     const parts = [
         "## Goal",
         goal.length > 0 ? goal : "(no goal written)",
         "",
-        "## Done when",
-        done_when.length > 0 ? done_when : "(no acceptance list written)",
-        "",
+        ...(has_items ? ["## Done when", done_when, ""] : []),
         "## Log",
         log.length > 0 ? log : "(empty)",
         "",

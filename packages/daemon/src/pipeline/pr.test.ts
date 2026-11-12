@@ -328,7 +328,12 @@ describe("spinner pr", () => {
         expect(() => pr_url_from_output("nothing")).toThrow(/expected a PR URL/);
         const body = pr_body_from_mission("# t\n\n## Goal\nG\n", "s9");
         expect(body).toContain("## Goal\nG\n");
-        expect(body).toContain("(no acceptance list written)");
+        // No Done when item written (the fast path writes a Goal only): no empty section.
+        expect(body).not.toContain("## Done when");
+        const head = "# t\n\n## Goal\nG\n\n## Done when\n";
+        expect(pr_body_from_mission(`${head}- [ ] \n`, "s9")).not.toContain("## Done when");
+        const listed = pr_body_from_mission(`${head}- [ ] it works\n`, "s9");
+        expect(listed).toContain("## Done when\n- [ ] it works");
         const logged = append_log_line(MISSION, "11:02", "spinner", "pr: backend");
         expect(logged.endsWith("- 10:00 agent: started\n- 11:02 spinner: pr: backend\n")).toBe(
             true,
