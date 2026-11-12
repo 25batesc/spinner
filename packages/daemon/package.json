@@ -1,6 +1,6 @@
 {
     "name": "@spinner/daemon",
-    "version": "0.24.2",
+    "version": "0.25.0",
     "private": true,
     "description": "spinnerd: the local daemon that watches sessions and serves the API.",
     "license": "MIT",
