@@ -11,25 +11,40 @@ import {
     type KeyboardEvent,
 } from "react";
 
-import type {
-    AgentMessageRequest, ModelView, ProjectView, SessionView,
-} from "@spinner/protocol";
+import type { ModelView, ProjectView, SessionView } from "@spinner/protocol";
 
 import {
     CHAT_SHOWN_START,
     CHAT_SHOWN_STEP,
+    THINKING_LEVELS,
     TOOL_RESULT_SHOWN,
     boxRows,
+    chatBlocks,
     imagesLabel,
-    messageWithImages,
+    messageWithFiles,
+    modelLabel,
     sendsOnKey,
+    slashMatches,
+    slashQuery,
     toolSummary,
     toolText,
     windowed,
+    withDictation,
+    workLabel,
+    type ChatBlock,
+    type SlashCommand,
+    type WorkItem,
 } from "./chat.ts";
 import { fetchAgentHistory, fetchModels, fetchProjects, postAgent } from "./events-client.ts";
+import "./chat.css";
 import { renderChatMarkdown } from "./markdown.ts";
-import { fetchDefaultBrief, postAttachment } from "./remote.ts";
+import {
+    fetchContext,
+    fetchDefaultBrief,
+    postAttachment,
+    postUpload,
+    useLoaded,
+} from "./remote.ts";
 import type { RunAction } from "./SessionsPane.tsx";
 import {
     emptyTranscript,
@@ -38,33 +53,6 @@ import {
     type Entry,
     type Transcript,
 } from "./transcript.ts";
-
-/** An image attached to the message being written: its name and where the session holds it. */
-interface Attached {
-    name: string;
-    /** Absolute path of the saved PNG, which the agent reads. */
-    path: string;
-}
-
-/** The agent's thinking, folded to one line; a click opens it (5.2). */
-function Thinking({ text }: { text: string }) {
-    const [open, setOpen] = useState(false);
-    const first = text.trim().split("\n")[0] ?? "";
-    return (
-        <button
-            type="button"
-            className="chat-thinking"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-            title={open ? "Fold the thinking" : "Show the thinking"}
-        >
-            <span className="chat-fold">{open ? "▾" : "▸"}</span>
-            {open ? <span className="chat-thinking-text">{text.trim()}</span> : (
-                <span className="chat-thinking-line">thinking: {first}</span>
-            )}
-        </button>
-    );
-}
 
 /** The agent's answer as markdown. Memoized: only the message that streams renders again. */
 const Answer = memo(function Answer({ text }: { text: string }) {
@@ -113,44 +101,94 @@ function ToolRow({ entry }: { entry: ToolEntry }) {
     );
 }
 
-function EntryView({ entry }: { entry: Entry }) {
-    switch (entry.kind) {
+type WorkBlock = Extract<ChatBlock, { kind: "work" }>;
+
+/** One thing the agent did inside a turn: its thought, a remark, or a tool call. */
+function WorkItemView({ item }: { item: WorkItem }) {
+    if (item.kind === "tool") {
+        return <ToolRow entry={item.entry} />;
+    }
+    if (item.kind === "thinking") {
+        return <li className="chat-work-thought">{item.text}</li>;
+    }
+    return (
+        <li className="chat-work-remark">
+            <Answer text={item.text} />
+        </li>
+    );
+}
+
+/**
+ * A turn's work, folded to one line (`Worked for 2m 29s · 14 steps`); a click opens the
+ * thoughts and the tool calls. The group of a turn that runs shows what it does now.
+ */
+function WorkGroup({ block }: { block: WorkBlock }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <li className="chat-work" data-live={block.live} data-failed={block.failed > 0}>
+            <button
+                type="button"
+                className="chat-work-head"
+                aria-expanded={open}
+                onClick={() => setOpen(!open)}
+            >
+                <span className="chat-fold" data-open={open}>›</span>
+                {block.live && <span className="dot session-working" aria-hidden="true" />}
+                <span className="chat-work-label">{workLabel(block)}</span>
+            </button>
+            {open && (
+                <ul className="chat-work-items">
+                    {block.items.map((item, index) => <WorkItemView key={index} item={item} />)}
+                </ul>
+            )}
+        </li>
+    );
+}
+
+function BlockView({ block }: { block: ChatBlock }) {
+    switch (block.kind) {
         case "user":
             return (
                 <li className="chat-user">
-                    <div className="chat-user-text">{entry.text}</div>
-                    {entry.images !== undefined && (
-                        <span className="muted chat-user-images">{imagesLabel(entry.images)}</span>
+                    <div className="chat-user-text">{block.entry.text}</div>
+                    {block.entry.images !== undefined && (
+                        <span className="muted chat-user-images">
+                            {imagesLabel(block.entry.images)}
+                        </span>
                     )}
                 </li>
             );
-        case "assistant":
+        case "answer":
             return (
                 <li className="chat-assistant">
-                    {entry.thinking.trim() !== "" && <Thinking text={entry.thinking} />}
-                    {entry.text !== "" && <Answer text={entry.text} />}
-                    {entry.error !== undefined && (
-                        <div className="needs-human chat-error">ended: {entry.error}</div>
+                    <Answer text={block.entry.text} />
+                    {block.entry.error !== undefined && (
+                        <div className="needs-human chat-error">ended: {block.entry.error}</div>
                     )}
                 </li>
             );
-        case "tool":
-            return <ToolRow entry={entry} />;
+        case "work":
+            return <WorkGroup block={block} />;
         case "note":
-            return <li className="chat-note muted">{entry.text}</li>;
+            return <li className="chat-note muted">{block.text}</li>;
     }
 }
 
 /**
- * The message list: the newest entries, and `show earlier` for the rest (5.2). The Goldfish
+ * The message list: each turn as the operator's message, the agent's work folded, and its
+ * answer. It draws the newest blocks; `show earlier` adds the rest (5.2). The Goldfish
  * transcript (entry 4.15) shows it read-only.
  */
 export function TranscriptView({ transcript }: { transcript: Transcript }) {
     const [shown, setShown] = useState(CHAT_SHOWN_START);
-    if (transcript.entries.length === 0) {
-        return <p className="muted">No messages yet.</p>;
+    const blocks = useMemo(
+        () => chatBlocks(transcript.entries, transcript.running),
+        [transcript.entries, transcript.running],
+    );
+    if (blocks.length === 0) {
+        return <p className="muted chat-empty">No messages yet.</p>;
     }
-    const { entries, earlier } = windowed(transcript.entries, shown);
+    const { entries, earlier } = windowed(blocks, shown);
     return (
         <ol className="chat-list">
             {earlier > 0 && (
@@ -164,10 +202,10 @@ export function TranscriptView({ transcript }: { transcript: Transcript }) {
                     </button>
                 </li>
             )}
-            {entries.map((entry, index) => (
-                // The key counts from the oldest entry, so a row keeps its state (an opened
-                // tool call) when a new entry arrives or `show earlier` adds rows above it.
-                <EntryView key={earlier + index} entry={entry} />
+            {entries.map((block) => (
+                // The key is the index of the block's first entry, so a block keeps its
+                // state (an opened group) when a new entry arrives.
+                <BlockView key={`${block.kind}-${block.key}`} block={block} />
             ))}
         </ol>
     );
@@ -197,8 +235,24 @@ function useHistory(base: string, revision: string): Transcript {
 /** How near the bottom, in pixels, still counts as "at the newest message". */
 const STICK_PX = 48;
 
+/** A file as base64, without the `data:` prefix. */
+function fileBase64(file: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("the file could not be read"));
+        reader.onload = () => {
+            const url = String(reader.result);
+            resolve(url.slice(url.indexOf(",") + 1));
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 /** An image file as PNG bytes in base64, converted in the browser when it is another format. */
 async function pngBase64(file: Blob): Promise<string> {
+    if (file.type === "image/png") {
+        return fileBase64(file);
+    }
     const bitmap = await createImageBitmap(file);
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
@@ -208,30 +262,133 @@ async function pngBase64(file: Blob): Promise<string> {
     return url.slice(url.indexOf(",") + 1);
 }
 
+/** The part of the browser's speech recognition the box uses; absent in some shells. */
+interface Recognition {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onresult: ((event: { resultIndex: number; results: RecognitionResults }) => void) | null;
+    onerror: ((event: { error: string }) => void) | null;
+    onend: (() => void) | null;
+    start(): void;
+    stop(): void;
+}
+type RecognitionResults = ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }>;
+
+function recognitionOf(): (new () => Recognition) | undefined {
+    const scope = window as unknown as Record<string, unknown>;
+    const found = scope["SpeechRecognition"] ?? scope["webkitSpeechRecognition"];
+    return found as (new () => Recognition) | undefined;
+}
+
+const DICTATION_UNAVAILABLE =
+    "Dictation is not available in this window. On macOS, put the caret in the box and " +
+    "press the dictation key (or Fn twice).";
+
+/**
+ * Dictation into the box through the browser's speech recognition. `toggle` starts and
+ * stops it; each finished phrase goes to `onWords`. A shell without the service (the
+ * desktop app has none) reports why through `onError`.
+ */
+function useDictation(onWords: (words: string) => void, onError: (text: string) => void) {
+    const [listening, setListening] = useState(false);
+    const active = useRef<Recognition | null>(null);
+    useEffect(() => () => active.current?.stop(), []);
+    const toggle = () => {
+        if (active.current !== null) {
+            active.current.stop();
+            return;
+        }
+        const Service = recognitionOf();
+        if (Service === undefined) {
+            onError(DICTATION_UNAVAILABLE);
+            return;
+        }
+        const recognition = new Service();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.lang = navigator.language;
+        recognition.onresult = (event) => {
+            for (let index = event.resultIndex; index < event.results.length; index += 1) {
+                const result = event.results[index];
+                if (result?.isFinal === true) {
+                    onWords(result[0]?.transcript ?? "");
+                }
+            }
+        };
+        recognition.onerror = (event) => {
+            if (event.error !== "no-speech" && event.error !== "aborted") {
+                onError(`${DICTATION_UNAVAILABLE} (${event.error})`);
+            }
+        };
+        recognition.onend = () => {
+            active.current = null;
+            setListening(false);
+        };
+        active.current = recognition;
+        setListening(true);
+        try {
+            recognition.start();
+        } catch {
+            active.current = null;
+            setListening(false);
+            onError(DICTATION_UNAVAILABLE);
+        }
+    };
+    return { listening, toggle };
+}
+
+/** Something attached to the message being written. */
+interface Attached {
+    name: string;
+    /** Relative to the session directory. */
+    path: string;
+    image: boolean;
+}
+
 export interface AgentChatProps {
     view: SessionView;
     agent: string;
     transcript: Transcript | undefined;
 }
 
-/** The chat of one agent (docs/designs/talk-change-ship.md, 5.1 to 5.5). */
+/** The chat of one agent (docs/designs/talk-change-ship.md, 5.1 to 5.7). */
 export function AgentChat({ view, agent, transcript: live = emptyTranscript }: AgentChatProps) {
     const [text, setText] = useState("");
     const [attached, setAttached] = useState<Attached[]>([]);
     const [uploading, setUploading] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const [away, setAway] = useState(false);
+    const [slashAt, setSlashAt] = useState(0);
+    const [slashOff, setSlashOff] = useState(false);
     const scroller = useRef<HTMLDivElement>(null);
+    const input = useRef<HTMLTextAreaElement>(null);
+    const picker = useRef<HTMLInputElement>(null);
     const dir = view.summary.dir;
     const base = `/sessions/${dir}/agents/${agent}`;
+    const spec = view.summary.session.agents[agent];
     const hosted = view.agents_running.includes(agent);
-    const working = hosted && view.summary.session.agents[agent]?.process === "running";
+    const working = hosted && spec?.process === "running";
     // The history is read again when the agent is resumed (it may have compacted) and at
     // the start and the end of each turn: a live event that was lost on the way (a daemon
     // restart, a socket that reconnected) then shows with the turn's end at the latest.
     const phase = `${hosted ? "hosted" : "stopped"}/${working ? "turn" : "idle"}`;
     const history = useHistory(base, phase);
-    const transcript = useMemo(() => mergeTranscripts(history, live), [history, live]);
+    const transcript = useMemo(() => {
+        const merged = mergeTranscripts(history, live);
+        return { ...merged, running: working };
+    }, [history, live, working]);
+    const models = useLoaded("models", fetchModels).value ?? [];
+    // The agent's skills and prompt templates, for the completion after `/`.
+    const context = useLoaded(`${base}#${hosted ? "hosted" : "stopped"}`, (signal) =>
+        fetchContext(base, signal),
+    );
+    const commands: SlashCommand[] = (context.value?.commands ?? [])
+        .filter((command) => command.kind !== "extension")
+        .map(({ name, kind, description }) => ({ name, kind, description }));
+    const query = slashOff ? null : slashQuery(text);
+    const matches = query === null ? [] : slashMatches(commands, query);
+    const picked = matches[Math.min(slashAt, matches.length - 1)];
 
     // Stay at the newest message while the operator is there; leave him where he scrolled.
     const count = transcript.entries.length;
@@ -249,54 +406,84 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
             setAway(node.scrollHeight - node.scrollTop - node.clientHeight > STICK_PX);
         }
     };
+    const change = (next: string) => {
+        setText(next);
+        setSlashOff(false);
+        setSlashAt(0);
+    };
 
-    const post = (action: "prompt" | "steer" | "abort", message: string) => {
-        // The UI's message box marks its messages: the daemon resumes a stopped agent for
-        // them and counts a steer to the lead (entry 6.20).
-        const body: AgentMessageRequest | Record<string, never> =
-            action === "abort" ? {} : { text: message, source: "operator" };
-        return postAgent(`${base}/${action}`, body).then(
+    const post = (action: string, body: unknown) =>
+        postAgent(`${base}/${action}`, body).then(
             () => setError(null),
             (failure: unknown) => setError(String(failure)),
         );
-    };
     const send = () => {
-        const message = messageWithImages(text, attached.map((image) => image.path));
+        const images = attached.filter((file) => file.image).map((file) => file.path);
+        const paths = attached.map((file) => `${view.summary.path}/${file.path}`);
+        const message = messageWithFiles(text, paths);
         if (message === "" || uploading > 0) {
             return;
         }
-        setText("");
+        change("");
         setAttached([]);
         setAway(false);
-        void post(working ? "steer" : "prompt", message);
+        // The box marks its messages: the daemon resumes a stopped agent for them and
+        // counts a steer to the lead (entry 6.20). The images go as images too.
+        const sent = images.length > 0 ? { images } : {};
+        void post(working ? "steer" : "prompt", { text: message, source: "operator", ...sent });
     };
     const attach = (files: readonly File[]) => {
-        const images = files.filter((file) => file.type.startsWith("image/"));
-        for (const file of images) {
+        const pathOf = window.spinnerDesktop?.files?.pathOf;
+        for (const file of files) {
+            const image = file.type.startsWith("image/");
+            const local = image || pathOf === undefined ? "" : pathOf(file);
+            if (local !== "") {
+                // The desktop app knows where the file is: the agent reads it in place.
+                const gap = (old: string) => (old === "" || /\s$/.test(old) ? "" : " ");
+                setText((old) => `${old}${gap(old)}${local} `);
+                continue;
+            }
             setUploading((old) => old + 1);
-            pngBase64(file)
-                .then((png) => postAttachment(dir, png))
+            const saved = image
+                ? pngBase64(file).then((png) => postAttachment(dir, png))
+                : fileBase64(file).then((data) => postUpload(dir, file.name, data));
+            saved
                 .then(
-                    (saved) => {
-                        const path = `${view.summary.path}/${saved.path}`;
-                        setAttached((old) => [...old, { name: saved.name, path }]);
+                    ({ name, path }) => {
+                        setAttached((old) => [...old, { name, path, image }]);
                         setError(null);
                     },
                     (failure: unknown) =>
-                        setError(`The image was not attached: ${String(failure)}`),
+                        setError(`${file.name} was not attached: ${String(failure)}`),
                 )
                 .finally(() => setUploading((old) => old - 1));
         }
-        // In the desktop app a file that is not an image adds its path to the text.
-        const pathOf = window.spinnerDesktop?.files?.pathOf;
-        const others = files.filter((file) => !file.type.startsWith("image/"));
-        if (pathOf !== undefined && others.length > 0) {
-            const paths = others.map((file) => pathOf(file)).filter((path) => path.length > 0);
-            const gap = (old: string) => (old === "" || old.endsWith(" ") ? "" : " ");
-            setText((old) => `${old}${gap(old)}${paths.join(" ")}`);
-        }
+    };
+    const detach = (file: Attached) =>
+        setAttached((old) => old.filter((entry) => entry !== file));
+    const accept = (command: SlashCommand) => {
+        change(`/${command.name} `);
+        input.current?.focus();
     };
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (picked !== undefined) {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const step = event.key === "ArrowDown" ? 1 : matches.length - 1;
+                setSlashAt((slashAt + step) % matches.length);
+                return;
+            }
+            if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+                event.preventDefault();
+                accept(picked);
+                return;
+            }
+            if (event.key === "Escape") {
+                event.preventDefault();
+                setSlashOff(true);
+                return;
+            }
+        }
         const { key, shiftKey } = event;
         if (sendsOnKey({ key, shiftKey, isComposing: event.nativeEvent.isComposing })) {
             event.preventDefault();
@@ -305,8 +492,8 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     };
     const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
         const files = [...event.clipboardData.files];
-        if (files.some((file) => file.type.startsWith("image/"))) {
-            // An image on the clipboard is attached; its text form (a file name) is not typed.
+        if (files.length > 0) {
+            // A file or an image on the clipboard is attached; its name is not typed.
             event.preventDefault();
             attach(files);
         }
@@ -317,84 +504,225 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
             attach([...event.dataTransfer.files]);
         }
     };
+    const dictated = (words: string) => setText((old) => withDictation(old, words));
+    const dictation = useDictation(dictated, setError);
+    const setControl = (control: "model" | "thinking", value: string) => {
+        if (value !== "") {
+            void post(control, control === "model" ? { model: value } : { level: value });
+        }
+    };
 
-    let status = "stopped: a message resumes it";
+    let status = `${agent} is stopped; a message resumes it`;
     if (hosted) {
-        status = working ? "working" : "idle";
+        status = working ? `${agent} is working` : `${agent} is awaiting instructions`;
     }
-    let placeholder = `Message ${agent}`;
-    if (working) {
-        placeholder = `Steer ${agent}: your message interrupts its turn`;
-    } else if (!hosted) {
-        placeholder = `Message ${agent} (it is stopped; your message resumes it)`;
-    }
+    const model = spec?.model ?? "";
+    const known = models.some((entry) => `${entry.provider}/${entry.id}` === model);
+    const thinking = (spec as { thinking?: string } | undefined)?.thinking ?? "";
+    const stops = working && text.trim() === "" && attached.length === 0;
     return (
         <div className="agent-chat" data-working={working}>
             <div className="chat-scroll" ref={scroller} onScroll={onScroll}>
-                <TranscriptView transcript={transcript} />
-                {working && (
-                    <div className="chat-working" role="status">
-                        <span className="dot session-working" aria-hidden="true" />
-                        <span>{agent} is working</span>
-                        <button type="button" onClick={() => void post("abort", "")}>stop</button>
+                <div className="chat-column">
+                    <TranscriptView transcript={transcript} />
+                    <div className="chat-status" role="status" data-state={phase}>
+                        <span className={working ? "dot session-working" : "dot chat-idle"} />
+                        <span>{status}</span>
                     </div>
-                )}
+                </div>
             </div>
-            {away && (
-                <button type="button" className="chat-jump" onClick={() => setAway(false)}>
-                    jump to latest ↓
-                </button>
-            )}
-            {error !== null && <p className="needs-human chat-error">{error}</p>}
-            <form
-                className="chat-box"
-                onSubmit={(event: FormEvent) => {
-                    event.preventDefault();
-                    send();
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={onDrop}
-            >
-                {(attached.length > 0 || uploading > 0) && (
-                    <div className="chat-attached">
-                        {attached.map((image) => (
-                            <span key={image.path} className="badge chat-chip" title={image.path}>
-                                {image.name}
+            <div className="chat-dock">
+                {away && (
+                    <button
+                        type="button"
+                        className="chat-jump"
+                        aria-label="Jump to the latest message"
+                        onClick={() => setAway(false)}
+                    >
+                        ↓
+                    </button>
+                )}
+                {error !== null && <p className="needs-human chat-error">{error}</p>}
+                {matches.length > 0 && (
+                    <ul className="chat-slash" role="listbox" aria-label="Skills and commands">
+                        {matches.map((command, index) => (
+                            <li
+                                key={command.name}
+                                role="option"
+                                aria-selected={command === picked}
+                            >
                                 <button
                                     type="button"
-                                    aria-label={`Remove ${image.name}`}
-                                    onClick={() =>
-                                        setAttached((old) => old.filter((entry) => entry !== image))
-                                    }
+                                    className="chat-slash-item"
+                                    data-picked={command === picked}
+                                    onMouseEnter={() => setSlashAt(index)}
+                                    onClick={() => accept(command)}
                                 >
-                                    ×
+                                    <code>/{command.name}</code>
+                                    <span className="muted">{command.description}</span>
                                 </button>
-                            </span>
+                            </li>
                         ))}
-                        {uploading > 0 && <span className="muted">attaching…</span>}
-                    </div>
+                    </ul>
                 )}
-                <div className="chat-box-row">
+                <form
+                    className="chat-box"
+                    onSubmit={(event: FormEvent) => {
+                        event.preventDefault();
+                        send();
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={onDrop}
+                >
+                    {(attached.length > 0 || uploading > 0) && (
+                        <div className="chat-attached">
+                            {attached.map((file) => (
+                                <span key={file.path} className="badge chat-chip" title={file.path}>
+                                    {file.name}
+                                    <button
+                                        type="button"
+                                        aria-label={`Remove ${file.name}`}
+                                        onClick={() => detach(file)}
+                                    >
+                                        ×
+                                    </button>
+                                </span>
+                            ))}
+                            {uploading > 0 && <span className="muted">attaching…</span>}
+                        </div>
+                    )}
                     <textarea
+                        ref={input}
                         className="chat-input"
                         value={text}
                         rows={boxRows(text)}
-                        onChange={(event) => setText(event.target.value)}
+                        onChange={(event) => change(event.target.value)}
                         onKeyDown={onKeyDown}
                         onPaste={onPaste}
-                        placeholder={placeholder}
+                        placeholder={
+                            working
+                                ? `Steer ${agent}: your message interrupts its turn`
+                                : `Ask ${agent} to build features, fix bugs, or work on your code`
+                        }
                         aria-label="Message"
                     />
-                    <button type="submit" className="primary" disabled={uploading > 0}>
-                        {working ? "steer" : "send"}
-                    </button>
-                </div>
+                    <div className="chat-tools">
+                        <input
+                            ref={picker}
+                            type="file"
+                            multiple
+                            hidden
+                            onChange={(event) => {
+                                attach([...(event.target.files ?? [])]);
+                                event.target.value = "";
+                            }}
+                        />
+                        <button
+                            type="button"
+                            className="chat-icon"
+                            title="Attach files or images (or paste or drop them)"
+                            aria-label="Attach files"
+                            onClick={() => picker.current?.click()}
+                        >
+                            +
+                        </button>
+                        <button
+                            type="button"
+                            className="chat-icon"
+                            title="Skills and commands"
+                            aria-label="Skills and commands"
+                            onClick={() => {
+                                change("/");
+                                input.current?.focus();
+                            }}
+                        >
+                            /
+                        </button>
+                        <span className="chat-tools-gap" />
+                        <select
+                            className="chat-select"
+                            title="The agent's model"
+                            aria-label="Model"
+                            value={model}
+                            disabled={!hosted}
+                            onChange={(event) => setControl("model", event.target.value)}
+                        >
+                            {!known && <option value={model}>{modelLabel(model)}</option>}
+                            {models.map((entry) => {
+                                const id = `${entry.provider}/${entry.id}`;
+                                return <option key={id} value={id}>{modelLabel(id)}</option>;
+                            })}
+                        </select>
+                        <select
+                            className="chat-select"
+                            title="How much the agent thinks before it answers"
+                            aria-label="Thinking level"
+                            value={thinking}
+                            disabled={!hosted}
+                            onChange={(event) => setControl("thinking", event.target.value)}
+                        >
+                            {thinking === "" && <option value="">thinking</option>}
+                            {THINKING_LEVELS.map((level) => (
+                                <option key={level} value={level}>{level}</option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            className="chat-icon"
+                            title={dictation.listening ? "Stop dictation" : "Dictate"}
+                            aria-label="Dictate"
+                            aria-pressed={dictation.listening}
+                            onClick={dictation.toggle}
+                        >
+                            <MicGlyph />
+                        </button>
+                        {stops ? (
+                            <button
+                                type="button"
+                                className="chat-send"
+                                title={`Stop ${agent}'s turn`}
+                                aria-label="Stop"
+                                onClick={() => void post("abort", {})}
+                            >
+                                ■
+                            </button>
+                        ) : (
+                            <button
+                                type="submit"
+                                className="chat-send"
+                                title={working ? "Steer (Enter)" : "Send (Enter)"}
+                                aria-label={working ? "Steer" : "Send"}
+                                disabled={uploading > 0}
+                            >
+                                ↑
+                            </button>
+                        )}
+                    </div>
+                </form>
                 <div className="muted chat-foot">
-                    <span>{status} · ${transcript.cost.toFixed(2)}</span>
-                    <span>Enter sends · Shift+Enter makes a new line · paste or drop an image</span>
+                    <span>${transcript.cost.toFixed(2)}</span>
+                    <span>Enter sends · Shift+Enter makes a new line · / lists skills</span>
                 </div>
-            </form>
+            </div>
         </div>
+    );
+}
+
+/** A microphone, 14 px, in the text colour. */
+function MicGlyph() {
+    return (
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+            <path
+                d={
+                    "M8 1.5a2 2 0 0 0-2 2v4a2 2 0 0 0 4 0v-4a2 2 0 0 0-2-2Z" +
+                    "M4 7.5a4 4 0 0 0 8 0M8 11.5v3M5.5 14.5h5"
+                }
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+            />
+        </svg>
     );
 }
 

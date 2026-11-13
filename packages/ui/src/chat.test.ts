@@ -6,11 +6,18 @@ import type { PiEvent, PiMessage } from "@spinner/protocol";
 
 import {
     boxRows,
-    messageWithImages,
+    chatBlocks,
+    durationText,
+    messageWithFiles,
+    modelLabel,
     sendsOnKey,
+    slashMatches,
+    slashQuery,
     toolSummary,
     toolText,
     windowed,
+    withDictation,
+    workLabel,
 } from "./chat.ts";
 import {
     emptyTranscript,
@@ -133,11 +140,93 @@ describe("the chat's rows and box", () => {
         expect(boxRows("x\n".repeat(40))).toBe(12);
     });
 
-    it("adds each attached image's path to the message", () => {
-        expect(messageWithImages(" fix this ", [])).toBe("fix this");
-        expect(messageWithImages("fix this", ["/s/a.png", "/s/b.png"])).toBe(
-            "fix this\n\nAttached image: /s/a.png\nAttached image: /s/b.png",
+    it("adds each attached file's path to the message", () => {
+        expect(messageWithFiles(" fix this ", [])).toBe("fix this");
+        expect(messageWithFiles("fix this", ["/s/a.png", "/s/b.csv"])).toBe(
+            "fix this\n\nAttached file: /s/a.png\nAttached file: /s/b.csv",
         );
-        expect(messageWithImages("", ["/s/a.png"])).toBe("Attached image: /s/a.png");
+        expect(messageWithFiles("", ["/s/a.png"])).toBe("Attached file: /s/a.png");
+    });
+});
+
+describe("the chat's turns", () => {
+    const u = (ts: number, text: string): Entry => ({ kind: "user", text, ts });
+    const a = (ts: number, text: string, thinking = ""): Entry => ({
+        kind: "assistant", text, thinking, done: true, ts,
+    });
+    const t = (id: string, state: "ok" | "error" | "running" = "ok"): Entry => ({
+        kind: "tool", id, name: "bash", args: { command: `run ${id}` }, state,
+    });
+
+    it("folds a turn's thoughts, remarks and tool calls; the last text is the answer", () => {
+        const blocks = chatBlocks(
+            [
+                u(1000, "fix the test"),
+                a(2000, "Let me look.", "The test is flaky."),
+                t("1"),
+                t("2", "error"),
+                a(150_000, "Fixed: the clock was real.", "Done."),
+                u(200_000, "thanks"),
+                a(208_000, "", "Nothing to do."),
+            ],
+            false,
+        );
+        const kinds = blocks.map((block) => block.kind);
+        expect(kinds).toEqual(["user", "work", "answer", "user", "work"]);
+        const work = blocks[1];
+        expect(work).toMatchObject({ steps: 2, failed: 1, seconds: 149, live: false });
+        expect(work?.kind === "work" && work.items.map((item) => item.kind)).toEqual([
+            "thinking", "remark", "tool", "tool", "thinking",
+        ]);
+        expect(work?.kind === "work" && workLabel(work)).toBe(
+            "Worked for 2m 29s · 2 steps · 1 failed",
+        );
+        const thought = blocks[4];
+        expect(thought?.kind === "work" && workLabel(thought)).toBe("Thought for 8s");
+    });
+
+    it("shows a running turn as work, with what the running tool acts on", () => {
+        const blocks = chatBlocks([u(1000, "go"), a(2000, "On it."), t("1", "running")], true);
+        expect(blocks.map((block) => block.kind)).toEqual(["user", "work"]);
+        const work = blocks[1];
+        expect(work?.kind === "work" && work.live).toBe(true);
+        expect(work?.kind === "work" && workLabel(work)).toBe("Working · bash run 1");
+        // A text that streams with no tool after it is the answer, also while the turn runs.
+        const streaming = chatBlocks([u(1000, "go"), t("1"), a(3000, "Almost")], true);
+        expect(streaming.map((block) => block.kind)).toEqual(["user", "work", "answer"]);
+        expect(chatBlocks([], false)).toEqual([]);
+    });
+
+    it("says a duration in a few characters", () => {
+        expect(durationText(8.4)).toBe("8s");
+        expect(durationText(149)).toBe("2m 29s");
+        expect(durationText(3840)).toBe("1h 4m");
+    });
+
+    it("completes a command after a slash, skills without their prefix", () => {
+        const commands = [
+            { name: "skill:pr-review", kind: "skill", description: "Review a pull request" },
+            { name: "skill:principles", kind: "skill", description: "Engineering principles" },
+            { name: "plan", kind: "template", description: "Plan a change" },
+        ];
+        expect(slashQuery("/pr")).toBe("pr");
+        expect(slashQuery("/")).toBe("");
+        expect(slashQuery("/plan now")).toBeNull();
+        expect(slashQuery("see /plan")).toBeNull();
+        expect(slashMatches(commands, "pr").map((c) => c.name)).toEqual([
+            "skill:pr-review", "skill:principles",
+        ]);
+        expect(slashMatches(commands, "change").map((c) => c.name)).toEqual(["plan"]);
+        expect(slashMatches(commands, "")).toHaveLength(3);
+    });
+
+    it("labels the model and joins dictated words to the text", () => {
+        expect(modelLabel("anthropic/claude-opus-5-5")).toBe("claude-opus-5-5");
+        expect(modelLabel("openrouter/anthropic/claude-fable-5.2")).toBe("claude-fable-5.2");
+        expect(modelLabel(undefined)).toBe("model");
+        expect(withDictation("", " fix the test ")).toBe("fix the test");
+        expect(withDictation("please", "fix it")).toBe("please fix it");
+        expect(withDictation("please ", "fix it")).toBe("please fix it");
+        expect(withDictation("keep", "  ")).toBe("keep");
     });
 });

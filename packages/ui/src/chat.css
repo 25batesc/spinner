@@ -1,0 +1,165 @@
+/* The chat (docs/designs/talk-change-ship.md, 5.1 to 5.7): the default surface of an agent,
+   in the shape the operator asked for on 2026-11-13: a centred column of prose, his own
+   messages as pills at the right, a turn's work folded to one line, and a message box that
+   is one rounded card with its tools inside. The column takes the pane's remaining height;
+   the messages scroll, the box stays at the bottom. */
+.agent-chat {
+    flex: 1 1 0; min-height: 260px; display: flex; flex-direction: column; min-width: 0;
+    --chat-width: 820px;
+}
+.chat-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: var(--space-3) var(--space-2); }
+.chat-column, .chat-dock { width: 100%; max-width: var(--chat-width); margin: 0 auto; }
+.chat-list {
+    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+    gap: var(--space-3); overflow-wrap: anywhere; font-size: 14px; line-height: 1.6;
+}
+.chat-earlier { text-align: center; }
+.chat-empty { text-align: center; margin: var(--space-4) 0; }
+
+/* The operator's message: a pill at the right. */
+.chat-user {
+    align-self: flex-end; max-width: 80%; padding: var(--space-2) var(--space-3);
+    border-radius: 18px; background: var(--fill); margin: var(--space-2) 0;
+}
+.chat-user-text { white-space: pre-wrap; }
+.chat-user-images { display: block; font-size: var(--text-meta); margin-top: 2px; }
+
+/* The agent's answer: prose in the conversation, not a document in a frame. */
+.chat-assistant { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.md.chat-answer { border: 0; padding: 0; background: none; font-size: inherit; line-height: inherit; }
+.chat-answer > :first-child { margin-top: 0; }
+.chat-answer > :last-child { margin-bottom: 0; }
+.chat-answer pre { overflow-x: auto; }
+
+/* A turn's work, folded: `▸ Worked for 2m 29s · 14 steps`. */
+.chat-work { display: flex; flex-direction: column; min-width: 0; }
+.chat-work-head {
+    display: inline-flex; align-items: center; gap: var(--space-2); align-self: flex-start;
+    background: none; border: 0; padding: 2px 0; color: var(--muted); font: inherit;
+    cursor: pointer; max-width: 100%; min-width: 0;
+}
+.chat-work-head:hover { color: var(--text); }
+.chat-work-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chat-work[data-failed="true"] .chat-work-label { text-decoration: underline dotted var(--fail); }
+.chat-fold {
+    flex: none; width: 12px; font-size: 16px; line-height: 1; text-align: center;
+    transition: transform 0.1s;
+}
+.chat-fold[data-open="true"] { transform: rotate(90deg); }
+.chat-work-items {
+    list-style: none; margin: var(--space-1) 0 var(--space-1) 4px; padding: 0 0 0 var(--space-3);
+    border-left: 2px solid var(--border); display: flex; flex-direction: column;
+    gap: var(--space-1); font-size: var(--text-body); line-height: 1.5;
+}
+.chat-work-thought { color: var(--muted); font-style: italic; white-space: pre-wrap; }
+.chat-work-remark { color: var(--muted); }
+
+/* One tool call inside the work: a state mark, the name, what it acts on. */
+.chat-tool { display: flex; flex-direction: column; min-width: 0; }
+.chat-tool-head {
+    display: flex; align-items: baseline; gap: var(--space-2); width: 100%; text-align: left;
+    background: none; border: 0; padding: 1px 0; color: inherit; font: inherit;
+    font-size: var(--text-dense); cursor: pointer; min-width: 0;
+}
+.chat-tool-head:hover .chat-tool-summary { color: var(--text); }
+.chat-tool-mark {
+    flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+    align-self: center;
+}
+.chat-tool[data-state="running"] .chat-tool-mark {
+    background: var(--accent); animation: chat-pulse 1.2s ease-in-out infinite;
+}
+.chat-tool[data-state="error"] .chat-tool-mark { background: var(--fail); }
+.chat-tool[data-state="error"] .chat-tool-name { color: var(--fail); }
+.chat-tool-name { flex: none; font-weight: 600; }
+.chat-tool-summary {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.chat-tool-body {
+    display: flex; flex-direction: column; gap: var(--space-1); margin: 2px 0 var(--space-1) 15px;
+    padding-left: var(--space-2); border-left: 2px solid var(--border);
+}
+.chat-tool-body pre {
+    margin: 0; max-height: 320px; overflow: auto; font-size: var(--text-dense);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.chat-tool-args { color: var(--muted); }
+.chat-note { font-size: var(--text-dense); }
+@keyframes chat-pulse { 50% { opacity: 0.35; } }
+
+/* `● lead is working` / `● lead is awaiting instructions`, under the last message. */
+.chat-status {
+    display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3);
+    color: var(--muted); font-size: var(--text-body);
+}
+.dot.chat-idle { background: var(--warn); border-color: var(--warn); }
+.chat-status[data-state^="stopped"] .dot.chat-idle { background: transparent; border-color: var(--muted); }
+
+/* The dock: the jump button, an error, the slash menu, the box and its foot. */
+.chat-dock {
+    flex: none; position: relative; display: flex; flex-direction: column; gap: var(--space-1);
+    padding: 0 var(--space-2) var(--space-1);
+}
+.chat-jump {
+    position: absolute; left: 50%; transform: translateX(-50%); top: -40px; z-index: 1;
+    width: 30px; height: 30px; border-radius: 50%; padding: 0; font-size: 14px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    cursor: pointer; box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+.chat-error { margin: 0; }
+.chat-box {
+    display: flex; flex-direction: column; gap: var(--space-1);
+    padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: 18px;
+    background: var(--surface);
+}
+.chat-box:focus-within { border-color: var(--accent); }
+.chat-input {
+    width: 100%; min-width: 0; resize: none; font: inherit; font-size: 14px; line-height: 1.5;
+    padding: var(--space-1) 0; max-height: 280px; border: 0; background: none; color: var(--text);
+    outline: none; box-shadow: none;
+}
+.chat-input:focus { outline: none; box-shadow: none; border: 0; }
+.chat-tools { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.chat-tools-gap { flex: 1 1 auto; }
+.chat-icon {
+    flex: none; width: 28px; height: 28px; border-radius: 50%; padding: 0; border: 0;
+    background: none; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.chat-icon:hover { background: var(--fill); color: var(--text); }
+.chat-icon[aria-pressed="true"] { background: var(--fail-fill); color: var(--fail); }
+.chat-select {
+    flex: 0 1 auto; min-width: 0; max-width: 190px; height: 28px; border: 0; background: none;
+    color: var(--muted); font: inherit; font-size: var(--text-dense); cursor: pointer;
+    text-overflow: ellipsis;
+}
+.chat-select:hover:not(:disabled) { color: var(--text); }
+.chat-send {
+    flex: none; width: 30px; height: 30px; border-radius: 50%; padding: 0; border: 0;
+    background: var(--text); color: var(--bg); font-size: 15px; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.chat-send:disabled { opacity: 0.4; cursor: default; }
+.chat-attached { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; }
+.chat-chip { display: inline-flex; align-items: center; gap: var(--space-1); }
+.chat-chip button { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; }
+.chat-foot {
+    display: flex; justify-content: space-between; gap: var(--space-3);
+    font-size: var(--text-meta); padding: 0 var(--space-3);
+}
+
+/* The completion after `/`: the agent's skills and prompt templates, above the box. */
+.chat-slash {
+    list-style: none; margin: 0; padding: var(--space-1); display: flex; flex-direction: column;
+    border: 1px solid var(--border); border-radius: var(--radius-box); background: var(--surface);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 30%); max-height: 280px; overflow-y: auto;
+}
+.chat-slash-item {
+    display: flex; gap: var(--space-3); align-items: baseline; width: 100%; text-align: left;
+    background: none; border: 0; border-radius: 4px; padding: var(--space-1) var(--space-2);
+    color: inherit; font: inherit; font-size: var(--text-body); cursor: pointer; min-width: 0;
+}
+.chat-slash-item[data-picked="true"] { background: var(--fill); }
+.chat-slash-item code { flex: none; }
+.chat-slash-item .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

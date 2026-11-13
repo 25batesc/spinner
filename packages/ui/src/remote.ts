@@ -155,6 +155,18 @@ export async function postAttachment(dir: string, png: string): Promise<Attachme
     return send("POST", `/sessions/${dir}/attachments`, { mime: "image/png", data: png });
 }
 
+/**
+ * Saves a file of any kind under the session (`POST /sessions/:dir/uploads`); answers its
+ * name and its path relative to the session directory.
+ */
+export async function postUpload(
+    dir: string,
+    name: string,
+    data: string,
+): Promise<{ name: string; path: string }> {
+    return send("POST", `/sessions/${dir}/uploads`, { name, data });
+}
+
 export async function postComment(dir: string, body: NewCommentRequest): Promise<CommentResponse> {
     return send("POST", `/sessions/${dir}/comments`, body);
 }

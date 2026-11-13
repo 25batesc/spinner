@@ -198,23 +198,25 @@ Step 5 ships in parts. Part A is the chat (5.1 to 5.6). The Agents view (R9) and
 
 **5.1 The chat is the default surface of every agent.** An agent's tab shows `chat`, `terminal` and `context`. `chat` is the default; a pick of `terminal` is remembered for the window, so an operator who prefers pi's own UI stays in it. A terminal connects to the agent only once its tab was shown. An `rpc` agent has no terminal tab, as before.
 
-**5.2 What the chat shows.** The agent's messages, oldest first, from its pi transcript, then live:
+**5.2 What the chat shows.** The operator asked for the shape of the agent product he compares with (2026-11-13). The chat is a centred column, oldest message first, read from the agent's pi transcript and then live. A turn is three things:
 
-* The operator's message, as he wrote it, with the images he attached.
-* The agent's answer, as rendered markdown.
-* The agent's thinking, folded to one line; a click opens it.
-* Each tool call as one row: a state mark, the tool's name, and what it acts on (the command of `bash`, the path of `read`, `edit` and `write`, the first argument of another tool). A click opens the arguments and the result. A failed call is marked and opens the same way.
-* A line while the agent works, with `stop`.
+* The operator's message, as he wrote it, as a pill at the right, with a count of the images it carried.
+* The agent's work, folded to one line: `Worked for 2m 29s · 14 steps`, or `Thought for 8s` when it called no tool. A click opens it: the thoughts, the remarks the agent made on the way, and each tool call as a row (a state mark, the tool's name, what it acts on) that opens to its arguments and its result. While the turn runs the line says what the agent does now: `Working · bash pnpm test`.
+* The agent's answer, as rendered markdown with the line breaks it wrote. The answer is the turn's last text with no tool call after it.
 
-The view stays at the newest message while the operator is there, and offers `jump to latest` once he scrolled up. It draws the newest 150 entries and `show earlier` adds 300 more, so a session of a week opens at once. The history holds up to 20 000 entries.
+Under the last message a line says `lead is working`, `lead is awaiting instructions` or that the agent is stopped. The view stays at the newest message while the operator is there, and a round button jumps back once he scrolled up. It draws the newest 150 blocks and `show earlier` adds 300 more. The history holds up to 20 000 entries.
 
-**5.3 One transcript from two sources.** The history is read from the transcript file when the tab opens; live events add to it. A message that both hold shows once: a message is matched by its timestamp, a tool call by its id, and a tool call the history holds as running takes the result the live events bring.
+**5.3 One transcript from two sources.** The history is read from the transcript file when the tab opens, when the agent is resumed, and at the start and the end of each turn; live events add to it. A message that both hold shows once: a message is matched by its timestamp, a tool call by its id, and a tool call the history holds as running takes the result the live events bring. The tty extension posts the message events (the start, the text and thinking deltas, the whole message at the end) besides the lifecycle events.
 
-**5.4 The message box.** A text area that grows with the text, up to 12 lines. Enter sends; Shift+Enter makes a new line; a paste of many lines stays one message. While the agent works, the message is a steer, and the box says so. A message to an agent that is stopped resumes it first (dogfood #57): the daemon's `prompt` and `steer` routes do that for a message marked `source: operator`.
+**5.4 The message box.** One rounded card at the bottom of the column: a text area that grows with the text, up to 12 lines, and a row of tools inside the card. Enter sends; Shift+Enter makes a new line; a paste of many lines stays one message. While the agent works, the message is a steer, and with an empty box the send button is `stop`. A message to an agent that is stopped resumes it first (dogfood #57): the daemon's `prompt` and `steer` routes do that for a message marked `source: operator`.
 
-**5.5 Images and files.** An image pasted or dropped on the box is uploaded to the session (`POST /sessions/:dir/attachments`, converted to PNG in the browser when it is another format) and shows as a chip above the box. On send, each image's absolute path is added to the message, and the agent reads it with its `read` tool, as it reads a path dropped on pi's terminal. In the desktop app, a file that is not an image adds its path to the text.
+**5.5 Files and images.** The `+` button, a paste and a drop attach files. An image is saved to the session as a PNG (`POST /sessions/:dir/attachments`; the browser converts another format) and goes to the agent as an image. Another file is saved with `POST /sessions/:dir/uploads`; in the desktop app its own path is used and nothing is copied. Each attached file shows as a chip, and the message ends with one `Attached file: <absolute path>` line per file.
 
-**5.6 Not in part A.** Slash commands and skill buttons in the box. Editing or resending a past message. A model picker. Search in the transcript.
+**5.6 Skills and commands.** `/` at the start of the box, or the `/` button, lists the agent's skills and prompt templates (from `GET …/agents/:name/context`), filtered as the operator types; the arrows pick, Enter or Tab completes `/skill:name `, Escape closes. The tty extension expands a `/skill:` message into the instruction to read the skill file. Extension commands of pi (`/model`, `/compact`) are not messages; the box has its own controls for those.
+
+**5.7 Model, thinking level, dictation.** The card's tool row has the agent's model and its thinking level as two pickers. A pick calls `POST …/agents/:name/model` or `…/thinking`; the daemon tells pi, records the value in `session.yaml`, and the record follows a change made in pi's own terminal. The microphone button dictates into the box through the browser's speech recognition. The desktop app's shell has no such service: there the button says so and names the system's dictation key.
+
+**5.8 Not in part A.** Editing or resending a past message. Search in the transcript. A searchable model picker (the list is pi's whole catalogue).
 
 ## Risks
 
