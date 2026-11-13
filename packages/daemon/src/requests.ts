@@ -5,6 +5,8 @@ import type {
     AddAgentRequest,
     AdoptRequest,
     AgentMessageRequest,
+    AgentModelRequest,
+    AgentThinkingRequest,
     ExtractRequest,
     NewSessionRequest,
     ReviewsRequest,
@@ -13,7 +15,13 @@ import type {
     UpRequest,
     VerifyRequest,
 } from "@spinner/protocol";
-import { SESSION_TITLE_MAX } from "@spinner/protocol";
+import {
+    MESSAGE_IMAGES_MAX,
+    SESSION_TITLE_MAX,
+    THINKING_LEVELS,
+    is_thinking_level,
+    split_model,
+} from "@spinner/protocol";
 
 /** Upper bound on PR URLs in one adopt request; `adopt_prs` has the same limit. */
 const ADOPT_URLS_MAX = 20;
@@ -304,14 +312,53 @@ export function parse_agent_message(input: unknown): AgentMessageRequest | strin
     if (text === undefined) {
         return "`text` must be a non-empty string";
     }
+    const images = record.images;
+    if (images !== undefined && !is_image_list(images)) {
+        return `\`images\` must be at most ${MESSAGE_IMAGES_MAX} paths`;
+    }
+    const with_images = images === undefined ? {} : { images };
     // The UI's message box marks the operator's own steers for the outcome counter (6.20).
     if (record.source === undefined) {
-        return { text };
+        return { text, ...with_images };
     }
     if (record.source !== "operator") {
         return 'source must be "operator" when given';
     }
-    return { text, source: "operator" };
+    return { text, source: "operator", ...with_images };
+}
+
+/** `POST …/agents/:name/model`: `model` is `provider/id`. */
+export function parse_agent_model(input: unknown): AgentModelRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const model = record.model;
+    if (typeof model !== "string" || split_model(model) === null) {
+        return "`model` must be provider/id";
+    }
+    return { model };
+}
+
+/** `POST …/agents/:name/thinking`: `level` is one of `THINKING_LEVELS`. */
+export function parse_agent_thinking(input: unknown): AgentThinkingRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const level = record.level;
+    if (!is_thinking_level(level)) {
+        return `\`level\` must be one of ${THINKING_LEVELS.join(", ")}`;
+    }
+    return { level };
+}
+
+function is_image_list(value: unknown): value is string[] {
+    return (
+        Array.isArray(value) &&
+        value.length <= MESSAGE_IMAGES_MAX &&
+        value.every((path) => typeof path === "string" && path.length > 0)
+    );
 }
 
 function as_record(input: unknown): Record<string, unknown> | string {

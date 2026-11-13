@@ -49,6 +49,12 @@ export interface PiResponse {
     error?: string;
 }
 
+/**
+ * pi answered a command and refused it (rpc `success: false`, or the extension's ack with an
+ * error text), as opposed to a pi that did not answer at all. A route answers 400 for it.
+ */
+export class PiRefusal extends Error {}
+
 /** Any record pi writes: a response, a session event, or an extension UI record. */
 type PiRecord =
     | PiResponse
@@ -263,7 +269,7 @@ class PiChild implements PiProcess {
             if (record.success) {
                 entry.resolve(record);
             } else {
-                entry.reject(new Error(record.error ?? `${record.command} failed`));
+                entry.reject(new PiRefusal(record.error ?? `${record.command} failed`));
             }
             return;
         }

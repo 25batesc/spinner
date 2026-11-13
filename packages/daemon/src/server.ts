@@ -35,6 +35,7 @@ import type {
     JobsResponse,
     ModelsResponse,
     ModelView,
+    OkResponse,
     ProjectsResponse,
     SessionResponse,
     SessionsResponse,
@@ -45,6 +46,7 @@ import type {
     StackSpec,
     UsageResponse,
     SessionView,
+    ThinkingLevel,
 } from "@spinner/protocol";
 import {
     DAEMON_HOST,
@@ -58,6 +60,7 @@ import {
     STACK_LOGS_LINES_MAX,
     USAGE_INTERVAL_MS,
     COSTS_REFOLD_INTERVAL_MS,
+    UPLOAD_BYTES_MAX,
 } from "@spinner/protocol";
 import * as actions from "./actions.js";
 import type { ActionContext } from "./actions.js";
@@ -74,7 +77,8 @@ import { AgentManager, FIRST_TURN } from "./agents/manager.js";
 import { ReviewSwarm } from "./agents/swarm.js";
 import { mount_agent_routes } from "./agents/routes.js";
 import { ModelCatalog, fetch_models } from "./agents/models.js";
-import { resolve_pi_binary } from "./agents/pi-rpc.js";
+import { PiRefusal, resolve_pi_binary } from "./agents/pi-rpc.js";
+import { message_images, parse_upload, save_upload, UPLOAD_BODY_MAX } from "./agents/uploads.js";
 import { EventBus } from "./event-bus.js";
 import type { SpinnerHome } from "./home.js";
 import { JobRunner, type JobWork } from "./jobs/jobs.js";
@@ -108,6 +112,8 @@ import {
     parse_add_agent,
     parse_adopt,
     parse_agent_message,
+    parse_agent_model,
+    parse_agent_thinking,
     parse_extract,
     parse_new_session,
     parse_plan_implement,
@@ -631,6 +637,10 @@ export function create_app(deps: AppDeps): Hono {
             if (summary === null) {
                 return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
             }
+            const images = message_images(summary.path, request.images ?? []);
+            if (typeof images === "string") {
+                return c.json(error_body(images), 400);
+            }
             let handle = deps.agents.get(summary.dir, name);
             let resumed = false;
             if (handle === null) {
@@ -666,7 +676,10 @@ export function create_app(deps: AppDeps): Hono {
             }
             try {
                 // An agent resumed a moment ago has no turn to steer: the message starts one.
-                const disposition = await handle[resumed ? "prompt" : command](request.text);
+                const disposition = await handle[resumed ? "prompt" : command](
+                    request.text,
+                    images,
+                );
                 // The outcome counter (6.20, review v2 M-5): only a steer to the lead that
                 // the UI's message box marked with `source: "operator"`.
                 if (counts_as_operator_steer(command, name, request)) {
@@ -691,6 +704,42 @@ export function create_app(deps: AppDeps): Hono {
     });
 
     app.post("/sessions/:dir/agents/:name/compact", (c) => compact_agent(c, deps));
+
+    app.post("/sessions/:dir/agents/:name/model", async (c) => {
+        const request = parse_agent_model(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        return apply_agent_setting(c, deps, { model: request.model });
+    });
+
+    app.post("/sessions/:dir/agents/:name/thinking", async (c) => {
+        const request = parse_agent_thinking(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        return apply_agent_setting(c, deps, { thinking: request.level });
+    });
+
+    app.post("/sessions/:dir/uploads", async (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const too_large = error_body(`the file is larger than ${UPLOAD_BYTES_MAX} bytes`);
+        if (Number(c.req.header("content-length") ?? "0") > UPLOAD_BODY_MAX) {
+            return c.json(too_large, 413);
+        }
+        const text = await c.req.text();
+        if (text.length > UPLOAD_BODY_MAX) {
+            return c.json(too_large, 413);
+        }
+        const upload = parse_upload(parse_json_text(text));
+        if ("error" in upload) {
+            return c.json(error_body(upload.error), upload.status);
+        }
+        return c.json(save_upload(summary.path, upload, new Date()), 201);
+    });
 
     app.post("/sessions/:dir/agents/:name/stop", async (c) => {
         try {
@@ -923,6 +972,49 @@ async function compact_agent(c: Context, deps: AppDeps): Promise<Response> {
         text: `compacted ${name} at ${pct === undefined ? "?" : String(pct)} %`,
     });
     const body: AgentCommandResponse = { ok: true, disposition };
+    return c.json(body);
+}
+
+/**
+ * `POST …/agents/:name/model` and `…/thinking`: the hosted agent's pi takes the setting, then
+ * `session.yaml` records it and the view refreshes. 400 with pi's error when pi refuses it; a
+ * listed but stopped agent is a 409 with its state.
+ */
+async function apply_agent_setting(
+    c: Context,
+    deps: AppDeps,
+    setting: { model: string } | { thinking: ThinkingLevel },
+): Promise<Response> {
+    const name = c.req.param("name") ?? "";
+    const dir = c.req.param("dir") ?? "";
+    const summary = find_session(deps.home, dir);
+    if (summary === null) {
+        return c.json(error_body(`no session ${dir}`), 404);
+    }
+    const handle = deps.agents.get(summary.dir, name);
+    if (handle === null) {
+        const listed = summary.session.agents?.[name];
+        if (listed === undefined) {
+            return c.json(error_body(`agent ${name} is not in ${summary.dir}`), 404);
+        }
+        const body: AgentNotRunningResponse = {
+            error: `agent ${name} is not running (${listed.process})`,
+            process: listed.process,
+        };
+        return c.json(body, 409);
+    }
+    try {
+        if ("model" in setting) {
+            await handle.set_model(setting.model);
+        } else {
+            await handle.set_thinking(setting.thinking);
+        }
+    } catch (error) {
+        return c.json(error_body(describe_error(error)), error instanceof PiRefusal ? 400 : 500);
+    }
+    deps.agents.record_setting(summary.dir, name, setting);
+    await deps.refresh(summary.dir);
+    const body: OkResponse = { ok: true };
     return c.json(body);
 }
 
@@ -1540,7 +1632,11 @@ function parse_lines(text: string | undefined): number | string {
 
 /** The parsed JSON body, `undefined` for an empty body, or `null` for unparsable text. */
 async function json_body(c: Context): Promise<unknown> {
-    const text = await c.req.text();
+    return parse_json_text(await c.req.text());
+}
+
+/** The parsed JSON, `undefined` for an empty body, null for one that does not parse. */
+function parse_json_text(text: string): unknown {
     if (text.trim().length === 0) {
         return undefined;
     }

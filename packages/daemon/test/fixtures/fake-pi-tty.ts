@@ -5,9 +5,12 @@
 // it reads back to the terminal (so a test can type and see the keystroke come back). It
 // long-polls `commands`: a `prompt` prints `> <text>` and posts `agent_start`, `turn_end`,
 // `agent_end` and `agent_settled`; a `steer` prints `steer: <text>`; an `abort` prints
-// `aborted`; a `notify` prints `notice: <first line>`. A prompt of `exit` ends the process
-// with code 0; SIGTERM ends it with 143 after printing `bye`. The argv and the Spinner
-// environment go to FAKE_PI_ARGS_FILE when set.
+// `aborted`; a `notify` prints `notice: <first line>`. After `hello` it reports its model
+// (`--provider`/`--model`, else `fake/default`) and thinking level `medium`, as the extension
+// does; a `set_model` of a `provider/id` whose provider is not `unknown` and a `set_thinking`
+// answer `ok` and report the change, any other `set_model` answers pi's error. A prompt of
+// `exit` ends the process with code 0; SIGTERM ends it with 143 after printing `bye`. The
+// argv and the Spinner environment go to FAKE_PI_ARGS_FILE when set.
 import { writeFileSync } from "node:fs";
 
 // The swarm's reviewers and a review's lead run headless (s016): the same binary under
@@ -43,8 +46,10 @@ const base =
 
 interface Command {
     id: string;
-    type: "prompt" | "steer" | "abort" | "notify";
+    type: "prompt" | "steer" | "abort" | "notify" | "set_model" | "set_thinking";
     text?: string;
+    model?: string;
+    level?: string;
 }
 
 const print = (text: string): void => {
@@ -67,6 +72,19 @@ async function post(path: string, body: unknown): Promise<void> {
 let busy = false;
 
 async function act(command: Command): Promise<string> {
+    if (command.type === "set_model") {
+        const model = command.model ?? "";
+        if (model.startsWith("unknown/")) {
+            return `pi does not know the model ${model}`;
+        }
+        await post("/events", { events: [{ type: "model_select", model }] });
+        return "ok";
+    }
+    if (command.type === "set_thinking") {
+        const event = { type: "thinking_level_select", level: command.level };
+        await post("/events", { events: [event] });
+        return "ok";
+    }
     if (command.type === "abort") {
         print("aborted");
         return "aborted";
@@ -126,7 +144,7 @@ async function poll_loop(): Promise<void> {
             continue;
         }
         const body = (await response.json()) as { command: Command };
-        const disposition = await act(body.command);
+        const disposition = encodeURIComponent(await act(body.command));
         ack = `?ack=${encodeURIComponent(body.command.id)}&disposition=${disposition}`;
     }
 }
@@ -158,6 +176,20 @@ await post("/hello", {
     commands: [
         { name: "help", description: "Show help", source: "extension" },
         { name: "spinner-reload", source: "extension" },
+    ],
+});
+const flag = (name: string): string | undefined => {
+    const index = process.argv.indexOf(name);
+    return index < 0 ? undefined : process.argv[index + 1];
+};
+const provider = flag("--provider");
+const model_id = flag("--model");
+const model =
+    model_id === undefined ? "fake/default" : `${provider ?? "fake"}/${model_id}`;
+await post("/events", {
+    events: [
+        { type: "model_select", model },
+        { type: "thinking_level_select", level: "medium" },
     ],
 });
 void poll_loop();

@@ -368,6 +368,12 @@ export class AgentManager {
                 this.record(dir, agent, { process: "idle" });
                 this.bus.publish({ type: "agent.settled", ts, session: dir, agent });
             }
+            if (event.type === "model_select") {
+                this.record(dir, agent, { model: event.model });
+            }
+            if (event.type === "thinking_level_select") {
+                this.record(dir, agent, { thinking: event.level });
+            }
         });
         this.hosted.set(key, {
             dir: summary.dir,
@@ -536,6 +542,8 @@ export class AgentManager {
             steer: (text, images) => handle.steer(text, images),
             abort: () => handle.abort(),
             compact: () => handle.compact(),
+            set_model: (model) => handle.set_model(model),
+            set_thinking: (level) => handle.set_thinking(level),
             ...(notify === undefined ? {} : { notify }),
             commands: () => handle.commands(),
             on_event: (listener) => handle.on_event(listener),
@@ -581,6 +589,15 @@ export class AgentManager {
             this.log(`settings: ${error instanceof Error ? error.message : String(error)}`);
             return SETTINGS_DEFAULT;
         }
+    }
+
+    /** Records the model or thinking level pi took through `POST …/model` or `…/thinking`. */
+    record_setting(
+        dir: string,
+        name: string,
+        patch: Partial<Pick<AgentSpec, "model" | "thinking">>,
+    ): void {
+        this.record(dir, name, patch);
     }
 
     /** Merges `patch` into `session.yaml`'s entry for the agent. A closed session is skipped. */

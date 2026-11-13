@@ -6,7 +6,12 @@
 // happen. This class holds that state for one agent: the command queue, the acks awaited, the
 // waiting poller, the hello, and the event listeners. It knows nothing of HTTP or the pty.
 import assert from "node:assert/strict";
-import type { AgentExtensionCommand, PiCommandInfo, PiEvent } from "@spinner/protocol";
+import type {
+    AgentExtensionCommand,
+    PiCommandInfo,
+    PiEvent,
+    ThinkingLevel,
+} from "@spinner/protocol";
 
 /** Commands waiting for the extension. More means pi stopped polling. */
 const QUEUE_MAX = 50;
@@ -26,6 +31,11 @@ export interface Hello {
     pid: number;
     commands: PiCommandInfo[];
 }
+
+/** The commands that change pi's settings; the ack is `ok` or pi's error text. */
+export type AgentSetting =
+    | { type: "set_model"; model: string }
+    | { type: "set_thinking"; level: ThinkingLevel };
 
 interface Awaiting {
     resolve: (disposition: string) => void;
@@ -86,28 +96,37 @@ export class ExtensionChannel {
      * `ack_timeout_ms` without an ack, or when the channel closes.
      */
     enqueue(
-        type: AgentExtensionCommand["type"],
+        type: Exclude<AgentExtensionCommand["type"], AgentSetting["type"]>,
         text?: string,
         images: readonly string[] = [],
     ): Promise<string> {
-        if (this.closed !== null) {
-            return Promise.reject(this.closed);
-        }
-        assert.ok(this.queue.length < QUEUE_MAX, "the extension stopped polling for commands");
         const has_text = text !== undefined && text.length > 0;
         const bare = type === "abort" || type === "compact";
         assert.ok(bare || has_text, `${type} needs text`);
         assert.ok(!bare || text === undefined, `${type} carries no text`);
         const with_images = type === "prompt" || type === "steer";
         assert.ok(with_images || images.length === 0, `${type} carries no images`);
-        const id = `c-${this.next_id}`;
-        this.next_id += 1;
-        const command: AgentExtensionCommand = {
-            id,
+        return this.dispatch({
             type,
             ...(text === undefined ? {} : { text }),
             ...(images.length === 0 ? {} : { images: [...images] }),
-        };
+        });
+    }
+
+    /** Queues a `set_model` or a `set_thinking`, as `enqueue` does a message. */
+    configure(setting: AgentSetting): Promise<string> {
+        return this.dispatch(setting);
+    }
+
+    private dispatch(fields: Omit<AgentExtensionCommand, "id">): Promise<string> {
+        if (this.closed !== null) {
+            return Promise.reject(this.closed);
+        }
+        assert.ok(this.queue.length < QUEUE_MAX, "the extension stopped polling for commands");
+        const type = fields.type;
+        const id = `c-${this.next_id}`;
+        this.next_id += 1;
+        const command: AgentExtensionCommand = { id, ...fields };
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.awaiting.delete(id);
