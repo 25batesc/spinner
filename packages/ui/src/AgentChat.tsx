@@ -568,6 +568,12 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     if (asked !== null && !working) {
         status = `${agent} waits for your answer`;
     }
+    let placeholder = `Ask ${agent} to build features, fix bugs, or work on your code`;
+    if (working) {
+        placeholder = `Steer ${agent}: your message interrupts its turn`;
+    } else if (asked !== null) {
+        placeholder = "Or reply directly…";
+    }
     const model = spec?.model ?? "";
     const known = models.some((entry) => `${entry.provider}/${entry.id}` === model);
     const thinking = spec?.thinking ?? "";
@@ -577,7 +583,6 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
             <div className="chat-scroll" ref={scroller} onScroll={onScroll}>
                 <div className="chat-column">
                     <TranscriptView transcript={transcript} />
-                    {asked !== null && <ChatGate key={asked.key} dir={dir} asked={asked} />}
                     <div className="chat-status" role="status" data-state={phase}>
                         <span className={working ? "dot session-working" : "dot chat-idle"} />
                         <span>{status}</span>
@@ -596,6 +601,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                     </button>
                 )}
                 {error !== null && <p className="needs-human chat-error">{error}</p>}
+                {asked !== null && <ChatGate key={asked.key} dir={dir} asked={asked} />}
                 {matches.length > 0 && (
                     <ul className="chat-slash" role="listbox" aria-label="Skills and commands">
                         {matches.map((command, index) => (
@@ -652,11 +658,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                         onChange={(event) => change(event.target.value)}
                         onKeyDown={onKeyDown}
                         onPaste={onPaste}
-                        placeholder={
-                            working
-                                ? `Steer ${agent}: your message interrupts its turn`
-                                : `Ask ${agent} to build features, fix bugs, or work on your code`
-                        }
+                        placeholder={placeholder}
                         aria-label="Message"
                     />
                     <div className="chat-tools">

@@ -172,24 +172,53 @@
 .chat-slash-item code { flex: none; }
 .chat-slash-item .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
-/* The lead's question, as the last block of its chat: quiet, in the column, in its type. */
+/* The lead's question: a card of the box's width, right above the box. The question, one
+   numbered row per option with its detail, `Something else`, `Skip`. */
 .chat-gate {
-    display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3);
-    padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--warn);
-    font-size: 14px; line-height: 1.6;
+    display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 18px;
+    background: var(--surface); padding: var(--space-2) var(--space-3); font-size: 14px;
+    line-height: 1.5; max-height: 55vh; overflow-y: auto;
+}
+.chat-gate-head { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-1) 0 var(--space-2); }
+.chat-gate-question { flex: 1 1 auto; min-width: 0; }
+.chat-gate-close { flex: none; font-size: 18px; }
+.chat-gate-options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.chat-gate-options > li { border-top: 1px solid var(--line-soft); }
+.chat-gate-option {
+    display: flex; align-items: flex-start; gap: var(--space-3); width: 100%; height: auto;
+    text-align: left; white-space: normal; padding: var(--space-2) var(--space-1);
+    border: 0; border-radius: 10px; background: none; color: inherit; font: inherit;
+    cursor: pointer;
+}
+.chat-gate-option:hover:not(:disabled) { background: var(--fill-soft); }
+.chat-gate-option:disabled { opacity: 0.55; cursor: default; }
+.chat-gate-option[data-posting="true"] { opacity: 1; background: var(--accent-tint); }
+.chat-gate-number {
+    flex: none; width: 26px; height: 26px; border-radius: 8px; background: var(--fill);
+    color: var(--muted); font-size: var(--text-dense); font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: center; justify-content: center; margin-top: 1px;
+}
+.chat-gate-text { display: flex; flex-direction: column; min-width: 0; }
+.chat-gate-detail { color: var(--muted); }
+.chat-gate-other {
+    display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-1) var(--space-1);
+    border-top: 1px solid var(--line-soft);
+}
+.chat-gate-other input {
+    flex: 1 1 auto; min-width: 0; border: 0; background: none; color: var(--text); font: inherit;
+    outline: none; box-shadow: none; padding: 0;
+}
+.chat-gate-skip {
+    flex: none; height: 28px; padding: 0 var(--space-3); border: 0; border-radius: 9px;
+    background: var(--fill); color: var(--text); font: inherit; cursor: pointer;
+}
+.chat-gate-skip:hover:not(:disabled) { background: var(--fill-soft); }
+.chat-gate-folded {
+    flex-direction: row; align-items: center; gap: var(--space-2); cursor: pointer; text-align: left;
+    color: inherit; font: inherit; padding: var(--space-1) var(--space-3); overflow: hidden;
 }
 .chat-gate-label {
-    color: var(--warn); font-size: var(--text-meta); font-weight: 600; letter-spacing: 0.04em;
-    text-transform: uppercase;
+    flex: none; color: var(--warn); font-size: var(--text-meta); font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
 }
-.chat-gate-options { display: flex; flex-direction: column; gap: var(--space-1); }
-.chat-gate-option {
-    text-align: left; white-space: normal; line-height: 1.45; height: auto;
-    padding: var(--space-2) var(--space-3); border: 1px solid var(--border);
-    border-radius: 12px; background: none; color: inherit; font: inherit; cursor: pointer;
-}
-.chat-gate-option:hover:not(:disabled) { background: var(--fill); border-color: var(--accent); }
-.chat-gate-option:disabled { opacity: 0.55; cursor: default; }
-.chat-gate-option[data-posting="true"] { opacity: 1; border-color: var(--accent); }
-.chat-gate-hint { font-size: var(--text-dense); }
-
+.chat-gate-folded-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

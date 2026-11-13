@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { PiEvent, PiMessage, SessionView } from "@spinner/protocol";
 
-import { chatQuestion } from "./ChatGate.tsx";
+import { chatQuestion, optionParts } from "./ChatGate.tsx";
 import { RESOLVE_NEEDS } from "./design.ts";
 
 import {
@@ -259,4 +259,26 @@ it("shows the lead's open question as the last block of its chat", () => {
     expect(resolve?.options).toHaveLength(3);
     expect(chatQuestion(view({ gate: null, stage: "drafting" }, null))).toBeNull();
     expect(chatQuestion(view(undefined, null))).toBeNull();
+});
+
+it("splits an option into a title and a detail, without the lead's own marker", () => {
+    expect(optionParts("(a) Recommended: DIY only when N is within the top of the row")).toEqual({
+        title: "Recommended",
+        detail: "DIY only when N is within the top of the row",
+    });
+    expect(optionParts("Streamed CSV from the list page")).toEqual({
+        title: "Streamed CSV from the list page",
+        detail: "",
+    });
+    expect(optionParts("2. Background job - a file is built, then linked by mail")).toEqual({
+        title: "Background job",
+        detail: "a file is built, then linked by mail",
+    });
+    expect(optionParts("Build a deliverable. Doc, deck or report")).toEqual({
+        title: "Build a deliverable",
+        detail: "Doc, deck or report",
+    });
+    // A first clause too long for a title: the whole option is one line.
+    const long = `${"word ".repeat(20)}: detail`;
+    expect(optionParts(long).detail).toBe("");
 });
