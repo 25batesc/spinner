@@ -66,7 +66,7 @@ export function PrsPane({ sessions, selected, onSelect }: PrsPaneProps) {
             <Row key={key(row)} row={row} selected={row.dir === selected} onSelect={onSelect} />
         ));
     return (
-        <div className="prs-pane" aria-label="Pull requests">
+        <section className="pane prs-pane" aria-label="Pull requests">
             {rows.open.length === 0 && rows.finished.length === 0 && (
                 <p className="muted">No pull request yet. A session's agent opens them.</p>
             )}
@@ -77,6 +77,6 @@ export function PrsPane({ sessions, selected, onSelect }: PrsPaneProps) {
                     <ul className="pr-rows pr-rows-finished">{list(rows.finished)}</ul>
                 </>
             )}
-        </div>
+        </section>
     );
 }

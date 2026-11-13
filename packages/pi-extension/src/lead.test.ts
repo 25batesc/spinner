@@ -10,8 +10,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SessionView } from "@spinner/protocol";
+import { read_env } from "./env.js";
 import { refuse_branch_change } from "./guard.js";
 import { register } from "./index.js";
+import { load_session_files, render_prompt_section } from "./prompt.js";
 import type {
     BeforeAgentStartEvent,
     ExtensionAPI,
@@ -252,6 +255,24 @@ describe("the lead role", () => {
         } finally {
             daemon.close();
         }
+        // The prompt names the change that is checked out: the operator's `test locally`
+        // can switch the worktrees between two turns.
+        const change = { stage: "verifying", needs_human: null, prs: [], on: null };
+        const view = {
+            stack: { services: [] },
+            changes: [
+                { ...change, id: "r1", title: "old", branch: "feat/old", state: "merged" },
+                { ...change, id: "c1", title: "Exports", branch: "feat/exports", state: "PR open" },
+                { ...change, id: "c2", title: "Button", branch: "feat/button", state: "building",
+                  current: true },
+            ],
+        } as unknown as SessionView;
+        const env = read_env(env_for("http://127.0.0.1:1"));
+        const section = render_prompt_section(env, load_session_files(env, view));
+        expect(section).toContain("Changes of this session:");
+        expect(section).toContain('- c1 "Exports" · PR open · feat/exports');
+        expect(section).toContain('- c2 "Button" · building · feat/button (checked out now)');
+        expect(section).not.toContain('"old"');
         // The guard refuses a branch made or switched with git, for the lead and a worker.
         expect(refuse_branch_change("git checkout -b feat/x")).toMatch(/`change` tool/);
         expect(refuse_branch_change("cd app && git switch -c feat/x")).toMatch(/refused/);

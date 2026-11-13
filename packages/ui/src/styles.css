@@ -1525,9 +1525,12 @@ button.link.changes-finished-toggle {
     font-size: var(--text-meta); cursor: pointer;
 }
 .badge.change-count { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
+.badge.change-tested { background: var(--ok-tint); color: var(--ok); }
 
 /* The PRs view of the sidebar: every pull request Spinner opened. */
-.prs-pane { display: flex; flex-direction: column; gap: var(--space-1); }
+.sidebar .side-body > .prs-pane {
+    gap: var(--space-1); padding: 0 var(--space-3) var(--space-1); overflow-y: auto;
+}
 .pr-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
 .pr-rows-heading { margin: var(--space-2) 0 0; font-size: var(--text-meta); font-weight: 600; }
 .pr-row {

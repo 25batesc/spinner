@@ -207,6 +207,18 @@ describe("a session's changes", () => {
         ]);
         expect(views[0]?.prs).toEqual([{ repo: "app", number: 3, url: null, state: "merged" }]);
         expect(views[1]?.prs[0]?.number).toBe(7);
+        // A switch does not reorder the cards: they sort by start time.
+        const switched = switch_change(second, "c1", true);
+        expect(changes_view(switched, []).map((view) => [view.id, view.current])).toEqual([
+            ["c1", true],
+            ["c2", false],
+        ]);
+        // The first change carries the operator's tick at its head; a new head clears it.
+        expect(views[1]?.verified).toBe(true);
+        const moved = structuredClone(second);
+        moved.changes![0]!.repos["app"]!.pr!.head = "b".repeat(40);
+        expect(changes_view(moved, [])[0]?.verified).toBe(false);
+        expect(views[2]?.verified).toBe(false);
     });
 });
 

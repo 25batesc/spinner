@@ -76,12 +76,17 @@ describe("the Changes rail", () => {
     });
 
     it("offers create PR on a building current change, merge and post on an open PR", () => {
-        expect(changeActions(FIRST)).toEqual({ create: false, merge: true, post: true });
+        const none = { create: false, merge: false, post: false, test: false };
+        const open = { ...none, merge: true, post: true, test: true };
+        expect(changeActions(FIRST, true)).toEqual(open);
+        // Without a stack there is nothing to test on.
+        expect(changeActions(FIRST, false).test).toBe(false);
         const building = change({ current: true, state: "building" });
-        expect(changeActions(building)).toEqual({ create: true, merge: false, post: false });
+        expect(changeActions(building, true)).toEqual({ ...none, create: true, test: true });
         const queued = change({ prs: [OPEN_PR], state: "in merge queue" });
-        expect(changeActions(queued).merge).toBe(false);
-        expect(changeActions(ROUND)).toEqual({ create: false, merge: false, post: false });
+        expect(changeActions(queued, true).merge).toBe(false);
+        expect(changeActions(ROUND, true)).toEqual(none);
+        expect(changeActions(EMPTY, true)).toEqual(none);
     });
 
     it("lists every pull request across sessions, the ones that need him first", () => {

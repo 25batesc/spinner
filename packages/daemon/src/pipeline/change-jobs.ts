@@ -118,6 +118,44 @@ function with_changed(session: Session, ahead: Record<string, boolean>): [Sessio
     return [next, any];
 }
 
+/** Tries at most this many names before `change start` gives up. */
+const BRANCH_TRIES_MAX = 50;
+
+/**
+ * A branch name for the change that no repository of the session has yet, locally or on the
+ * remote: an older session, or a colleague, may have used the title's slug before.
+ */
+async function free_branch(
+    git: GitRunner,
+    worktrees: Worktree[],
+    session: Session,
+    slug: string,
+): Promise<string> {
+    const taken = new Set<string>();
+    for (let tries = 0; tries < BRANCH_TRIES_MAX; tries += 1) {
+        const candidate = change_branch(session, slug, taken);
+        let exists = false;
+        for (const { cwd } of worktrees) {
+            const local = await ref_exists(git, cwd, `refs/heads/${candidate}`);
+            exists = exists || local || (await remote_ref(git, cwd, candidate)) !== null;
+        }
+        if (!exists) {
+            return candidate;
+        }
+        taken.add(candidate);
+    }
+    throw new Error(`change start refused: no free branch name for "${slug}"`);
+}
+
+async function ref_exists(git: GitRunner, cwd: string, ref: string): Promise<boolean> {
+    try {
+        await git(cwd, ["rev-parse", "--verify", "--quiet", ref]);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 /** Checks out `branch` in every worktree; on a failure, puts the moved ones back. */
 async function move_worktrees(
     git: GitRunner,
@@ -196,7 +234,7 @@ export async function start_change_job(
     await refuse_dirty(deps.git, worktrees, "start the change");
     const ahead = await push_and_measure(summary, worktrees, deps);
     const id = next_change_id(session);
-    const branch = change_branch(session, slug);
+    const branch = await free_branch(deps.git, worktrees, session, slug);
     const parent_branch =
         input.on === undefined || input.on === current_change(session).id
             ? session.branch

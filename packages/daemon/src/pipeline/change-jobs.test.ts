@@ -11,6 +11,7 @@ import type { Session, SessionSummary } from "@spinner/protocol";
 import { SESSION_VERSION } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { read_session, write_session } from "../store/session-store.js";
+import { on_change_for_up } from "../actions.js";
 import { start_change_job, switch_change_job } from "./change-jobs.js";
 import { load_pipeline_config } from "./config.js";
 import { git_runner } from "./github-write.js";
@@ -113,6 +114,16 @@ describe("change start", () => {
         expect(reread().session.changes).toBeUndefined();
     });
 
+    it("takes a numbered branch when a repository already has the name", async () => {
+        // An older session left `feat/second` behind, locally and on the remote.
+        git(worktree, "branch", "feat/second", "main");
+        git(worktree, "push", "--quiet", "origin", "main:feat/second-2");
+        git(worktree, "fetch", "--quiet", "origin");
+        const next = await start_change_job(home, summary, { title: "Second" }, deps);
+        expect(next.session.branch).toBe("feat/second-3");
+        expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feat/second-3");
+    });
+
     it("does not keep a current change with no commit", async () => {
         const next = await start_change_job(home, summary, { title: "Second" }, deps);
         expect(next.session.changes).toEqual([]);
@@ -136,5 +147,27 @@ describe("change start", () => {
         await expect(
             start_change_job(home, again, { title: "x", on: "c7" }, deps),
         ).rejects.toThrow(/no change "c7" to start on/);
+    });
+
+    it("test locally switches to the change, and refuses while an agent is in a turn", async () => {
+        commit("b.txt", "exports in parallel");
+        const second = await start_change_job(home, summary, { title: "Second" }, deps);
+        const ctx = { home, cwd: root, gh: async () => "" };
+        const log = (): void => {};
+        // The lead is in a turn: it writes to the worktrees, so they are not switched.
+        const working = structuredClone(second);
+        working.session.agents = { lead: { harness: "tty", model: "m", process: "running" } };
+        await expect(on_change_for_up(ctx, working, "c1", log)).rejects.toThrow(
+            /lead is working in the worktrees/,
+        );
+        expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feat/second");
+        // Idle, with the stack down: the worktrees move, and `up` starts on the change.
+        const on_first = await on_change_for_up(ctx, second, "c1", log);
+        expect(on_first.session.branch).toBe("feat/exports");
+        expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feat/exports");
+        // The current change, or none named: nothing to do.
+        expect(await on_change_for_up(ctx, on_first, "c1", log)).toBe(on_first);
+        expect(await on_change_for_up(ctx, on_first, undefined, log)).toBe(on_first);
+        await expect(on_change_for_up(ctx, on_first, "c9", log)).rejects.toThrow(/no change c9/);
     });
 });

@@ -27,12 +27,33 @@ export interface SessionFiles {
     /** `name → URL` from the daemon's stack view; empty when the daemon did not answer. */
     hosts: Record<string, string>;
     /**
+     * The session's open changes and its current one, from the daemon's view; empty when
+     * the daemon did not answer. The operator's `test locally` can switch the worktrees
+     * between two turns, so the lead reads which change is checked out at each one.
+     */
+    changes: { id: string; title: string; branch: string; current: boolean; state: string }[];
+    /**
      * `designs_dir` of `<session>/design/.state.json` while its `track` is `design`, else null
      * (3.6). The tracker writes that file; the extension reads JSON, not `session.yaml`.
      */
     designs_dir: string | null;
     /** `track` of the same file: `design` or `direct`; null when the file is absent. */
     track: string | null;
+}
+
+/** The states of a change the prompt leaves out, unless the change is the current one. */
+const CHANGE_STATES_HIDDEN: readonly string[] = ["merged", "closed", "empty"];
+
+/** One line per change, the checked-out one marked. Empty with one change or none. */
+function change_lines(changes: SessionFiles["changes"]): string[] {
+    if (changes.length < 2) {
+        return [];
+    }
+    const lines = changes.map((change) => {
+        const mark = change.current ? " (checked out now)" : "";
+        return `- ${change.id} "${change.title}" · ${change.state} · ${change.branch}${mark}`;
+    });
+    return ["", "Changes of this session:", ...lines];
 }
 
 /** Reads the session files. `view` is the daemon's answer to `GET /sessions/:dir`, if any. */
@@ -54,6 +75,15 @@ export function load_session_files(env: SpinnerEnv, view: SessionView | null): S
         brief: read_or_empty(join(env.session_dir, "agents", env.agent, "BRIEF.md")),
         mission: read_or_empty(join(env.session_dir, "MISSION.md")).slice(0, MISSION_CHARS_MAX),
         hosts,
+        changes: (view?.changes ?? [])
+            .filter((change) => change.current || !CHANGE_STATES_HIDDEN.includes(change.state))
+            .map((change) => ({
+                id: change.id,
+                title: change.title,
+                branch: change.branch,
+                current: change.current,
+                state: change.state,
+            })),
         designs_dir: design_designs_dir(env.session_dir),
         track: design_track(env.session_dir),
     };
@@ -106,6 +136,9 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
         } else {
             lines.push(...fast_path_lines(env.egm_root));
         }
+    }
+    if (env.role === "lead") {
+        lines.push(...change_lines(files.changes));
     }
     const hosts = Object.entries(files.hosts);
     if (hosts.length > 0) {

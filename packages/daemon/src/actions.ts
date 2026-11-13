@@ -53,6 +53,7 @@ import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { post_message, post_view } from "./pipeline/post.js";
 import { reset_session } from "./pipeline/reset.js";
 import { start_change_job, switch_change_job } from "./pipeline/change-jobs.js";
+import { current_change, has_change } from "./pipeline/changes.js";
 import { open_prs, type PrOutcome } from "./pipeline/pr.js";
 import { slack_client_from_env, type SlackClient } from "./pipeline/slack.js";
 import {
@@ -407,12 +408,53 @@ export async function up(
     input: UpRequest,
     log: Log,
 ): Promise<UpResult> {
-    const result = await stack_up(ctx.home, summary, { build: input.build === true }, log);
+    const on_change = await on_change_for_up(ctx, summary, input.change, log);
+    const result = await stack_up(ctx.home, on_change, { build: input.build === true }, log);
     for (const [service, host] of Object.entries(result.hosts)) {
         log(`${service.padEnd(12)} http://${host}`);
     }
     log(`up in ${(result.elapsed_ms / 1000).toFixed(1)} s`);
     return result;
+}
+
+/**
+ * `test locally` on a change (docs/designs/talk-change-ship.md, 3.1): when `change` is not
+ * the current one, the worktrees switch to it, and a stack that was up stops, so `up` starts
+ * every service on the change's code. Refused while an agent is in a turn: it writes to the
+ * worktrees. The database is kept as it is.
+ */
+export async function on_change_for_up(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    change: string | undefined,
+    log: Log,
+): Promise<SessionSummary> {
+    const session = summary.session;
+    if (change === undefined || current_change(session).id === change) {
+        return summary;
+    }
+    if (!has_change(session, change)) {
+        throw new Error(`no change ${change} in ${summary.dir}`);
+    }
+    const working = Object.entries(session.agents ?? {})
+        .filter(([, agent]) => agent.process === "running")
+        .map(([name]) => name);
+    if (working.length > 0) {
+        throw new Error(
+            `test locally refused: ${working.join(", ")} is working in the worktrees; ` +
+                "wait for the turn to end, or stop the agent",
+        );
+    }
+    const was_up = session.stack.state === "up";
+    const switched = await change_switch(ctx, summary, change, log);
+    if (!was_up) {
+        return switched;
+    }
+    log("stopping the stack: its services restart on the change's code");
+    await stack_down(ctx.home, switched, log);
+    const fresh = read_session(ctx.home, summary.dir);
+    assert.ok(fresh.ok, fresh.ok ? "" : fresh.error);
+    return fresh.summary;
 }
 
 export async function down(ctx: ActionContext, summary: SessionSummary, log: Log): Promise<void> {

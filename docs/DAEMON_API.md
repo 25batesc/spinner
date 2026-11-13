@@ -976,3 +976,15 @@ The GitHub poll reads the open pull requests of every change. It derives each ch
 The lead's `change` tool has `list`, `start` and `switch`. The extension guard refuses `git checkout -b`, `git switch` and `git branch <name>` for a session's agents and names the tool. A command with `git -C <dir>` is allowed, for a scratch repository.
 
 In the UI, the right pane has a `changes` tab: one card per change, with its pull requests, what it needs, and `post` and `merge`. The pane opens on it while the stack is down and a pull request exists. The sidebar has a `Pull requests` view: every pull request of every session, open ones first.
+
+`UpRequest.change` is `test locally` on a change (step 3). For the current change, `up` runs as before. For another change the job does these steps:
+
+1. It refuses while an agent of the session is in a turn.
+2. It switches the worktrees to the change, with the refusal on uncommitted work.
+3. It stops a stack that was up, so every service starts on the change's code.
+4. It starts the stack.
+
+The database is kept across a switch. `ChangeView.verified` is true when the operator's tick stands at the head of every open pull request of the change. With more than one change, the lead's prompt section lists the open changes and marks the one that is checked out.
+
+`change start` gives the branch a number when a repository already has the name, locally or on the remote. The stack jobs write only the `stack` field of `session.yaml`, into the file as it is at that moment.
+

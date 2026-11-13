@@ -103,6 +103,23 @@ export function write_session(summary: SessionSummary): void {
 }
 
 /**
+ * Stores one top-level field of `summary.session` into the file as it is now. For a job that
+ * held the session a long time (a stack start) and owns one field: what the poll, the sync
+ * or a change job wrote meanwhile stays.
+ */
+export function write_session_field<K extends keyof Session>(
+    summary: SessionSummary,
+    key: K,
+): void {
+    assert.ok(summary.focus === undefined, "a focused summary writes with write_session");
+    const file = join(summary.path, "session.yaml");
+    const disk = parse(readFileSync(file, "utf8")) as Session;
+    assert.ok(disk.id === summary.session.id, `${file} is not session ${summary.session.id}`);
+    disk[key] = summary.session[key];
+    writeFileSync(file, stringify(disk));
+}
+
+/**
  * The summary focused on change `id`: `session` carries that change's fields at the top
  * level, and a `write_session` of it (or of a spread of it) stores them for that change.
  */

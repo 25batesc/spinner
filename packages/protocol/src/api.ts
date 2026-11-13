@@ -664,6 +664,11 @@ export interface ChangeView {
     prs: ChangePr[];
     /** Id of the change this one was started on, or null. */
     on: string | null;
+    /**
+     * True when the operator ticked `verified` at the head of every open pull request of
+     * the change: it was tested locally as it stands. A new commit makes it false.
+     */
+    verified?: boolean;
     started: string | null;
     /** When every pull request was merged or closed; null while the change is open. */
     ended: string | null;
@@ -970,6 +975,12 @@ export interface AttachRequest {
 export interface UpRequest {
     /** Rebuild dev images even when they exist. */
     build?: boolean;
+    /**
+     * `test locally` (docs/designs/talk-change-ship.md, 3.1): the id of the change to run.
+     * When it is not the current one, the job switches the worktrees to it first and
+     * restarts a stack that was up. The current change when absent.
+     */
+    change?: string;
 }
 
 export interface VerifyRequest {

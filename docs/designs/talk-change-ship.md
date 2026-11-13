@@ -2,7 +2,7 @@
 
 * **Author:** the operator and his agent, in conversation
 * **Date:** 2026-11-12
-* **Status:** Approved by the operator on 2026-11-12. Step 1 is built in v0.25.0, step 2 in v0.26.0. Steps 3 to 5 are approved in outline; each gets its detail before it is built.
+* **Status:** Approved by the operator on 2026-11-12. Step 1 is built in v0.25.0, step 2 in v0.26.0, step 3 in v0.27.0. Steps 4 and 5 are approved in outline; each gets its detail before it is built.
 * **Review:** Not reviewed by Goldfish. The operator read the proposal and answered its five decisions. This doc replaces the EGM adoption's rule that the design track is the default (`egm-adoption.md`, D1).
 
 ## Overview
@@ -88,7 +88,7 @@ Each step ships on its own.
 |---|---|---|
 | 1 | The fast path as the default, inside the one-change session of today. | Built, v0.25.0. Detail below. |
 | 2 | Changes: several pull requests in one session; the Changes rail; the PRs view; `round` and `reset` go away. | Built, v0.26.0. Detail below. |
-| 3 | The stack follows the selected change; `test locally` on the card. | Outline. |
+| 3 | The stack follows the selected change; `test locally` on the card. | Built, v0.27.0, with the database kept across a switch (3.4 is open). Detail below. |
 | 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Outline. |
 | 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Outline. |
 
@@ -153,10 +153,17 @@ A file written before is valid as it is, so nothing migrates and every reader of
 
 **2.10 Not in step 2.** Two agents on two changes at once (non-goal 2). A reviewer's later reply in a thread already answered. The stack following a change (step 3).
 
-### Step 3 in outline: the stack follows a change
+### Step 3 in detail: the stack follows a change
 
-* `run local` takes the selected change: the worktrees switch to its branch (refused on uncommitted work), the database is re-cloned when the migrations differ, the services restart.
-* The card of a change shows `tested locally` with the head it was tested at; a new commit clears it.
+**3.1 `test locally`.** Each open change's card has `test locally`. It runs the `up` job with `{ change: <id> }`. For the current change it is `run local`. For another change the job first makes it the current one (the `switch` of 2.3, with its refusal on uncommitted work), stops a stack that was up, and starts it again, so every service runs the change's code. The job refuses while an agent of the session is in a turn: that agent writes to the worktrees. The lead's `stack up` is unchanged; it runs what is checked out.
+
+**3.2 `tested`.** A card shows `tested` when the operator's `verified` tick stands at the head of every open pull request of the change. The tick is the one of the previews pane; it belongs to the current change, is kept with the change when it is put aside, and a new commit clears it (as before).
+
+**3.3 The lead knows what is checked out.** With more than one change, the lead's prompt section lists the open changes at every turn and marks the one that is checked out, because `test locally` can move the worktrees between two turns.
+
+**3.4 The database is kept.** The outline said the database is re-cloned when the migrations differ. Spinner cannot tell: the spec builds the template with a project command and has no command that applies a worktree's migrations to the session's database; the lead applies them by hand today. So a switch keeps the session's database as it is. Open for the operator: a spec key for that command (then a switch re-clones and migrates), or a `fresh database` choice on `test locally`, or neither.
+
+**3.5 Found on the way.** A branch name the repositories already have (an older session used the same title) gets a number. The stack jobs store only the `stack` field into the file as it is at that moment, as the focused writes of 2.2 do.
 
 ### Step 4 in outline: plans
 

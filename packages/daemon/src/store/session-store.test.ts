@@ -27,6 +27,7 @@ import {
     session_numbers_in_other_homes,
     slugify,
     write_session,
+    write_session_field,
 } from "./session-store.js";
 
 let home: SpinnerHome;
@@ -165,6 +166,14 @@ describe("a focused write", () => {
         expect(after.ok && after.summary.session.stage).toBe("building");
         expect(after.ok && Object.keys(after.summary.session.agents)).toEqual(["lead"]);
         expect(() => focus_summary(held, "c1")).toThrow(/focused already/);
+        // A job that owns one field (the stack) stores that field alone.
+        const stale = { ...created, session: { ...created.session, title: "stale" } };
+        stale.session.stack = { state: "up" };
+        write_session_field(stale, "stack");
+        const last = read_session(home, created.dir);
+        expect(last.ok && last.summary.session.stack.state).toBe("up");
+        expect(last.ok && last.summary.session.title).toBe("Focus");
+        expect(last.ok && last.summary.session.stage).toBe("building");
         expect(() => focus_summary(created, "c9")).toThrow(/no change "c9"/);
     });
 });

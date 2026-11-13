@@ -32,7 +32,7 @@ import type {
 } from "@spinner/protocol";
 import { add_worktree, fetch_base, remove_worktree } from "../git/worktree.js";
 import type { SpinnerHome } from "../home.js";
-import { write_session } from "../store/session-store.js";
+import { write_session, write_session_field } from "../store/session-store.js";
 import {
     compose_network,
     compose_project,
@@ -441,7 +441,8 @@ export async function stack_up(
         const db = session_db(summary.session.id);
         const project = compose_project(summary.session.id);
         summary.session.stack = { project, state: "up", hosts, db, processes };
-        write_session(summary);
+        // Only the stack: the start took minutes, and the rest of the file moved on.
+        write_session_field(summary, "stack");
         return { hosts, db, elapsed_ms: Date.now() - started };
     } catch (error) {
         // `failed` tells the board and the UI that a retry or a `close` is due; the containers
@@ -1008,7 +1009,7 @@ export async function stack_down(
     await stop_host_services(home, summary, log);
     summary.session.stack = { ...summary.session.stack, state: "down" };
     delete summary.session.stack.processes;
-    write_session(summary);
+    write_session_field(summary, "stack");
 }
 
 export interface CloseResult {
@@ -1243,7 +1244,7 @@ export function compose_target(summary: SessionSummary): ComposeTarget {
 
 function set_stack_state(summary: SessionSummary, state: Session["stack"]["state"]): void {
     summary.session.stack = { ...summary.session.stack, state };
-    write_session(summary);
+    write_session_field(summary, "stack");
 }
 
 function sleep(ms: number): Promise<void> {

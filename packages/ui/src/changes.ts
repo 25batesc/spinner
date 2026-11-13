@@ -101,15 +101,23 @@ export interface ChangeActions {
     /** `merge`: a pull request is open. The daemon refuses when a gate does not pass. */
     merge: boolean;
     post: boolean;
+    /** `test locally`: run the stack on this change (3.1). Offered while it is in progress. */
+    test: boolean;
 }
 
-export function changeActions(change: ChangeView): ChangeActions {
+export function changeActions(change: ChangeView, hasStack: boolean): ChangeActions {
     const open = change.prs.some((pr) => pr.state === "open");
     return {
         create: change.current && change.state === "building",
         merge: open && change.state !== "in merge queue",
         post: open,
+        test: hasStack && !isFinished(change) && change.state !== "empty",
     };
+}
+
+/** True when the session has a stack to run: a project with a spec was attached. */
+export function hasStack(view: SessionView): boolean {
+    return view.stack.project !== null;
 }
 
 /** One pull request Spinner opened, with the session and the change it belongs to. */

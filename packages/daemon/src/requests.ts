@@ -192,14 +192,22 @@ export function parse_up(input: unknown): UpRequest | string {
     if (typeof record === "string") {
         return record;
     }
+    const request: UpRequest = {};
     const build = record["build"];
-    if (build === undefined) {
-        return {};
+    if (build !== undefined) {
+        if (typeof build !== "boolean") {
+            return "`build` must be a boolean when given";
+        }
+        request.build = build;
     }
-    if (typeof build !== "boolean") {
-        return "`build` must be a boolean when given";
+    const change = record["change"];
+    if (change !== undefined) {
+        if (typeof change !== "string" || change.length === 0) {
+            return "`change` must be the id of a change when given";
+        }
+        request.change = change;
     }
-    return { build };
+    return request;
 }
 
 export function parse_verify(input: unknown): VerifyRequest | string {

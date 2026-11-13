@@ -12,6 +12,7 @@ import {
     changeCards,
     checksText,
     diffText,
+    hasStack,
     stateTone,
     threadsText,
 } from "./changes.ts";
@@ -53,16 +54,21 @@ function PrLine({ pr }: { pr: ChangePr }) {
 
 interface CardProps {
     dir: string;
+    /** True when the session has a stack: `test locally` is offered. */
+    stack: boolean;
     change: ChangeView;
     busy: boolean;
     run: RunAction;
     onPost: (id: string) => void;
 }
 
-function ChangeCard({ dir, change, busy, run, onPost }: CardProps) {
+function ChangeCard({ dir, stack, change, busy, run, onPost }: CardProps) {
     // `merge` cannot be undone, so the first click arms it and the second sends it.
     const [armed, setArmed] = useState(false);
-    const actions = changeActions(change);
+    const actions = changeActions(change, stack);
+    const testTip = change.current
+        ? "Start the stack on this change."
+        : "Check out this change in the worktrees and restart the stack on it.";
     const query = `?change=${encodeURIComponent(change.id)}`;
     const merge = () => {
         setArmed(false);
@@ -79,6 +85,11 @@ function ChangeCard({ dir, change, busy, run, onPost }: CardProps) {
             <header className="change-head">
                 <span className="dot change-dot" aria-hidden="true" />
                 <strong className="change-title">{change.title}</strong>
+                {change.verified === true && (
+                    <span className="badge change-tested" title="You verified it at this head">
+                        tested
+                    </span>
+                )}
                 {change.current && (
                     <span className="badge" title="Checked out in the session's worktrees">
                         current
@@ -96,8 +107,17 @@ function ChangeCard({ dir, change, busy, run, onPost }: CardProps) {
             {change.needs_human !== null && (
                 <div className="needs-human change-needs">{change.needs_human}</div>
             )}
-            {(actions.create || actions.merge || actions.post) && (
+            {(actions.create || actions.merge || actions.post || actions.test) && (
                 <div className="change-actions">
+                    {actions.test && (
+                        <button
+                            disabled={busy}
+                            title={testTip}
+                            onClick={() => void run(`/sessions/${dir}/up`, { change: change.id })}
+                        >
+                            test locally
+                        </button>
+                    )}
                     {actions.create && (
                         <button
                             disabled={busy}
@@ -146,6 +166,7 @@ export function ChangesRail({ view, busy, run, revision }: ChangesRailProps) {
         <ChangeCard
             key={change.id}
             dir={dir}
+            stack={hasStack(view)}
             change={change}
             busy={busy}
             run={run}

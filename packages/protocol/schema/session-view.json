@@ -2533,6 +2533,10 @@
                     ],
                     "description": "Id of the change this one was started on, or null."
                 },
+                "verified": {
+                    "type": "boolean",
+                    "description": "True when the operator ticked `verified` at the head of every open pull request of the change: it was tested locally as it stands. A new commit makes it false."
+                },
                 "started": {
                     "type": [
                         "string",

@@ -253,8 +253,16 @@ export function switch_change(session: Session, id: string, keep_current: boolea
     return next;
 }
 
-/** `feat/parallel-exports`: the prefix of the session's branch, the slug of the title. */
-export function change_branch(session: Session, slug: string): string {
+/**
+ * `feat/parallel-exports`: the prefix of the session's branch, the slug of the title. A name
+ * the session used, or one in `also_taken` (branches the repositories already have), gets a
+ * number.
+ */
+export function change_branch(
+    session: Session,
+    slug: string,
+    also_taken: ReadonlySet<string> = new Set(),
+): string {
     assert.ok(slug.length > 0, "a change's title must yield a slug");
     const slash = session.branch.indexOf("/");
     const prefix = slash > 0 ? session.branch.slice(0, slash) : "feat";
@@ -262,6 +270,7 @@ export function change_branch(session: Session, slug: string): string {
         session.branch,
         ...records_of(session).map((entry) => entry.branch),
         ...(session.rounds ?? []).map((round) => round.branch),
+        ...also_taken,
     ]);
     const base = `${prefix}/${slug}`;
     if (!taken.has(base)) {
@@ -356,9 +365,20 @@ function view_of_record(record: ChangeRecord, current: boolean): ChangeView {
         needs_human: record.needs_human,
         prs,
         on: record.on ?? null,
+        verified: is_verified(record, prs),
         started: record.started,
         ended: record.ended ?? null,
     };
+}
+
+/** True when the operator's tick stands at the head of every open pull request (3.2). */
+function is_verified(record: ChangeRecord, prs: readonly PrFacts[]): boolean {
+    const pipeline = record.pipeline;
+    const open = prs.filter((pr) => pr.state === "open" || pr.state === "draft");
+    if (pipeline === undefined || !pipeline.verified_locally || open.length === 0) {
+        return false;
+    }
+    return open.every((pr) => pipeline.verified_heads?.[pr.repo] === pr.head);
 }
 
 /**
@@ -388,15 +408,16 @@ export function changes_view(session: Session, rounds: readonly RoundView[]): Ch
             ended: round.ended,
         };
     });
-    for (const record of records_of(session)) {
-        views.push(view_of_record(record, false));
-    }
+    const records = records_of(session).map((record) => view_of_record(record, false));
     // The current change has commits before it has a pull request; the sync counts them.
     const current = view_of_record(record_of_current(session), true);
     const commits = Object.values(session.repos).some((entry) => (entry.sync?.commits ?? 0) > 0);
     if (current.state === "empty" && commits) {
         current.state = "building";
     }
-    views.push(current);
-    return views;
+    // By start time, not by the order the changes were put aside: a switch must not
+    // reorder the cards.
+    const started = (view: ChangeView): string => view.started ?? "";
+    const changes = [...records, current].sort((a, b) => started(a).localeCompare(started(b)));
+    return [...views, ...changes];
 }
