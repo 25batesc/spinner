@@ -63,7 +63,7 @@ How they join:
 | R7 | Where does planning happen? | In a `Plans` view of the sidebar. A plan opens a planning session: the chat, the plan document, the EGM steps as optional buttons, no worktree needed. An approved design doc of an old session opens there as a plan (2026-11-12). |
 | R8 | What does `Implement` do? | It attaches the plan to a session the operator picks, or a new one, and seeds the mission board. The agent makes one change per step or group of steps. The mission view stays as the view of a plan in progress (2026-11-12). |
 | R9 | The Agents view (step 5)? | One row per agent: role, state, current action, context, cost; finished agents folded. The draft of s052 folds in, then s052 closes (2026-11-12). |
-| R10 | The middle pane and the toolbar (step 5)? | Open. The operator asked which cards carry the toolbar's actions. The change cards carry `create PR`, `post` and `merge` today; `review`, `approve` and `fix` are not on them yet. |
+| R10 | The middle pane and the toolbar (step 5)? | The pull request actions live in the session's PR view (2026-11-13: "a pr view for each session that also shows the CI status, approval status, etc. … and also includes our top action bar for pr's"). The toolbar keeps `run local`, `stop local` and its menu. The view tabs of the middle pane are still open. |
 
 ## What the operator sees (after step 5)
 
@@ -95,7 +95,7 @@ Each step ships on its own.
 | 2 | Changes: several pull requests in one session; the Changes rail; the PRs view; `round` and `reset` go away. | Built, v0.26.0. Detail below. |
 | 3 | The stack follows the selected change; `test locally` on the card. | Built, v0.27.0, with the database kept across a switch (3.4 is open). Detail below. |
 | 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Built, v0.28.0. Detail below. |
-| 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Part A (the chat) in build; detail below. The rest waits on R10 and the Agents view detail. |
+| 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Built: the chat (v0.29.0), the message box's controls, the PR view and chip, the Agents view (v0.30.0). Open: what becomes of the middle pane's view tabs. |
 
 ### Step 1 in detail (built)
 
@@ -217,6 +217,10 @@ Under the last message a line says `lead is working`, `lead is awaiting instruct
 **5.7 Model, thinking level, dictation.** The card's tool row has the agent's model and its thinking level as two pickers. A pick calls `POST …/agents/:name/model` or `…/thinking`; the daemon tells pi, records the value in `session.yaml`, and the record follows a change made in pi's own terminal. The microphone button dictates into the box through the browser's speech recognition. The desktop app's shell has no such service: there the button says so and names the system's dictation key.
 
 **5.8 Not in part A.** Editing or resending a past message. Search in the transcript. A searchable model picker (the list is pi's whole catalogue).
+
+**5.9 The PR chip and the PR view (R10).** Beside the session's title the context bar shows a chip: the pull request's number for one, the count for several, coloured by the worst state. A click lists every pull request of the session (title, `repo#n`, size, CI, state); a row opens the PR view on that change, and its arrow opens GitHub. The PR view is the right pane's `PRs` tab (the Changes rail of 2.9 under its new name). Each change is a block: its state, `tested`, `posted` with the Slack link, what it needs. Each pull request shows its state, CI with the failing checks, the approval (who is required, who approved, the approval check), the review decision, the threads, the merge queue, the size, the head and when it was updated. The block ends with the actions that were the toolbar's: `test locally`, `create PR`, `review`, `fix`, `post`, `approve`, `merge`. An action that cannot apply now is disabled and says why; `create PR`, `review` and `fix` act on the change that is checked out.
+
+**5.10 The Agents view (R9).** One row per agent, in three groups (session agents, reviewers, Goldfish): a state dot, the name, the role, what it does now, the model, the context use, the cost, and its actions (`interrupt`, `compact`, `stop` with a second click, `resume`). What it does now is the running tool call of the live transcript, else the Roster's `doing`. A change of state never moves a row; finished rows fold under `n finished`. The selected row's chat, terminal and context show below the list. `AgentSpec.ended` (`code`, `by`, `at`) lets a row tell `stopped`, `done` and `failed` apart; a resume clears it.
 
 ## Risks
 

@@ -1048,3 +1048,10 @@ The chat reads the agent's past turns from `GET /sessions/:dir/agents/:name/even
 `POST /sessions/:dir/agents/:name/prompt` and `.../steer` resume a listed agent that is stopped when the body has `source: "operator"`, then send the text as a prompt. Without that mark a stopped agent is still a 409.
 
 An image pasted or dropped on the message box is saved with `POST /sessions/:dir/attachments` (a PNG; the browser converts another format). The message then ends with one `Attached image: <absolute path>` line per image, and the agent reads the file.
+
+## The PR view and the Agents view
+
+`ChangeView` carries what the session's PR view shows. A `ChangePr` has, besides the fields of the Changes section, `author`, `approvals` (`required`, `peer`, `owner`), `approval_check`, `bot_reviewed_head`, `queue_reason` and `last_activity`. A `ChangeView` has `posted` (the Slack permalink of the change's post, or null) and `approved` (true when `pipeline.approved_heads` holds the head of every open pull request). `GET` and `POST /sessions/:dir/approve` take `?change=<id>`, as `post` and `land` do.
+
+`AgentSpec.ended` records how an agent's process ended: `code` (null for a signal), `by` (`operator` for the stop route, `daemon` for a reviewer the swarm stops; absent when the process ended on its own) and `at`. A resume clears it. The Agents view reads it: stopped by someone is `stopped`, code 0 is `done`, any other end is `failed`.
+
