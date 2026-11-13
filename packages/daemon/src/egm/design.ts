@@ -56,6 +56,7 @@ import {
     RESOLVED_LINE,
     type DesignResult,
 } from "./derive-design.js";
+import { clear_approval } from "./approve.js";
 import { clear_gate } from "./gate.js";
 import {
     chip_state,
@@ -326,20 +327,27 @@ export class DesignTracker {
     }
 
     /**
-     * The lead's `design_doc` tool. Refuses while an approval stands, and any path that
-     * `check_design_doc` refuses; else records the doc, points the Goal at it and refreshes.
+     * The lead's `design_doc` tool. Refuses any path that `check_design_doc` refuses, and
+     * the approved doc itself while its approval stands; else records the doc, points the
+     * Goal at it and refreshes. Another doc named while an approval stands starts a new
+     * design: the old approval is cleared here (its record stays in `approvals`), so the
+     * operator is not asked to clear it by hand before the lead can go on (dogfood,
+     * 2026-11-13).
      */
     async set_doc(dir: string, path: string): Promise<SessionSummary> {
         const read = read_session(this.deps.home, dir);
         assert.ok(read.ok, `${dir} must exist to name its design doc`);
         const design = read.summary.session.design;
         assert.ok(design !== undefined, `${dir} has no design block`);
-        if (design.approved !== undefined && design.changed_after_approval !== true) {
-            throw new DesignDocConflict("the design is approved; clear the approval first");
-        }
         const location = this.designs_of(read.summary);
         if (location === null) {
             throw new DesignDocRefused("this session has no worktree of the designs repo");
+        }
+        const stands = design.approved !== undefined && design.changed_after_approval !== true;
+        const named_doc = relative(location.worktree, path);
+        const same = design.repo === location.repo && design.doc === named_doc;
+        if (stands && same) {
+            throw new DesignDocConflict("the design is approved; clear the approval first");
         }
         const refusal = await check_design_doc({
             path,
@@ -353,11 +361,23 @@ export class DesignTracker {
             throw new DesignDocRefused(refusal);
         }
         const doc = relative(location.worktree, path);
+        const replaced = stands ? design.approved?.path : undefined;
+        if (replaced !== undefined) {
+            clear_approval(this.deps, read.summary);
+        }
         const fresh = read_session(this.deps.home, dir);
         assert.ok(fresh.ok && fresh.summary.session.design !== undefined);
         const named = { ...fresh.summary.session.design, doc, repo: location.repo };
         fresh.summary.session.design = named;
         write_session(fresh.summary);
+        if (replaced !== undefined) {
+            await this.deps.writer.write(dir, {
+                section: "log",
+                mode: "append",
+                author: SPEC_AUTHOR,
+                text: `a new design doc was named (${doc}): the approval of ${replaced} is cleared`,
+            });
+        }
         if (location.repo === PLANS_REPO) {
             // The library's record names the document, so the plan stands without its session.
             const record = read_plan(this.deps.home, dir);

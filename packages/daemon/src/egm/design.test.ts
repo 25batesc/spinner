@@ -205,7 +205,7 @@ describe("DesignTracker: set_doc", () => {
         expect(named.session.design?.doc).toBe("docs/designs/landed.md");
     });
 
-    it("refuses while an approval stands", async () => {
+    it("refuses the approved doc while its approval stands; another doc clears it", async () => {
         patch_design({
             doc: "docs/designs/landed.md",
             repo: "web",
@@ -221,6 +221,17 @@ describe("DesignTracker: set_doc", () => {
         await expect(
             tracker.set_doc(summary.dir, join(designs, "landed.md")),
         ).rejects.toBeInstanceOf(DesignDocConflict);
+        // Another doc starts a new design: the approval goes, with nothing for the operator
+        // to clear first; its record would stay in `approvals`.
+        writeFileSync(join(designs, "next.md"), DOC_TEXT);
+        const renamed = await tracker.set_doc(summary.dir, join(designs, "next.md"));
+        expect(renamed.session.design?.doc).toBe("docs/designs/next.md");
+        expect(renamed.session.design?.approved).toBeUndefined();
+        const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
+        expect(mission).toContain(
+            "a new design doc was named (docs/designs/next.md): " +
+                "the approval of docs/designs/landed.md is cleared",
+        );
     });
 });
 
