@@ -11,7 +11,7 @@ import {
     type KeyboardEvent,
 } from "react";
 
-import type { ModelView, ProjectView, SessionView } from "@spinner/protocol";
+import { LEAD_NAME, type ModelView, type ProjectView, type SessionView } from "@spinner/protocol";
 
 import {
     CHAT_SHOWN_START,
@@ -36,6 +36,7 @@ import {
     type SlashCommand,
     type WorkItem,
 } from "./chat.ts";
+import { ChatGate, chatQuestion } from "./ChatGate.tsx";
 import { fetchAgentHistory, fetchModels, fetchProjects, postAgent } from "./events-client.ts";
 import "./chat.css";
 import { renderChatMarkdown } from "./markdown.ts";
@@ -558,9 +559,14 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
         }
     };
 
+    // The lead's open question is part of its chat: the last block of the conversation.
+    const asked = agent === LEAD_NAME ? chatQuestion(view) : null;
     let status = `${agent} is stopped; a message resumes it`;
     if (hosted) {
         status = working ? `${agent} is working` : `${agent} is awaiting instructions`;
+    }
+    if (asked !== null && !working) {
+        status = `${agent} waits for your answer`;
     }
     const model = spec?.model ?? "";
     const known = models.some((entry) => `${entry.provider}/${entry.id}` === model);
@@ -571,6 +577,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
             <div className="chat-scroll" ref={scroller} onScroll={onScroll}>
                 <div className="chat-column">
                     <TranscriptView transcript={transcript} />
+                    {asked !== null && <ChatGate key={asked.key} dir={dir} asked={asked} />}
                     <div className="chat-status" role="status" data-state={phase}>
                         <span className={working ? "dot session-working" : "dot chat-idle"} />
                         <span>{status}</span>

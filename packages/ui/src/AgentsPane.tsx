@@ -14,11 +14,10 @@ import { AgentRows } from "./AgentRows.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
-import { compactLabel, designSteps, gateCard, stepperText } from "./design.ts";
+import { compactLabel, designSteps, stepperText } from "./design.ts";
 import { DesignBrief } from "./DesignBrief.tsx";
 import { DesignDoc } from "./DesignDoc.tsx";
 import { DesignFiles } from "./DesignFiles.tsx";
-import { DesignGate } from "./DesignGate.tsx";
 import { DesignHistory } from "./DesignHistory.tsx";
 import { DesignReview } from "./DesignReview.tsx";
 import {
@@ -73,24 +72,6 @@ export interface AgentsPaneProps {
     onOpenView: (id: ViewId) => void;
     /** Where a refused gate answer goes: the drawer, as a failed job's error does. */
     onError: (message: string) => void;
-}
-
-/**
- * The gate card or the resolve card above the agent rows (entries 3.21, 3.22), or null when
- * the lead asks nothing.
- */
-function GateCard({ view, onError }: { view: SessionView; onError: (message: string) => void }) {
-    const design = view.design;
-    const dir = view.summary.dir;
-    const card = gateCard(design, needsHuman(view));
-    if (card === "gate" && design?.gate !== null && design?.gate !== undefined) {
-        const gate = design.gate;
-        return <DesignGate key={gate.asked} kind="gate" dir={dir} gate={gate} onError={onError} />;
-    }
-    if (card === "resolve") {
-        return <DesignGate key="resolve" kind="resolve" dir={dir} onError={onError} />;
-    }
-    return null;
 }
 
 // The chip's dot rule lives in `agent-view.ts` (pure), so the Implement rail can wrap it
@@ -318,7 +299,6 @@ export function AgentsPane(props: AgentsPaneProps) {
                 {/* Hidden, not unmounted, while another view shows: the terminals keep
                     their sockets and buffers. */}
                 <div className="agents-view" hidden={shown !== "agents"}>
-                    {view !== undefined && <GateCard view={view} onError={props.onError} />}
                     {view !== undefined && (
                         <AgentRows
                             groups={agentRows(view, transcripts, roster)}

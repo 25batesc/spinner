@@ -171,3 +171,25 @@
 .chat-slash-item[data-picked="true"] { background: var(--fill); }
 .chat-slash-item code { flex: none; }
 .chat-slash-item .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* The lead's question, as the last block of its chat: quiet, in the column, in its type. */
+.chat-gate {
+    display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3);
+    padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--warn);
+    font-size: 14px; line-height: 1.6;
+}
+.chat-gate-label {
+    color: var(--warn); font-size: var(--text-meta); font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.chat-gate-options { display: flex; flex-direction: column; gap: var(--space-1); }
+.chat-gate-option {
+    text-align: left; white-space: normal; line-height: 1.45; height: auto;
+    padding: var(--space-2) var(--space-3); border: 1px solid var(--border);
+    border-radius: 12px; background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.chat-gate-option:hover:not(:disabled) { background: var(--fill); border-color: var(--accent); }
+.chat-gate-option:disabled { opacity: 0.55; cursor: default; }
+.chat-gate-option[data-posting="true"] { opacity: 1; border-color: var(--accent); }
+.chat-gate-hint { font-size: var(--text-dense); }
+
