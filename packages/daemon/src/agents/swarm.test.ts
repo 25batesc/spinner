@@ -1,8 +1,9 @@
 // Goal: the swarm and the manager keep one pi per agent and a running reviewer's record true.
 // `add` refuses a second start of an agent whose pi is still spawning; a restart's `prime`
 // leaves a reviewer that `adopt_all` resumed reading, so its verdict lands instead of a
-// `failed` record (dogfood #59b). Method: an in-memory harness that counts its spawns and
-// emits pi's events on demand, and a temporary home.
+// `failed` record (dogfood #59b). A resume keeps the harness the agent's record names, and a
+// restart does not resume a finished reviewer (dogfood #59c). Method: an in-memory harness
+// that counts its spawns and emits pi's events on demand, and a temporary home.
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -214,6 +215,38 @@ describe("one pi per agent (dogfood #59b)", () => {
         await until(() => state() === "done");
         expect(existsSync(join(summary.path, verdict_file(MODEL)))).toBe(true);
         swarm.close();
+        await agents.stop_all();
+    });
+});
+
+describe("a resume keeps its harness (dogfood #59c)", () => {
+    it("adopt_all skips a finished reviewer; a resume runs on the recorded harness", async () => {
+        const tty = new FakeHarness();
+        const rpc = new FakeHarness();
+        const agents = new AgentManager(home, { default: "tty", tty, rpc }, new EventBus());
+        // A reviewer the tab once resumed as tty, now `done`; a tty worker; an rpc lead and a
+        // file from before s009 whose `pi` reads as `rpc`.
+        const summary = pr_session("Resumed");
+        summary.session.agents = {
+            [REVIEWER]: { harness: "tty", model: MODEL, process: "idle", repo: "backend" },
+            backend: { harness: "tty", model: "default", process: "idle" },
+            lead: { harness: "rpc", model: "default", process: "exited", repo: "backend" },
+            old: { harness: "pi", model: "default", process: "exited" },
+        };
+        const record = { model: MODEL, pr: "backend", state: "done" as const };
+        summary.session.review = { swarm: { [REVIEWER]: record } };
+        write_session(summary);
+
+        expect(await agents.adopt_all()).toEqual([`${summary.dir}/backend`]);
+        expect(session_of(summary.dir).session.agents[REVIEWER]?.process).toBe("exited");
+
+        await agents.add(summary, { name: "lead" });
+        await agents.add(summary, { name: "old" });
+        expect(tty.spawned).toEqual([`${summary.dir}/backend`]);
+        expect(rpc.spawned).toEqual([`${summary.dir}/lead`, `${summary.dir}/old`]);
+        const listed = session_of(summary.dir).session.agents;
+        expect(listed["lead"]?.harness).toBe("rpc");
+        expect(listed["old"]?.harness).toBe("rpc");
         await agents.stop_all();
     });
 });

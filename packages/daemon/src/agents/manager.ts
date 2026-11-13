@@ -309,12 +309,18 @@ export class AgentManager {
         const listed_model = listed?.model === "default" ? undefined : listed?.model;
         // The operator's `settings.yaml` sits between the request and `config.yaml`: the
         // request's model, else the one this agent ran with, else `settings.default_model`,
-        // else the harness's `config.yaml` default. The harness the same way, without the
-        // per-agent step. A settings file that does not parse is logged, not fatal here.
+        // else the harness's `config.yaml` default. The harness the same way: a resume keeps
+        // the one the agent ran on, so a headless reviewer does not come back as a tty agent
+        // (dogfood #59c). A settings file that does not parse is logged, not fatal here.
         const settings = this.read_settings();
         const model = request.model ?? listed_model ?? settings.default_model;
         this.write_agents_file(summary);
-        const harness_name = extra.harness ?? settings.agents?.harness ?? this.harnesses.default;
+        const listed_harness = listed === undefined ? undefined : harness_of(listed.harness);
+        const harness_name =
+            extra.harness ??
+            listed_harness ??
+            settings.agents?.harness ??
+            this.harnesses.default;
         const harness = this.harnesses[harness_name];
         assert.ok(harness !== undefined, `no ${harness_name} harness`);
         const skills = extra.skills ?? listed?.skills;
@@ -460,7 +466,8 @@ export class AgentManager {
      * by the previous daemon. Its pty master died with that daemon, so the pi behind it is
      * stopped when its identity (pid and start time) is still live, then the agent is resumed
      * on the same transcript. Returns the names resumed, as `dir/name`. An `rpc` agent is
-     * marked `exited`: its stdin pipe is gone and the operator resumes it from the tab.
+     * marked `exited`: its stdin pipe is gone and the operator resumes it from the tab. So is a
+     * reviewer whose swarm record is `done` or `failed`: its work is over (dogfood #59c).
      */
     async adopt_all(): Promise<string[]> {
         const resumed: string[] = [];
@@ -470,7 +477,13 @@ export class AgentManager {
                     continue;
                 }
                 await this.stop_leftover(name, spec);
-                if (harness_of(spec.harness) !== "tty" || this.harnesses.tty === undefined) {
+                const swarm_state = summary.session.review?.swarm[name]?.state;
+                const finished = swarm_state === "done" || swarm_state === "failed";
+                if (
+                    finished ||
+                    harness_of(spec.harness) !== "tty" ||
+                    this.harnesses.tty === undefined
+                ) {
                     this.record(summary.dir, name, { process: "exited" }, true);
                     continue;
                 }
