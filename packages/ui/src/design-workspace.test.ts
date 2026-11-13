@@ -48,16 +48,15 @@ describe("the view tabs", () => {
         expect(viewTabs(undefined)).toEqual(DIRECT_ROW);
     });
 
-    it("opens on Agents on the design track and on Implement otherwise", () => {
-        expect(defaultView(session({ design: design() }))).toBe("agents");
-        expect(defaultView(session({ design: design({ track: "direct", stage: null }) })))
-            .toBe("implement");
-        expect(defaultView(session())).toBe("implement");
+    it("opens on Agents, where the chat is, whatever the track", () => {
+        expect(defaultView()).toBe("agents");
+        const direct = session({ design: design({ track: "direct", stage: null }) });
+        expect(shownView(direct, "nothing")).toBe("agents");
     });
 
     it("falls back to the default view when the session lacks the shown one", () => {
         expect(shownView(session({ design: design() }), "draft")).toBe("draft");
-        expect(shownView(session(), "draft")).toBe("implement");
+        expect(shownView(session(), "draft")).toBe("agents");
         expect(shownView(session(), "threads")).toBe("threads");
         expect(shownView(session({ design: design() }), "design")).toBe("agents");
     });

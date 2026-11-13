@@ -431,6 +431,27 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
             setAway(node.scrollHeight - node.scrollTop - node.clientHeight > STICK_PX);
         }
     };
+    // The chat mounts while its view may be hidden, and a rendered table or code block
+    // changes the height after the entries did: a change of size keeps the newest message
+    // in view too, unless the operator scrolled away.
+    const awayNow = useRef(away);
+    awayNow.current = away;
+    useEffect(() => {
+        const node = scroller.current;
+        if (node === null || typeof ResizeObserver === "undefined") {
+            return;
+        }
+        const observer = new ResizeObserver(() => {
+            if (!awayNow.current) {
+                node.scrollTop = node.scrollHeight;
+            }
+        });
+        observer.observe(node);
+        if (node.firstElementChild !== null) {
+            observer.observe(node.firstElementChild);
+        }
+        return () => observer.disconnect();
+    }, [base]);
     const change = (next: string) => {
         setText(next);
         setSlashOff(false);

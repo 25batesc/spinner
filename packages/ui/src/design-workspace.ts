@@ -58,15 +58,19 @@ export function viewTabs(view: SessionView | undefined): readonly ViewId[] {
     return onDesignTrack(view) ? DESIGN_VIEWS : DIRECT_VIEWS;
 }
 
-/** The view a session opens on when nobody picked one: Agents on the design track (T5). */
-export function defaultView(view: SessionView | undefined): ViewId {
-    return onDesignTrack(view) ? "agents" : "implement";
+/**
+ * The view a session opens on when nobody picked one: Agents, where the chat is. The chat
+ * is the centre of a session (docs/designs/talk-change-ship.md, step 5); the mission view
+ * is one click away.
+ */
+export function defaultView(): ViewId {
+    return "agents";
 }
 
 /** The shown view: `shown` when the session offers it, else the session's default view. */
 export function shownView(view: SessionView | undefined, shown: string): ViewId {
     const tabs = viewTabs(view);
-    return tabs.includes(shown as ViewId) ? (shown as ViewId) : defaultView(view);
+    return tabs.includes(shown as ViewId) ? (shown as ViewId) : defaultView();
 }
 
 /** The tab of each EGM step (D12): Approve is a state of the Review tab; Build is Implement. */

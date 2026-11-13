@@ -223,8 +223,8 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
         }
     }, [job?.state, job?.action, job?.session]);
     const agentsShown = selected === undefined
-        ? defaultView(view)
-        : viewPicks[selected] ?? defaultView(view);
+        ? defaultView()
+        : viewPicks[selected] ?? defaultView();
     const setAgentsShown = (next: string) => {
         if (selected !== undefined) {
             setViewPicks((old) => ({ ...old, [selected]: next }));
