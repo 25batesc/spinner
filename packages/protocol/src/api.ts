@@ -8,8 +8,10 @@ import type { PrFacts, StageResult } from "./pipeline.js";
 import type { PiEvent } from "./agent-event.js";
 import type {
     AgentProcessState,
+    ApprovalCheckState,
     CheckState,
     HostProcess,
+    PrApprovals,
     PrDiff,
     PrState,
     PrThreads,
@@ -653,12 +655,21 @@ export interface ChangePr {
     url: string | null;
     state: PrState;
     title?: string;
+    author?: string;
     head?: string;
     checks?: CheckState;
     checks_failing?: string[];
+    approvals?: PrApprovals;
+    approval_check?: ApprovalCheckState;
     threads?: PrThreads;
     review?: ReviewDecision;
+    /** Head SHA of the latest bot review, or null before the first one. */
+    bot_reviewed_head?: string | null;
     queue?: QueueState;
+    /** Why the merge queue removed the pull request. */
+    queue_reason?: string | null;
+    /** ISO 8601. */
+    last_activity?: string;
     diff?: PrDiff;
 }
 
@@ -681,6 +692,10 @@ export interface ChangeView {
      * the change: it was tested locally as it stands. A new commit makes it false.
      */
     verified?: boolean;
+    /** The Slack permalink of the change's review request, or null before `post`. */
+    posted?: string | null;
+    /** True when the operator approved the head of every open pull request of the change. */
+    approved?: boolean;
     started: string | null;
     /** When every pull request was merged or closed; null while the change is open. */
     ended: string | null;
