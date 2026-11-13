@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { initialSessions } from "../fixture/data.ts";
 import {
-    contextLabel, contextTitle, contextTone, fullestContext, showsTerminal,
+    agentTabs, contextLabel, contextTitle, contextTone, fullestContext, loadSurface,
+    saveSurface, showsTerminal,
 } from "./agent-view.ts";
 
 function context(pct: number, window = 1_000_000): AgentContext {
@@ -77,5 +78,29 @@ describe("showsTerminal", () => {
         expect(showsTerminal("tty", "?chat=1")).toBe(false);
         expect(showsTerminal("tty", "?pane=agents&chat=1")).toBe(false);
         expect(showsTerminal("tty", "?chat=0")).toBe(true);
+    });
+});
+
+describe("the agent's surface", () => {
+    it("opens on the chat, and remembers a pick of the terminal", () => {
+        const store = new Map<string, string>();
+        const storage = {
+            getItem: (key: string) => store.get(key) ?? null,
+            setItem: (key: string, value: string) => void store.set(key, value),
+        };
+        expect(loadSurface(storage)).toBe("chat");
+        saveSurface(storage, "terminal");
+        expect(loadSurface(storage)).toBe("terminal");
+        expect(loadSurface(null)).toBe("chat");
+    });
+
+    it("offers the terminal only to an agent that has one", () => {
+        expect(agentTabs(true, "terminal")).toEqual({
+            labels: ["chat", "terminal", "context"], shown: "terminal",
+        });
+        // An rpc agent has no terminal: a remembered `terminal` shows its chat.
+        const none = agentTabs(false, "terminal");
+        expect(none).toEqual({ labels: ["chat", "context"], shown: "chat" });
+        expect(agentTabs(true, "context").shown).toBe("context");
     });
 });

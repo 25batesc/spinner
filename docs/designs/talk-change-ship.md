@@ -95,7 +95,7 @@ Each step ships on its own.
 | 2 | Changes: several pull requests in one session; the Changes rail; the PRs view; `round` and `reset` go away. | Built, v0.26.0. Detail below. |
 | 3 | The stack follows the selected change; `test locally` on the card. | Built, v0.27.0, with the database kept across a switch (3.4 is open). Detail below. |
 | 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Built, v0.28.0. Detail below. |
-| 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Outline. |
+| 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Part A (the chat) in build; detail below. The rest waits on R10 and the Agents view detail. |
 
 ### Step 1 in detail (built)
 
@@ -192,11 +192,29 @@ A later edit of the plan's document marks the session's copy as changed, as an e
 
 **4.7 Not in step 4.** Removing the track chip and the EGM tabs from code sessions (step 5). Comments on the plan document (the `doc` anchor of preview comments). Saving a plan into a repo's `docs/designs/`.
 
-### Step 5 in outline: the chat as the centre
+### Step 5 in detail: the chat as the centre
 
-* Spinner's own chat for every agent: markdown, tool calls as rows, images by drop and paste, Shift+Enter, whole pastes, the full history. The terminal is a toggle.
-* The toolbar's fixed buttons and the view tabs give way to the Changes rail and the plan.
-* The Agents view (one row per agent with role, state, current action, context and cost; finished agents folded) is redone on this model from the findings of session s052.
+Step 5 ships in parts. Part A is the chat (5.1 to 5.6). The Agents view (R9) and the removal of the toolbar row and the view tabs (R10, open) follow.
+
+**5.1 The chat is the default surface of every agent.** An agent's tab shows `chat`, `terminal` and `context`. `chat` is the default; a pick of `terminal` is remembered for the window, so an operator who prefers pi's own UI stays in it. A terminal connects to the agent only once its tab was shown. An `rpc` agent has no terminal tab, as before.
+
+**5.2 What the chat shows.** The agent's messages, oldest first, from its pi transcript, then live:
+
+* The operator's message, as he wrote it, with the images he attached.
+* The agent's answer, as rendered markdown.
+* The agent's thinking, folded to one line; a click opens it.
+* Each tool call as one row: a state mark, the tool's name, and what it acts on (the command of `bash`, the path of `read`, `edit` and `write`, the first argument of another tool). A click opens the arguments and the result. A failed call is marked and opens the same way.
+* A line while the agent works, with `stop`.
+
+The view stays at the newest message while the operator is there, and offers `jump to latest` once he scrolled up. It draws the newest 150 entries and `show earlier` adds 300 more, so a session of a week opens at once. The history holds up to 20 000 entries.
+
+**5.3 One transcript from two sources.** The history is read from the transcript file when the tab opens; live events add to it. A message that both hold shows once: a message is matched by its timestamp, a tool call by its id, and a tool call the history holds as running takes the result the live events bring.
+
+**5.4 The message box.** A text area that grows with the text, up to 12 lines. Enter sends; Shift+Enter makes a new line; a paste of many lines stays one message. While the agent works, the message is a steer, and the box says so. A message to an agent that is stopped resumes it first (dogfood #57): the daemon's `prompt` and `steer` routes do that for a message marked `source: operator`.
+
+**5.5 Images and files.** An image pasted or dropped on the box is uploaded to the session (`POST /sessions/:dir/attachments`, converted to PNG in the browser when it is another format) and shows as a chip above the box. On send, each image's absolute path is added to the message, and the agent reads it with its `read` tool, as it reads a path dropped on pi's terminal. In the desktop app, a file that is not an image adds its path to the text.
+
+**5.6 Not in part A.** Slash commands and skill buttons in the box. Editing or resending a past message. A model picker. Search in the transcript.
 
 ## Risks
 

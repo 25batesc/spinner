@@ -211,7 +211,9 @@ in the `images` field of pi's `prompt` and `steer` commands.
 
 Body `AgentEventsRequest`: `{ "events": PiEvent[] }`, bound 8 MiB. The extension posts
 `agent_start`, `agent_end`, `agent_settled`, `turn_end`, `tool_execution_start` and
-`tool_execution_end`, each with the fields pi hands the extension, batched. The daemon's
+`tool_execution_end`, each with the fields pi hands the extension, batched. For the chat it
+also posts `message_start` and `message_end` with the message (image bytes left out), and
+`message_update` with its text or thinking delta alone; deltas that wait join into one. The daemon's
 fold is the one the RPC harness uses: `agent.event` on the bus per event, `process: running`
 on `agent_start`, `agent.settled` and `process: idle` on `agent_settled`. Answer: 202.
 
@@ -1018,3 +1020,12 @@ Two sessions with one title no longer share a branch: the second gets `feat/<slu
 
 In the UI, the sidebar has a `Plans` view. A row with a live planning session opens the session under a bar with `Implement`. A row without one opens the plan's page: the bar and the document. The composer's `Make a plan (no code)` box posts to `/plans`.
 
+## The chat
+
+The design is `docs/designs/talk-change-ship.md`, step 5, part A. The chat is the default surface of every agent; `terminal` and `context` are tabs beside it. A terminal connects to its agent once its tab was shown.
+
+The chat reads the agent's past turns from `GET /sessions/:dir/agents/:name/events` when its tab opens, when the agent is resumed, and at the start and the end of each turn. Live `agent.event` records add to them. A message both sources hold shows once: a message is matched by its timestamp, a tool call by its id.
+
+`POST /sessions/:dir/agents/:name/prompt` and `.../steer` resume a listed agent that is stopped when the body has `source: "operator"`, then send the text as a prompt. Without that mark a stopped agent is still a 409.
+
+An image pasted or dropped on the message box is saved with `POST /sessions/:dir/attachments` (a PNG; the browser converts another format). The message then ends with one `Attached image: <absolute path>` line per image, and the agent reads the file.

@@ -115,7 +115,10 @@ export interface LifecycleEvent {
         | "agent_settled"
         | "turn_end"
         | "tool_execution_start"
-        | "tool_execution_end";
+        | "tool_execution_end"
+        | "message_start"
+        | "message_update"
+        | "message_end";
     [key: string]: unknown;
 }
 

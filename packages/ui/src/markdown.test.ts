@@ -3,7 +3,10 @@
 // step is checked by the `pipeline` driver flow against the fixture's context files.
 import { expect, it } from "vitest";
 
-import { renderMarkdownUnsafe as renderMarkdown } from "./markdown.ts";
+import {
+    renderChatMarkdownUnsafe,
+    renderMarkdownUnsafe as renderMarkdown,
+} from "./markdown.ts";
 
 it("renders a table in a scroll box, a task list as disabled boxes, a fence with a lang", () => {
     const text = [
@@ -31,4 +34,12 @@ it("escapes a fence of an unknown language", () => {
     const html = renderMarkdown("```nope\n<b>x</b>\n```");
     expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
     expect(html).not.toContain("<b>");
+});
+
+it("the chat keeps an answer's line breaks; a document joins the lines of a paragraph", () => {
+    expect(renderChatMarkdownUnsafe("1\n2\n**done**")).toBe(
+        "<p>1<br>\n2<br>\n<strong>done</strong></p>\n",
+    );
+    expect(renderMarkdown("1\n2")).toBe("<p>1\n2</p>\n");
+    expect(renderChatMarkdownUnsafe("[a](https://x.test)")).toContain('target="_blank"');
 });

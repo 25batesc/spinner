@@ -67,6 +67,25 @@ export function renderMarkdownUnsafe(text: string): string {
     return md.render(text);
 }
 
+/**
+ * The chat's renderer: as `md`, with a line break for each newline of a paragraph. An agent
+ * writes a short list or a count as lines; a document's renderer would join them.
+ */
+const chat = new MarkdownIt({ html: true, linkify: true, breaks: true, highlight });
+chat.use(footnote);
+chat.use(taskLists, { enabled: false, label: true });
+chat.renderer.rules["link_open"] = linkOpen;
+
+/** The markdown-it stage of the chat's renderer alone, for the node tests. */
+export function renderChatMarkdownUnsafe(text: string): string {
+    return chat.render(text);
+}
+
+/** An agent's answer as HTML that is safe to set as a node's content. Needs a DOM. */
+export function renderChatMarkdown(text: string): string {
+    return DOMPurify.sanitize(renderChatMarkdownUnsafe(text), PURIFY);
+}
+
 /** Renders markdown to HTML that is safe to set as a node's content. Needs a DOM. */
 export function renderMarkdown(text: string): string {
     return DOMPurify.sanitize(renderMarkdownUnsafe(text), PURIFY);

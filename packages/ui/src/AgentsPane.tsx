@@ -6,7 +6,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
-    agentState, contextLabel, contextTitle, contextTone, showsTerminal,
+    agentState, agentTabs, contextLabel, contextTitle, contextTone, loadSurface, saveSurface,
+    showsTerminal, type SurfaceStorage,
 } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
@@ -259,6 +260,15 @@ function useDesignDoc(view: SessionView | undefined) {
     });
 }
 
+/** The window's `localStorage`, or null where there is none (a test, a blocked storage). */
+function surfaceStorage(): SurfaceStorage | null {
+    try {
+        return window.localStorage;
+    } catch {
+        return null;
+    }
+}
+
 export function AgentsPane(props: AgentsPaneProps) {
     const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
     const { controls, leading, picked, onOpenAgent, onOpenView } = props;
@@ -272,7 +282,17 @@ export function AgentsPane(props: AgentsPaneProps) {
         chat.current?.scrollTo({ top: 0 });
     }, [shown, view?.summary.dir]);
     const setPicked = props.onPicked;
-    const [agentTab, setAgentTab] = useState("chat");
+    // The chat is the default surface; a pick of the terminal is remembered for the window's
+    // origin (docs/designs/talk-change-ship.md, 5.1). `context` is a look, not a preference.
+    const [agentTab, setAgentTabState] = useState<string>(() => loadSurface(surfaceStorage()));
+    const setAgentTab = (tab: string) => {
+        setAgentTabState(tab);
+        if (tab === "chat" || tab === "terminal") {
+            saveSurface(surfaceStorage(), tab);
+        }
+    };
+    // A terminal connects to its agent once its tab was shown, and stays mounted from then.
+    const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
     // The `+` chip at the end of the agent row: the add-agent form as the pane's view.
     const [adding, setAdding] = useState(false);
     // The picked Goldfish chip (entry 4.16), per session: its transcript replaces the agent's
@@ -291,22 +311,35 @@ export function AgentsPane(props: AgentsPaneProps) {
         showsTerminal(session?.agents[name]?.harness ?? "rpc", window.location.search);
     // Every tty agent's terminal stays mounted; only the picked one shows. A switch to
     // another agent, to the Context tab or to another view hides it and keeps its buffer.
+    const agentTabsShown = agentTabs(
+        selected !== undefined && terminalFor(selected),
+        agentTab,
+    );
+    const terminalKey =
+        view === undefined || selected === undefined ? null : `${view.summary.dir}/${selected}`;
+    const terminalShown =
+        shown === "agents" && !adding && !showsFish && agentTabsShown.shown === "terminal";
+    useEffect(() => {
+        if (terminalShown && terminalKey !== null && !opened.has(terminalKey)) {
+            setOpened((old) => new Set([...old, terminalKey]));
+        }
+    }, [terminalShown, terminalKey]);
     const terminals =
         view === undefined
             ? []
-            : names.filter(terminalFor).map((name) => (
-                  <AgentTerminal
-                      key={`${view.summary.dir}/${name}`}
-                      path={tty_path(view.summary.dir, name)}
-                      running={view.agents_running.includes(name)}
-                      onResume={() => postAgent(`/sessions/${view.summary.dir}/agents`, { name })}
-                      visible={
-                          shown === "agents" && !adding && !showsFish &&
-                          agentTab !== "context" && name === selected
-                      }
-                  />
-              ));
-    const mainTab = selected !== undefined && terminalFor(selected) ? "terminal" : "chat";
+            : names
+                  .filter((name) => terminalFor(name) && opened.has(`${view.summary.dir}/${name}`))
+                  .map((name) => (
+                      <AgentTerminal
+                          key={`${view.summary.dir}/${name}`}
+                          path={tty_path(view.summary.dir, name)}
+                          running={view.agents_running.includes(name)}
+                          onResume={() =>
+                              postAgent(`/sessions/${view.summary.dir}/agents`, { name })
+                          }
+                          visible={terminalShown && name === selected}
+                      />
+                  ));
     const needs = view === undefined ? null : needsHuman(view);
     const reload = view === undefined || design === undefined
         ? ""
@@ -472,17 +505,17 @@ export function AgentsPane(props: AgentsPaneProps) {
                             <>
                                 <Tabs
                                     variant="sub"
-                                    labels={[mainTab, "context"]}
-                                    selected={agentTab === "context" ? "context" : mainTab}
+                                    labels={agentTabsShown.labels}
+                                    selected={agentTabsShown.shown}
                                     onSelect={setAgentTab}
                                 />
-                                {agentTab === "context" && (
+                                {agentTabsShown.shown === "context" && (
                                     <ContextTab
                                         base={agentBase(view.summary.dir, selected)}
                                         revision={agent.process}
                                     />
                                 )}
-                                {agentTab !== "context" && mainTab === "chat" && (
+                                {agentTabsShown.shown === "chat" && (
                                     <AgentChat
                                         view={view}
                                         agent={selected}

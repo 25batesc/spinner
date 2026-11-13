@@ -10,8 +10,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentExtensionCommand } from "@spinner/protocol";
 import { register } from "./index.js";
-import type { ExtensionAPI, ExtensionContext } from "./pi-api.js";
-import { act, expand_skill } from "./tty.js";
+import type { ExtensionAPI, ExtensionContext, LifecycleEvent } from "./pi-api.js";
+import { act, expand_skill, push_pending, wire_message_event } from "./tty.js";
 
 interface FakePi extends ExtensionAPI {
     sent: Array<{ text: unknown; deliverAs: string | undefined }>;
@@ -204,6 +204,52 @@ describe("the tty channel", () => {
             .flatMap((r) => (r.body as { events: Array<{ type: string }> }).events)
             .map((event) => event.type);
         expect(posted).toEqual(["agent_start", "agent_settled"]);
+
+        // The chat's live messages: the start, the deltas joined, the whole message at the
+        // end without its image bytes. A tool call's delta is not posted.
+        const delta = (type: string, text: string) => ({
+            type: "message_update",
+            message: { role: "assistant", content: "a growing snapshot" },
+            assistantMessageEvent: { type, contentIndex: 0, delta: text },
+        });
+        const image = { type: "image", data: "AAAA", mimeType: "image/png" };
+        const user = { role: "user", timestamp: 5, content: [{ type: "text", text: "hi" }, image] };
+        await pi.fire("message_start", { type: "message_start", message: user }, ctx);
+        await pi.fire("message_update", delta("toolcall_delta", "{"), ctx);
+        const hello_text = [{ type: "text", text: "Hello" }];
+        const done = { role: "assistant", timestamp: 6, content: hello_text };
+        await pi.fire("message_end", { type: "message_end", message: done }, ctx);
+        await registered?.tty_channel?.flush();
+        const messages = served.requests
+            .filter((r) => r.path.endsWith("/events"))
+            .flatMap((r) => (r.body as { events: Array<Record<string, unknown>> }).events)
+            .filter((event) => String(event["type"]).startsWith("message_"));
+        expect(messages).toEqual([
+            {
+                type: "message_start",
+                message: {
+                    ...user,
+                    content: [{ type: "text", text: "hi" }, { ...image, data: "" }],
+                },
+            },
+            { type: "message_end", message: done },
+        ]);
+        const waiting: LifecycleEvent[] = [];
+        for (const event of [delta("text_delta", "Hel"), delta("text_delta", "lo")]) {
+            const wire = wire_message_event(event as LifecycleEvent);
+            push_pending(waiting, wire!);
+        }
+        push_pending(waiting, wire_message_event(delta("thinking_delta", "hm") as LifecycleEvent)!);
+        expect(waiting).toEqual([
+            {
+                type: "message_update",
+                assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello" },
+            },
+            {
+                type: "message_update",
+                assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "hm" },
+            },
+        ]);
 
         await pi.fire("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
         expect(registered?.tty_channel?.running).toBe(false);

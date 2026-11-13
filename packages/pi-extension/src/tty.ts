@@ -41,6 +41,69 @@ export const LIFECYCLE_EVENTS: readonly LifecycleEventName[] = [
     "tool_execution_end",
 ];
 
+/**
+ * The message events, which the chat needs live (docs/designs/talk-change-ship.md, 5.2). pi
+ * hands `message_update` a growing snapshot of the whole message per token; the channel
+ * posts the text and thinking deltas only, joined while they wait, and the whole message
+ * once, at `message_end`. Image bytes are left out: the chat shows a count, not the image.
+ */
+export const MESSAGE_EVENTS: readonly LifecycleEventName[] = [
+    "message_start",
+    "message_update",
+    "message_end",
+];
+
+/** The message without its image bytes; any other content stays as pi gave it. */
+function without_image_data(message: unknown): unknown {
+    if (typeof message !== "object" || message === null) {
+        return message;
+    }
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) {
+        return message;
+    }
+    const slim = content.map((part: unknown) => {
+        const image = typeof part === "object" && part !== null &&
+            (part as { type?: unknown }).type === "image";
+        return image ? { ...(part as object), data: "" } : part;
+    });
+    return { ...(message as object), content: slim };
+}
+
+/**
+ * The event as the channel posts it, or null for one it drops. A `message_update` keeps its
+ * delta alone, and only a text or a thinking delta: the tool call's arguments arrive whole
+ * with `message_end` and `tool_execution_start`.
+ */
+export function wire_message_event(event: LifecycleEvent): LifecycleEvent | null {
+    if (event.type === "message_update") {
+        const delta = event["assistantMessageEvent"] as { type?: unknown } | undefined;
+        if (delta?.type !== "text_delta" && delta?.type !== "thinking_delta") {
+            return null;
+        }
+        return { type: "message_update", assistantMessageEvent: delta };
+    }
+    return { type: event.type, message: without_image_data(event["message"]) };
+}
+
+/**
+ * Appends `event` to the waiting events. A delta that follows a delta of the same kind and
+ * content index joins it, so a long answer waits as one event per flush, not one per token.
+ */
+export function push_pending(pending: LifecycleEvent[], event: LifecycleEvent): void {
+    type Delta = { type: string; contentIndex: number; delta: string };
+    const last = pending[pending.length - 1];
+    if (event.type === "message_update" && last?.type === "message_update") {
+        const next = event["assistantMessageEvent"] as Delta;
+        const held = last["assistantMessageEvent"] as Delta;
+        if (held.type === next.type && held.contentIndex === next.contentIndex) {
+            last["assistantMessageEvent"] = { ...held, delta: held.delta + next.delta };
+            return;
+        }
+    }
+    pending.push(event);
+}
+
 export interface TtyChannelOptions {
     env: SpinnerEnv;
     fetch: Fetch;
@@ -98,13 +161,23 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
         return flushing;
     };
 
+    const enqueue = (event: LifecycleEvent): void => {
+        push_pending(pending, event);
+        if (pending.length > EVENTS_PENDING_MAX) {
+            pending = pending.slice(-EVENTS_PENDING_MAX);
+        }
+        void flush_events();
+    };
     for (const name of LIFECYCLE_EVENTS) {
+        pi.on(name, (event) => enqueue(event));
+    }
+    for (const name of MESSAGE_EVENTS) {
+        // The handler returns nothing: a returned message would replace pi's own.
         pi.on(name, (event) => {
-            pending.push(event);
-            if (pending.length > EVENTS_PENDING_MAX) {
-                pending = pending.slice(-EVENTS_PENDING_MAX);
+            const wire = wire_message_event(event);
+            if (wire !== null) {
+                enqueue(wire);
             }
-            void flush_events();
         });
     }
 

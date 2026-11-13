@@ -71,10 +71,50 @@ export function fullestContext(
     return fullest;
 }
 
+/** The surface an agent's tab opens on (docs/designs/talk-change-ship.md, 5.1). */
+export type AgentSurface = "chat" | "terminal";
+
+export const SURFACE_KEY = "spinner.agent-surface.v1";
+
+/** The subset of `Storage` the surface record needs, so tests pass a plain object. */
+export interface SurfaceStorage {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+}
+
+/** The operator's last pick; `chat` before one, and when the storage cannot be read. */
+export function loadSurface(storage: SurfaceStorage | null): AgentSurface {
+    try {
+        return storage?.getItem(SURFACE_KEY) === "terminal" ? "terminal" : "chat";
+    } catch {
+        return "chat";
+    }
+}
+
+export function saveSurface(storage: SurfaceStorage | null, surface: AgentSurface): void {
+    try {
+        storage?.setItem(SURFACE_KEY, surface);
+    } catch {
+        // A full or blocked storage: the pick holds for this page only.
+    }
+}
+
 /**
- * The legacy name `pi`, in files written before s009, reads as `tty`: the daemon resumes such
- * an agent with its default harness, which is `tty`, so the tab shows the terminal and its
- * "not running: resume" state rather than the chat of a process that no longer exists.
+ * The tabs of an agent and the one that shows: `chat` first, `terminal` for an agent with
+ * one, `context`. A pick of `terminal` on an agent without one shows the chat.
+ */
+export function agentTabs(
+    has_terminal: boolean,
+    picked: string,
+): { labels: string[]; shown: string } {
+    const labels = has_terminal ? ["chat", "terminal", "context"] : ["chat", "context"];
+    return { labels, shown: labels.includes(picked) ? picked : "chat" };
+}
+
+/**
+ * Whether the agent has a terminal tab. The legacy name `pi`, in files written before s009,
+ * reads as `tty`: the daemon resumes such an agent with its default harness, which is `tty`.
+ * `?chat=1` on the page hides every terminal tab.
  */
 export function showsTerminal(harness: AgentHarnessName, search: string): boolean {
     if (new URLSearchParams(search).get("chat") === "1") {

@@ -631,19 +631,29 @@ export function create_app(deps: AppDeps): Hono {
             if (summary === null) {
                 return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
             }
-            const handle = deps.agents.get(summary.dir, name);
+            let handle = deps.agents.get(summary.dir, name);
+            let resumed = false;
             if (handle === null) {
-                // A listed but stopped agent is a 409 with its state, so the tab offers resume;
-                // an agent the session never had is a 404.
+                // An agent the session never had is a 404. A listed but stopped agent is
+                // resumed for a message from the UI's box (dogfood #57); for any other
+                // sender it is a 409 with its state.
                 const listed = summary.session.agents?.[name];
                 if (listed === undefined) {
                     return c.json(error_body(`agent ${name} is not in ${summary.dir}`), 404);
                 }
-                const body: AgentNotRunningResponse = {
-                    error: `agent ${name} is not running (${listed.process})`,
-                    process: listed.process,
-                };
-                return c.json(body, 409);
+                if (request.source !== "operator") {
+                    const body: AgentNotRunningResponse = {
+                        error: `agent ${name} is not running (${listed.process})`,
+                        process: listed.process,
+                    };
+                    return c.json(body, 409);
+                }
+                try {
+                    handle = await deps.agents.ensure_running(summary.dir, name);
+                    resumed = true;
+                } catch (error) {
+                    return c.json(error_body(describe_error(error)), 500);
+                }
             }
             // A prompt or steer to the lead answers its open EGM gate (T8, 3.10).
             if (name === LEAD_NAME && deps.design !== undefined) {
@@ -655,7 +665,8 @@ export function create_app(deps: AppDeps): Hono {
                 touch_interaction(deps.home, summary.dir, new Date());
             }
             try {
-                const disposition = await handle[command](request.text);
+                // An agent resumed a moment ago has no turn to steer: the message starts one.
+                const disposition = await handle[resumed ? "prompt" : command](request.text);
                 // The outcome counter (6.20, review v2 M-5): only a steer to the lead that
                 // the UI's message box marked with `source: "operator"`.
                 if (counts_as_operator_steer(command, name, request)) {
