@@ -228,10 +228,36 @@ export type AgentProcessState = "running" | "idle" | "exited";
  */
 export type AgentHarnessName = "tty" | "rpc" | "pi";
 
+/** pi's thinking levels (pi's `setThinkingLevel`, rpc `set_thinking_level`), lowest first. */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+export function is_thinking_level(value: unknown): value is ThinkingLevel {
+    return THINKING_LEVELS.some((level) => level === value);
+}
+
+/**
+ * `provider/id` split at the first slash (an id may hold more, as openrouter's do), or null
+ * when either half is empty.
+ */
+export function split_model(model: string): { provider: string; id: string } | null {
+    const slash = model.indexOf("/");
+    if (slash <= 0 || slash === model.length - 1) {
+        return null;
+    }
+    return { provider: model.slice(0, slash), id: model.slice(slash + 1) };
+}
+
 /** One agent of a session: how it runs and whether its process is alive. */
 export interface AgentSpec {
     harness: AgentHarnessName;
     model: string;
+    /**
+     * pi's thinking level as pi last reported it, or as `POST …/thinking` set it. Absent until
+     * the extension reports one, and for an rpc agent the operator never set.
+     */
+    thinking?: ThinkingLevel;
     process: AgentProcessState;
     pid?: number;
     /** The process start time as `ps -o lstart=` prints it, so a restart can tell a reused pid. */

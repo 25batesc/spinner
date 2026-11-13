@@ -233,9 +233,11 @@ describe("the tty harness through the daemon", () => {
         expect(await second.closed).toBe(1000);
         expect(first.frames).toEqual([{ exit: { code: expect.anything() as unknown } }]);
         await until(() => events.some((event) => event.type === "agent.exited"));
+        // The model and the level are what the extension reported after its hello.
         expect(session_yaml(summary.path).agents["backend"]).toEqual({
             harness: "tty",
-            model: "default",
+            model: "fake/default",
+            thinking: "medium",
             process: "exited",
         });
         const gone = attach(summary.dir, "backend");
@@ -404,6 +406,47 @@ describe("the tty harness through the daemon", () => {
     }, 30_000);
 });
 
+describe("an agent's model and thinking level", () => {
+    it("switch through the extension and land in session.yaml; pi's refusal is a 400", async () => {
+        const summary = create_session(home, { title: "Controls" });
+        mkdirSync(join(summary.path, "agents", "backend"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "backend", "BRIEF.md"), "# backend\n");
+        const agents = `/sessions/${summary.dir}/agents`;
+        const added = await call("POST", agents, { name: "backend", model: "anthropic/claude-x" });
+        expect(added.status).toBe(201);
+        const record = () => session_yaml(summary.path).agents["backend"];
+        await until(() => record()?.thinking === "medium");
+        expect(record()?.model).toBe("anthropic/claude-x");
+
+        const model = await call("POST", `${agents}/backend/model`, { model: "openai/gpt-y" });
+        expect(model.status).toBe(200);
+        expect(await model.json()).toEqual({ ok: true });
+        expect(record()?.model).toBe("openai/gpt-y");
+        const thinking = await call("POST", `${agents}/backend/thinking`, { level: "high" });
+        expect(thinking.status).toBe(200);
+        expect(record()?.thinking).toBe("high");
+
+        const unknown = await call("POST", `${agents}/backend/model`, { model: "unknown/x" });
+        expect(unknown.status).toBe(400);
+        expect(await unknown.json()).toEqual({ error: "pi does not know the model unknown/x" });
+        expect(record()?.model).toBe("openai/gpt-y");
+        const bad_level = await call("POST", `${agents}/backend/thinking`, { level: "huge" });
+        expect(bad_level.status).toBe(400);
+        const bad_model = await call("POST", `${agents}/backend/model`, { model: "gpt-y" });
+        expect(bad_model.status).toBe(400);
+        const nobody = await call("POST", `${agents}/nobody/thinking`, { level: "low" });
+        expect(nobody.status).toBe(404);
+
+        expect((await call("POST", `${agents}/backend/stop`)).status).toBe(200);
+        const stopped = await call("POST", `${agents}/backend/model`, { model: "openai/gpt-y" });
+        expect(stopped.status).toBe(409);
+        expect(await stopped.json()).toEqual({
+            error: "agent backend is not running (exited)",
+            process: "exited",
+        });
+    }, 30_000);
+});
+
 describe("ExtensionChannel", () => {
     it("hands a command to the next poll, resolves on ack, times out without one", async () => {
         const channel = new ExtensionChannel(50);
@@ -430,6 +473,26 @@ describe("ExtensionChannel", () => {
         await channel.poll({ id: "c-1", disposition: "started" }, 1);
         expect(await prompt).toBe("started");
         expect(() => channel.enqueue("notify", "x", ["/a.png"])).toThrow(/no images/);
+    });
+
+    it("carries a set_model's model and a set_thinking's level; the ack answers", async () => {
+        const channel = new ExtensionChannel(1_000);
+        const model = channel.configure({ type: "set_model", model: "anthropic/claude-x" });
+        expect(await channel.poll(null, 1_000)).toEqual({
+            id: "c-1",
+            type: "set_model",
+            model: "anthropic/claude-x",
+        });
+        const level = channel.configure({ type: "set_thinking", level: "high" });
+        const ack = { id: "c-1", disposition: "pi has no API key for anthropic" };
+        expect(await channel.poll(ack, 1_000)).toEqual({
+            id: "c-2",
+            type: "set_thinking",
+            level: "high",
+        });
+        expect(await model).toBe("pi has no API key for anthropic");
+        await channel.poll({ id: "c-2", disposition: "ok" }, 1);
+        expect(await level).toBe("ok");
     });
 
     it("a waiting poll gets a command at once; a newer poll replaces an older one", async () => {

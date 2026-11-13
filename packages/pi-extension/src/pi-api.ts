@@ -4,6 +4,7 @@
 // `docs/packages.md`). The real declarations are in pi's `dist/core/extensions/types.d.ts`;
 // a field here has the same name and shape as there. A test drives the factory with a fake
 // that satisfies these types.
+import type { ThinkingLevel } from "@spinner/protocol";
 import type { TSchema } from "typebox";
 
 export interface ToolTextContent {
@@ -86,8 +87,17 @@ export interface ToolResultPatch {
     structuredContent?: unknown;
 }
 
+/** The fields of pi's `Model` the extension reads; the object itself goes back to pi. */
+export interface PiModel {
+    provider: string;
+    id: string;
+}
+
 export interface ExtensionContext {
     cwd: string;
+    /** The active model; undefined when pi has none. */
+    model: PiModel | undefined;
+    modelRegistry: { find(provider: string, id: string): PiModel | undefined };
     hasUI: boolean;
     ui: { notify(message: string, level: "info" | "warning" | "error"): void };
     /** True when the agent is not streaming. */
@@ -107,6 +117,18 @@ export interface SessionShutdownEvent {
     reason: "quit" | "reload" | "new" | "resume" | "fork";
 }
 
+/** pi's `model_select`: the operator or an extension switched the model. */
+export interface ModelSelectEvent {
+    type: "model_select";
+    model: PiModel;
+}
+
+/** pi's `thinking_level_select`. */
+export interface ThinkingLevelSelectEvent {
+    type: "thinking_level_select";
+    level: ThinkingLevel;
+}
+
 /** The events the tty channel posts to the daemon; each carries `type` plus pi's fields. */
 export interface LifecycleEvent {
     type:
@@ -118,7 +140,9 @@ export interface LifecycleEvent {
         | "tool_execution_end"
         | "message_start"
         | "message_update"
-        | "message_end";
+        | "message_end"
+        | "model_select"
+        | "thinking_level_select";
     [key: string]: unknown;
 }
 
@@ -162,6 +186,10 @@ export interface ExtensionAPI {
     ): void;
     /** The slash commands pi loaded. */
     getCommands(): SlashCommandInfo[];
+    /** Switches the session's model; false when pi has no key for its provider. */
+    setModel(model: PiModel): Promise<boolean>;
+    getThinkingLevel(): ThinkingLevel;
+    setThinkingLevel(level: ThinkingLevel): void;
     on(
         event: "session_start",
         handler: (event: SessionStartEvent, ctx: ExtensionContext) => void | Promise<void>,
@@ -169,6 +197,14 @@ export interface ExtensionAPI {
     on(
         event: "session_shutdown",
         handler: (event: SessionShutdownEvent, ctx: ExtensionContext) => void | Promise<void>,
+    ): unknown;
+    on(
+        event: "model_select",
+        handler: (event: ModelSelectEvent, ctx: ExtensionContext) => void | Promise<void>,
+    ): unknown;
+    on(
+        event: "thinking_level_select",
+        handler: (event: ThinkingLevelSelectEvent, ctx: ExtensionContext) => void | Promise<void>,
     ): unknown;
     on(
         event: LifecycleEventName,

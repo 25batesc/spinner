@@ -22,6 +22,7 @@ import type {
     StackLastJob,
     StackStateName,
     SwarmState,
+    ThinkingLevel,
 } from "./session.js";
 import type { DiffView } from "./diff.js";
 import type { DesignTrack, DesignView, SeedResult } from "./egm.js";
@@ -147,6 +148,12 @@ export const ROUTES = {
     "POST /sessions/:dir/attachments": "AttachmentResponse",
     /** One saved attachment, `image/png`. 400 for a bad name, 404 when absent. */
     "GET /sessions/:dir/attachments/:name": "image/png",
+    /**
+     * Body: UploadRequest, any file as base64. Saves it as
+     * `artifacts/uploads/<stamp>-<safe name>`. 201. 400 for a bad body, 413 past
+     * `UPLOAD_BYTES_MAX`.
+     */
+    "POST /sessions/:dir/uploads": "UploadResponse",
     /** Every preview comment of the session, newest first (s054). */
     "GET /sessions/:dir/comments": "CommentsResponse",
     /**
@@ -211,7 +218,10 @@ export const ROUTES = {
      * turn unless the body carries `message`.
      */
     "POST /sessions/:dir/agents": "AgentResponse",
-    /** Send a prompt to a running agent. Body: AgentMessageRequest. */
+    /**
+     * Send a prompt to a running agent. Body: AgentMessageRequest. 400 when an `images` entry
+     * is not a PNG under `artifacts/`.
+     */
     "POST /sessions/:dir/agents/:name/prompt": "AgentCommandResponse",
     /** Queue a steer message; it enters after the current turn and tool calls. */
     "POST /sessions/:dir/agents/:name/steer": "AgentCommandResponse",
@@ -226,6 +236,17 @@ export const ROUTES = {
      * AgentNotRunningResponse when the daemon does not host the agent.
      */
     "POST /sessions/:dir/agents/:name/compact": "AgentCommandResponse",
+    /**
+     * Switch a running agent's model. Body: AgentModelRequest. Records `agents.<name>.model`.
+     * 400 with pi's error when pi does not take the model; 409 with an AgentNotRunningResponse
+     * when the daemon does not host the agent.
+     */
+    "POST /sessions/:dir/agents/:name/model": "OkResponse",
+    /**
+     * Set a running agent's thinking level. Body: AgentThinkingRequest. Records
+     * `agents.<name>.thinking`. 400 for a level outside `THINKING_LEVELS`; 409 as `model`.
+     */
+    "POST /sessions/:dir/agents/:name/thinking": "OkResponse",
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
     /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
@@ -1309,7 +1330,45 @@ export interface AgentMessageRequest {
     text: string;
     /** Set only by the Spinner UI's message box, for the outcome counter. */
     source?: "operator";
+    /**
+     * PNG files that go with the text as images, at most `MESSAGE_IMAGES_MAX`: paths relative
+     * to the session directory, each under `artifacts/` (an upload's or an attachment's
+     * `path`). Session agents only; the operator agent's routes ignore it.
+     */
+    images?: string[];
 }
+
+/** Upper bound on `AgentMessageRequest.images`. */
+export const MESSAGE_IMAGES_MAX = 8;
+
+/** `POST /sessions/:dir/agents/:name/model`. */
+export interface AgentModelRequest {
+    /** `provider/id`, as `GET /models` lists it. */
+    model: string;
+}
+
+/** `POST /sessions/:dir/agents/:name/thinking`. */
+export interface AgentThinkingRequest {
+    level: ThinkingLevel;
+}
+
+/** `POST /sessions/:dir/uploads`: a file the operator attaches to a message. */
+export interface UploadRequest {
+    /** The file's name; the daemon keeps its extension and drops path parts and odd characters. */
+    name: string;
+    /** The file as base64, at most `UPLOAD_BYTES_MAX` decoded. */
+    data: string;
+}
+
+export interface UploadResponse {
+    /** The saved file name: `<stamp>-<safe name>`. */
+    name: string;
+    /** Relative to the session directory: `artifacts/uploads/<name>`. */
+    path: string;
+}
+
+/** Upper bound on one upload, decoded. */
+export const UPLOAD_BYTES_MAX = 10 * 1024 * 1024;
 
 /** `GET /sessions/:dir/agents/default-brief`. */
 export interface DefaultBriefResponse {
@@ -1405,12 +1464,18 @@ export interface PiCommandInfo {
  * One command the daemon hands a tty agent's extension; `text` is absent for `abort`.
  * `notify` is a message from the daemon itself (a failed stack job), delivered as a custom
  * message that starts or steers a turn, so the agent reacts without being asked.
+ * `set_model` carries `model`, `set_thinking` carries `level`; their ack's disposition is
+ * `ok`, or pi's error text.
  */
 export interface AgentExtensionCommand {
     id: string;
     /** `compact` (dogfood #45) runs pi's compaction; like `abort`, it carries no text. */
-    type: "prompt" | "steer" | "abort" | "notify" | "compact";
+    type: "prompt" | "steer" | "abort" | "notify" | "compact" | "set_model" | "set_thinking";
     text?: string;
+    /** `provider/id`, on `set_model` only. */
+    model?: string;
+    /** On `set_thinking` only. */
+    level?: ThinkingLevel;
     /**
      * Absolute paths of PNG files to attach to a `prompt` or a `steer` (a preview comment's
      * screenshot, s054). pi turns a path in text into an image only when it is pasted into

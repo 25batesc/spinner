@@ -7,6 +7,7 @@
 // content shapes come from `@earendil-works/pi-ai` `dist/types.d.ts`; fields the UI does not
 // render are kept as `unknown` rather than invented. The daemon's `agents/pi-events.ts` checks
 // at compile time that pi's own type is assignable to `PiEvent`, so drift fails the build.
+import type { ThinkingLevel } from "./session.js";
 
 export interface PiUsage {
     input: number;
@@ -180,6 +181,13 @@ export type PiEvent =
           reason: PiCompactionReason;
       }
     | { type: "summarization_retry_finished" }
-    | { type: "bash_execution_update"; id?: string; delta: string };
+    | { type: "bash_execution_update"; id?: string; delta: string }
+    /**
+     * Spinner's own, not pi's stream: a tty agent's extension posts pi's model
+     * (`provider/id`) and thinking level after each `hello` and on every change (pi's
+     * `model_select` and `thinking_level_select`), and the daemon records them.
+     */
+    | { type: "model_select"; model: string }
+    | { type: "thinking_level_select"; level: ThinkingLevel };
 
 export type PiEventType = PiEvent["type"];

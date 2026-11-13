@@ -53,6 +53,14 @@ class FakeHandle implements AgentHandle {
         return Promise.resolve("started");
     }
 
+    set_model(): Promise<void> {
+        return Promise.resolve();
+    }
+
+    set_thinking(): Promise<void> {
+        return Promise.resolve();
+    }
+
     commands(): Promise<PiCommand[]> {
         return Promise.resolve([]);
     }

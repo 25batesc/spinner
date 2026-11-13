@@ -10,11 +10,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentExtensionCommand } from "@spinner/protocol";
 import { register } from "./index.js";
-import type { ExtensionAPI, ExtensionContext, LifecycleEvent } from "./pi-api.js";
+import type { ExtensionAPI, ExtensionContext, LifecycleEvent, PiModel } from "./pi-api.js";
 import { act, expand_skill, push_pending, wire_message_event } from "./tty.js";
 
 interface FakePi extends ExtensionAPI {
     sent: Array<{ text: unknown; deliverAs: string | undefined }>;
+    /** The models `setModel` took, as `provider/id`, and the thinking levels set. */
+    models: string[];
+    levels: string[];
     custom: Array<{ customType: string; content: string; options: unknown }>;
     handlers: Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>;
     fire(event: string, payload: unknown, ctx: ExtensionContext): Promise<void>;
@@ -24,6 +27,8 @@ function fake_pi(): FakePi {
     const pi = {
         sent: [],
         custom: [],
+        models: [],
+        levels: [],
         handlers: new Map(),
         registerTool: () => undefined,
         registerCommand: () => undefined,
@@ -37,6 +42,18 @@ function fake_pi(): FakePi {
             pi.custom.push({ customType: message.customType, content: message.content, options });
         },
         getCommands: () => [{ name: "help", source: "extension" as const }],
+        // A pi with a key for anthropic only.
+        setModel: (model: PiModel) => {
+            if (model.provider !== "anthropic") {
+                return Promise.resolve(false);
+            }
+            pi.models.push(`${model.provider}/${model.id}`);
+            return Promise.resolve(true);
+        },
+        getThinkingLevel: () => "medium",
+        setThinkingLevel: (level: string) => {
+            pi.levels.push(level);
+        },
         on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
             pi.handlers.set(event, [...(pi.handlers.get(event) ?? []), handler]);
             return () => undefined;
@@ -57,6 +74,16 @@ function fake_ctx(
 ): ExtensionContext {
     return {
         cwd: "/tmp",
+        model: { provider: "anthropic", id: "claude-x" },
+        // pi knows anthropic's claude-x and claude-y and openai's gpt-y.
+        modelRegistry: {
+            find: (provider, id) =>
+                ["anthropic/claude-x", "anthropic/claude-y", "openai/gpt-y"].includes(
+                    `${provider}/${id}`,
+                )
+                    ? { provider, id }
+                    : undefined,
+        },
         hasUI: true,
         ui: { notify: () => undefined },
         isIdle: () => idle,
@@ -203,7 +230,13 @@ describe("the tty channel", () => {
             .filter((r) => r.path.endsWith("/events"))
             .flatMap((r) => (r.body as { events: Array<{ type: string }> }).events)
             .map((event) => event.type);
-        expect(posted).toEqual(["agent_start", "agent_settled"]);
+        // pi's model and thinking level follow the hello, so the daemon's record is right.
+        expect(posted).toEqual([
+            "model_select",
+            "thinking_level_select",
+            "agent_start",
+            "agent_settled",
+        ]);
 
         // The chat's live messages: the start, the deltas joined, the whole message at the
         // end without its image bytes. A tool call's delta is not posted.
@@ -296,16 +329,16 @@ describe("the tty channel", () => {
         expect(expand_skill("/help", commands)).toBe("/help");
     });
 
-    it("act: expands a /skill: prompt and steer, never a notify", () => {
+    it("act: expands a /skill: prompt and steer, never a notify", async () => {
         const pi = fake_pi();
         const path = "/egm/skills/egm-review/SKILL.md";
         pi.getCommands = () => [
             { name: "skill:egm-review", source: "skill", sourceInfo: { path } },
         ];
         const busy = fake_ctx(false, { count: 0 });
-        act(pi, busy, { id: "c-1", type: "prompt", text: "/skill:egm-review /d.md" });
-        act(pi, busy, { id: "c-2", type: "steer", text: "/skill:egm-review" });
-        act(pi, busy, { id: "c-3", type: "notify", text: "/skill:egm-review" });
+        await act(pi, busy, { id: "c-1", type: "prompt", text: "/skill:egm-review /d.md" });
+        await act(pi, busy, { id: "c-2", type: "steer", text: "/skill:egm-review" });
+        await act(pi, busy, { id: "c-3", type: "notify", text: "/skill:egm-review" });
         const read = `Read the skill file at ${path} and follow it in this thread.`;
         expect(pi.sent).toEqual([
             { text: `${read} Arguments: /d.md`, deliverAs: "followUp" },
@@ -314,26 +347,26 @@ describe("the tty channel", () => {
         expect(pi.custom[0]?.content).toBe("/skill:egm-review");
     });
 
-    it("act: compact runs pi's compaction, busy or idle, and sends no message (#45)", () => {
+    it("act: compact runs pi's compaction, busy or idle, and sends no message (#45)", async () => {
         const pi = fake_pi();
         const compacted = { count: 0 };
-        expect(act(pi, fake_ctx(false, { count: 0 }, compacted), { id: "c-1", type: "compact" }))
-            .toBe("started");
-        expect(act(pi, fake_ctx(true, { count: 0 }, compacted), { id: "c-2", type: "compact" }))
-            .toBe("started");
+        const busy = fake_ctx(false, { count: 0 }, compacted);
+        const idle = fake_ctx(true, { count: 0 }, compacted);
+        expect(await act(pi, busy, { id: "c-1", type: "compact" })).toBe("started");
+        expect(await act(pi, idle, { id: "c-2", type: "compact" })).toBe("started");
         expect(compacted.count).toBe(2);
         expect(pi.sent).toEqual([]);
         expect(pi.custom).toEqual([]);
     });
 
-    it("act: a busy pi queues a prompt as a follow-up and a steer as a steer", () => {
+    it("act: a busy pi queues a prompt as a follow-up and a steer as a steer", async () => {
         const pi = fake_pi();
         const aborted = { count: 0 };
         const busy = fake_ctx(false, aborted);
-        expect(act(pi, busy, { id: "c-1", type: "prompt", text: "p" })).toBe("queued");
-        expect(act(pi, busy, { id: "c-2", type: "steer", text: "s" })).toBe("queued");
-        expect(act(pi, busy, { id: "c-3", type: "prompt", text: "" })).toBe("ignored");
-        expect(act(pi, busy, { id: "c-4", type: "notify", text: "n" })).toBe("queued");
+        expect(await act(pi, busy, { id: "c-1", type: "prompt", text: "p" })).toBe("queued");
+        expect(await act(pi, busy, { id: "c-2", type: "steer", text: "s" })).toBe("queued");
+        expect(await act(pi, busy, { id: "c-3", type: "prompt", text: "" })).toBe("ignored");
+        expect(await act(pi, busy, { id: "c-4", type: "notify", text: "n" })).toBe("queued");
         expect(pi.sent).toEqual([
             { text: "p", deliverAs: "followUp" },
             { text: "s", deliverAs: "steer" },
@@ -343,16 +376,17 @@ describe("the tty channel", () => {
         ]);
     });
 
-    it("act: a prompt or steer with image paths sends the text and the images (s054)", () => {
+    it("act: a prompt or steer with image paths sends the text and the images (s054)", async () => {
         const dir = mkdtempSync(join(tmpdir(), "spinner-images-"));
         const png = join(dir, "shot.png");
         writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2]));
         const pi = fake_pi();
         const idle = fake_ctx(true, { count: 0 });
-        expect(act(pi, idle, { id: "c-1", type: "prompt", text: "p", images: [png] })).toBe(
+        expect(await act(pi, idle, { id: "c-1", type: "prompt", text: "p", images: [png] })).toBe(
             "started",
         );
-        act(pi, idle, { id: "c-2", type: "steer", text: "s", images: [join(dir, "gone.png")] });
+        const gone = join(dir, "gone.png");
+        await act(pi, idle, { id: "c-2", type: "steer", text: "s", images: [gone] });
         expect(pi.sent).toEqual([
             {
                 text: [
@@ -365,5 +399,53 @@ describe("the tty channel", () => {
             { text: "s", deliverAs: "steer" },
         ]);
         rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("act: set_model takes a model pi knows and has a key for, else names why not", async () => {
+        const pi = fake_pi();
+        const ctx = fake_ctx(true, { count: 0 });
+        const set = (model: string) => act(pi, ctx, { id: "c-1", type: "set_model", model });
+        expect(await set("anthropic/claude-y")).toBe("ok");
+        expect(await set("anthropic/nope")).toBe("pi does not know the model anthropic/nope");
+        expect(await set("openai/gpt-y")).toBe("pi has no API key for openai");
+        expect(await set("claude-y")).toBe("model claude-y is not provider/id");
+        expect(pi.models).toEqual(["anthropic/claude-y"]);
+        expect(pi.sent).toEqual([]);
+    });
+
+    it("act: set_thinking sets pi's level and answers ok", async () => {
+        const pi = fake_pi();
+        const ctx = fake_ctx(false, { count: 0 });
+        const command = { id: "c-1", type: "set_thinking", level: "high" } as const;
+        expect(await act(pi, ctx, command)).toBe("ok");
+        expect(pi.levels).toEqual(["high"]);
+    });
+
+    it("posts pi's model and thinking level when they change in pi's terminal", async () => {
+        const served = await fake_daemon([]);
+        daemon = served;
+        const pi = fake_pi();
+        const registered = register(pi, {
+            env: {
+                SPINNER_SESSION_DIR: "/sessions/s1-x",
+                SPINNER_AGENT: "engine",
+                SPINNER_DAEMON_URL: served.url,
+                SPINNER_HARNESS: "tty",
+            },
+            tty: { retry_delay_ms: 10, pid: 4242 },
+        });
+        const ctx = fake_ctx(true, { count: 0 });
+        const model = { provider: "openai", id: "gpt-y" };
+        await pi.fire("model_select", { type: "model_select", model, source: "set" }, ctx);
+        const level = { type: "thinking_level_select", level: "low" };
+        await pi.fire("thinking_level_select", level, ctx);
+        await registered?.tty_channel?.flush();
+        const posted = served.requests
+            .filter((r) => r.path.endsWith("/events"))
+            .flatMap((r) => (r.body as { events: unknown[] }).events);
+        expect(posted).toEqual([
+            { type: "model_select", model: "openai/gpt-y" },
+            { type: "thinking_level_select", level: "low" },
+        ]);
     });
 });

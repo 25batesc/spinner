@@ -15,9 +15,15 @@ import { accessSync, chmodSync, constants, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { IPty, spawn as PtySpawn } from "node-pty";
-import type { PiCommandInfo, PiEvent, SessionSummary, TtyResize } from "@spinner/protocol";
+import type {
+    PiCommandInfo,
+    PiEvent,
+    SessionSummary,
+    ThinkingLevel,
+    TtyResize,
+} from "@spinner/protocol";
 import { TTY_ATTACHMENTS_MAX, TTY_SCROLLBACK_BYTES, TTY_SIZE_DEFAULT } from "@spinner/protocol";
-import { ExtensionChannel } from "./extension-channel.js";
+import { ExtensionChannel, type AgentSetting } from "./extension-channel.js";
 import {
     pi_spawn_options,
     resolved_extension,
@@ -27,7 +33,7 @@ import {
     type PiCommand,
     type PiHarnessOptions,
 } from "./harness.js";
-import { child_env, pi_args, type PiSpawnOptions } from "./pi-rpc.js";
+import { child_env, pi_args, PiRefusal, type PiSpawnOptions } from "./pi-rpc.js";
 
 /** Time pi gets after SIGTERM before SIGKILL. pi flushes its transcript on SIGTERM. */
 const STOP_GRACE_MS = 5_000;
@@ -346,6 +352,22 @@ class PiTtyHandle implements AgentHandle {
     notify(text: string): Promise<string> {
         assert.ok(text.length > 0, "a notice must not be empty");
         return this.tty.channel.enqueue("notify", text);
+    }
+
+    set_model(model: string): Promise<void> {
+        return this.configure({ type: "set_model", model });
+    }
+
+    set_thinking(level: ThinkingLevel): Promise<void> {
+        return this.configure({ type: "set_thinking", level });
+    }
+
+    /** The extension acks a setting with `ok`, or with pi's error text. */
+    private async configure(setting: AgentSetting): Promise<void> {
+        const disposition = await this.tty.channel.configure(setting);
+        if (disposition !== "ok") {
+            throw new PiRefusal(disposition);
+        }
     }
 
     /** What the extension posted with its last `hello`; empty before it. */

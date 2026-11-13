@@ -3,7 +3,9 @@
 // docs/rpc.md and docs/json.md, with no model behind it. A `prompt` answers with a fixed
 // text run; `steer` and `abort` are acknowledged; `get_state` and `get_available_models`
 // return canned data. A `prompt` with `images` echoes `[<n> image(s) of <m> bytes]` after its
-// text, so a test can see that the images arrived. It records its argv in FAKE_PI_ARGS_FILE
+// text, so a test can see that the images arrived. `set_model` takes the two models
+// `get_available_models` lists and refuses any other with pi's error; `set_thinking_level`
+// takes any level. It records its argv in FAKE_PI_ARGS_FILE
 // when that is set, so a test can check the flags the daemon passed. Exits when stdin closes.
 // Plain TypeScript that Node 24 runs directly, like the UI's fixture server.
 import { writeFileSync } from "node:fs";
@@ -12,6 +14,8 @@ interface Command {
     id?: string;
     type: string;
     message?: string;
+    provider?: string;
+    modelId?: string;
     images?: { type: string; data: string; mimeType: string }[];
 }
 
@@ -102,6 +106,18 @@ function handle(command: Command): void {
             });
             return;
         case "abort":
+            respond(command, undefined);
+            return;
+        case "set_model": {
+            const model = `${command.provider ?? ""}/${command.modelId ?? ""}`;
+            if (model !== "anthropic/claude-x" && model !== "openai/gpt-y") {
+                refuse(command, `Model not found: ${model}`);
+                return;
+            }
+            respond(command, { provider: command.provider, id: command.modelId });
+            return;
+        }
+        case "set_thinking_level":
             respond(command, undefined);
             return;
         case "compact":

@@ -15,16 +15,24 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { GithubAccess, PiEvent, SessionSummary } from "@spinner/protocol";
+import type { GithubAccess, PiEvent, SessionSummary, ThinkingLevel } from "@spinner/protocol";
 import {
     EXTENSION_ENV,
+    MESSAGE_IMAGES_MAX,
     SUBAGENTS_TEMP_ROOT_ENV,
     SUBAGENT_EXTRA_AGENT_DIRS_ENV,
     role_of_agent,
+    split_model,
     type ExtensionRole,
 } from "@spinner/protocol";
 import type { EgmSpawn } from "../egm/spawn.js";
-import { model_args, spawn_pi, type PiProcess, type PiSpawnOptions } from "./pi-rpc.js";
+import {
+    model_args,
+    PiRefusal,
+    spawn_pi,
+    type PiProcess,
+    type PiSpawnOptions,
+} from "./pi-rpc.js";
 
 export interface AgentSpawnSpec {
     name: string;
@@ -72,6 +80,13 @@ export interface AgentHandle {
      * has it; the RPC path has no custom-message command.
      */
     notify?(text: string): Promise<string>;
+    /**
+     * Switches pi to `provider/id` for the turns to come. Rejects with a `PiRefusal` carrying
+     * pi's error when pi does not know the model or has no key for its provider.
+     */
+    set_model(model: string): Promise<void>;
+    /** Sets pi's thinking level; pi clamps it to what the model supports. */
+    set_thinking(level: ThinkingLevel): Promise<void>;
     /** The commands pi loaded, for the Context tab. */
     commands(): Promise<PiCommand[]>;
     on_event(listener: (event: PiEvent) => void): () => void;
@@ -327,6 +342,19 @@ class PiHandle implements AgentHandle {
         return Promise.resolve("started");
     }
 
+    async set_model(model: string): Promise<void> {
+        const parts = split_model(model);
+        if (parts === null) {
+            throw new PiRefusal(`model ${model} is not provider/id`);
+        }
+        const { provider, id } = parts;
+        await this.process_.send({ type: "set_model", provider, modelId: id });
+    }
+
+    async set_thinking(level: ThinkingLevel): Promise<void> {
+        await this.process_.send({ type: "set_thinking_level", level });
+    }
+
     async commands(): Promise<PiCommand[]> {
         const response = await this.process_.send({ type: "get_commands" });
         const data = response.data;
@@ -371,8 +399,8 @@ interface RpcImage {
     mimeType: "image/png";
 }
 
-/** Upper bound on images with one prompt or steer; a preview comment sends one. */
-export const IMAGES_MAX = 4;
+/** Upper bound on images with one prompt or steer: the message box's bound. */
+export const IMAGES_MAX = MESSAGE_IMAGES_MAX;
 
 function disposition_of(data: unknown): string {
     if (typeof data === "object" && data !== null && "disposition" in data) {

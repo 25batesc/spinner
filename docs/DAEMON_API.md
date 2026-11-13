@@ -49,6 +49,7 @@ WebSockets below.
 | `POST /sessions/:dir/threads/:id/resolve` | | `ThreadResponse` | 409 without a reply, or for a human thread when `resolve_human` is off. |
 | `POST /sessions/:dir/threads/:id/flag` | `ThreadFlagRequest` | `ThreadResponse` | Flags the thread for the operator. |
 | `POST /sessions/:dir/attachments` | `AttachmentRequest` | `AttachmentResponse` | 201. Saves a PNG as `artifacts/comments/<name>`. 400 for a bad body, 413 past `ATTACHMENT_BYTES_MAX` (8 MiB decoded). Preview comments, below. |
+| `POST /sessions/:dir/uploads` | `UploadRequest` | `UploadResponse` | 201. `{ "name", "data": <base64> }`, any file up to `UPLOAD_BYTES_MAX` (10 MiB decoded). Saves it as `artifacts/uploads/<YYYYMMDD-HHMMSS>-<6 hex>-<safe name>`: the last path part of `name`, each run of characters outside `A-Za-z0-9_-` turned into `-`, the extension kept. Answers `name` and `path` relative to the session directory. 400 for a bad body, 413 past the bound. |
 | `GET /sessions/:dir/attachments/:name` | | `image/png` | One saved attachment. 404 for a bad or unknown name. |
 | `GET /sessions/:dir/comments` | | `CommentsResponse` | Every preview comment, newest first. |
 | `POST /sessions/:dir/comments` | `NewCommentRequest` | `CommentResponse` | 201. Writes the comment and delivers it to the agent with the screenshot as an image; below. 400 for a bad body or a `doc` anchor, 404 for an agent the session does not list, 409 past `COMMENTS_MAX` (500). |
@@ -67,11 +68,13 @@ WebSockets below.
 | `POST /sessions/:dir/inbox` | `InboxMessageRequest` | `InboxMessageResponse` | Writes the message and delivers it. |
 | `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
 | `POST /sessions/:dir/agents` | `AddAgentRequest` | `AgentResponse` | 201. Model: the request, else the agent's last run, else `settings.default_model`, else `config.yaml`. Harness: `settings.agents.harness`, else `config.yaml`. First turn: a new agent gets `message`, else the go signal (read the mission and the brief, take your Plan items, start); a listed agent (a resume) gets `message` or nothing. `first_turn` answers pi's disposition, `queued` when pi refused it (it goes with the next prompt), or `none`. |
-| `POST /sessions/:dir/agents/:name/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 with the state for a stopped agent. |
+| `POST /sessions/:dir/agents/:name/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 with the state for a stopped agent. `images`, at most `MESSAGE_IMAGES_MAX` (8): paths relative to the session directory, each an existing PNG under `artifacts/` (links resolved), sent to pi as images; 400 for any other. The same for `steer`. |
 | `POST /sessions/:dir/agents/:name/steer` | `AgentMessageRequest` | `AgentCommandResponse` | Enters after the current turn. A steer to `lead` with `source: "operator"` adds 1 to `outcomes.operator_steers`; below. |
 | `POST /sessions/:dir/agents/:name/abort` | | `AgentCommandResponse` | |
 | `POST /sessions/:dir/agents/:name/stop` | | `AgentCommandResponse` | The transcript stays. |
 | `POST /sessions/:dir/agents/:name/compact` | | `AgentCommandResponse` | Starts pi's compaction and answers `started` at once; writes the `spinner` Log line `compacted <agent> at NN %`. 409 with the process state for a listed agent that is not running. |
+| `POST /sessions/:dir/agents/:name/model` | `AgentModelRequest` | `OkResponse` | `{ "model": "provider/id" }`. 200 once pi took the model; then `agents.<name>.model` holds it and `session.updated` follows. 400 with pi's error when pi does not know the model or has no key for it, or when `model` is not `provider/id`; 404 for an unknown session or agent; 409 with `AgentNotRunningResponse` when it is not running. A tty agent gets `set_model` through its extension, an rpc agent pi's `set_model`. |
+| `POST /sessions/:dir/agents/:name/thinking` | `AgentThinkingRequest` | `OkResponse` | `{ "level": ThinkingLevel }`, one of `THINKING_LEVELS` (`off minimal low medium high xhigh max`), else 400. Records `agents.<name>.thinking`; the other answers as `model`. pi clamps the level to the model; a tty agent's extension then reports the clamped one. |
 | `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
 | `GET /sessions/:dir/agents/:name/context` | | `ContextResponse` | The context chain and the loaded commands. |
 | `PUT /sessions/:dir/agents/:name/context` | `ContextFileRequest` | `ContextFileResponse` | Writes one file of the chain. |
@@ -183,7 +186,8 @@ posts it at `session_start`, so once at pi's start and again after `/spinner-rel
 The long-poll. The daemon holds the request up to 30 s, then answers:
 
 - 200 `{ "command": { "id": "c-1", "type": "prompt" | "steer" | "abort" | "notify", "text": "..." } }`,
-  one command per response; `text` is absent for `abort`.
+  one command per response; `text` is absent for `abort`. `set_model` carries `model`
+  instead of `text`, `set_thinking` carries `level`.
 - 204 when no command arrived in time. The extension reopens the poll at once.
 
 Query `ack=<id>&disposition=<text>` on a poll acknowledges the command the extension just
@@ -199,6 +203,11 @@ ack in 30 s the route answers 504. The extension acts as follows:
 | `abort` | `ctx.abort()` | `aborted` |
 | `notify`, pi idle | `pi.sendMessage({ customType: "spinner_notice", content, display: true }, { triggerTurn: true })` | `started` |
 | `notify`, pi busy | `pi.sendMessage(..., { deliverAs: "steer" })` | `queued` |
+| `set_model` with `model` | `pi.setModel(ctx.modelRegistry.find(provider, id))` | `ok`, or the reason: `pi does not know the model <m>`, `pi has no API key for <provider>`, or pi's error |
+| `set_thinking` with `level` | `pi.setThinkingLevel(level)` | `ok` |
+
+`POST .../model` and `POST .../thinking` queue `set_model` and `set_thinking`; an ack other
+than `ok` is pi's refusal, and the route answers 400 with that text.
 
 A `prompt` or a `steer` can carry `images`: absolute paths of PNG files (a preview comment's
 screenshot, below). pi turns a path in text into an image only when it is pasted into its
@@ -216,6 +225,15 @@ also posts `message_start` and `message_end` with the message (image bytes left 
 `message_update` with its text or thinking delta alone; deltas that wait join into one. The daemon's
 fold is the one the RPC harness uses: `agent.event` on the bus per event, `process: running`
 on `agent_start`, `agent.settled` and `process: idle` on `agent_settled`. Answer: 202.
+
+Two events are Spinner's own, so that `session.yaml` follows pi's model and thinking level
+however they change: `{ "type": "model_select", "model": "provider/id" }` and
+`{ "type": "thinking_level_select", "level": ThinkingLevel }`. The extension posts both right
+after each `hello` (from `ctx.model` and `pi.getThinkingLevel()`), so a fresh or a resumed
+pi's record is right, and again on pi's `model_select` and `thinking_level_select`, which
+fire when the operator changes either in pi's terminal (`/model`, `Ctrl+P`, the thinking
+key) or when `set_model` and `set_thinking` apply. The daemon writes `agents.<name>.model`
+and `agents.<name>.thinking` from them. `hello` itself is unchanged.
 
 ## Stack jobs: `stack.last_job` and the notice to the agent
 
@@ -901,7 +919,8 @@ the screenshot's absolute path for the `read` tool. `comment_reply` and
 
 ## Agent records in `session.yaml`
 
-`agents.<name>` holds `harness`, `model` and `process`. `harness` is `tty` or `rpc`; `pi`
+`agents.<name>` holds `harness`, `model` and `process`, and `thinking` once pi reported a
+thinking level or `POST .../thinking` set one. `harness` is `tty` or `rpc`; `pi`
 in files before s009 reads as `rpc`. While the process runs the record also holds `pid`,
 `started` (the start time as `ps -o lstart=` prints it) and `repo`. `skills` lists the
 directories pi loads with `--skill` beyond the session's `skills/` (a reviewer's skill). On
