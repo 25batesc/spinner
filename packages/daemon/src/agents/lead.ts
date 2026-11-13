@@ -20,7 +20,7 @@ import { EGM_PIN } from "../egm/pins.js";
 import type { SpinnerHome } from "../home.js";
 import { adopt_into_session } from "../pipeline/adopt.js";
 import { extract_prs } from "../pipeline/extract.js";
-import { attach_project, type Log } from "../stack/runner.js";
+import { attach_project, INSTALL_FAILED, type Log } from "../stack/runner.js";
 import { load_spec } from "../stack/spec.js";
 import type { MissionWriter } from "../store/mission-writer.js";
 import { read_session, write_session } from "../store/session-store.js";
@@ -59,6 +59,14 @@ export async function start_lead_session(
     log(`created ${summary.path}`);
     const adopt = request.adopt ?? [];
     let current = summary;
+    // A dependency install that failed does not stop the session; the lead hears of it.
+    const failed_installs: string[] = [];
+    const attach_log: Log = (line) => {
+        if (line.includes(INSTALL_FAILED)) {
+            failed_installs.push(line.trim());
+        }
+        log(line);
+    };
     if (request.project !== undefined) {
         const loaded = load_spec(actions.resolve_project(deps.ctx, request.project));
         if (adopt.length > 0) {
@@ -69,10 +77,10 @@ export async function start_lead_session(
                 loaded,
                 names,
                 gh: deps.ctx.gh,
-                log,
+                log: attach_log,
             });
         } else {
-            current = await attach_project(current, loaded, log);
+            current = await attach_project(current, loaded, attach_log);
         }
         log(`project ${loaded.spec.name} attached`);
     }
@@ -88,7 +96,8 @@ export async function start_lead_session(
         ...(repo === undefined ? {} : { repo }),
     });
     log(`${LEAD_NAME} started (pid ${handle.pid}); sending the first message`);
-    const message = await first_message(deps, current, request.text, adopt);
+    const first = await first_message(deps, current, request.text, adopt);
+    const message = with_install_note(first, failed_installs);
     try {
         const disposition = await handle.prompt(message);
         log(`first message delivered: ${disposition}`);
@@ -198,6 +207,21 @@ function single_repo(summary: SessionSummary): string | undefined {
  * the references the paste named but the session did not adopt. The mentioned ones come from
  * a second extract against the session's repos; a GitHub failure there only drops the line.
  */
+/** The first message with what Spinner could not install, so the lead does it itself. */
+export function with_install_note(message: string, failed: readonly string[]): string {
+    if (failed.length === 0) {
+        return message;
+    }
+    return [
+        message,
+        "",
+        "Note from Spinner: a dependency install failed while the worktrees were made:",
+        ...failed.map((line) => `- ${line}`),
+        "The worktree lacks those dependencies. Run the install yourself (read its error",
+        "first) before you build or test there; say so in the Log if you cannot.",
+    ].join("\n");
+}
+
 async function first_message(
     deps: LeadStartDeps,
     summary: SessionSummary,

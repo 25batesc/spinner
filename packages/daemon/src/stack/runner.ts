@@ -217,7 +217,10 @@ export async function attach_project(
             log(`    running ${install} in ${skipped.cwd}`);
             const code = await run_attached("sh", ["-c", install], skipped.cwd);
             if (code !== 0) {
-                throw new Error(`install for ${name}/${skipped.dir} failed with exit code ${code}`);
+                // Not fatal: the session and its lead start without the dependencies, and
+                // the lead is told (`INSTALL_FAILED`), so the operator's request is not
+                // lost to a broken lockfile. `up` fails on its own when it needs them.
+                log(`    ${INSTALL_FAILED} for ${name}/${skipped.dir} (exit code ${code})`);
             }
         }
         const files = repo.seed_files ?? [];
@@ -426,6 +429,9 @@ export interface UpResult {
     db: string;
     elapsed_ms: number;
 }
+
+/** The start of the log line of a dependency install that failed at `attach`. */
+export const INSTALL_FAILED = "install failed";
 
 /** Brings the session's stack up and waits until every healthcheck passes. */
 export async function stack_up(

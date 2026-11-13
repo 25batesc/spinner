@@ -40,7 +40,7 @@ import type { GhRunner, PrResponse } from "../pipeline/github.js";
 import { start_daemon, type Daemon } from "../server.js";
 import { run_ok } from "../stack/shell.js";
 import { create_session, read_session } from "../store/session-store.js";
-import { start_lead_session } from "./lead.js";
+import { start_lead_session, with_install_note } from "./lead.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = resolve(here, "..", "..", "test", "fixtures", "fake-pi-tty.ts");
@@ -162,6 +162,17 @@ async function wait_job(id: string): Promise<Job> {
     });
     return job as unknown as Job;
 }
+
+describe("with_install_note", () => {
+    it("tells the lead which install failed, and adds nothing when none did", () => {
+        expect(with_install_note("Add a slide type.", [])).toBe("Add a slide type.");
+        const line = "install failed for web/KnitUI/node_modules (exit code 1)";
+        const noted = with_install_note("Add a slide type.", [line]);
+        expect(noted.startsWith("Add a slide type.\n\nNote from Spinner:")).toBe(true);
+        expect(noted).toContain(`- ${line}`);
+        expect(noted).toContain("Run the install yourself");
+    });
+});
 
 describe("POST /sessions/extract", () => {
     it("resolves every reference form against the project and looks it up", async () => {
