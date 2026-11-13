@@ -301,7 +301,10 @@ export async function act(
         return "ignored";
     }
     // A notify is the daemon's own text; a prompt or a steer may start with `/skill:`.
-    const text = command.type === "notify" ? raw : expand_skill(raw, pi.getCommands());
+    // A notify is the daemon's own text; a prompt or a steer may start with `/skill:` or
+    // with the name of a prompt template, which pi expands only in its own editor.
+    const commands = command.type === "notify" ? [] : pi.getCommands();
+    const text = expand_template(expand_skill(raw, commands), commands, read_template);
     if (command.type === "steer") {
         pi.sendUserMessage(with_images(text, command.images), { deliverAs: "steer" });
         return idle ? "started" : "queued";
@@ -391,6 +394,46 @@ export function expand_skill(text: string, commands: SlashCommandInfo[]): string
     const rest = (match[2] ?? "").trim();
     const read = `Read the skill file at ${path} and follow it in this thread.`;
     return rest.length === 0 ? read : `${read} Arguments: ${rest}`;
+}
+
+/** The text of a prompt template's file, or null when it cannot be read. */
+function read_template(path: string): string | null {
+    try {
+        return readFileSync(path, "utf8");
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * A message that starts with `/<name>` of a prompt template pi loaded becomes the template's
+ * text, as pi's editor expands it: the frontmatter is left out, `$1` to `$9` are the
+ * arguments by position, `$@` and `$ARGUMENTS` are all of them. Any other text, a template
+ * pi did not load, or a file that cannot be read passes unchanged.
+ */
+export function expand_template(
+    text: string,
+    commands: SlashCommandInfo[],
+    read: (path: string) => string | null,
+): string {
+    const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text);
+    if (match === null) {
+        return text;
+    }
+    const command = commands.find(
+        (entry) => entry.source === "prompt" && entry.name === match[1],
+    );
+    const path = command?.sourceInfo?.path;
+    const file = path === undefined || path === "" ? null : read(path);
+    if (file === null) {
+        return text;
+    }
+    const body = file.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+    const rest = (match[2] ?? "").trim();
+    const args = rest === "" ? [] : rest.split(/\s+/);
+    return body
+        .replace(/\$(?:ARGUMENTS|@)/g, rest)
+        .replace(/\$([1-9])/g, (_whole, digit: string) => args[Number(digit) - 1] ?? "");
 }
 
 function sleep(ms: number): Promise<void> {

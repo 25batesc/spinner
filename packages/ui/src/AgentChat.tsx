@@ -232,12 +232,6 @@ function useHistory(base: string, revision: string): Transcript {
     return loaded?.base === base ? loaded.transcript : emptyTranscript;
 }
 
-/**
- * The model and thinking pickers call `POST …/agents/:name/model` and `…/thinking`. The
- * routes arrive with the agent-controls branch; the pickers show once they are merged.
- */
-const CONTROLS_READY = false;
-
 /** How near the bottom, in pixels, still counts as "at the newest message". */
 const STICK_PX = 48;
 
@@ -524,7 +518,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     }
     const model = spec?.model ?? "";
     const known = models.some((entry) => `${entry.provider}/${entry.id}` === model);
-    const thinking = (spec as { thinking?: string } | undefined)?.thinking ?? "";
+    const thinking = spec?.thinking ?? "";
     const stops = working && text.trim() === "" && attached.length === 0;
     return (
         <div className="agent-chat" data-working={working}>
@@ -645,8 +639,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                             /
                         </button>
                         <span className="chat-tools-gap" />
-                        {CONTROLS_READY && (
-                            <>
+                        <>
                             <select
                                 className="chat-select"
                                 title="The agent's model"
@@ -674,8 +667,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                                     <option key={level} value={level}>{level}</option>
                                 ))}
                             </select>
-                            </>
-                        )}
+                        </>
                         <button
                             type="button"
                             className="chat-icon"

@@ -10,8 +10,20 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentExtensionCommand } from "@spinner/protocol";
 import { register } from "./index.js";
-import type { ExtensionAPI, ExtensionContext, LifecycleEvent, PiModel } from "./pi-api.js";
-import { act, expand_skill, push_pending, wire_message_event } from "./tty.js";
+import type {
+    ExtensionAPI,
+    ExtensionContext,
+    LifecycleEvent,
+    PiModel,
+    SlashCommandInfo,
+} from "./pi-api.js";
+import {
+    act,
+    expand_skill,
+    expand_template,
+    push_pending,
+    wire_message_event,
+} from "./tty.js";
 
 interface FakePi extends ExtensionAPI {
     sent: Array<{ text: unknown; deliverAs: string | undefined }>;
@@ -327,6 +339,21 @@ describe("the tty channel", () => {
             "please run /skill:egm-draft",
         );
         expect(expand_skill("/help", commands)).toBe("/help");
+        // A prompt template expands as pi's editor does it: no frontmatter, the arguments
+        // by position and all together.
+        const templates: SlashCommandInfo[] = [
+            { name: "plan", source: "prompt", sourceInfo: { path: "/p/plan.md" } },
+            { name: "help", source: "extension" },
+        ];
+        const file = "---\ndescription: Plan\n---\nPlan $1 in $2.\nAll: $ARGUMENTS ($@)\n";
+        const file_of = (path: string) => (path === "/p/plan.md" ? file : null);
+        expect(expand_template("/plan exports web", templates, file_of)).toBe(
+            "Plan exports in web.\nAll: exports web (exports web)",
+        );
+        expect(expand_template("/plan", templates, file_of)).toBe("Plan  in .\nAll:  ()");
+        expect(expand_template("/help", templates, file_of)).toBe("/help");
+        expect(expand_template("/plan x", templates, () => null)).toBe("/plan x");
+        expect(expand_template("see /plan", templates, file_of)).toBe("see /plan");
     });
 
     it("act: expands a /skill: prompt and steer, never a notify", async () => {

@@ -833,6 +833,10 @@
                 "model": {
                     "type": "string"
                 },
+                "thinking": {
+                    "$ref": "#/definitions/ThinkingLevel",
+                    "description": "pi's thinking level as pi last reported it, or as `POST …/thinking` set it. Absent until the extension reports one, and for an rpc agent the operator never set."
+                },
                 "process": {
                     "$ref": "#/definitions/AgentProcessState"
                 },
@@ -871,6 +875,18 @@
                 "pi"
             ],
             "description": "How an agent's pi runs: `tty` is pi's own terminal UI in a pty, rendered by the agent tab over `GET /sessions/:dir/agents/:name/tty`; `rpc` is `pi --mode rpc`, the headless path. `pi` is the value files written before s009 carry; it reads as `rpc`."
+        },
+        "ThinkingLevel": {
+            "type": "string",
+            "enum": [
+                "off",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ]
         },
         "AgentProcessState": {
             "type": "string",
