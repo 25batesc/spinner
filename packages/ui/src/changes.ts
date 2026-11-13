@@ -1,8 +1,11 @@
 // The changes of a session, as the UI shows them (docs/designs/talk-change-ship.md, 2.9): the
-// cards of the Changes rail, the `+n` of the session card, and the rows of the PRs view. The
-// daemon sends `SessionView.changes`; a daemon from before step 2 sends none, and the session
-// then shows no rail. Pure functions; the components draw them.
+// blocks of the PR view, their facts and actions, the PR chip of the context bar, the `+n` of
+// the session card, and the rows of the PRs view. The daemon sends `SessionView.changes`; a
+// daemon from before step 2 sends none, and the session then shows no PR view. Pure
+// functions; the components draw them.
 import type { ChangePr, ChangeStateName, ChangeView, SessionView } from "@spinner/protocol";
+
+import { agoText } from "./state.ts";
 
 /** A change whose work is over: every pull request merged or closed. */
 export function isFinished(change: ChangeView): boolean {
@@ -94,25 +97,250 @@ export function stateTone(state: ChangeStateName): "ok" | "warn" | "bad" | "idle
     }
 }
 
-/** The actions a card offers. `merge` and `post` need an open pull request. */
-export interface ChangeActions {
-    /** `create PR`: the current change has commits and no pull request. */
-    create: boolean;
-    /** `merge`: a pull request is open. The daemon refuses when a gate does not pass. */
-    merge: boolean;
-    post: boolean;
-    /** `test locally`: run the stack on this change (3.1). Offered while it is in progress. */
-    test: boolean;
+/** The tones of the PR view and the chip, as the `.pill-*` classes colour them. */
+export type Tone = "ok" | "warn" | "fail" | "done" | "plain";
+
+/** One labelled fact of a pull request's block. */
+export interface PrFact {
+    label: string;
+    text: string;
+    tone: Tone;
+    /** The tooltip: the full head SHA. */
+    title?: string;
 }
 
-export function changeActions(change: ChangeView, hasStack: boolean): ChangeActions {
-    const open = change.prs.some((pr) => pr.state === "open");
-    return {
-        create: change.current && change.state === "building",
-        merge: open && change.state !== "in merge queue",
-        post: open,
-        test: hasStack && !isFinished(change) && change.state !== "empty",
-    };
+function isOpenPr(pr: ChangePr): boolean {
+    return pr.state === "open" || pr.state === "draft";
+}
+
+function ciFact(pr: ChangePr): PrFact | null {
+    if (pr.checks === undefined || !isOpenPr(pr)) {
+        return null;
+    }
+    if (pr.checks === "green") {
+        return { label: "CI", text: "green", tone: "ok" };
+    }
+    if (pr.checks === "pending") {
+        return { label: "CI", text: "pending", tone: "warn" };
+    }
+    const failing = (pr.checks_failing ?? []).join(", ");
+    const text = failing === "" ? "red" : `red: ${failing}`;
+    return { label: "CI", text, tone: "fail" };
+}
+
+/** `needs peer + owner · sam approved`, green once every required role approved. */
+function approvalFact(pr: ChangePr): PrFact | null {
+    if (pr.approvals === undefined || !isOpenPr(pr)) {
+        return null;
+    }
+    const { required, peer, owner } = pr.approvals;
+    const who = [...peer, ...(owner ? ["owner"] : [])];
+    const done = required.every((role) => (role === "owner" ? owner : peer.length > 0));
+    const needs = required.length === 0 ? "none required" : `needs ${required.join(" + ")}`;
+    const by = who.length === 0 ? "no approval yet" : `${who.join(", ")} approved`;
+    const text = `${needs} · ${by}`;
+    return { label: "approval", text, tone: done ? "ok" : "warn" };
+}
+
+const REVIEW_TEXT = { none: "none", changes_requested: "changes requested", approved: "approved" };
+const REVIEW_TONE: Record<keyof typeof REVIEW_TEXT, Tone> = {
+    none: "plain", changes_requested: "fail", approved: "ok",
+};
+
+/** `1 bot · 2 people open · 3 resolved · 1 flagged`. */
+function threadsFact(pr: ChangePr): PrFact | null {
+    if (pr.threads === undefined) {
+        return null;
+    }
+    const { bots_open, humans_open, resolved, flagged = 0 } = pr.threads;
+    const parts = [
+        bots_open > 0 ? `${bots_open} bot` : "",
+        humans_open > 0 ? `${humans_open} ${humans_open === 1 ? "person" : "people"}` : "",
+    ].filter((part) => part !== "");
+    const open = parts.length === 0 ? "none open" : `${parts.join(" · ")} open`;
+    const rest = [
+        resolved > 0 ? `${resolved} resolved` : "",
+        flagged > 0 ? `${flagged} flagged` : "",
+    ].filter((part) => part !== "");
+    const text = [open, ...rest].join(" · ");
+    const tone = flagged > 0 ? "fail" : parts.length > 0 && isOpenPr(pr) ? "warn" : "plain";
+    return { label: "threads", text, tone };
+}
+
+function queueFact(pr: ChangePr): PrFact | null {
+    if (pr.queue === undefined || pr.queue === "none" || !isOpenPr(pr)) {
+        return null;
+    }
+    if (pr.queue === "popped") {
+        const text = pr.queue_reason == null ? "popped" : `popped: ${pr.queue_reason}`;
+        return { label: "merge queue", text, tone: "fail" };
+    }
+    return { label: "merge queue", text: pr.queue, tone: "warn" };
+}
+
+const PR_STATE_TONE: Record<ChangePr["state"], Tone> = {
+    open: "plain", draft: "plain", merged: "done", closed: "plain",
+};
+
+/**
+ * The facts of a pull request's block in the PR view, in reading order: its state, CI, the
+ * approval, the review decision, the threads, the merge queue, the size, the head and the
+ * last activity. A fact the daemon did not send (a round's bare record) is left out, and so
+ * are the gates of a pull request that is no longer open.
+ */
+export function prFacts(pr: ChangePr, now: Date): PrFact[] {
+    const facts: (PrFact | null)[] = [
+        { label: "state", text: pr.state, tone: PR_STATE_TONE[pr.state] },
+        ciFact(pr),
+        approvalFact(pr),
+        pr.approval_check === undefined || pr.approval_check === "pending" || !isOpenPr(pr)
+            ? null
+            : {
+                  label: "approval check",
+                  text: pr.approval_check,
+                  tone: pr.approval_check === "pass" ? "ok" : "fail",
+              },
+        pr.review === undefined || !isOpenPr(pr)
+            ? null
+            : { label: "review", text: REVIEW_TEXT[pr.review], tone: REVIEW_TONE[pr.review] },
+        threadsFact(pr),
+        queueFact(pr),
+        pr.diff === undefined
+            ? null
+            : {
+                  label: "size",
+                  text: `${diffText(pr)} in ${pr.diff.files} file${pr.diff.files === 1 ? "" : "s"}`,
+                  tone: "plain",
+              },
+        pr.head === undefined
+            ? null
+            : { label: "head", text: pr.head.slice(0, 7), tone: "plain", title: pr.head },
+        updatedFact(pr, now),
+    ];
+    return facts.filter((fact) => fact !== null);
+}
+
+function updatedFact(pr: ChangePr, now: Date): PrFact | null {
+    const ago = agoText(pr.last_activity, now);
+    return ago === null ? null : { label: "updated", text: ago, tone: "plain" };
+}
+
+/** The actions of a change's block, in the order they show. */
+export type PrActionName = "test" | "create" | "review" | "fix" | "post" | "approve" | "merge";
+
+/** An action that applies to the change; `reason` says why it is disabled right now. */
+export interface PrAction {
+    name: PrActionName;
+    reason: string | null;
+}
+
+export const SWITCH_FIRST = "Switch to this change first.";
+export const BUSY = "A job is running on this session.";
+
+/**
+ * The actions of a change's block in the PR view: those that can apply to it, each with the
+ * reason it cannot run right now, or null. `create PR`, `review` and `fix` act on the current
+ * change only, because their routes take no `?change=`. `merge` (land) is not an exclusive
+ * job, so a running job does not hold it.
+ */
+export function prActions(change: ChangeView, hasStack: boolean, busy: boolean): PrAction[] {
+    const open = change.prs.filter(isOpenPr);
+    const job = busy ? BUSY : null;
+    const current = change.current ? job : SWITCH_FIRST;
+    const actions: PrAction[] = [];
+    if (hasStack && !isFinished(change) && change.state !== "empty") {
+        actions.push({ name: "test", reason: job });
+    }
+    if (change.state === "building") {
+        actions.push({ name: "create", reason: current });
+    }
+    if (open.length === 0) {
+        return actions;
+    }
+    const threads = open.some(
+        (pr) => (pr.threads?.bots_open ?? 0) + (pr.threads?.humans_open ?? 0) > 0,
+    );
+    actions.push(
+        { name: "review", reason: current },
+        { name: "fix", reason: current ?? (threads ? null : "No open review thread to answer.") },
+        { name: "post", reason: job },
+        {
+            name: "approve",
+            reason: job ?? (change.approved === true ? "You approved this head already." : null),
+        },
+        {
+            name: "merge",
+            reason: change.state === "in merge queue" ? "It is in the merge queue." : null,
+        },
+    );
+    return actions;
+}
+
+/** An open pull request's tone: red on a failed gate, amber while one waits. */
+function openTone(pr: ChangePr): Tone {
+    if (pr.checks === "red" || pr.review === "changes_requested" || pr.queue === "popped") {
+        return "fail";
+    }
+    const threads = (pr.threads?.bots_open ?? 0) + (pr.threads?.humans_open ?? 0);
+    if (pr.checks === "pending" || threads > 0) {
+        return "warn";
+    }
+    return pr.state === "draft" ? "plain" : "ok";
+}
+
+/** A pull request's tone: its gates while open, `done` merged, `plain` closed. */
+export function prTone(pr: ChangePr): Tone {
+    if (pr.state === "merged") {
+        return "done";
+    }
+    return pr.state === "closed" ? "plain" : openTone(pr);
+}
+
+const TONE_RANK: Record<Tone, number> = { fail: 4, warn: 3, ok: 2, plain: 1, done: 0 };
+
+/** One row of the chip's popover: a pull request and the change it belongs to. */
+export interface ChipRow {
+    change: ChangeView;
+    pr: ChangePr;
+}
+
+/** The chip in the context bar: `#412` for one pull request, the count for several. */
+export interface PrChip {
+    label: string;
+    tone: Tone;
+    title: string;
+    /** In the order of the PR view: the open changes, the current one first, then finished. */
+    rows: ChipRow[];
+}
+
+/** The PR chip of the session, or null when it has no pull request. */
+export function prChip(view: SessionView): PrChip | null {
+    const cards = changeCards(view);
+    const rows = [...cards.open, ...cards.finished].flatMap((change) =>
+        change.prs.map((pr) => ({ change, pr })),
+    );
+    const [first] = rows;
+    if (first === undefined) {
+        return null;
+    }
+    const open = rows.filter((row) => isOpenPr(row.pr));
+    const tone = (open.length === 0 ? rows : open)
+        .map((row) => prTone(row.pr))
+        .reduce((worst, next) => (TONE_RANK[next] > TONE_RANK[worst] ? next : worst));
+    if (rows.length === 1) {
+        const name = `${first.pr.repo}#${first.pr.number}`;
+        return { label: `#${first.pr.number}`, tone, title: `${name} · ${first.pr.state}`, rows };
+    }
+    const title = `${rows.length} pull requests, ${open.length} open`;
+    return { label: String(rows.length), tone, title, rows };
+}
+
+/** `✓`, `…`, `✗`: a popover row's CI mark; empty for a pull request no longer open. */
+export function ciMark(pr: ChangePr): string {
+    if (pr.checks === undefined || !isOpenPr(pr)) {
+        return "";
+    }
+    return pr.checks === "green" ? "✓" : pr.checks === "pending" ? "…" : "✗";
 }
 
 /** True when the session has a stack to run: a project with a spec was attached. */

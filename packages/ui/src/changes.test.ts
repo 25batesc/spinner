@@ -1,19 +1,24 @@
-// The Changes rail's pure half. Method: a view with a merged round, a change in review that
-// is not checked out, and an empty current change; check the cards, the `+n`, the needs
-// line, the actions and the rows of the PRs view.
+// The PR view's pure half. Method: a view with a merged round, a change in review that is
+// not checked out, and an empty current change; check the cards, the `+n`, the needs line,
+// the facts and actions of a block, the PR chip and the rows of the PRs view.
 import { describe, expect, it } from "vitest";
 import type { ChangePr, ChangeView, SessionView } from "@spinner/protocol";
 
 import {
-    changeActions,
+    BUSY,
     changeCards,
     checksText,
+    ciMark,
     diffText,
     opensOnChanges,
     otherChangeNeeds,
     otherOpenChanges,
+    prActions,
+    prChip,
+    prFacts,
     prRows,
     stateTone,
+    SWITCH_FIRST,
     threadsText,
 } from "./changes.ts";
 
@@ -75,18 +80,86 @@ describe("the Changes rail", () => {
         expect(stateTone("fixing CI")).toBe("bad");
     });
 
-    it("offers create PR on a building current change, merge and post on an open PR", () => {
-        const none = { create: false, merge: false, post: false, test: false };
-        const open = { ...none, merge: true, post: true, test: true };
-        expect(changeActions(FIRST, true)).toEqual(open);
-        // Without a stack there is nothing to test on.
-        expect(changeActions(FIRST, false).test).toBe(false);
+    it("lays out a pull request's facts, with the gates only while it is open", () => {
+        const now = new Date("2026-11-12T10:05:00Z");
+        const pr: ChangePr = {
+            ...OPEN_PR, head: "0123456789abcdef", checks: "red", checks_failing: ["lint", "e2e"],
+            approvals: { required: ["peer", "owner"], peer: ["sam"], owner: false },
+            approval_check: "fail", review: "changes_requested", queue: "popped",
+            queue_reason: "conflict", last_activity: "2026-11-12T10:00:00Z",
+            threads: { bots_open: 1, humans_open: 2, resolved: 3, flagged: 1 },
+        };
+        expect(prFacts(pr, now).map((fact) => [fact.label, fact.text, fact.tone])).toEqual([
+            ["state", "open", "plain"],
+            ["CI", "red: lint, e2e", "fail"],
+            ["approval", "needs peer + owner · sam approved", "warn"],
+            ["approval check", "fail", "fail"],
+            ["review", "changes requested", "fail"],
+            ["threads", "1 bot · 2 people open · 3 resolved · 1 flagged", "fail"],
+            ["merge queue", "popped: conflict", "fail"],
+            ["size", "+84 −31 in 4 files", "plain"],
+            ["head", "0123456", "plain"],
+            ["updated", "5 min ago", "plain"],
+        ]);
+        const approved = { required: ["peer" as const], peer: ["sam"], owner: false };
+        const green = prFacts({ ...OPEN_PR, approvals: approved }, now);
+        expect(green.find((fact) => fact.label === "approval")).toMatchObject({
+            text: "needs peer · sam approved", tone: "ok",
+        });
+        // A pending approval check says nothing: without one configured it stays pending.
+        expect(green.some((fact) => fact.label === "approval check")).toBe(false);
+        // Merged: no gates; a round's bare record has only its state.
+        const merged = prFacts({ ...pr, state: "merged" }, now).map((fact) => fact.label);
+        expect(merged).toEqual(["state", "threads", "size", "head", "updated"]);
+        const bare = prFacts({ repo: "a", number: 1, url: null, state: "merged" }, now);
+        expect(bare).toEqual([{ label: "state", text: "merged", tone: "done" }]);
+    });
+
+    it("offers each PR action that applies, disabled with the reason it cannot run now", () => {
+        const names = (actions: { name: string; reason: string | null }[]) =>
+            actions.map((action) => [action.name, action.reason]);
+        expect(names(prActions(change({ prs: [OPEN_PR], current: true }), true, false))).toEqual([
+            ["test", null], ["review", null], ["fix", null], ["post", null],
+            ["approve", null], ["merge", null],
+        ]);
+        // Not checked out: review and fix need a switch; merge waits on nothing but the queue.
+        expect(names(prActions(FIRST, false, true))).toEqual([
+            ["review", SWITCH_FIRST], ["fix", SWITCH_FIRST], ["post", BUSY],
+            ["approve", BUSY], ["merge", null],
+        ]);
+        const quiet = { ...OPEN_PR, threads: { bots_open: 0, humans_open: 0, resolved: 3 } };
+        const done = change({
+            current: true, prs: [quiet], approved: true, state: "in merge queue",
+        });
+        expect(names(prActions(done, false, false))).toEqual([
+            ["review", null], ["fix", "No open review thread to answer."], ["post", null],
+            ["approve", "You approved this head already."], ["merge", "It is in the merge queue."],
+        ]);
         const building = change({ current: true, state: "building" });
-        expect(changeActions(building, true)).toEqual({ ...none, create: true, test: true });
-        const queued = change({ prs: [OPEN_PR], state: "in merge queue" });
-        expect(changeActions(queued, true).merge).toBe(false);
-        expect(changeActions(ROUND, true)).toEqual(none);
-        expect(changeActions(EMPTY, true)).toEqual(none);
+        expect(names(prActions(building, true, false))).toEqual([["test", null], ["create", null]]);
+        expect(names(prActions({ ...building, current: false }, false, false))).toEqual([
+            ["create", SWITCH_FIRST],
+        ]);
+        expect(prActions(ROUND, true, false)).toEqual([]);
+        expect(prActions(EMPTY, true, false)).toEqual([]);
+    });
+
+    it("labels the PR chip by its one number or the count, toned by the worst open PR", () => {
+        expect(prChip(view_with([EMPTY]))).toBeNull();
+        const one = prChip(view_with([FIRST, EMPTY]));
+        expect([one?.label, one?.tone, one?.title]).toEqual([
+            "#482", "warn", "backend#482 · open",
+        ]);
+        const red = change({ id: "c3", prs: [{ ...OPEN_PR, number: 9, checks: "red" }] });
+        const many = prChip(view_with([ROUND, FIRST, red]));
+        expect([many?.label, many?.tone]).toEqual(["3", "fail"]);
+        // The rows follow the PR view: the open changes newest first, then the finished.
+        expect(many?.rows.map((row) => [row.change.id, row.pr.number])).toEqual([
+            ["c3", 9], ["c1", 482], ["r1", 482],
+        ]);
+        expect(prChip(view_with([ROUND]))?.tone).toBe("done");
+        expect([ciMark(OPEN_PR), ciMark({ ...OPEN_PR, checks: "red" })]).toEqual(["✓", "✗"]);
+        expect(ciMark({ ...OPEN_PR, state: "merged" })).toBe("");
     });
 
     it("lists every pull request across sessions, the ones that need him first", () => {

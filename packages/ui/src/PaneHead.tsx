@@ -7,6 +7,8 @@ import type { ReactNode } from "react";
 import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
 import { contextLabel, contextTitle, contextTone, fullestContext } from "./agent-view.ts";
+import { ciMark, diffText, prChip, prTone, type Tone } from "./changes.ts";
+import { openChange } from "./ChangesRail.tsx";
 import { formatTokens, formatUsd } from "./costs.ts";
 import { trackChoices } from "./design.ts";
 import type { PaneName } from "./layout.ts";
@@ -384,10 +386,85 @@ export function PrBadge({ prs }: { prs: PrFacts[] }) {
     );
 }
 
+const TONE_CLASS: Record<Tone, string> = {
+    ok: "pill-ok", warn: "pill-warn", fail: "pill-fail", done: "pill-accent", plain: "",
+};
+
 /**
- * The bar above the panes, always visible: the active session's title, stage, stack, PR count
- * and `needs you` line, from `SessionView` alone, then the session's toolbar at the right end.
- * One line, the title truncated.
+ * The PR chip after the session's title: `#412` for one pull request, the count for several,
+ * coloured by their state. A click opens a popover of every pull request of the session; a
+ * row opens the PR view on its change, its `↗` opens GitHub. Nothing without a pull request.
+ */
+function PrChip({ view }: { view: SessionView }) {
+    const menu = useMenu<HTMLSpanElement>();
+    const chip = prChip(view);
+    if (chip === null) {
+        return null;
+    }
+    const open = (change: string) => {
+        menu.close();
+        openChange({ dir: view.summary.dir, change });
+    };
+    return (
+        <span className="pr-chip-menu" ref={menu.ref}>
+            <button
+                type="button"
+                className={`pill pr-chip ${TONE_CLASS[chip.tone]}`.trim()}
+                title={chip.title}
+                aria-expanded={menu.open}
+                onClick={menu.toggle}
+            >
+                <Icon name="pull-request" />
+                {chip.label}
+            </button>
+            {menu.open && (
+                <div className="menu pr-chip-popover" role="menu" aria-label="Pull requests">
+                    {chip.rows.map(({ change, pr }) => (
+                        <div key={`${pr.repo}#${pr.number}`} className="pr-chip-row">
+                            <button
+                                type="button"
+                                className="pr-chip-open"
+                                title="Open the PR view on this change"
+                                onClick={() => open(change.id)}
+                            >
+                                <span className="pr-chip-title">{pr.title ?? change.title}</span>
+                                <span className="muted pr-chip-meta">
+                                    {pr.repo}#{pr.number}
+                                    {diffText(pr) !== "" && ` · ${diffText(pr)}`}
+                                    {ciMark(pr) !== "" && (
+                                        <span className="pr-chip-ci" data-checks={pr.checks}>
+                                            {" "}{ciMark(pr)}
+                                        </span>
+                                    )}
+                                </span>
+                                <span className={`pill ${TONE_CLASS[prTone(pr)]}`.trim()}>
+                                    {pr.state}
+                                </span>
+                            </button>
+                            {pr.url !== null && (
+                                <a
+                                    className="pr-chip-link"
+                                    href={pr.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title="Open on GitHub"
+                                    aria-label={`Open ${pr.repo}#${pr.number} on GitHub`}
+                                >
+                                    ↗
+                                </a>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </span>
+    );
+}
+
+/**
+ * The bar above the panes, always visible: the active session's title, its PR chip, stage,
+ * stack and `needs you` line, from `SessionView` alone, then the session's toolbar at the
+ * right end. One line, the title truncated.
  */
 export interface ContextBarProps {
     view: SessionView | undefined;
@@ -631,6 +708,7 @@ export function ContextBar(props: ContextBarProps) {
             <span className="context-title" title={view.summary.session.title}>
                 {view.summary.session.title}
             </span>
+            <PrChip view={view} />
             <RoundBadge view={view} onRound={onRound} />
             <span className="badge">{stageOf(view)}</span>
             <span className="pill context-stack">
@@ -641,7 +719,6 @@ export function ContextBar(props: ContextBarProps) {
             <CostFigure cost={view.cost} />
             <ContextFigure view={view} />
             <MachineLine usage={usage} />
-            <PrBadge prs={view.board?.prs ?? []} />
             <SyncBadge view={view} />
             {needs !== null && <NeedsPill needs={needs} onNeeds={onNeeds} />}
             <OperatorNotice operator={operator} />

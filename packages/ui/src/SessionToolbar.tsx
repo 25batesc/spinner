@@ -1,7 +1,8 @@
-// The session's actions, at the right end of the context bar: the local stack, the pipeline,
-// and behind a `⋯` menu the two that end a round or the session: `reset`, and `archive`, which
+// The session's actions, at the right end of the context bar: the local stack, and behind a
+// `⋯` menu the two that end a round or the session: `reset`, and `archive`, which
 // runs the `close` job after one in-place confirm (s038). It left the middle pane so
-// that a switch between the agents, mission and threads views changes the whole pane. On a
+// that a switch between the agents, mission and threads views changes the whole pane. The
+// pipeline's actions live on each change's block in the PR view (ChangesRail.tsx). On a
 // narrow window every button moves into the menu, so the bar keeps its title and pills.
 import { useEffect, useState } from "react";
 
@@ -10,19 +11,14 @@ import type { SessionView } from "@spinner/protocol";
 import { ARCHIVE_QUESTION } from "./CardArchive.tsx";
 import { DesignActions } from "./DesignActions.tsx";
 import { IconButton } from "./PaneHead.tsx";
-import { PipelineActions } from "./PipelineActions.tsx";
 import type { RunAction } from "./SessionForms.tsx";
 import { useMenu } from "./useMenu.ts";
 
 export interface SessionToolbarProps {
     dir: string | undefined;
-    /** True when the session has an open PR, which `review` needs. */
-    openPr: boolean;
     /** True while a job runs on this session; the buttons wait. */
     busy: boolean;
     run: RunAction;
-    /** Moves on pipeline events; the confirm dialogs read the daemon's preview again. */
-    revision: number;
     /**
      * The selected session. With a `design` block the design group (entry 3.20) renders left
      * of the stack group. The whole view, not only `design`, because the dialogs prefill
@@ -62,7 +58,7 @@ export function useCompact(): boolean {
 }
 
 export function SessionToolbar(props: SessionToolbarProps) {
-    const { dir, busy, openPr, run, view } = props;
+    const { dir, busy, run, view } = props;
     const compact = useCompact();
     // The `archive` item asks once inside the menu; a closed menu forgets the question.
     const [asking, setAsking] = useState(false);
@@ -86,17 +82,6 @@ export function SessionToolbar(props: SessionToolbarProps) {
         <span className="toolbar-group">
             {button("up", "run local")}
             {button("down", "stop local")}
-        </span>
-    );
-    const pipeline = (
-        <span className="toolbar-group">
-            <PipelineActions
-                dir={dir}
-                busy={busy}
-                openPr={openPr}
-                run={run}
-                revision={props.revision}
-            />
         </span>
     );
     const design = view?.design === undefined ? null : (
@@ -145,8 +130,6 @@ export function SessionToolbar(props: SessionToolbarProps) {
             {!compact && design !== null && <span className="toolbar-sep" />}
             {!compact && stack}
             {!compact && <span className="toolbar-sep" />}
-            {!compact && pipeline}
-            {!compact && <span className="toolbar-sep" />}
             <span className="toolbar-group toolbar-menu" ref={menu.ref}>
                 <IconButton
                     icon="more"
@@ -155,13 +138,10 @@ export function SessionToolbar(props: SessionToolbarProps) {
                     onClick={menu.toggle}
                 />
                 {menu.open && (
-                    // The stack and end buttons close the menu themselves. The pipeline
-                    // buttons do not: their confirm dialogs render inside the group, and a
-                    // close would unmount them.
+                    // The stack and end buttons close the menu themselves.
                     <div className="menu" role="menu" aria-label="Session actions">
                         {compact && design}
                         {compact && stack}
-                        {compact && pipeline}
                         {end}
                     </div>
                 )}

@@ -228,8 +228,9 @@ export function view(
 
 /**
  * The changes of a fixture session (docs/designs/talk-change-ship.md, 2.8): its one current
- * change from its PRs; `FIXTURE_PARKED_CHANGE` before it for the session with open PRs, so
- * the rail, the card's `+1` and the PRs view have a change that is not checked out to show.
+ * change from its PRs; `FIXTURE_MERGED_CHANGE` and `FIXTURE_PARKED_CHANGE` before it for the
+ * session with open PRs, so the PR view, the PR chip, the card's `+1` and the PRs view have a
+ * finished change and a change that is not checked out to show.
  */
 export function fixtureChanges(base: Session, prs: PrFacts[]): ChangeView[] {
     const open = prs.filter((pr) => pr.state === "open" || pr.state === "draft");
@@ -246,22 +247,45 @@ export function fixtureChanges(base: Session, prs: PrFacts[]): ChangeView[] {
         state = "building";
     }
     const current: ChangeView = {
-        id: open.length > 1 ? "c2" : "c1", title: base.title, branch: base.branch,
+        id: open.length > 1 ? "c3" : "c1", title: base.title, branch: base.branch,
         current: true, state, stage: base.stage, needs_human: base.needs_human, prs,
         on: null, started: base.created, ended: null,
+        posted: base.pipeline?.slack_post ?? null, approved: false,
     };
-    return open.length > 1 ? [FIXTURE_PARKED_CHANGE, current] : [current];
+    return open.length > 1 ? [FIXTURE_MERGED_CHANGE, FIXTURE_PARKED_CHANGE, current] : [current];
 }
 
-/** A change that is not checked out: one open pull request, ready to merge. */
-export const FIXTURE_PARKED_CHANGE: ChangeView = {
-    id: "c1", title: "Export button label", branch: "feat/export-button-label",
-    current: false, state: "ready to merge", stage: "approving",
-    needs_human: "land web#77", on: null, started: "2026-10-19T09:00:00Z", ended: null,
+/** A finished change: its one pull request merged. */
+export const FIXTURE_MERGED_CHANGE: ChangeView = {
+    id: "c1", title: "Refund reasons list", branch: "feat/refund-reasons",
+    current: false, state: "merged", stage: "merged", needs_human: null, on: null,
+    started: "2026-10-12T09:00:00Z", ended: "2026-10-14T16:30:00Z",
+    posted: "https://slack.example/archives/C0FIXTURE/p0", approved: false,
     prs: [{
-        repo: "web", number: 77, url: "https://github.com/acme/web/pull/77", state: "open",
-        title: "Export button label", checks: "green",
+        repo: "api", number: 64, url: "https://github.com/example/api/pull/64", state: "merged",
+        title: "Refund reasons list", author: "operator", head: "9e8d7c6b5a4f3e2d",
+        checks: "green", review: "approved", queue: "none",
+        approvals: { required: ["peer"], peer: ["sam"], owner: false },
+        threads: { bots_open: 0, humans_open: 0, resolved: 4 },
+        last_activity: "2026-10-14T16:30:00Z",
+        diff: { files: 3, additions: 58, deletions: 9 },
+    }],
+};
+
+/** A change that is not checked out: one open pull request whose CI is red. */
+export const FIXTURE_PARKED_CHANGE: ChangeView = {
+    id: "c2", title: "Export button label", branch: "feat/export-button-label",
+    current: false, state: "fixing CI", stage: "fixing", needs_human: null, on: null,
+    started: "2026-10-19T09:00:00Z", ended: null, verified: true, posted: null,
+    approved: false,
+    prs: [{
+        repo: "web", number: 77, url: "https://github.com/example/web/pull/77", state: "open",
+        title: "Export button label", author: "operator", head: "4f5e6d7c8b9a0b1c",
+        checks: "red", checks_failing: ["e2e (chromium)", "lint"], review: "none",
+        approvals: { required: ["peer"], peer: [], owner: false }, approval_check: "pending",
+        bot_reviewed_head: "4f5e6d7c8b9a0b1c", queue: "none",
         threads: { bots_open: 0, humans_open: 0, resolved: 2 },
+        last_activity: "2026-10-26T17:20:00Z",
         diff: { files: 2, additions: 12, deletions: 4 },
     }],
 };
@@ -483,9 +507,23 @@ export function initialSessions(): SessionView[] {
         title: "Bootstrap: Spinner builds Spinner",
         created: "2026-10-27T09:00:00Z",
     });
+    // Open threads on web#412, both approvals on api#87: the PR view's in-depth facts.
+    const refundPrs = [
+        pr(412, "web", {
+            title: "Refund button and form", review: "changes_requested",
+            approvals: { required: ["peer", "owner"], peer: ["sam"], owner: false },
+            threads: { bots_open: 1, humans_open: 2, resolved: 1, flagged: 1 },
+            diff: { files: 7, additions: 184, deletions: 31 },
+        }),
+        pr(87, "api", {
+            title: "POST /refunds", review: "approved", approval_check: "pass",
+            approvals: { required: ["peer", "owner"], peer: ["sam"], owner: true },
+            threads: { bots_open: 0, humans_open: 0, resolved: 3 },
+            diff: { files: 4, additions: 96, deletions: 12 },
+        }),
+    ];
     const refundView = view(
-        "s17-refund-flow", refund, stackView("s17", "up"), [pr(412, "web"), pr(87, "api")],
-        ["backend"],
+        "s17-refund-flow", refund, stackView("s17", "up"), refundPrs, ["backend"],
     );
     return [
         view("s001-bootstrap", boot, stackView("s001", "none")),
