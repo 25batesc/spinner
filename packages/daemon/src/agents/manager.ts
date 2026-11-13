@@ -87,6 +87,11 @@ export const FIRST_TURN =
 
 export class AgentManager {
     private readonly hosted = new Map<string, Hosted>();
+    /**
+     * Agents whose pi `add` is spawning: not hosted yet, but a second `add` of one of them
+     * would start a second pi on the same transcript.
+     */
+    private readonly starting = new Set<string>();
     private readonly pending = new Map<string, string[]>();
     /**
      * True from `stop_all`: the daemon stops its agents to shut down. Their exits are then
@@ -140,6 +145,12 @@ export class AgentManager {
 
     get(dir: string, name: string): AgentHandle | null {
         return this.hosted.get(key_of(dir, name))?.handle ?? null;
+    }
+
+    /** True while the agent runs or its pi is starting: an `add` of it now would throw. */
+    has(dir: string, name: string): boolean {
+        const key = key_of(dir, name);
+        return this.hosted.has(key) || this.starting.has(key);
     }
 
     /** True while the agent's process runs a turn, so a steer enters before its next model call. */
@@ -265,12 +276,27 @@ export class AgentManager {
         extra: AddAgentExtra = {},
     ): Promise<AgentHandle> {
         const key = key_of(summary.dir, request.name);
-        if (this.hosted.has(key)) {
+        if (this.has(summary.dir, request.name)) {
             throw new Error(`agent ${request.name} is already running in ${summary.dir}`);
         }
         if (this.at_cap) {
             throw new Error(`${this.running_max} agents running; the cap is reached`);
         }
+        this.starting.add(key);
+        try {
+            return await this.spawn_agent(summary, request, extra, key);
+        } finally {
+            this.starting.delete(key);
+        }
+    }
+
+    /** The body of `add` once the agent is reserved in `starting`. */
+    private async spawn_agent(
+        summary: SessionSummary,
+        request: AddAgentRequest,
+        extra: AddAgentExtra,
+        key: string,
+    ): Promise<AgentHandle> {
         // The caller's summary may predate an earlier run; the file has the model it used.
         const fresh = read_session(this.home, summary.dir);
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;
@@ -283,12 +309,18 @@ export class AgentManager {
         const listed_model = listed?.model === "default" ? undefined : listed?.model;
         // The operator's `settings.yaml` sits between the request and `config.yaml`: the
         // request's model, else the one this agent ran with, else `settings.default_model`,
-        // else the harness's `config.yaml` default. The harness the same way, without the
-        // per-agent step. A settings file that does not parse is logged, not fatal here.
+        // else the harness's `config.yaml` default. The harness the same way: a resume keeps
+        // the one the agent ran on, so a headless reviewer does not come back as a tty agent
+        // (dogfood #59c). A settings file that does not parse is logged, not fatal here.
         const settings = this.read_settings();
         const model = request.model ?? listed_model ?? settings.default_model;
         this.write_agents_file(summary);
-        const harness_name = extra.harness ?? settings.agents?.harness ?? this.harnesses.default;
+        const listed_harness = listed === undefined ? undefined : harness_of(listed.harness);
+        const harness_name =
+            extra.harness ??
+            listed_harness ??
+            settings.agents?.harness ??
+            this.harnesses.default;
         const harness = this.harnesses[harness_name];
         assert.ok(harness !== undefined, `no ${harness_name} harness`);
         const skills = extra.skills ?? listed?.skills;
@@ -434,7 +466,8 @@ export class AgentManager {
      * by the previous daemon. Its pty master died with that daemon, so the pi behind it is
      * stopped when its identity (pid and start time) is still live, then the agent is resumed
      * on the same transcript. Returns the names resumed, as `dir/name`. An `rpc` agent is
-     * marked `exited`: its stdin pipe is gone and the operator resumes it from the tab.
+     * marked `exited`: its stdin pipe is gone and the operator resumes it from the tab. So is a
+     * reviewer whose swarm record is `done` or `failed`: its work is over (dogfood #59c).
      */
     async adopt_all(): Promise<string[]> {
         const resumed: string[] = [];
@@ -444,7 +477,13 @@ export class AgentManager {
                     continue;
                 }
                 await this.stop_leftover(name, spec);
-                if (harness_of(spec.harness) !== "tty" || this.harnesses.tty === undefined) {
+                const swarm_state = summary.session.review?.swarm[name]?.state;
+                const finished = swarm_state === "done" || swarm_state === "failed";
+                if (
+                    finished ||
+                    harness_of(spec.harness) !== "tty" ||
+                    this.harnesses.tty === undefined
+                ) {
                     this.record(summary.dir, name, { process: "exited" }, true);
                     continue;
                 }
