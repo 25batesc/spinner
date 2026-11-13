@@ -1070,3 +1070,20 @@ A project is a `spinner.yaml`. `GET /projects` lists the ones the daemon finds. 
 
 The lead's `project` tool has `help`, `list`, `create`, `update` (a `create` with `replace`) and `attach` (on its own session, waited for).
 
+## Projects and stacks
+
+The UI's `Projects` view shows every project, its settings, and every session's stack. The operator edits a project as its `spinner.yaml` text. A project is named as `GET /projects` lists it: the first entry of that name, from `<home>/projects`, then `local/`, then `examples/`. A link under `<home>/projects` to a directory elsewhere is listed too.
+
+| Route | Body | Answer | What it does |
+|---|---|---|---|
+| `GET /projects/:name` | none | `ProjectDetailResponse` | The project, the file's text, `writable`, `linked`, a `summary` of its repos, services, database and pipeline, and the live sessions whose `session.project` is the name. |
+| `PUT /projects/:name/spec` | `ProjectSpecRequest` | `ProjectDetailResponse` | Checks the text as `POST /projects` does, requires `name:` to be `:name`, and writes the file, through a link too. |
+| `DELETE /projects/:name` | none | `OkResponse` | Removes a link under `<home>/projects` (the target stays), or a directory there that holds only `spinner.yaml`. |
+| `POST /projects/link` | `ProjectLinkRequest` | 201 `ProjectDetailResponse` | Makes the link `<home>/projects/<spec name>` to the directory of an existing `spinner.yaml`. |
+
+`writable` is false for a project of `examples/`, which the repository tracks. `linked` is true for a link under `<home>/projects` and for a project found only under `local/`. The summary fills in what the daemon fills in: a repo's `base` from the spec's, a service's `preview` as `frame`, the database's `server` as `spinner-postgres` and its `template` as `<name>_seed`, and the pipeline's defaults from `pipeline_config_from_spec`. A repo's `git` is false when its path holds no `.git`.
+
+The answers: 404 for an unknown name. `PUT` answers 400 with the reason for a spec that does not load, names a repo path that is not a git checkout, or has another name, and 409 for a project of `examples/`. `DELETE` answers 409 while a live session uses the project, for a directory that holds other files, and for a project only under `local/` or `examples/`. It never removes anything through a link. `POST /projects/link` answers 400 when the path is not absolute or the spec does not load, and 409 when the name is taken.
+
+A session holds its own copy of the spec, `<session>/stack/spinner.yaml`, written when the project is attached. A save does not change it. `POST /sessions/:dir/attach` with the same project writes the copy again; the project page calls this `update its copy`. The Stacks section of the view lists every live session with a project, newest first, with `run local` (`POST /sessions/:dir/up`) and `stop local` (`POST /sessions/:dir/down`).
+

@@ -91,7 +91,7 @@ describe("create_project", () => {
         writeFileSync(join(elsewhere, "spinner.yaml"), spec_for("linked", repo));
         symlinkSync(elsewhere, join(home.root, "projects", "linked"));
         expect(() => create_project(home, spec_for("linked", repo), true, log)).toThrow(
-            /linked is a link; pick another name/,
+            /a project "linked" exists .* pick another name/,
         );
         expect(readFileSync(join(elsewhere, "spinner.yaml"), "utf8")).toContain("host: web");
     });

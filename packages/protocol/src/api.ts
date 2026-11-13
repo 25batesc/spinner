@@ -4,7 +4,7 @@
 // `job.log` and `job.finished` events (MISSION.md s003, Contracts: "actions are jobs").
 
 import type { SpinnerEvent } from "./events.js";
-import type { PrFacts, StageResult } from "./pipeline.js";
+import type { PipelineConfig, PrFacts, StageResult } from "./pipeline.js";
 import type { PiEvent } from "./agent-event.js";
 import type {
     AgentProcessState,
@@ -29,7 +29,7 @@ import type {
 import type { DiffView } from "./diff.js";
 import type { DesignTrack, DesignView, SeedResult } from "./egm.js";
 import type { OperatorCost, SessionCost } from "./costs.js";
-import type { PreviewMode } from "./stack-spec.js";
+import type { DatabaseMode, DatabaseServer, PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
 
 export const DAEMON_HOST = "127.0.0.1";
@@ -52,6 +52,26 @@ export const ROUTES = {
     "POST /projects": "ProjectCreateResponse",
     /** Where the spec's reference is, and a small spec to start from. */
     "GET /projects/help": "ProjectHelpResponse",
+    /**
+     * Register an existing `spinner.yaml` (or a directory holding one): the link
+     * `<home>/projects/<spec name>` to its directory. Body: ProjectLinkRequest. 201; 400 when
+     * the spec does not load, 409 when the name is taken.
+     */
+    "POST /projects/link": "ProjectDetailResponse",
+    /** One project as `GET /projects` lists it, with its file and settings. 404 unknown. */
+    "GET /projects/:name": "ProjectDetailResponse",
+    /**
+     * The operator saves the project's `spinner.yaml`. Body: ProjectSpecRequest. Checked as
+     * `POST /projects` checks it, and its `name` must be `:name`. 400 with the reason for a
+     * bad spec, 404 unknown, 409 for a project of `examples/`.
+     */
+    "PUT /projects/:name/spec": "ProjectDetailResponse",
+    /**
+     * Remove a project under `<home>/projects`: the link alone, or the directory when it holds
+     * only `spinner.yaml`. 409 while a live session uses it, for a directory with other
+     * files, and for a project only under `local/` or `examples/`.
+     */
+    "DELETE /projects/:name": "OkResponse",
     /** Every session under `~/.spinner/sessions`, as the daemon currently sees it. */
     "GET /sessions": "SessionsResponse",
     /** One session by directory name. 404 when it does not exist. */
@@ -486,6 +506,93 @@ export interface ProjectCreateRequest {
 
 export interface ProjectCreateResponse {
     project: ProjectView;
+}
+
+/** `PUT /projects/:name/spec`: the operator's edit of the file. */
+export interface ProjectSpecRequest {
+    /** The whole `spinner.yaml` as text. Its `name:` must be the project's. */
+    spec: string;
+}
+
+/** `POST /projects/link`. */
+export interface ProjectLinkRequest {
+    /** Absolute (or `~`) path of a `spinner.yaml`, or of the directory that holds one. */
+    path: string;
+}
+
+/** A repo of a project's spec. */
+export interface ProjectRepoSummary {
+    key: string;
+    /** The path as the spec writes it. */
+    path: string;
+    /** The path made absolute against the spec's directory and `~`. */
+    absolute: string;
+    /** The repo's `base`, else the spec's. */
+    base: string;
+    /** True when `absolute` holds a `.git`: a worktree can come from it. */
+    git: boolean;
+}
+
+/** A service of a project's spec. Absent keys are null. */
+export interface ProjectServiceSummary {
+    name: string;
+    runtime: ServiceWhere;
+    repo: string | null;
+    command: string | null;
+    image: string | null;
+    host: string | null;
+    port: number | null;
+    healthcheck: string | null;
+    preview: PreviewMode;
+    depends_on: string[];
+}
+
+/** The `database:` block with the runner's defaults. */
+export interface ProjectDatabaseSummary {
+    mode: DatabaseMode;
+    server: DatabaseServer;
+    template: string;
+}
+
+/** The `pipeline:` block with the defaults the daemon applies. */
+export interface ProjectPipelineSummary {
+    write_repos: string[];
+    bot_logins: string[];
+    merge_queue: PipelineConfig["github"]["merge_queue"];
+    approval_check: string | null;
+    slack_channel: string | null;
+    slack_post: PipelineConfig["slack"]["post"];
+    threads_autofix: PipelineConfig["threads"]["autofix"];
+}
+
+/** What a project's spec sets, for the project page's Overview. */
+export interface ProjectSummary {
+    base: string;
+    repos: ProjectRepoSummary[];
+    services: ProjectServiceSummary[];
+    database: ProjectDatabaseSummary | null;
+    pipeline: ProjectPipelineSummary;
+}
+
+/** A live session whose `session.project` is the project. */
+export interface ProjectSessionRef {
+    dir: string;
+    id: string;
+    title: string;
+    stack: StackStateName;
+}
+
+/** `GET /projects/:name`, and the answer of the routes that change a project. */
+export interface ProjectDetailResponse {
+    project: ProjectView;
+    /** The spec file's text as it is on disk. */
+    spec: string;
+    /** False for a project of `examples/`, which the repository tracks. */
+    writable: boolean;
+    /** True for a link under `<home>/projects`, or a project found only under `local/`. */
+    linked: boolean;
+    summary: ProjectSummary;
+    sessions: ProjectSessionRef[];
 }
 
 /** `GET /projects/help`: what an agent needs to write a spec. */
