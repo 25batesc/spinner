@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProjectDetailResponse, ProjectsResponse } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "./home.js";
-import { create_project } from "./projects.js";
+import { create_project, list_projects } from "./projects.js";
 import { start_daemon, type Daemon } from "./server.js";
 import { create_session, write_session } from "./store/session-store.js";
 
@@ -184,6 +184,16 @@ describe("POST /projects/link and DELETE /projects/:name", () => {
         expect((await send("DELETE", "/projects/linked")).status).toBe(200);
         expect(existsSync(join(home.root, "projects", "linked"))).toBe(false);
         expect(existsSync(join(elsewhere, "spinner.yaml"))).toBe(true);
+    });
+
+    it("lists a spec once when a home link and the checkout both name it", () => {
+        // The operator's own setup: `<home>/projects/<name>` links to a directory that the
+        // checkout lists too (here the sample of `examples/`).
+        const sample = join(import.meta.dirname, "..", "..", "..", "examples", "sample-stack");
+        mkdirSync(join(home.root, "projects"), { recursive: true });
+        symlinkSync(sample, join(home.root, "projects", "sample-link"));
+        const named = list_projects(home, () => {}).filter((project) => project.name === "sample");
+        expect(named.map((project) => project.source)).toEqual(["home"]);
     });
 
     it("refuses to link a spec that does not load", async () => {

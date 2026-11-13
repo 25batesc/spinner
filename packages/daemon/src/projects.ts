@@ -6,8 +6,9 @@ import {
     existsSync,
     lstatSync,
     mkdirSync,
-    readdirSync,
     readFileSync,
+    readdirSync,
+    realpathSync,
     rmdirSync,
     statSync,
     symlinkSync,
@@ -45,9 +46,17 @@ export function list_projects(home: SpinnerHome, log: (line: string) => void): P
         { source: "examples", dir: join(root, "examples") },
     ];
     const projects: ProjectView[] = [];
+    // A link under `<home>/projects` often points at a `local/<name>` of this checkout: the
+    // same file must be one project, under the first place that names it.
+    const seen = new Set<string>();
     for (const { source, dir } of sources) {
         for (const path of spec_files_in(dir)) {
             try {
+                const real = realpathSync(path);
+                if (seen.has(real)) {
+                    continue;
+                }
+                seen.add(real);
                 const { spec } = load_spec(path);
                 projects.push({
                     name: spec.name,
