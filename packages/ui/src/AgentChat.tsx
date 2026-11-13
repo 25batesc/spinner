@@ -232,6 +232,12 @@ function useHistory(base: string, revision: string): Transcript {
     return loaded?.base === base ? loaded.transcript : emptyTranscript;
 }
 
+/**
+ * The model and thinking pickers call `POST …/agents/:name/model` and `…/thinking`. The
+ * routes arrive with the agent-controls branch; the pickers show once they are merged.
+ */
+const CONTROLS_READY = false;
+
 /** How near the bottom, in pixels, still counts as "at the newest message". */
 const STICK_PX = 48;
 
@@ -639,33 +645,37 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                             /
                         </button>
                         <span className="chat-tools-gap" />
-                        <select
-                            className="chat-select"
-                            title="The agent's model"
-                            aria-label="Model"
-                            value={model}
-                            disabled={!hosted}
-                            onChange={(event) => setControl("model", event.target.value)}
-                        >
-                            {!known && <option value={model}>{modelLabel(model)}</option>}
-                            {models.map((entry) => {
-                                const id = `${entry.provider}/${entry.id}`;
-                                return <option key={id} value={id}>{modelLabel(id)}</option>;
-                            })}
-                        </select>
-                        <select
-                            className="chat-select"
-                            title="How much the agent thinks before it answers"
-                            aria-label="Thinking level"
-                            value={thinking}
-                            disabled={!hosted}
-                            onChange={(event) => setControl("thinking", event.target.value)}
-                        >
-                            {thinking === "" && <option value="">thinking</option>}
-                            {THINKING_LEVELS.map((level) => (
-                                <option key={level} value={level}>{level}</option>
-                            ))}
-                        </select>
+                        {CONTROLS_READY && (
+                            <>
+                            <select
+                                className="chat-select"
+                                title="The agent's model"
+                                aria-label="Model"
+                                value={model}
+                                disabled={!hosted}
+                                onChange={(event) => setControl("model", event.target.value)}
+                            >
+                                {!known && <option value={model}>{modelLabel(model)}</option>}
+                                {models.map((entry) => {
+                                    const id = `${entry.provider}/${entry.id}`;
+                                    return <option key={id} value={id}>{modelLabel(id)}</option>;
+                                })}
+                            </select>
+                            <select
+                                className="chat-select"
+                                title="How much the agent thinks before it answers"
+                                aria-label="Thinking level"
+                                value={thinking}
+                                disabled={!hosted}
+                                onChange={(event) => setControl("thinking", event.target.value)}
+                            >
+                                {thinking === "" && <option value="">thinking</option>}
+                                {THINKING_LEVELS.map((level) => (
+                                    <option key={level} value={level}>{level}</option>
+                                ))}
+                            </select>
+                            </>
+                        )}
                         <button
                             type="button"
                             className="chat-icon"
