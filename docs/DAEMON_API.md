@@ -76,7 +76,7 @@ WebSockets below.
 | `POST /sessions/:dir/agents/:name/model` | `AgentModelRequest` | `OkResponse` | `{ "model": "provider/id" }`. 200 once pi took the model; then `agents.<name>.model` holds it and `session.updated` follows. 400 with pi's error when pi does not know the model or has no key for it, or when `model` is not `provider/id`; 404 for an unknown session or agent; 409 with `AgentNotRunningResponse` when it is not running. A tty agent gets `set_model` through its extension, an rpc agent pi's `set_model`. |
 | `POST /sessions/:dir/agents/:name/thinking` | `AgentThinkingRequest` | `OkResponse` | `{ "level": ThinkingLevel }`, one of `THINKING_LEVELS` (`off minimal low medium high xhigh max`), else 400. Records `agents.<name>.thinking`; the other answers as `model`. pi clamps the level to the model; a tty agent's extension then reports the clamped one. |
 | `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
-| `GET /sessions/:dir/agents/:name/events/stamp` | | `AgentEventsStamp` | When the transcript was last written, and its size. Nulls without a transcript. |
+| `GET /sessions/:dir/agents/:name/events/stamp` | | `AgentEventsStamp` | When the transcript was last written, its size, and `active`: when the agent's pi last sent an event. |
 | `GET /sessions/:dir/agents/:name/context` | | `ContextResponse` | The context chain and the loaded commands. |
 | `PUT /sessions/:dir/agents/:name/context` | `ContextFileRequest` | `ContextFileResponse` | Writes one file of the chain. |
 | `POST /sessions/:dir/agents/:name/hello` | `AgentHelloRequest` | `AgentCommandResponse` | Extension only; below. |
@@ -1052,7 +1052,11 @@ The chat reads the agent's past turns from `GET /sessions/:dir/agents/:name/even
 The end of a turn can fail to arrive, for example when pi does not settle or an event is lost.
 So the chat also asks for `GET …/events/stamp` every 15 seconds.
 When the stamp is the same on two polls in a row and differs from the last read, the chat reads the history again.
-When the agent is in a turn and the transcript has had no write for 3 minutes, the status line says so.
+A turn is quiet when 3 minutes pass with no write to the transcript and no event from the agent's pi.
+The stamp's `active` holds the time of the last event, streaming included.
+The chat asks for the stamp at once when a turn starts or ends, and ignores a stamp read before that.
+So a turn that starts after a long rest is not quiet.
+When a turn is quiet, the status line says so.
 It gives the time, names the tool call that still runs, and points at `stop`.
 
 `POST /sessions/:dir/agents/:name/prompt` and `.../steer` resume a listed agent that is stopped when the body has `source: "operator"`, then send the text as a prompt. Without that mark a stopped agent is still a 409.
