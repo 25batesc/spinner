@@ -41,6 +41,11 @@ import type {
     PiEvent,
     PostResponse,
     PostView,
+    ProjectCreateRequest,
+    ProjectCreateResponse,
+    ProjectDetailResponse,
+    ProjectHelpResponse,
+    ProjectSpecRequest,
     ReviewDraft,
     ReviewDraftResponse,
     ReviewCancelResponse,
@@ -409,6 +414,40 @@ async function getText(path: string, signal: AbortSignal): Promise<string> {
 /** `GET /plans`: the plans library (docs/designs/talk-change-ship.md, 4.3). */
 export async function fetchPlans(signal: AbortSignal): Promise<PlanView[]> {
     return (await getJson<PlansResponse>("/plans", signal)).plans;
+}
+
+/** `GET /projects/:name`: the project's file, what it sets, and the sessions that use it. */
+export async function fetchProjectDetail(
+    name: string,
+    signal: AbortSignal,
+): Promise<ProjectDetailResponse> {
+    return getJson(`/projects/${encodeURIComponent(name)}`, signal);
+}
+
+/** `GET /projects/help`: the example a new project's spec starts from. */
+export async function fetchProjectHelp(signal: AbortSignal): Promise<ProjectHelpResponse> {
+    return getJson("/projects/help", signal);
+}
+
+/** `PUT /projects/:name/spec`: the operator's edit; a refusal throws with the reason. */
+export async function putProjectSpec(name: string, spec: string): Promise<ProjectDetailResponse> {
+    const body: ProjectSpecRequest = { spec };
+    return send("PUT", `/projects/${encodeURIComponent(name)}/spec`, body);
+}
+
+/** `POST /projects`: a new project from the page's spec. */
+export async function createProject(spec: string): Promise<ProjectCreateResponse> {
+    const body: ProjectCreateRequest = { spec };
+    return send("POST", "/projects", body);
+}
+
+/** `DELETE /projects/:name`: removes the project's directory or its link. */
+export async function deleteProject(name: string): Promise<void> {
+    const path = `/projects/${encodeURIComponent(name)}`;
+    const response = await fetch(path, { method: "DELETE" });
+    if (!response.ok) {
+        throw await failure("DELETE", path, response);
+    }
 }
 
 /** `GET /plans/:id/doc`: the plan's document as markdown text. */

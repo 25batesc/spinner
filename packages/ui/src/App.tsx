@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
 import { AgentsPane } from "./AgentsPane.tsx";
-import { fetchThemes, postAction, putSettings } from "./events-client.ts";
+import { fetchProjects, fetchThemes, postAction, putSettings } from "./events-client.ts";
 import {
     ActivityPanel,
     activityLabel,
@@ -41,6 +41,9 @@ import { useOpenChange } from "./ChangesRail.tsx";
 import { ImplementBar, PlanPage } from "./PlanPage.tsx";
 import { implementTargets } from "./plans.ts";
 import { PlansPane } from "./PlansPane.tsx";
+import { ProjectPage } from "./ProjectPage.tsx";
+import { NEW_PROJECT, projectRows, stackRows } from "./projects.ts";
+import { ProjectsPane } from "./ProjectsPane.tsx";
 import { PrsPane } from "./PrsPane.tsx";
 import { ReviewsPane } from "./ReviewsPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
@@ -135,7 +138,7 @@ function usePlansTick(active: boolean): number {
     return tick;
 }
 
-type Middle = "agents" | "operator" | "new-session" | "new-review" | "plan";
+type Middle = "agents" | "operator" | "new-session" | "new-review" | "plan" | "project";
 
 function isComposer(middle: Middle): boolean {
     return middle === "new-session" || middle === "new-review";
@@ -159,7 +162,9 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     const [middle, setMiddle] = useState<Middle>("agents");
     // A pick in a list and a rail switch leave the composer; the draft stays for the way back.
     const leaveComposer = () =>
-        setMiddle((old) => (isComposer(old) || old === "plan" ? "agents" : old));
+        setMiddle((old) =>
+            isComposer(old) || old === "plan" || old === "project" ? "agents" : old,
+        );
     // The agents pane's view and picked agent live here (entry 3.22), so the `needs you` pill
     // can open a gate card and a created session can open on its lead: the `agents` view
     // with `lead` picked. The view is held per session (session-workspace.md 2.8): a session
@@ -299,6 +304,10 @@ export function App() {
     const { middle, setMiddle, agentsShown, setAgentsShown, agentPicked, setAgentPicked } = app;
     // The plan whose page shows in the middle pane (`middle === "plan"`).
     const [planId, setPlanId] = useState<string | undefined>(undefined);
+    // The project whose page shows (`middle === "project"`), `NEW_PROJECT` for a new one.
+    const [projectName, setProjectName] = useState<string | undefined>(undefined);
+    // Moves on a save of a new project and on a delete: the list reads again.
+    const [projectEdits, setProjectEdits] = useState(0);
     const card = view === undefined ? null : gateCard(view.design, needsHuman(view));
     const openCard = card === null ? undefined : () => {
         setMiddle("agents");
@@ -482,7 +491,7 @@ export function App() {
             app.activate(next.view);
         }
         // The PRs view lists pull requests of ordinary sessions; a row opens its session.
-        if (next.view === "prs" || next.view === "plans") {
+        if (next.view === "prs" || next.view === "plans" || next.view === "projects") {
             app.activate("sessions");
         }
         if (next.view === null) {
@@ -670,10 +679,38 @@ export function App() {
             composing={composer === "session" && app.draft.planFirst === true}
         />
     );
+    // The projects the daemon finds, read again when a job ends, a session comes or goes, or
+    // the operator makes or removes one; the stacks come from the state the events keep.
+    const projectsKey = `${sessions.length}#${jobsDone}#${projectEdits}`;
+    const projectsLoaded = useLoaded(projectsKey, fetchProjects);
+    const projects = projectsLoaded.value ?? [];
+    const stacks = stackRows(state);
+    const openProject = (name: string) => {
+        setProjectName(name);
+        setMiddle("project");
+    };
+    const openSession = (dir: string) => {
+        app.pick("sessions", dir);
+        setMiddle("agents");
+    };
+    const projectsPane = (
+        <ProjectsPane
+            rows={projectRows(projects, Object.values(state.sessions))}
+            stacks={stacks}
+            error={projectsLoaded.error}
+            selected={middle === "project" ? projectName : undefined}
+            onSelect={openProject}
+            onSession={openSession}
+            onNew={() => openProject(NEW_PROJECT)}
+            composing={middle === "project" && projectName === NEW_PROJECT}
+            run={run}
+        />
+    );
     const sideViews = {
         sessions: { facts: { count: ordinary.length }, pane: sessionsPane },
         prs: { facts: { count: openPrs }, pane: prsPane },
         plans: { facts: { count: plans.length }, pane: plansPane },
+        projects: { facts: { count: projects.length }, pane: projectsPane },
         reviews: { facts: { count: reviewRows.length }, pane: reviewsPane },
         settings: { facts: undefined, pane: settingsPane },
     };
@@ -691,6 +728,23 @@ export function App() {
         middlePane = operatorPane;
     } else if (composer !== null) {
         middlePane = composerPane;
+    } else if (middle === "project" && projectName !== undefined) {
+        middlePane = (
+            <ProjectPage
+                name={projectName}
+                revision={projectsKey}
+                stacks={stacks}
+                run={run}
+                onSession={openSession}
+                onChanged={(name) => {
+                    setProjectEdits((old) => old + 1);
+                    if (name === undefined) {
+                        setMiddle("agents");
+                    }
+                    setProjectName(name);
+                }}
+            />
+        );
     } else if (pagePlan !== undefined) {
         middlePane = (
             <PlanPage

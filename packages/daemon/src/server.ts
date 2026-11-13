@@ -18,6 +18,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { parse } from "yaml";
 import type {
     ProjectCreateResponse,
+    ProjectDetailResponse,
     NewSessionRequest,
     PlansResponse,
     GithubAccess,
@@ -108,7 +109,16 @@ import { start_cost_ledger, type LedgerLoop } from "./costs/ledger.js";
 import { parse_span, report } from "./costs/periods.js";
 import { list_themes, read_settings, write_settings } from "./settings.js";
 import { snapshot_ui } from "./ui-snapshot.js";
-import { create_project, list_projects, project_help, ProjectRefusal } from "./projects.js";
+import {
+    create_project,
+    delete_project,
+    link_project,
+    list_projects,
+    project_detail,
+    project_help,
+    ProjectRefusal,
+    save_project_spec,
+} from "./projects.js";
 import {
     parse_add_agent,
     parse_adopt,
@@ -324,6 +334,61 @@ export function create_app(deps: AppDeps): Hono {
             return c.json(error_body(describe_error(error)), status);
         }
     });
+
+    // The Projects view of the UI: a project's page, the operator's edit of its file, its
+    // removal, and the registration of a spec kept elsewhere.
+    const project_route = (c: Context, answer: (sessions: SessionSummary[]) => Response) => {
+        try {
+            return answer(list_sessions(deps.home).sessions);
+        } catch (error) {
+            if (error instanceof ProjectRefusal) {
+                return c.json(error_body(error.message), error.status);
+            }
+            throw error;
+        }
+    };
+
+    app.post("/projects/link", async (c) => {
+        const input = (await json_body(c)) as Record<string, unknown> | null;
+        const path = input?.["path"];
+        if (typeof path !== "string" || path.length === 0) {
+            return c.json(error_body("`path` is required: a spinner.yaml or its directory"), 400);
+        }
+        return project_route(c, (sessions) => {
+            const body: ProjectDetailResponse = link_project(deps.home, path, sessions, deps.log);
+            return c.json(body, 201);
+        });
+    });
+
+    app.get("/projects/:name", (c) =>
+        project_route(c, (sessions) => {
+            const name = c.req.param("name");
+            const body: ProjectDetailResponse = project_detail(deps.home, name, sessions, deps.log);
+            return c.json(body);
+        }),
+    );
+
+    app.put("/projects/:name/spec", async (c) => {
+        const input = (await json_body(c)) as Record<string, unknown> | null;
+        const spec = input?.["spec"];
+        if (typeof spec !== "string" || spec.trim().length === 0) {
+            return c.json(error_body("`spec` is required: the spinner.yaml as text"), 400);
+        }
+        return project_route(c, (sessions) => {
+            const name = c.req.param("name");
+            const body: ProjectDetailResponse =
+                save_project_spec(deps.home, name, spec, sessions, deps.log);
+            return c.json(body);
+        });
+    });
+
+    app.delete("/projects/:name", (c) =>
+        project_route(c, (sessions) => {
+            delete_project(deps.home, c.req.param("name"), sessions, deps.log);
+            const body: OkResponse = { ok: true };
+            return c.json(body);
+        }),
+    );
 
     app.get("/sessions", (c) => {
         const result = list_sessions(deps.home);
