@@ -17,6 +17,7 @@ import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import { parse } from "yaml";
 import type {
+    ProjectCreateResponse,
     NewSessionRequest,
     PlansResponse,
     GithubAccess,
@@ -107,7 +108,7 @@ import { start_cost_ledger, type LedgerLoop } from "./costs/ledger.js";
 import { parse_span, report } from "./costs/periods.js";
 import { list_themes, read_settings, write_settings } from "./settings.js";
 import { snapshot_ui } from "./ui-snapshot.js";
-import { list_projects } from "./projects.js";
+import { create_project, list_projects, project_help, ProjectRefusal } from "./projects.js";
 import {
     parse_add_agent,
     parse_adopt,
@@ -303,6 +304,25 @@ export function create_app(deps: AppDeps): Hono {
     app.get("/projects", (c) => {
         const body: ProjectsResponse = { projects: list_projects(deps.home, deps.log) };
         return c.json(body);
+    });
+
+    app.get("/projects/help", (c) => c.json(project_help()));
+
+    // A project made from inside a session (the lead's `project` tool).
+    app.post("/projects", async (c) => {
+        const input = (await json_body(c)) as Record<string, unknown> | null;
+        const spec = input?.["spec"];
+        if (typeof spec !== "string" || spec.trim().length === 0) {
+            return c.json(error_body("`spec` is required: the spinner.yaml as text"), 400);
+        }
+        try {
+            const project = create_project(deps.home, spec, input?.["replace"] === true, deps.log);
+            const body: ProjectCreateResponse = { project };
+            return c.json(body, 201);
+        } catch (error) {
+            const status = error instanceof ProjectRefusal ? error.status : 400;
+            return c.json(error_body(describe_error(error)), status);
+        }
     });
 
     app.get("/sessions", (c) => {

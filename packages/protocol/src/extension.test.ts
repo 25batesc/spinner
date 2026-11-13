@@ -115,6 +115,7 @@ describe("extension manifest", () => {
             "stack",
             "pr",
             "change",
+            "project",
             "thread_list",
             "thread_reply",
             "thread_resolve",

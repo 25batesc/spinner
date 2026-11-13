@@ -1055,3 +1055,18 @@ An image pasted or dropped on the message box is saved with `POST /sessions/:dir
 
 `AgentSpec.ended` records how an agent's process ended: `code` (null for a signal), `by` (`operator` for the stop route, `daemon` for a reviewer the swarm stops; absent when the process ended on its own) and `at`. A resume clears it. The Agents view reads it: stopped by someone is `stopped`, code 0 is `done`, any other end is `failed`.
 
+## A project from inside a session
+
+A project is a `spinner.yaml`. `GET /projects` lists the ones the daemon finds. Two routes let a session's lead make one:
+
+| Route | Body | Answer | What it does |
+|---|---|---|---|
+| `GET /projects/help` | none | `ProjectHelpResponse` | The path of `docs/STACK_SPEC.md` and a small spec to start from. |
+| `POST /projects` | `ProjectCreateRequest` | 201 `ProjectCreateResponse` | Checks the spec text and saves it as `<home>/projects/<name>/spinner.yaml`. |
+
+`POST /projects` answers 400 for text that is not YAML, for a spec that does not load, and for a repo path that is not absolute (or does not start with `~`) or is not a git checkout. It answers 409 when a project of that name exists. With `replace: true` it writes over a project under `<home>/projects`; it never writes over a linked directory or a project of another place.
+
+`POST /sessions/:dir/attach` now attaches a project to any session. A session that tracks pull requests gets their head branches, as before. Any other session gets one worktree per repo on its own branch. It answers 409 for a review session and for a session that has another project.
+
+The lead's `project` tool has `help`, `list`, `create`, `update` (a `create` with `replace`) and `attach` (on its own session, waited for).
+

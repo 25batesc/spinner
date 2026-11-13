@@ -20,6 +20,9 @@ import type {
     Job,
     JobResponse,
     OkResponse,
+    ProjectCreateResponse,
+    ProjectHelpResponse,
+    ProjectsResponse,
     ReviewDraftResponse,
     MissionItemCommand,
     MissionItemRequest,
@@ -290,6 +293,47 @@ export async function run_tool(
             const tail = job.log.slice(-6).map((line) => `  ${line}`);
             const after = render_changes(await client.get<{ session: SessionView }>(session));
             return [...tail, "", after].join("\n");
+        }
+        case "project": {
+            const command = text("command");
+            if (command === "help") {
+                const help = await client.get<ProjectHelpResponse>("/projects/help");
+                return [
+                    `The format of spinner.yaml is described in ${help.doc}. Read it.`,
+                    "A small spec to start from:",
+                    "",
+                    help.example,
+                ].join("\n");
+            }
+            if (command === "list") {
+                const { projects } = await client.get<ProjectsResponse>("/projects");
+                const lines = projects.map(
+                    (p) => `- ${p.name} (${p.source}) · repos ${p.repos.join(", ") || "none"}` +
+                        ` · services ${p.services.join(", ") || "none"} · ${p.path}`,
+                );
+                return lines.length === 0 ? "No project yet." : lines.join("\n");
+            }
+            if (command === "create" || command === "update") {
+                const body = { spec: text("spec"), replace: command === "update" };
+                const made = await client.send<ProjectCreateResponse>("POST", "/projects", body);
+                const { name, path } = made.project;
+                return (
+                    `Project ${name} saved at ${path}. Attach it to this session with ` +
+                    `\`project\` \`attach\` and name ${name}.`
+                );
+            }
+            const name = text("name");
+            const started = await client.send<JobResponse>("POST", `${session}/attach`, {
+                project: name,
+            });
+            const job = await wait_job(client, started.job, poll_ms);
+            const tail = job.log.slice(-8).map((line) => `  ${line}`);
+            return [
+                `Project ${name} is attached to this session. The job's last lines:`,
+                ...tail,
+                "The worktrees are under worktrees/ in the session directory; work there " +
+                    "from now on. Start the stack with `stack` `up`.",
+            ].join("\n");
         }
         case "thread_list": {
             const view = await client.get<ThreadsResponse>(`${session}/threads`);

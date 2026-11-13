@@ -43,6 +43,15 @@ export const ROUTES = {
     "GET /health": "HealthResponse",
     /** The projects a session can be created from: every `spinner.yaml` the daemon can find. */
     "GET /projects": "ProjectsResponse",
+    /**
+     * Make a project: the body's `spinner.yaml` text is checked and saved as
+     * `<home>/projects/<name>/spinner.yaml`. Body: ProjectCreateRequest. 400 for a spec that
+     * does not load or names a repo path that is not a git checkout; 409 when a project of
+     * that name exists (a home project is replaced with `replace: true`).
+     */
+    "POST /projects": "ProjectCreateResponse",
+    /** Where the spec's reference is, and a small spec to start from. */
+    "GET /projects/help": "ProjectHelpResponse",
     /** Every session under `~/.spinner/sessions`, as the daemon currently sees it. */
     "GET /sessions": "SessionsResponse",
     /** One session by directory name. 404 when it does not exist. */
@@ -465,6 +474,26 @@ export interface ProjectView {
 
 export interface ProjectsResponse {
     projects: ProjectView[];
+}
+
+/** `POST /projects`: a project made from inside a session (the lead's `project` tool). */
+export interface ProjectCreateRequest {
+    /** The whole `spinner.yaml` as text. Its `name:` names the project. */
+    spec: string;
+    /** Write over a project of that name under `<home>/projects`. Never over a linked one. */
+    replace?: boolean;
+}
+
+export interface ProjectCreateResponse {
+    project: ProjectView;
+}
+
+/** `GET /projects/help`: what an agent needs to write a spec. */
+export interface ProjectHelpResponse {
+    /** Absolute path of `docs/STACK_SPEC.md`, the spec's reference. */
+    doc: string;
+    /** A small `spinner.yaml`: one repo, one host service with a preview. */
+    example: string;
 }
 
 /** Where a service runs. */

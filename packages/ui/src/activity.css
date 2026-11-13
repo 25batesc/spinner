@@ -5,3 +5,11 @@
 }
 .activity-panel .drawer-log { max-height: none; }
 .activity-panel .feed ul { list-style: none; margin: 0; padding: 0; font-size: var(--text-dense); }
+
+/* A session without a project: the previews tab says so and offers the two ways out. */
+.no-project {
+    margin: var(--space-3); padding: var(--space-3); border: 1px solid var(--border);
+    border-radius: var(--radius-box); display: flex; flex-direction: column; gap: var(--space-2);
+}
+.no-project p { margin: 0; }
+.no-project-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }

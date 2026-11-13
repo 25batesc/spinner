@@ -224,6 +224,9 @@ function fast_path_lines(egm_root: string | null): string[] {
         "commit on its change (`change` `switch` to it first when it is not the current one).",
         "Work that needs an unmerged change starts `on` it. Commit before you start or switch.",
         "Never make or switch a branch with git; the operator says when two requests share a PR.",
+        "A session without a project has no repo worktree, no stack and no preview. When the",
+        "work needs one (a new repo, an app to run and show), make the project yourself:",
+        "`project` `help`, then `create` and `attach`, then `stack` `up`.",
     ];
     if (egm_root !== null) {
         lines.push(

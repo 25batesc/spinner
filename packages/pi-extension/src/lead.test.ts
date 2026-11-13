@@ -79,7 +79,16 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 log: ["refused other#1: `other` is not a repo of the project", "adopted 1 PR"],
                 error: null,
             });
-            if (path.endsWith("/mission/section")) {
+            if (path === "/projects/help") {
+                answer(200, { doc: "/repo/docs/STACK_SPEC.md", example: "name: my-game\n" });
+            } else if (path === "/projects" && method === "POST") {
+                answer(201, {
+                    project: {
+                        name: "snake", path: "/home/projects/snake/spinner.yaml", source: "home",
+                        repos: ["game"], services: ["web"],
+                    },
+                });
+            } else if (path.endsWith("/mission/section")) {
                 answer(200, { ok: true, sections: [(body as { section: string }).section] });
             } else if (path.startsWith(`/sessions/${DIR}/title`)) {
                 answer(200, { session: { summary: { session: { title: "x" } } } });
@@ -87,6 +96,7 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 path === `/sessions/${DIR}/adopt` ||
                 path === `/sessions/${DIR}/pr` ||
                 path === `/sessions/${DIR}/up` ||
+                path === `/sessions/${DIR}/attach` ||
                 path.startsWith(`/sessions/${DIR}/changes`)
             ) {
                 polls = 0;
@@ -233,6 +243,32 @@ describe("the lead role", () => {
             expect(opened).toContain("The pull request job ran.");
             const pr_request = daemon.requests.find((r) => r.path === `/sessions/${DIR}/pr`);
             expect(pr_request?.body).toEqual({ body: "What and why." });
+        } finally {
+            daemon.close();
+        }
+    });
+
+    it("makes a project and attaches it to its own session", async () => {
+        const daemon = await fake_daemon();
+        try {
+            const pi = fake_pi();
+            register(pi, { env: env_for(daemon.url), job_poll_ms: 5 });
+            const help = await run(pi, "project", { command: "help" });
+            expect(help).toContain("/repo/docs/STACK_SPEC.md");
+            expect(help).toContain("name: my-game");
+            const spec = "name: snake\nbase: main\n";
+            const made = await run(pi, "project", { command: "create", spec });
+            expect(made).toContain("Project snake saved at /home/projects/snake/spinner.yaml");
+            const create = daemon.requests.find(
+                (r) => r.method === "POST" && r.path === "/projects",
+            );
+            expect(create?.body).toEqual({ spec, replace: false });
+            await run(pi, "project", { command: "update", spec });
+            expect(daemon.requests.at(-1)?.body).toEqual({ spec, replace: true });
+            const attached = await run(pi, "project", { command: "attach", name: "snake" });
+            expect(attached).toContain("Project snake is attached to this session.");
+            const attach = daemon.requests.find((r) => r.path === `/sessions/${DIR}/attach`);
+            expect(attach?.body).toEqual({ project: "snake" });
         } finally {
             daemon.close();
         }

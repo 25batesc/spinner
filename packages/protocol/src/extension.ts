@@ -75,6 +75,7 @@ export const EXTENSION_TOOLS = [
     "stack",
     "pr",
     "change",
+    "project",
     "thread_list",
     "thread_reply",
     "thread_resolve",
@@ -168,6 +169,8 @@ export type StackToolCommand = "show" | "logs" | "restart" | "up";
 
 export type ChangeToolCommand = "list" | "start" | "switch";
 
+export type ProjectToolCommand = "help" | "list" | "create" | "update" | "attach";
+
 /** The arguments of each tool, as the model supplies them. */
 export interface ExtensionToolArgs {
     /** Overwrites the agent's own Roster row. `blocked` is `no` or `yes: <what you wait for>`. */
@@ -197,6 +200,14 @@ export interface ExtensionToolArgs {
      * change to build on top of); `switch` checks out the branch of change `id`.
      */
     change: { command: ChangeToolCommand; title?: string; on?: string; id?: string };
+    /**
+     * Projects, the lead only. A project is a `spinner.yaml`: the repos a session gets
+     * worktrees of and the services `stack up` starts and the preview pane shows. `help`
+     * answers where the format is described and a small example; `list` the projects;
+     * `create` saves `spec` (the whole file as text) as a project; `update` writes `spec`
+     * over a project made before; `attach` gives this session the project `name`.
+     */
+    project: { command: ProjectToolCommand; spec?: string; name?: string };
     /** Open threads of one PR (repo key) or of every PR. */
     thread_list: { pr?: string };
     /** Replies in a thread. `thread` is a `ThreadView.id` or its `label` within `pr`. */
@@ -492,6 +503,35 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["command"],
             roles: LEAD,
             route: "POST /sessions/:dir/changes",
+        },
+        {
+            name: "project",
+            description:
+                "Projects. A project is a spinner.yaml: the repos this session gets " +
+                "worktrees of, and the services that `stack` `up` starts and the preview " +
+                "pane shows. Use it when the session has no project and the work needs a " +
+                "repo worktree, a running stack or a preview. `help` answers the path of " +
+                "the format's reference and a small example: read both first. `list` " +
+                "shows the projects that exist. `create` saves `spec` (the whole " +
+                "spinner.yaml as text) as a new project; every repo path must be an " +
+                "existing git checkout with a commit. `update` writes `spec` over a project " +
+                "you made before (then `attach` again). `attach` gives this session the " +
+                "project `name`: worktrees on the session's branch, then `stack` `up`.",
+            parameters: {
+                command: {
+                    type: "string",
+                    description: "What to do",
+                    enum: ["help", "list", "create", "update", "attach"],
+                },
+                spec: {
+                    type: "string",
+                    description: "For `create` and `update`: the spinner.yaml text",
+                },
+                name: { type: "string", description: "For `attach`: the project's name" },
+            },
+            required: ["command"],
+            roles: LEAD,
+            route: "POST /projects",
         },
         {
             name: "thread_list",

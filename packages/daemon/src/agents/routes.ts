@@ -29,6 +29,8 @@ import type { ActionContext } from "../actions.js";
 import type { SpinnerHome } from "../home.js";
 import type { JobRunner, JobWork } from "../jobs/jobs.js";
 import { attach_adopted } from "../pipeline/adopt.js";
+import { attach_project } from "../stack/runner.js";
+import { load_spec } from "../stack/spec.js";
 import { find_session } from "../store/session-store.js";
 import { MissionWriteError, type MissionWriter } from "../store/mission-writer.js";
 import { agent_context, write_context_file, type ContextDeps } from "./context.js";
@@ -152,12 +154,17 @@ export function mount_agent_routes(app: Hono, deps: AgentRouteDeps): void {
         } catch (error) {
             return c.json(error_body(describe_error(error)), 400);
         }
+        const blocker = attach_blocker(summary, load_spec(spec_path).spec.name);
+        if (blocker !== null) {
+            return c.json(error_body(blocker), 409);
+        }
         return start_job(c, deps, summary.dir, async (log) => {
-            const attached = await attach_adopted(deps.home, summary, {
-                spec_path,
-                gh: deps.ctx.gh,
-                log,
-            });
+            // A session that tracks pull requests gets their head branches (an adopted
+            // session); any other session gets worktrees on its own branch, as a new
+            // session with a project does.
+            const attached = tracks_pr(summary)
+                ? await attach_adopted(deps.home, summary, { spec_path, gh: deps.ctx.gh, log })
+                : await attach_project(summary, load_spec(spec_path), log);
             log(`project attached; next: spinner up ${attached.session.id}`);
         });
     });
@@ -264,6 +271,29 @@ export function parse_inbox(input: unknown): InboxMessageRequest | string {
     const request = fields as InboxMessageRequest;
     const reason = validate_inbox_message(request);
     return reason ?? request;
+}
+
+function tracks_pr(summary: SessionSummary): boolean {
+    return Object.values(summary.session.repos ?? {}).some(
+        (repo) => repo.pr !== null && repo.pr !== undefined,
+    );
+}
+
+/**
+ * Why the project cannot be attached, or null. A session keeps the project it has: its
+ * worktrees and its stack come from that spec. The same project attaches again (a spec that
+ * gained a repo or a service).
+ */
+export function attach_blocker(summary: SessionSummary, project: string): string | null {
+    const kind = summary.session.kind ?? "session";
+    if (kind === "review") {
+        return "a review session has no project";
+    }
+    const current = summary.session.project;
+    if (current !== undefined && current !== project) {
+        return `${summary.dir} has the project ${current}; a session keeps its project`;
+    }
+    return null;
 }
 
 export function parse_attach(input: unknown): AttachRequest | string {

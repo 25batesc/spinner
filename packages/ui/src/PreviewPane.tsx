@@ -7,6 +7,7 @@ import { diffPreviewService, diffRepos, diffSelected } from "./diff-view.ts";
 import { opensOnChanges } from "./changes.ts";
 import { useOpenActivity } from "./ActivityDrawer.tsx";
 import { ChangesRail, useOpenChange } from "./ChangesRail.tsx";
+import { lacksProject, NoProject } from "./NoProject.tsx";
 import { isReview } from "./review.ts";
 import { DiffPage } from "./DiffPage.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
@@ -329,6 +330,8 @@ export function PreviewPane(props: PreviewPaneProps) {
                         comments={{ dir, service: service.name, agents, comments }}
                     />
                 </>
+            ) : view !== undefined && lacksProject(view) ? (
+                <NoProject view={view} busy={busy} run={run} />
             ) : (
                 <p className="muted">
                     {view === undefined
