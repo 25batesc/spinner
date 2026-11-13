@@ -14,9 +14,14 @@ import {
     isSpinnerNotice,
     messageWithFiles,
     modelLabel,
+    quietMs,
+    quietText,
+    runningTool,
     sendsOnKey,
+    settledStamp,
     slashMatches,
     slashQuery,
+    stampKey,
     toolSummary,
     toolText,
     windowed,
@@ -281,4 +286,35 @@ it("splits an option into a title and a detail, without the lead's own marker", 
     // A first clause too long for a title: the whole option is one line.
     const long = `${"word ".repeat(20)}: detail`;
     expect(optionParts(long).detail).toBe("");
+});
+
+it("reads the history again once the transcript went quiet, and not while it moves", () => {
+    const a = stampKey({ written: "2026-11-13T14:19:10Z", bytes: 100 });
+    const b = stampKey({ written: "2026-11-13T14:19:18Z", bytes: 180 });
+    expect(stampKey(null)).toBe("");
+    expect(stampKey({ written: null, bytes: 0 })).toBe("");
+    // The transcript moved since the last poll: the agent writes; nothing is read.
+    expect(settledStamp(a, a, b)).toBe(a);
+    // The same stamp twice: the last message is in the file, so the history is read at it.
+    expect(settledStamp(a, b, b)).toBe(b);
+    // Nothing moved since the read: the stamp stays, and nothing is read again.
+    expect(settledStamp(b, b, b)).toBe(b);
+});
+
+it("says how long a working agent has been quiet and which tool call still runs", () => {
+    const now = Date.parse("2026-11-13T14:35:00Z");
+    expect(quietMs(now, "2026-11-13T12:21:00Z")).toBe(134 * 60_000);
+    expect(quietMs(now, null)).toBe(0);
+    expect(quietMs(now, "2026-11-13T14:36:00Z")).toBe(0);
+    expect(quietText(12 * 60_000 + 30_000)).toBe("12 min");
+    expect(quietText(134 * 60_000)).toBe("2 h 14 min");
+    const call: Entry = {
+        kind: "tool",
+        id: "1",
+        name: "bash",
+        args: { command: "node play.mjs" },
+        state: "running",
+    };
+    expect(runningTool([{ ...call, state: "ok" }, call])).toBe("bash node play.mjs");
+    expect(runningTool([{ ...call, state: "ok" }])).toBe("");
 });

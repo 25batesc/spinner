@@ -355,3 +355,48 @@ export function isSpinnerNotice(text: string): boolean {
     const start = text.trimStart();
     return SPINNER_STARTS.some((prefix) => start.startsWith(prefix));
 }
+
+/** How often the chat asks the daemon for the transcript's stamp. */
+export const STAMP_POLL_MS = 15_000;
+/** After this long without a write to its transcript, the chat says a working agent is quiet. */
+export const QUIET_HINT_MS = 3 * 60_000;
+
+/** One value for a transcript stamp, to compare two reads; "" without a transcript. */
+export function stampKey(stamp: { written: string | null; bytes: number } | null): string {
+    return stamp === null || stamp.written === null ? "" : `${stamp.written}/${stamp.bytes}`;
+}
+
+/**
+ * The stamp at which the chat reads the history again. A stamp seen on two polls in a row
+ * means the transcript went quiet, so one read then holds every message, also one whose
+ * live event was lost. While the agent writes, the stamp moves and nothing is read.
+ */
+export function settledStamp(read: string, previous: string, current: string): string {
+    return current === previous ? current : read;
+}
+
+/** How long ago the transcript was last written; 0 without one or when the clocks disagree. */
+export function quietMs(now: number, written: string | null): number {
+    const at = written === null ? Number.NaN : Date.parse(written);
+    return Number.isNaN(at) ? 0 : Math.max(0, now - at);
+}
+
+/** `12 min`, `2 h 14 min`: a quiet time in the status line. */
+export function quietText(ms: number): string {
+    const minutes = Math.floor(ms / 60_000);
+    if (minutes < 60) {
+        return `${minutes} min`;
+    }
+    return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/** The tool call that still runs, for the status line: `bash node play.mjs`; "" without. */
+export function runningTool(entries: readonly Entry[]): string {
+    const running = entries.findLast((entry) => entry.kind === "tool" && entry.state === "running");
+    if (running?.kind !== "tool") {
+        return "";
+    }
+    const subject = toolSummary(running);
+    return subject === "" ? running.name : `${running.name} ${subject}`;
+}
+

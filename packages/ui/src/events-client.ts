@@ -4,6 +4,7 @@ import {
     EVENT_TYPES,
     EVENTS_PATH,
     type AgentEventsResponse,
+    type AgentEventsStamp,
     type HealthResponse,
     type Job,
     type JobResponse,
@@ -191,6 +192,15 @@ export async function fetchAgentHistory(
         return null;
     }
     return ((await response.json()) as AgentEventsResponse).events;
+}
+
+/** When the agent's transcript was last written and its size; null when the daemon is away. */
+export async function fetchAgentStamp(
+    path: string,
+    signal: AbortSignal,
+): Promise<AgentEventsStamp | null> {
+    const response = await fetch(`${path}/events/stamp`, { signal });
+    return response.ok ? ((await response.json()) as AgentEventsStamp) : null;
 }
 
 export interface EventsHandlers {

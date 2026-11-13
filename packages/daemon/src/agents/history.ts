@@ -5,7 +5,7 @@
 // same way as a live one. The newest file is the transcript `--session-id <name>` resumes.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { PiEvent, PiMessage } from "@spinner/protocol";
+import type { AgentEventsStamp, PiEvent, PiMessage } from "@spinner/protocol";
 import { agent_pi_dir } from "./harness.js";
 
 /** Upper bound on transcript entries read; a session past this is compacted by pi anyway. */
@@ -56,6 +56,16 @@ function message_of(entry: unknown): PiMessage | null {
         return null;
     }
     return message as PiMessage;
+}
+
+/** When the agent's transcript was last written and its size; nulls without a transcript. */
+export function agent_history_stamp(session_path: string, name: string): AgentEventsStamp {
+    const file = newest_transcript(join(session_path, agent_pi_dir(name)));
+    if (file === null) {
+        return { written: null, bytes: 0 };
+    }
+    const stat = statSync(file);
+    return { written: stat.mtime.toISOString(), bytes: stat.size };
 }
 
 function newest_transcript(dir: string): string | null {

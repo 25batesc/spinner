@@ -10,6 +10,7 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
     AgentCommandResponse,
     AgentEventsResponse,
+    AgentEventsStamp,
     AgentResponse,
     JobResponse,
     JobsResponse,
@@ -417,6 +419,14 @@ describe("agents", () => {
         ]);
         const none = await fetch(`${base}/sessions/s001/agents/nobody/events`);
         expect(((await none.json()) as AgentEventsResponse).events).toEqual([]);
+        // The stamp: the transcript's time and size, so a chat learns that it moved.
+        const stamp = await fetch(`${base}/sessions/s001/agents/backend/events/stamp`);
+        const read = (await stamp.json()) as AgentEventsStamp;
+        expect(read.bytes).toBe(statSync(transcript).size);
+        expect(read.written).toBe(statSync(transcript).mtime.toISOString());
+        const absent = await fetch(`${base}/sessions/s001/agents/nobody/events/stamp`);
+        expect(await absent.json()).toEqual({ written: null, bytes: 0 });
+        expect((await fetch(`${base}/sessions/nope/agents/backend/events/stamp`)).status).toBe(404);
 
         const models = (await (await fetch(`${base}/models`)).json()) as ModelsResponse;
         expect(models.models.map((model) => model.id)).toEqual(["claude-x", "gpt-y"]);

@@ -102,6 +102,10 @@
     color: var(--muted); font-size: var(--text-body);
 }
 .dot.chat-idle { background: var(--warn); border-color: var(--warn); }
+/* A working agent that has written nothing for minutes: the line stands out, and the mark rests. */
+.chat-status[data-quiet="true"] { color: var(--warn); }
+.chat-status[data-quiet="true"] .chat-avatar,
+.chat-status[data-quiet="true"] .dot { animation: none; }
 .chat-status[data-state^="stopped"] .dot.chat-idle { background: transparent; border-color: var(--muted); }
 
 /* The dock: the jump button, an error, the slash menu, the box and its foot. */

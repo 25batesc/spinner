@@ -76,6 +76,7 @@ WebSockets below.
 | `POST /sessions/:dir/agents/:name/model` | `AgentModelRequest` | `OkResponse` | `{ "model": "provider/id" }`. 200 once pi took the model; then `agents.<name>.model` holds it and `session.updated` follows. 400 with pi's error when pi does not know the model or has no key for it, or when `model` is not `provider/id`; 404 for an unknown session or agent; 409 with `AgentNotRunningResponse` when it is not running. A tty agent gets `set_model` through its extension, an rpc agent pi's `set_model`. |
 | `POST /sessions/:dir/agents/:name/thinking` | `AgentThinkingRequest` | `OkResponse` | `{ "level": ThinkingLevel }`, one of `THINKING_LEVELS` (`off minimal low medium high xhigh max`), else 400. Records `agents.<name>.thinking`; the other answers as `model`. pi clamps the level to the model; a tty agent's extension then reports the clamped one. |
 | `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
+| `GET /sessions/:dir/agents/:name/events/stamp` | | `AgentEventsStamp` | When the transcript was last written, and its size. Nulls without a transcript. |
 | `GET /sessions/:dir/agents/:name/context` | | `ContextResponse` | The context chain and the loaded commands. |
 | `PUT /sessions/:dir/agents/:name/context` | `ContextFileRequest` | `ContextFileResponse` | Writes one file of the chain. |
 | `POST /sessions/:dir/agents/:name/hello` | `AgentHelloRequest` | `AgentCommandResponse` | Extension only; below. |
@@ -107,7 +108,7 @@ WebSockets below.
 | `GET /egm` | | `EgmResponse` | The EGM fetch state and the pin; below. |
 | `POST /egm/fetch` | | `JobResponse` | The `egm` job: fetches EGM again at the pin and regenerates the adapter; below. |
 | `PUT /sessions/:dir/design/track` | `DesignTrackRequest` | `SessionResponse` | Sets `design.track`; below. 400 for an unknown track, 409 once a repo has commits or for `design` when EGM is not available. |
-| `PUT /sessions/:dir/design/doc` | `DesignDocRequest` | `SessionResponse` | The lead's `design_doc` tool; below. 400 with the reason, 409 off the design track or while an approval stands. |
+| `PUT /sessions/:dir/design/doc` | `DesignDocRequest` | `SessionResponse` | The lead's `design_doc` tool; below. 400 with the reason, 409 off the design track or for the approved doc while its approval stands. |
 | `PUT /sessions/:dir/design/gate` | `DesignGateRequest` | `OkResponse` | The lead's `ask_question` tool writes `design.gate`; below. 400 with the first fault. |
 | `POST /sessions/:dir/design/answer` | `DesignAnswerRequest` | `AgentCommandResponse` | Clears the gate and prompts the lead with the text; below. 400 for an empty or long text, 409 when the lead is not running. |
 | `POST /sessions/:dir/design/run` | `DesignRunRequest` | `AgentCommandResponse` | Starts an EGM skill in the lead with the arguments the daemon composes; below. 400 for a bad body, 409 with the reason. |
@@ -335,7 +336,10 @@ The route answers 400 with the first refusal of these checks, in order:
 5.  The file has both a `## Overview` and a `## Detailed Implementation Plan` heading.
 6.  The file does not exist on `origin/<base>`, unless it is the session's current `design.doc`. The `git` call has a 10-second bound.
 
-It answers 409 off the design track, and while an approval stands that no edit invalidated.
+It answers 409 off the design track.
+It answers 409 for the approved doc itself, while its approval stands and no edit invalidated it.
+Another doc named while an approval stands starts a new design.
+The daemon then clears the approval, keeps its record in `design.approvals`, and writes one Log line.
 On success it records `design.doc` and `design.repo`, points the Goal at the doc, and watches the doc file.
 
 `SessionView.design` (a `DesignView`) carries the track, the stage (null on the direct track), the files of `<session>/design/`, the current run's report flags, the doc and whether it is missing, the doc's repo (`repo`), the absolute designs directory (`designs_dir`), the approvals and the gate.
@@ -1044,6 +1048,12 @@ In the UI, the sidebar has a `Plans` view. A row with a live planning session op
 The design is `docs/designs/talk-change-ship.md`, step 5, part A. The chat is the default surface of every agent; `terminal` and `context` are tabs beside it. A terminal connects to its agent once its tab was shown.
 
 The chat reads the agent's past turns from `GET /sessions/:dir/agents/:name/events` when its tab opens, when the agent is resumed, and at the start and the end of each turn. Live `agent.event` records add to them. A message both sources hold shows once: a message is matched by its timestamp, a tool call by its id.
+
+The end of a turn can fail to arrive, for example when pi does not settle or an event is lost.
+So the chat also asks for `GET …/events/stamp` every 15 seconds.
+When the stamp is the same on two polls in a row and differs from the last read, the chat reads the history again.
+When the agent is in a turn and the transcript has had no write for 3 minutes, the status line says so.
+It gives the time, names the tool call that still runs, and points at `stop`.
 
 `POST /sessions/:dir/agents/:name/prompt` and `.../steer` resume a listed agent that is stopped when the body has `source: "operator"`, then send the text as a prompt. Without that mark a stopped agent is still a 409.
 

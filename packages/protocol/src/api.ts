@@ -280,6 +280,11 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/thinking": "OkResponse",
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
+    /**
+     * When the agent's transcript was last written and how large it is: a cheap way for the
+     * chat to learn that the history moved without reading it.
+     */
+    "GET /sessions/:dir/agents/:name/events/stamp": "AgentEventsStamp",
     /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
     "POST /sessions/:dir/agents/:name/hello": "AgentCommandResponse",
     /** Long-poll (30 s) for the next command to a tty agent's extension. Query: ack, disposition */
@@ -351,7 +356,8 @@ export const ROUTES = {
     "PUT /sessions/:dir/design/track": "SessionResponse",
     /**
      * Body: DesignDocRequest. The lead's `design_doc` tool. 400 with the reason when the path
-     * is not a design doc; 409 while an approval stands.
+     * is not a design doc; 409 for the approved doc while its approval stands. Another doc
+     * clears the approval and starts a new design.
      */
     "PUT /sessions/:dir/design/doc": "SessionResponse",
     /**
@@ -1596,6 +1602,13 @@ export interface AgentResponse {
 /** The 409 body of `prompt` or `steer` on an agent the daemon does not host. */
 export interface AgentNotRunningResponse extends ErrorResponse {
     process: AgentProcessState;
+}
+
+/** `GET …/agents/:name/events/stamp`: the transcript file's time and size; nulls without one. */
+export interface AgentEventsStamp {
+    /** ISO 8601 time of the last write. */
+    written: string | null;
+    bytes: number;
 }
 
 /** The agent's past turns, as the `message_end` events the UI folds, oldest first. */
