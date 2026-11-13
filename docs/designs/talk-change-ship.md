@@ -59,6 +59,11 @@ How they join:
 | R3 | Where does a plan live? | In Spinner's library (`~/.spinner/plans/`). Saving it to a repo's `docs/designs/` is a later, optional action. |
 | R4 | Build step 1 before the rest is detailed? | Yes. |
 | R5 | The Agents view design in flight (session s052)? | Paused until steps 2 and 5 are detailed; its findings fold in then. |
+| R6 | The database when `test locally` switches to another change? | Kept as it is, until that hurts (2026-11-12). No spec command for a worktree's migrations yet. |
+| R7 | Where does planning happen? | In a `Plans` view of the sidebar. A plan opens a planning session: the chat, the plan document, the EGM steps as optional buttons, no worktree needed. An approved design doc of an old session opens there as a plan (2026-11-12). |
+| R8 | What does `Implement` do? | It attaches the plan to a session the operator picks, or a new one, and seeds the mission board. The agent makes one change per step or group of steps. The mission view stays as the view of a plan in progress (2026-11-12). |
+| R9 | The Agents view (step 5)? | One row per agent: role, state, current action, context, cost; finished agents folded. The draft of s052 folds in, then s052 closes (2026-11-12). |
+| R10 | The middle pane and the toolbar (step 5)? | Open. The operator asked which cards carry the toolbar's actions. The change cards carry `create PR`, `post` and `merge` today; `review`, `approve` and `fix` are not on them yet. |
 
 ## What the operator sees (after step 5)
 
@@ -161,7 +166,7 @@ A file written before is valid as it is, so nothing migrates and every reader of
 
 **3.3 The lead knows what is checked out.** With more than one change, the lead's prompt section lists the open changes at every turn and marks the one that is checked out, because `test locally` can move the worktrees between two turns.
 
-**3.4 The database is kept.** The outline said the database is re-cloned when the migrations differ. Spinner cannot tell: the spec builds the template with a project command and has no command that applies a worktree's migrations to the session's database; the lead applies them by hand today. So a switch keeps the session's database as it is. Open for the operator: a spec key for that command (then a switch re-clones and migrates), or a `fresh database` choice on `test locally`, or neither.
+**3.4 The database is kept (R6).** The outline said the database is re-cloned when the migrations differ. Spinner cannot tell: the spec builds the template with a project command and has no command that applies a worktree's migrations to the session's database; the lead applies them by hand today. So a switch keeps the session's database as it is. The operator decided to keep it so until it hurts; the remedy then is a spec key for that command, so a switch re-clones and migrates.
 
 **3.5 Found on the way.** A branch name the repositories already have (an older session used the same title) gets a number. The stack jobs store only the `stack` field into the file as it is at that moment, as the focused writes of 2.2 do.
 
