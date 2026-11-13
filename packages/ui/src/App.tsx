@@ -31,6 +31,7 @@ import { deleteVerify, fetchPlans, useLoaded } from "./remote.ts";
 import { isReview, ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
 import { ReviewPane } from "./ReviewPane.tsx";
 import { prRows } from "./changes.ts";
+import { useOpenChange } from "./ChangesRail.tsx";
 import { ImplementBar, PlanPage } from "./PlanPage.tsx";
 import { implementTargets } from "./plans.ts";
 import { PlansPane } from "./PlansPane.tsx";
@@ -480,6 +481,12 @@ export function App() {
             openColumn();
         }
     };
+    // The PR chip opens the PR view: a collapsed previews pane comes back for it.
+    useOpenChange(() => {
+        if (layout.fitted.panes.previews.collapsed) {
+            layout.restore("previews");
+        }
+    });
     const review = view === undefined ? null : reviewFacts(view);
     // The composer is the empty state too: a home with no sessions opens on it.
     let composer: "session" | "review" | null = null;

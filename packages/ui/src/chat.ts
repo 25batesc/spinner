@@ -332,3 +332,26 @@ export function withDictation(text: string, spoken: string): string {
     }
     return text === "" || /\s$/.test(text) ? `${text}${words}` : `${text} ${words}`;
 }
+
+/**
+ * The starts of the messages Spinner itself sends to an agent as a user message: a mission
+ * change, the autopilot, a plan to implement, a design notice, a preview comment. pi records
+ * them as the user's; the chat shows them as Spinner's notes, not as the operator's words.
+ */
+const SPINNER_STARTS = [
+    "MISSION.md changed by",
+    "Spinner autopilot:",
+    "Spinner:",
+    "Note from Spinner",
+    "Implement the plan \"",
+    "The design is approved:",
+    "The design doc changed",
+    "A preview comment",
+    "Preview comment",
+];
+
+/** True for a user message that Spinner wrote, not the operator. */
+export function isSpinnerNotice(text: string): boolean {
+    const start = text.trimStart();
+    return SPINNER_STARTS.some((prefix) => start.startsWith(prefix));
+}

@@ -21,6 +21,7 @@ import {
     boxRows,
     chatBlocks,
     imagesLabel,
+    isSpinnerNotice,
     messageWithFiles,
     modelLabel,
     sendsOnKey,
@@ -145,9 +146,33 @@ function WorkGroup({ block }: { block: WorkBlock }) {
     );
 }
 
+/** A message Spinner sent to the agent: one muted line; a click opens the whole text. */
+function SpinnerNotice({ text }: { text: string }) {
+    const [open, setOpen] = useState(false);
+    const first = text.trim().split("\n")[0] ?? "";
+    return (
+        <li className="chat-notice">
+            <button
+                type="button"
+                className="chat-work-head"
+                aria-expanded={open}
+                onClick={() => setOpen(!open)}
+                title="Sent to the agent by Spinner"
+            >
+                <span className="chat-fold" data-open={open}>›</span>
+                <span className="chat-work-label">Spinner: {first}</span>
+            </button>
+            {open && <div className="chat-notice-text">{text.trim()}</div>}
+        </li>
+    );
+}
+
 function BlockView({ block }: { block: ChatBlock }) {
     switch (block.kind) {
         case "user":
+            if (isSpinnerNotice(block.entry.text)) {
+                return <SpinnerNotice text={block.entry.text} />;
+            }
             return (
                 <li className="chat-user">
                     <div className="chat-user-text">{block.entry.text}</div>

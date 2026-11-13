@@ -8,6 +8,7 @@
     --chat-width: 820px;
 }
 .chat-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: var(--space-3) var(--space-2); }
+.agent-chat, .agent-chat * { box-sizing: border-box; }
 .chat-column, .chat-dock { width: 100%; max-width: var(--chat-width); margin: 0 auto; }
 .chat-list {
     list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
@@ -23,6 +24,13 @@
 }
 .chat-user-text { white-space: pre-wrap; }
 .chat-user-images { display: block; font-size: var(--text-meta); margin-top: 2px; }
+
+/* A message Spinner sent to the agent: a folded line, not the operator's pill. */
+.chat-notice { display: flex; flex-direction: column; min-width: 0; }
+.chat-notice-text {
+    margin: var(--space-1) 0 0 4px; padding-left: var(--space-3); border-left: 2px solid var(--border);
+    color: var(--muted); font-size: var(--text-body); white-space: pre-wrap;
+}
 
 /* The agent's answer: prose in the conversation, not a document in a frame. */
 .chat-assistant { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
@@ -130,7 +138,7 @@
 .chat-icon:hover { background: var(--fill); color: var(--text); }
 .chat-icon[aria-pressed="true"] { background: var(--fail-fill); color: var(--fail); }
 .chat-select {
-    flex: 0 1 auto; min-width: 0; max-width: 190px; height: 28px; border: 0; background: none;
+    flex: 0 1 auto; min-width: 0; max-width: 170px; height: 28px; border: 0; background: none;
     color: var(--muted); font: inherit; font-size: var(--text-dense); cursor: pointer;
     text-overflow: ellipsis;
 }

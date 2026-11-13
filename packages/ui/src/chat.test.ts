@@ -8,6 +8,7 @@ import {
     boxRows,
     chatBlocks,
     durationText,
+    isSpinnerNotice,
     messageWithFiles,
     modelLabel,
     sendsOnKey,
@@ -229,4 +230,12 @@ describe("the chat's turns", () => {
         expect(withDictation("please ", "fix it")).toBe("please fix it");
         expect(withDictation("keep", "  ")).toBe("keep");
     });
+});
+
+it("tells Spinner's own messages to an agent from the operator's", () => {
+    expect(isSpinnerNotice("MISSION.md changed by unknown: Log (+1).\nRe-read it.")).toBe(true);
+    expect(isSpinnerNotice("Spinner autopilot: your pull request needs you.")).toBe(true);
+    expect(isSpinnerNotice('Implement the plan "Exports": /p/exports.md')).toBe(true);
+    expect(isSpinnerNotice("please fix the MISSION.md changed by me")).toBe(false);
+    expect(isSpinnerNotice("fix the test")).toBe(false);
 });
