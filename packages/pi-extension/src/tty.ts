@@ -7,6 +7,7 @@
 // them to the extension. `session_shutdown` stops the loop; a reload starts a fresh one.
 import { readFileSync } from "node:fs";
 import type { AgentExtensionCommand } from "@spinner/protocol";
+import { split_model } from "@spinner/protocol";
 import { agent_route_base, type SpinnerEnv } from "./env.js";
 import type {
     ImageContent,
@@ -15,6 +16,7 @@ import type {
     ExtensionContext,
     LifecycleEvent,
     LifecycleEventName,
+    PiModel,
     SlashCommandInfo,
 } from "./pi-api.js";
 import type { Fetch } from "./tools.js";
@@ -181,11 +183,25 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
         });
     }
 
+    // The daemon records pi's model and thinking level in `session.yaml`: as they are once
+    // `hello` is in (a fresh or a resumed pi), and on every change, from Spinner or from the
+    // operator in pi's own terminal.
+    pi.on("model_select", (event) => {
+        enqueue({ type: "model_select", model: model_name(event.model) });
+    });
+    pi.on("thinking_level_select", (event) => {
+        enqueue({ type: "thinking_level_select", level: event.level });
+    });
+
     pi.on("session_start", async (_event, ctx) => {
         loop?.abort();
         const controller = new AbortController();
         loop = controller;
         await post("/hello", { pid, commands: pi.getCommands() });
+        if (ctx.model !== undefined) {
+            enqueue({ type: "model_select", model: model_name(ctx.model) });
+        }
+        enqueue({ type: "thinking_level_select", level: pi.getThinkingLevel() });
         void poll_loop(controller.signal, ctx);
     });
 
@@ -229,7 +245,7 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
             } catch {
                 continue;
             }
-            const disposition = act(pi, ctx, command);
+            const disposition = await act(pi, ctx, command);
             const id = encodeURIComponent(command.id);
             ack = `?ack=${id}&disposition=${encodeURIComponent(disposition)}`;
         }
@@ -252,13 +268,24 @@ export const NOTICE_TYPE = "spinner_notice";
  * starts a turn when idle); an abort stops the run. A notify is the daemon's own message (a
  * failed stack job): a custom message that starts a turn when idle and steers when busy, so
  * the transcript shows it came from Spinner, not from a person. The disposition words are
- * the RPC harness's, so the daemon's callers see the same answers on both paths.
+ * the RPC harness's, so the daemon's callers see the same answers on both paths. A
+ * `set_model` or a `set_thinking` answers `ok`, or pi's error as the daemon shows it.
  */
-export function act(
+export async function act(
     pi: ExtensionAPI,
     ctx: ExtensionContext,
     command: AgentExtensionCommand,
-): string {
+): Promise<string> {
+    if (command.type === "set_model") {
+        return set_model(pi, ctx, command.model ?? "");
+    }
+    if (command.type === "set_thinking") {
+        if (command.level === undefined) {
+            return "set_thinking needs a level";
+        }
+        pi.setThinkingLevel(command.level);
+        return "ok";
+    }
     const idle = ctx.isIdle();
     if (command.type === "abort") {
         ctx.abort();
@@ -291,6 +318,28 @@ export function act(
     }
     pi.sendUserMessage(content, { deliverAs: "followUp" });
     return "queued";
+}
+
+/** `provider/id` through pi's model registry: `ok`, or why pi did not take it. */
+async function set_model(pi: ExtensionAPI, ctx: ExtensionContext, model: string): Promise<string> {
+    const parts = split_model(model);
+    if (parts === null) {
+        return `model ${model} is not provider/id`;
+    }
+    const found = ctx.modelRegistry.find(parts.provider, parts.id);
+    if (found === undefined) {
+        return `pi does not know the model ${model}`;
+    }
+    try {
+        const taken = await pi.setModel(found);
+        return taken ? "ok" : `pi has no API key for ${parts.provider}`;
+    } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+    }
+}
+
+function model_name(model: PiModel): string {
+    return `${model.provider}/${model.id}`;
 }
 
 /**
