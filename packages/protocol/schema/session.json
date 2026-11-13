@@ -857,6 +857,10 @@
                         "type": "string"
                     },
                     "description": "Skill directories pi loads with `--skill`, beyond the session's `skills/` (s015)."
+                },
+                "ended": {
+                    "$ref": "#/definitions/AgentEnded",
+                    "description": "How the process last ended (R9): the exit code (null for a signal), `operator` when the stop route ended it, and the ISO time. The Agents view tells stopped, done and failed apart by it. Absent while the process runs and before its first exit."
                 }
             },
             "required": [
@@ -895,6 +899,33 @@
                 "idle",
                 "exited"
             ]
+        },
+        "AgentEnded": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "by": {
+                    "type": "string",
+                    "enum": [
+                        "operator",
+                        "daemon"
+                    ]
+                },
+                "at": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "code",
+                "at"
+            ],
+            "additionalProperties": false,
+            "description": "The last exit of an agent's process, as `AgentSpec.ended` records it."
         },
         "DiffState": {
             "type": "object",

@@ -70,7 +70,7 @@ interface Hosted {
     /** True between `agent_start` and `agent_settled`: a steer reaches this run. */
     busy: boolean;
     /** Set by `stop`, so the exit records that the operator ended the process. */
-    stopped_by?: "operator";
+    stopped_by?: "operator" | "daemon";
     unsubscribe: () => void;
 }
 
@@ -437,12 +437,16 @@ export class AgentManager {
      * as the operator's, for the stop route and a review cancel. The swarm's stop of a done
      * reviewer is recorded the same way; the reviewer's row reads its swarm state instead.
      */
-    async stop(dir: string, name: string): Promise<void> {
+    async stop(
+        dir: string,
+        name: string,
+        by: "operator" | "daemon" = "operator",
+    ): Promise<void> {
         const entry = this.hosted.get(key_of(dir, name));
         if (entry === undefined) {
             throw new Error(`agent ${name} is not running in ${dir}`);
         }
-        entry.stopped_by = "operator";
+        entry.stopped_by = by;
         await entry.handle.stop();
     }
 

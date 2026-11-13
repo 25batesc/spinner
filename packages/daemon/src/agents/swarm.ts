@@ -237,7 +237,7 @@ export class ReviewSwarm {
             this.last_text.delete(key_of(dir, name));
             const running = this.deps.agents.get(dir, name) !== null;
             if (running) {
-                await this.deps.agents.stop(dir, name).catch(() => undefined);
+                await this.deps.agents.stop(dir, name, "daemon").catch(() => undefined);
             }
             const state = review.swarm[name]?.state;
             if (running || state === "queued") {
@@ -347,7 +347,7 @@ export class ReviewSwarm {
         this.log(`reviewer ${agent} in ${dir} done: ${file}`);
         await this.refresh(dir);
         try {
-            await this.deps.agents.stop(dir, agent);
+            await this.deps.agents.stop(dir, agent, "daemon");
         } catch {
             // Already gone: the exit handler runs either way.
         }
