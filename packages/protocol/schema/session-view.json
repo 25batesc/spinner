@@ -2554,6 +2554,17 @@
                     "type": "boolean",
                     "description": "True when the operator ticked `verified` at the head of every open pull request of the change: it was tested locally as it stands. A new commit makes it false."
                 },
+                "posted": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The Slack permalink of the change's review request, or null before `post`."
+                },
+                "approved": {
+                    "type": "boolean",
+                    "description": "True when the operator approved the head of every open pull request of the change."
+                },
                 "started": {
                     "type": [
                         "string",
@@ -2621,6 +2632,9 @@
                 "title": {
                     "type": "string"
                 },
+                "author": {
+                    "type": "string"
+                },
                 "head": {
                     "type": "string"
                 },
@@ -2633,14 +2647,38 @@
                         "type": "string"
                     }
                 },
+                "approvals": {
+                    "$ref": "#/definitions/PrApprovals"
+                },
+                "approval_check": {
+                    "$ref": "#/definitions/ApprovalCheckState"
+                },
                 "threads": {
                     "$ref": "#/definitions/PrThreads"
                 },
                 "review": {
                     "$ref": "#/definitions/ReviewDecision"
                 },
+                "bot_reviewed_head": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Head SHA of the latest bot review, or null before the first one."
+                },
                 "queue": {
                     "$ref": "#/definitions/QueueState"
+                },
+                "queue_reason": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Why the merge queue removed the pull request."
+                },
+                "last_activity": {
+                    "type": "string",
+                    "description": "ISO 8601."
                 },
                 "diff": {
                     "$ref": "#/definitions/PrDiff"
