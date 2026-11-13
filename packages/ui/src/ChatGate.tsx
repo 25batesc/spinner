@@ -6,7 +6,7 @@
 // resolve gate of an EGM review shows the same way, with its three replies.
 import { useMemo, useState, type FormEvent } from "react";
 
-import { RESOLVE_ANSWERS, type SessionView } from "@spinner/protocol";
+import { ASSISTANT_NAME, RESOLVE_ANSWERS, type SessionView } from "@spinner/protocol";
 
 import { gateCard } from "./design.ts";
 import { renderChatMarkdown } from "./markdown.ts";
@@ -31,7 +31,7 @@ export function chatQuestion(view: SessionView): ChatQuestion | null {
         const gate = design.gate;
         return {
             key: gate.asked,
-            label: "lead asks",
+            label: `${ASSISTANT_NAME} asks`,
             question: gate.question,
             options: gate.options,
         };
@@ -111,7 +111,7 @@ export function ChatGate({ dir, asked }: { dir: string; asked: ChatQuestion }) {
             <button
                 type="button"
                 className="chat-gate chat-gate-folded"
-                aria-label="Show the lead's question"
+                aria-label={`Show ${ASSISTANT_NAME}'s question`}
                 onClick={() => setFolded(false)}
             >
                 <span className="chat-gate-label">{asked.label}</span>
@@ -123,7 +123,7 @@ export function ChatGate({ dir, asked }: { dir: string; asked: ChatQuestion }) {
         );
     }
     return (
-        <section className="chat-gate" aria-label="The lead's question">
+        <section className="chat-gate" aria-label={`${ASSISTANT_NAME}'s question`}>
             <header className="chat-gate-head">
                 {asked.question === "" ? (
                     <div className="chat-gate-question">{asked.label}</div>
@@ -181,7 +181,7 @@ export function ChatGate({ dir, asked }: { dir: string; asked: ChatQuestion }) {
                     type="button"
                     className="chat-gate-skip"
                     disabled={posting !== null}
-                    title="Let the lead decide and log its assumption"
+                    title={`Let ${ASSISTANT_NAME} decide and note the assumption`}
                     onClick={() => answer(SKIP_ANSWER)}
                 >
                     Skip

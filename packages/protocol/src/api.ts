@@ -850,6 +850,13 @@ export const REVIEW_DRAFT_NEEDS_HUMAN = "post or drop the review draft";
 /** The agent that leads a session (s014) and reconciles its review (s016). */
 export const LEAD_NAME = "lead";
 
+/**
+ * The name the operator calls a session's lead by (2026-11-13). It is what the app shows
+ * and what the lead answers to. The agent's name in `session.yaml`, in MISSION.md and in
+ * every route stays `LEAD_NAME`.
+ */
+export const ASSISTANT_NAME = "Remy";
+
 /** Body of `PUT /sessions/:dir/review/briefing`. */
 export interface ReviewBriefingRequest {
     markdown: string;

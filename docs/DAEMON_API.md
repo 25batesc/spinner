@@ -347,7 +347,7 @@ On success it records `design.doc` and `design.repo`, points the Goal at the doc
 `PUT /sessions/:dir/design/gate` takes `{ question, options }`, the lead's `ask_question` payload after the extension checked it.
 It answers 400 with the first fault: an empty question, a question over 2000 characters, fewer than 2 or more than 6 options, or an empty option or one over 300 characters.
 It writes `design.gate` with the time, replaces any open gate, and answers `{ ok: true }`.
-The design's `needs` and the session's `needs_human` become `answer the lead: <first 80 characters of the question>`.
+The design's `needs` and the session's `needs_human` become `answer Remy: <first 80 characters of the question>`.
 
 `POST /sessions/:dir/design/answer` takes `{ text }`, at most 4000 characters.
 It answers 409 with `the lead is not running; resume it from its tab` when the lead has no process; the gate then stays.

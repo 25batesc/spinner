@@ -403,7 +403,7 @@ describe("PUT /sessions/:dir/design/gate and POST …/design/answer (3.9)", () =
         expect(await response.json()).toEqual({ ok: true });
         const gated = stored();
         expect(gated.design?.gate).toMatchObject(GATE);
-        const needs = `answer the lead: ${GATE.question.slice(0, 80)}`;
+        const needs = `answer Remy: ${GATE.question.slice(0, 80)}`;
         expect(gated.design?.needs).toBe(needs);
         expect(gated.needs_human).toBe(needs);
 
@@ -485,7 +485,7 @@ describe("PUT /sessions/:dir/design/gate and POST …/design/answer (3.9)", () =
         expect((await put(app, "gate", GATE)).status).toBe(200);
         const build = stored();
         expect(build.design?.stage).toBe("approved");
-        expect(build.needs_human).toBe(`answer the lead: ${GATE.question.slice(0, 80)}`);
+        expect(build.needs_human).toBe(`answer Remy: ${GATE.question.slice(0, 80)}`);
     });
 
     it("clears the gate on a prompt or a steer through the agents route (3.10)", async () => {

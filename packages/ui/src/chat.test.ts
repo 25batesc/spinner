@@ -252,7 +252,7 @@ it("shows the lead's open question as the last block of its chat", () => {
             ...(design === undefined ? {} : { design }),
         }) as unknown as SessionView;
     expect(chatQuestion(view({ gate, stage: "drafting" }, null))).toEqual({
-        key: "t1", label: "lead asks", question: "Which shape?", options: ["(a) one", "(b) two"],
+        key: "t1", label: "Remy asks", question: "Which shape?", options: ["(a) one", "(b) two"],
     });
     const resolve = chatQuestion(view({ gate: null, stage: "resolving" }, RESOLVE_NEEDS));
     expect(resolve?.key).toBe("resolve");

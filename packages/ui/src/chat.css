@@ -222,3 +222,13 @@
     letter-spacing: 0.04em; text-transform: uppercase;
 }
 .chat-gate-folded-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Remy's mark in the status line: a small round face that breathes while Remy works. */
+.chat-avatar {
+    flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-fill);
+    color: var(--accent); font-size: 11px; font-weight: 700; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.chat-avatar[data-working="true"] { animation: chat-breathe 1.6s ease-in-out infinite; }
+@keyframes chat-breathe { 50% { transform: scale(1.18); background: var(--accent); color: var(--bg); } }
+

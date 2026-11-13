@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { initialSessions } from "../fixture/data.ts";
 import {
-    agentTabs, contextLabel, contextTitle, contextTone, fullestContext, loadSurface,
+    agentLabel, agentTabs, contextLabel, contextTitle, contextTone, fullestContext, loadSurface,
     saveSurface, showsTerminal,
 } from "./agent-view.ts";
 
@@ -103,4 +103,10 @@ describe("the agent's surface", () => {
         expect(none).toEqual({ labels: ["chat", "context"], shown: "chat" });
         expect(agentTabs(true, "context").shown).toBe("context");
     });
+});
+
+it("calls the session's lead Remy, and every other agent by its own name", () => {
+    expect(agentLabel("lead")).toBe("Remy");
+    expect(agentLabel("engine")).toBe("engine");
+    expect(agentLabel("review-openai-gpt")).toBe("review-openai-gpt");
 });

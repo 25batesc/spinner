@@ -245,7 +245,7 @@ The design tracker writes `<session>/design/.state.json` (`{ track, stage, appro
 
 A gate is one EGM question with fixed options ([designs/egm-adoption.md](designs/egm-adoption.md), Technical Plan T8).
 The lead asks it with `ask_question`, and the daemon keeps it in `design.gate`, one slot per session.
-An open gate is line 1 of the design's `needs`: `answer the lead: <first 80 characters of the question>`. It applies at every stage, `approved` included.
+An open gate is line 1 of the design's `needs`: `answer Remy: <first 80 characters of the question>`. It applies at every stage, `approved` included.
 A gate clears on the first of these:
 
 1.  `POST /sessions/:dir/design/answer { text }`, the UI's gate card. It clears the gate and prompts the lead with the text.

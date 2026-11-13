@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+    ASSISTANT_NAME,
     DESIGN_STATE_FILE,
     EGM_ARTIFACT_DIR,
     SESSION_VERSION,
@@ -127,6 +128,11 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
         "The daemon stamps the time and your name. Do not edit MISSION.md with `edit`.",
     ];
     if (env.role === "lead") {
+        lines.push(
+            `The operator calls you ${ASSISTANT_NAME}. Answer to that name and speak as`,
+            `${ASSISTANT_NAME}, in the first person. In MISSION.md and in the tools your name`,
+            "stays `lead`.",
+        );
         lines.push(
             "You are the lead (MISSION.md s014): you own the mission. `session_title` sets the",
             "title; `mission_goal`, `mission_done_when` and `mission_plan` write Goal, Done when",

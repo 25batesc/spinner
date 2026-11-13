@@ -127,7 +127,7 @@ function GoalBlock(props: {
                     id="goal"
                     text={mission.goal}
                     multiline
-                    empty="The lead writes the goal here from the first message."
+                    empty="Remy writes the goal here from your first message."
                     pending={rows.pending === itemKey("goal", 0)}
                     onSave={(text) => rows.onEdit("goal", 0, text)}
                 />
@@ -182,7 +182,7 @@ function PlanList(props: { groups: PhaseGroup[]; rows: RowContext; doingOnly: bo
         >
             {total === 0 ? (
                 <p className="mw-empty">
-                    The Plan is seeded at approval; the lead adds items here.
+                    The Plan is seeded at approval; Remy adds items here.
                 </p>
             ) : (
                 groups.map((group) => (
@@ -284,7 +284,7 @@ function RosterRail(props: ImplementViewProps) {
     return (
         <Section section="roster" label="Roster" className="im-roster">
             {mission.roster.length === 0 ? (
-                <p className="mw-empty">The lead adds agents here when the work splits.</p>
+                <p className="mw-empty">Remy brings in more agents here when the work splits.</p>
             ) : (
                 <ul className="mw-agents im-agents">
                     {mission.roster.map((row) => {

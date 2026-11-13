@@ -235,7 +235,7 @@ const PLAN_FIRST_TIP =
     "changes. Press Implement on the plan when it is ready.";
 
 const SESSION_PLACEHOLDER =
-    "What should this session be about? Paste a ticket, a PR link, or a sentence.";
+    "Tell Remy what you need. Paste a ticket, a PR link, or a sentence.";
 
 export interface ReviewComposeFormProps {
     run: RunAction;

@@ -166,7 +166,7 @@ export function DoneWhen({ items, rows }: { items: DoneWhenItem[]; rows: RowCont
             count={items.length === 0 ? undefined : `${done} / ${items.length}`}
         >
             {items.length === 0 ? (
-                <Empty text="The lead lists what must be true when the work is done." />
+                <Empty text="Remy lists what must be true when the work is done." />
             ) : (
                 <ul className="mw-list">
                     {items.map((item) => (
@@ -483,7 +483,7 @@ export function Questions(props: {
             count={props.questions.length === 0 ? undefined : `${groups.open.length} open`}
         >
             {live.length === 0 && groups.resolved.length === 0 && (
-                <Empty text="The lead asks product calls here; you answer them in place." />
+                <Empty text="Remy asks you the product calls here; you answer them in place." />
             )}
             {live.length > 0 && <ul className="mw-list mw-question-list">{live.map(card)}</ul>}
             {groups.resolved.length > 0 && (
@@ -571,7 +571,7 @@ export function Contracts({ contracts, rows }: { contracts: MissionLine[]; rows:
     return (
         <Section section="contracts" label="Contracts" className="mw-contracts">
             {contracts.length === 0 ? (
-                <Empty text="The lead records what the agents agree on here." />
+                <Empty text="Remy records what the agents agree on here." />
             ) : (
                 <ul className="mw-list mw-rows">
                     {contracts.map((contract) => (

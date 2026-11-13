@@ -540,7 +540,7 @@ it("the design routes open, answer and clear a gate and record runs as the daemo
     expect((await call("PUT", gated, "gate", { question, options: ["A", "B"] })).status).toBe(200);
     const asked = await read(gated);
     expect(asked.design?.gate?.question).toBe(question);
-    expect(asked.summary.session.needs_human).toBe(`answer the lead: ${question}`);
+    expect(asked.summary.session.needs_human).toBe(`answer Remy: ${question}`);
     expect((await call("POST", gated, "run", { skill: "egm-draft" })).status).toBe(200);
     expect((await read(gated)).design?.gate).toBeNull();
 

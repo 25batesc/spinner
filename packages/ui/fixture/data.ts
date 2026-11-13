@@ -678,7 +678,7 @@ export const FIXTURE_GATE = {
 
 /** `needs_human` for an open gate (Technical Plan T7, line 1): the first 80 characters. */
 export function gateNeeds(question: string): string {
-    return `answer the lead: ${question.slice(0, 80)}`;
+    return `answer Remy: ${question.slice(0, 80)}`;
 }
 
 /**

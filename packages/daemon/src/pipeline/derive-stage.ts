@@ -27,7 +27,7 @@ export function derive_stage(facts: PipelineFacts): StageResult {
  * The design stage's next action (docs/designs/egm-adoption.md, Technical Plan T7). Before
  * approval the design's `needs` wins over the pipeline's text when it is set. At `approved`
  * the design only fills a null `needs_human`: a gate during the build gives `needs` an
- * `answer the lead` text, and the pipeline's own action still comes first.
+ * `answer Remy` text, and the pipeline's own action still comes first.
  */
 function with_design(facts: PipelineFacts, result: StageResult): StageResult {
     const design = facts.design;

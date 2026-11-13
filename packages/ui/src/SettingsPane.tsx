@@ -231,9 +231,9 @@ export function SettingsPane(props: SettingsPaneProps) {
                     </select>
                 </label>
                 <label className="setting">
-                    <span>GitHub access of the lead</span>
+                    <span>What Remy may do on GitHub</span>
                     <select
-                        aria-label="GitHub access of the lead"
+                        aria-label="What Remy may do on GitHub"
                         value={settings.agents?.github ?? "guarded"}
                         onChange={(event) => {
                             const github = event.target.value === "full" ? "full" : "guarded";
@@ -241,7 +241,7 @@ export function SettingsPane(props: SettingsPaneProps) {
                         }}
                     >
                         <option value="guarded">guarded (you push, comment and merge)</option>
-                        <option value="full">full (the lead pushes, comments and merges)</option>
+                        <option value="full">full (Remy pushes, comments and merges)</option>
                     </select>
                 </label>
                 <ReviewBlock settings={settings} onSave={change} />

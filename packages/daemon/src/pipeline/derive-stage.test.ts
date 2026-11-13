@@ -287,8 +287,8 @@ describe("derive_stage: the design stage (2.17, Technical Plan T7)", () => {
     });
 
     it("at approved, the design's needs fills only a null needs_human", () => {
-        const gate = { stage: "approved" as const, needs: "answer the lead: Which store?" };
-        expect(derive_stage(planned(gate)).needs_human).toBe("answer the lead: Which store?");
+        const gate = { stage: "approved" as const, needs: "answer Remy: Which store?" };
+        expect(derive_stage(planned(gate)).needs_human).toBe("answer Remy: Which store?");
         const verifying = derive_stage(facts({ design: gate }));
         expect(verifying.needs_human).toBe("verify locally (backend#412)");
     });

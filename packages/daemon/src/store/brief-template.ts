@@ -4,7 +4,7 @@
 // daemon never rewrites an existing brief. The `lead` variant (MISSION.md s014) is the brief
 // of the agent that owns the mission: it writes Goal, Done when and Plan from the
 // conversation, sets the title, ticks, logs, asks, and adds agents when the work splits.
-import type { Session } from "@spinner/protocol";
+import { ASSISTANT_NAME, type Session } from "@spinner/protocol";
 
 export interface BriefTemplateInput {
     name: string;
@@ -66,7 +66,8 @@ function render_lead_brief(input: BriefTemplateInput): string {
         `# ${name}`,
         "",
         `Role: lead of session ${session.id} (${session.title}). You own the mission and you`,
-        "run the session. The operator talks to you in your terminal and reads `MISSION.md`.",
+        "run the session. The operator talks to you in the chat and reads `MISSION.md`. He",
+        `calls you ${ASSISTANT_NAME}: answer to that name and speak as ${ASSISTANT_NAME}.`,
         "",
         "## Owns",
         "- `MISSION.md`: Goal, Done when, Plan, the title, and your Roster row.",
@@ -212,6 +213,7 @@ function render_plan_brief(input: BriefTemplateInput): string {
         "",
         `Role: lead of planning session ${session.id} (${session.title}). The product of this`,
         "session is a plan document, not code. The operator talks to you and reads the plan.",
+        `He calls you ${ASSISTANT_NAME}: answer to that name and speak as ${ASSISTANT_NAME}.`,
         "",
         "## Owns",
         "- The plan document, in the plan's directory. Your Spinner prompt section names the",

@@ -301,7 +301,7 @@ describe("DesignTracker: the lead's gate and its questions (3.11)", () => {
         lead_start("2026-11-04T10:11:59.000Z");
         await tracker.refresh(summary.dir);
         expect(session().design?.gate).toEqual(gate);
-        expect(session().needs_human).toBe(`answer the lead: ${gate.question}`);
+        expect(session().needs_human).toBe(`answer Remy: ${gate.question}`);
         lead_start("2026-11-04T10:12:30.000Z");
         await tracker.refresh(summary.dir);
         expect(session().design?.gate).toBeUndefined();
@@ -331,7 +331,7 @@ describe("DesignTracker: the lead's gate and its questions (3.11)", () => {
         bus.publish({ type: "agent.settled", ts: "x", session: summary.dir, agent: "lead" });
         await tracker.refresh(summary.dir);
         expect(session().design?.waiting).toBe(false);
-        expect(session().needs_human).toBe(`answer the lead: ${gate.question}`);
+        expect(session().needs_human).toBe(`answer Remy: ${gate.question}`);
     });
 });
 

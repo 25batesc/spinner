@@ -1,6 +1,13 @@
 // Which view an agent tab shows: pi's own terminal for a `tty` agent, the thin chat for an
 // `rpc` agent. `?chat=1` on the page forces the chat, the old path, for any agent.
-import type { AgentContext, AgentHarnessName, AgentSpec, SessionView } from "@spinner/protocol";
+import {
+    ASSISTANT_NAME,
+    LEAD_NAME,
+    type AgentContext,
+    type AgentHarnessName,
+    type AgentSpec,
+    type SessionView,
+} from "@spinner/protocol";
 
 import { formatTokens } from "./costs.ts";
 
@@ -69,6 +76,14 @@ export function fullestContext(
         }
     }
     return fullest;
+}
+
+/**
+ * The name the app shows for an agent: the session's lead is `ASSISTANT_NAME` (Remy), the
+ * one the operator talks to; every other agent keeps the name its brief gave it.
+ */
+export function agentLabel(name: string): string {
+    return name === LEAD_NAME ? ASSISTANT_NAME : name;
 }
 
 /** The surface an agent's tab opens on (docs/designs/talk-change-ship.md, 5.1). */

@@ -12,6 +12,7 @@ import {
     type RowGroup,
     type RowTarget,
 } from "./agent-rows.ts";
+import { agentLabel } from "./agent-view.ts";
 import { formatUsd } from "./costs.ts";
 
 import "./agent-rows.css";
@@ -99,8 +100,8 @@ function Row(props: {
                 onClick={() => onPick(row.target)}
             >
                 <span className={`dot ar-dot ar-dot-${row.state}`} title={row.state} />
-                <span className="ar-name" title={`${row.name} · ${row.roleLabel}`}>
-                    {row.name}
+                <span className="ar-name" title={`${agentLabel(row.name)} · ${row.roleLabel}`}>
+                    {agentLabel(row.name)}
                 </span>
                 <span className="ar-role muted">{row.roleLabel}</span>
                 <span className="ar-doing" title={row.doingTitle}>{row.doing}</span>

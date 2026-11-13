@@ -6,7 +6,9 @@ import type { ReactNode } from "react";
 
 import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
 
-import { contextLabel, contextTitle, contextTone, fullestContext } from "./agent-view.ts";
+import {
+    agentLabel, contextLabel, contextTitle, contextTone, fullestContext,
+} from "./agent-view.ts";
 import { ciMark, diffText, prChip, prTone, type Tone } from "./changes.ts";
 import { openChange } from "./ChangesRail.tsx";
 import { formatTokens, formatUsd } from "./costs.ts";
@@ -313,9 +315,9 @@ export function ContextFigure({ view }: { view: SessionView }) {
             className={`pill context-figure${toneClass}`}
             data-tone={tone}
             data-agent={fullest.name}
-            title={`${fullest.name}: ${contextTitle(fullest.context)}`}
+            title={`${agentLabel(fullest.name)}: ${contextTitle(fullest.context)}`}
         >
-            {fullest.name} {contextLabel(fullest.context)}
+            {agentLabel(fullest.name)} {contextLabel(fullest.context)}
         </span>
     );
 }

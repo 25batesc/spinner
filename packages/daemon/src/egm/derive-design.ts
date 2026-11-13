@@ -13,6 +13,7 @@ import type {
     ReviewStageId,
 } from "@spinner/protocol";
 import {
+    ASSISTANT_NAME,
     BRIEF_FILE,
     CONSOLIDATED_REPORT,
     DESIGN_FILES_MAX,
@@ -125,7 +126,8 @@ function design_needs(
     changed_after_approval: boolean,
 ): string | null {
     if (input.gate !== null) {
-        return `answer the lead: ${input.gate.question.slice(0, GATE_NEEDS_CHARS_MAX)}`;
+        const question = input.gate.question.slice(0, GATE_NEEDS_CHARS_MAX);
+        return `answer ${ASSISTANT_NAME}: ${question}`;
     }
     if (stage === "approved") {
         return null;

@@ -36,6 +36,7 @@ import {
     type SlashCommand,
     type WorkItem,
 } from "./chat.ts";
+import { agentLabel } from "./agent-view.ts";
 import { ChatGate, chatQuestion } from "./ChatGate.tsx";
 import { fetchAgentHistory, fetchModels, fetchProjects, postAgent } from "./events-client.ts";
 import "./chat.css";
@@ -212,7 +213,7 @@ export function TranscriptView({ transcript }: { transcript: Transcript }) {
         [transcript.entries, transcript.running],
     );
     if (blocks.length === 0) {
-        return <p className="muted chat-empty">No messages yet.</p>;
+        return <p className="muted chat-empty">Nothing here yet. Say hi, or say what you need.</p>;
     }
     const { entries, earlier } = windowed(blocks, shown);
     return (
@@ -561,18 +562,22 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
 
     // The lead's open question is part of its chat: the last block of the conversation.
     const asked = agent === LEAD_NAME ? chatQuestion(view) : null;
-    let status = `${agent} is stopped; a message resumes it`;
+    // The lead is Remy to the operator; another agent keeps its own name.
+    const who = agentLabel(agent);
+    let status = `${who} is resting. Send a message to wake ${who} up.`;
     if (hosted) {
-        status = working ? `${agent} is working` : `${agent} is awaiting instructions`;
+        status = working ? `${who} is on it` : `${who} is ready when you are`;
     }
     if (asked !== null && !working) {
-        status = `${agent} waits for your answer`;
+        status = `${who} has a question for you`;
     }
-    let placeholder = `Ask ${agent} to build features, fix bugs, or work on your code`;
+    let placeholder = `Ask ${who} to build features, fix bugs, or work on your code`;
     if (working) {
-        placeholder = `Steer ${agent}: your message interrupts its turn`;
+        placeholder = `Tell ${who} something now (it interrupts the turn)`;
     } else if (asked !== null) {
-        placeholder = "Or reply directly…";
+        placeholder = `Or reply to ${who} directly…`;
+    } else if (!hosted) {
+        placeholder = `Send a message to wake ${who} up`;
     }
     const model = spec?.model ?? "";
     const known = models.some((entry) => `${entry.provider}/${entry.id}` === model);
@@ -584,7 +589,14 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                 <div className="chat-column">
                     <TranscriptView transcript={transcript} />
                     <div className="chat-status" role="status" data-state={phase}>
-                        <span className={working ? "dot session-working" : "dot chat-idle"} />
+                        {agent === LEAD_NAME ? (
+                            // Remy's face: a small round mark that breathes while Remy works.
+                            <span className="chat-avatar" data-working={working} aria-hidden="true">
+                                R
+                            </span>
+                        ) : (
+                            <span className={working ? "dot session-working" : "dot chat-idle"} />
+                        )}
                         <span>{status}</span>
                     </div>
                 </div>
@@ -737,7 +749,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                             <button
                                 type="button"
                                 className="chat-send"
-                                title={`Stop ${agent}'s turn`}
+                                title={`Stop ${who}'s turn`}
                                 aria-label="Stop"
                                 onClick={() => void post("abort", {})}
                             >

@@ -7,7 +7,12 @@
 // Brainstorm or Review tab that opens Agents, where the card with its buttons is drawn.
 import { useMemo, useState, type FormEvent } from "react";
 
-import { DESIGN_ANSWER_MAX, RESOLVE_ANSWERS, type DesignGate as Gate } from "@spinner/protocol";
+import {
+    ASSISTANT_NAME,
+    DESIGN_ANSWER_MAX,
+    RESOLVE_ANSWERS,
+    type DesignGate as Gate,
+} from "@spinner/protocol";
 
 import { renderMarkdown } from "./markdown.ts";
 import { postDesignAnswer } from "./remote.ts";
@@ -35,7 +40,7 @@ export function compactQuestion(question: string): string {
 function CompactGate(props: Extract<DesignGateProps, { compact: true }>) {
     const { kind, onOpenAgent } = props;
     const text = kind === "gate"
-        ? `The lead asks: ${compactQuestion(props.gate.question)}`
+        ? `${ASSISTANT_NAME} asks: ${compactQuestion(props.gate.question)}`
         : "Findings to resolve";
     return (
         <p className="design-gate design-gate-compact" data-kind={kind} role="status">
@@ -88,7 +93,8 @@ function GateCard(props: Exclude<DesignGateProps, { compact: true }>) {
     const options: { text: string; label: string }[] = props.kind === "gate"
         ? props.gate.options.map((text) => ({ text, label: text }))
         : RESOLVE_ANSWERS.map((text) => ({ text, label: RESOLVE_LABELS[text] }));
-    const title = props.kind === "gate" ? "The lead asks" : "Resolve the review findings";
+    const title =
+        props.kind === "gate" ? `${ASSISTANT_NAME} asks` : "Resolve the review findings";
     return (
         <section
             className="design-gate"

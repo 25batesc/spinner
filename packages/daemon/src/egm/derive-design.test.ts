@@ -126,7 +126,7 @@ describe("derive_design: the needs_human list", () => {
     const gate = { question: `${"Q".repeat(90)}?`, options: ["a", "b"], asked };
 
     it("1 an open gate, at every stage, cut to 80 characters", () => {
-        const needs = `answer the lead: ${"Q".repeat(80)}`;
+        const needs = `answer Remy: ${"Q".repeat(80)}`;
         expect(derive_design(input({ gate })).needs).toBe(needs);
         const approved = named({ files: ["critic_report.md"], approved: approval, gate });
         expect(derive_design(approved)).toMatchObject({ stage: "approved", needs });

@@ -3,7 +3,12 @@
 // session's agent to make a project for the work it does, or attach one that exists.
 import { useEffect, useState } from "react";
 
-import { LEAD_NAME, type ProjectView, type SessionView } from "@spinner/protocol";
+import {
+    ASSISTANT_NAME,
+    LEAD_NAME,
+    type ProjectView,
+    type SessionView,
+} from "@spinner/protocol";
 
 import { fetchProjects, postAgent } from "./events-client.ts";
 import "./activity.css";
@@ -61,11 +66,11 @@ export function NoProject({ view, busy, run }: NoProjectProps) {
                     className="primary"
                     disabled={!lead || asked}
                     title={lead
-                        ? "Sends the request to the session's agent"
-                        : "This session has no lead agent to ask"}
+                        ? `Sends the request to ${ASSISTANT_NAME}`
+                        : `${ASSISTANT_NAME} is not in this session yet`}
                     onClick={ask}
                 >
-                    {asked ? "asked the agent" : "ask the agent to make one"}
+                    {asked ? `${ASSISTANT_NAME} is on it` : `ask ${ASSISTANT_NAME} to make one`}
                 </button>
                 <span className="muted">or</span>
                 <select
