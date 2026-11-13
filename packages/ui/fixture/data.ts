@@ -30,7 +30,7 @@ import {
 } from "@spinner/protocol";
 
 import { sessionCost } from "./costs.ts";
-import { withGoldfish } from "./goldfish.ts";
+import { fixtureGoldfish, withGoldfish } from "./goldfish.ts";
 import { fixturePort } from "./port.ts";
 
 export const FIXTURE_PORT = fixturePort(process.env);
@@ -791,14 +791,25 @@ export function initialDesignSessions(): SessionView[] {
 }
 
 /**
- * The approved session whose Plan is seeded (entry 2.30): three agents, `engine` in a turn,
- * `ui` idle, so the Implement rail shows working, idle and blocked.
+ * The approved session whose Plan is seeded (entry 2.30): the lead and `engine` in a turn,
+ * `ui` idle, so the Implement rail shows working, idle and blocked. The Agents view (R9) has
+ * a row in every state: `docs` stopped by the operator, `api` done, the fixer failed, a done
+ * reviewer, and the Goldfish of two runs.
  */
 function seededView(): SessionView {
+    const model = "anthropic/claude-opus-5-5";
+    const ended = (code: number | null, by?: "operator") =>
+        ({ code, ...(by === undefined ? {} : { by }), at: "2026-10-20T10:40:00Z" });
     const agents: Session["agents"] = {
-        lead: { harness: "tty", model: "anthropic/claude-opus-5-5", process: "idle" },
-        engine: { harness: "tty", model: "anthropic/claude-opus-5-5", process: "running" },
-        ui: { harness: "tty", model: "anthropic/claude-opus-5-5", process: "idle" },
+        lead: { harness: "tty", model, process: "running" },
+        engine: { harness: "tty", model, process: "running" },
+        ui: { harness: "tty", model, process: "idle" },
+        docs: { harness: "tty", model, process: "exited", ended: ended(null, "operator") },
+        api: { harness: "tty", model, process: "exited", ended: ended(0) },
+        fixer: { harness: "rpc", model, process: "exited", ended: ended(1) },
+        "review-openai-gpt-6-luna": {
+            harness: "rpc", model: "openai/gpt-6-luna", process: "exited", ended: ended(0),
+        },
     };
     const base = session({
         id: "s213", slug: "csv-seeded", title: "CSV export \u00b7 seeded",
@@ -808,7 +819,8 @@ function seededView(): SessionView {
     const hosted = view(SEEDED_DIR, base, stackView("s213", "none"), [], ["lead", "engine", "ui"]);
     // The three bands past the quiet one: lead hides its figure, engine amber, ui red.
     const plain = withContext(hosted, { lead: 30, engine: 52, ui: 81 });
-    const design = designView("approved", designsOf(SEEDED_DIR));
+    const approved = designView("approved", designsOf(SEEDED_DIR));
+    const design = { ...approved, goldfish: fixtureGoldfish() };
     return { ...plain, design, round: 1, rounds: [] };
 }
 

@@ -1,0 +1,80 @@
+/* The Agents view's list (`AgentRows.tsx`, R9): one dense line per agent in fixed columns
+   (dot, name, role, current action, model, context, cost), the row's buttons at the right,
+   a quiet heading per group, the fold line, and `+ add agent` at the end. A finished row is
+   dimmed; the selected row takes the accent tint the chips had. */
+.ar {
+    display: flex; flex-direction: column; gap: var(--space-1); flex: none;
+    container-type: inline-size; container-name: ar;
+}
+.ar-heading {
+    margin: var(--space-1) 0 0; font-size: var(--text-meta); font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.ar-rows { margin: 0; padding: 0; list-style: none; }
+.ar-row {
+    display: flex; align-items: center; gap: var(--space-1); min-height: 26px;
+    border-radius: var(--radius-box);
+}
+.ar-row:hover { background: var(--fill); }
+.ar-row.ar-selected { background: var(--accent-tint); }
+.ar-row[data-state="stopped"], .ar-row[data-state="done"], .ar-row[data-state="failed"] {
+    opacity: 0.7;
+}
+.ar-pick {
+    display: grid; align-items: center; flex: 1; min-width: 0; gap: var(--space-2);
+    grid-template-columns: 8px minmax(8ch, 14ch) 16ch minmax(0, 1fr) 10ch 6ch 6ch;
+    padding: 2px var(--space-1); border: 0; background: transparent; color: var(--text);
+    font: inherit; font-size: var(--text-dense); text-align: left; cursor: pointer;
+}
+.ar-pick > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-selected .ar-name { font-weight: 600; }
+.ar-name { font-weight: 500; }
+.ar-role, .ar-model { font-size: var(--text-meta); }
+.ar-context, .ar-cost { font-variant-numeric: tabular-nums; text-align: right; }
+.ar-context.pill { justify-self: end; padding: 0 6px; }
+/* The dot: green in a turn, a hollow ring idle or queued, a dotted ring stopped, a green
+   ring done, red failed. A working dot pulses, as the review and Goldfish chips did. */
+.ar-dot.ar-dot-working { background: var(--ok); border-color: var(--ok); }
+.ar-dot.ar-dot-working { animation: rv-pulse 1.2s ease-in-out infinite; }
+.ar-dot.ar-dot-stopped { border-style: dotted; }
+.ar-dot.ar-dot-done { border-color: var(--ok); }
+.ar-dot.ar-dot-failed { background: var(--fail); border-color: var(--fail); }
+.ar-row[data-state="failed"] .ar-name { color: var(--fail); }
+/* A fixed width, so the columns line up whatever buttons a row has. */
+.ar-actions { display: inline-flex; justify-content: flex-end; gap: 2px; flex: none; width: 180px; }
+.ar-action {
+    height: 20px; padding: 0 8px; border: 0; border-radius: 999px; background: transparent;
+    color: var(--muted); font: inherit; font-size: 11px; line-height: 1; cursor: pointer;
+}
+.ar-action:hover:not(:disabled) { color: var(--accent); background: var(--accent-tint); }
+.ar-action:disabled { opacity: 0.5; cursor: default; }
+.ar-action.ar-resume { background: var(--warn-tint); color: var(--warn); font-weight: 600; }
+.ar-action.ar-stop:hover:not(:disabled) { color: var(--fail); background: var(--fail-fill); }
+.ar-action.ar-confirm { background: var(--fail-tint); color: var(--fail); font-weight: 600; }
+.ar-fold-line, .ar-add {
+    align-self: flex-start; height: 22px; padding: 0 var(--space-1); border: 0;
+    border-radius: var(--radius-box); background: transparent; color: var(--muted); font: inherit;
+    font-size: var(--text-meta); cursor: pointer;
+}
+.ar-fold-line:hover, .ar-add:hover { color: var(--text); background: var(--fill); }
+.ar-add.ar-add-on { color: var(--accent); background: var(--accent-tint); }
+.ar-cap { margin: 0; font-size: var(--text-meta); }
+/* A narrow pane keeps the current action readable: the role goes first, then the model; the
+   name's tooltip carries the role. */
+@container ar (width < 820px) {
+    .ar-role { display: none; }
+    .ar-pick { grid-template-columns: 8px minmax(8ch, 14ch) minmax(0, 1fr) 10ch 6ch 6ch; }
+}
+@container ar (width < 560px) {
+    .ar-model { display: none; }
+    .ar-pick { grid-template-columns: 8px minmax(6ch, 12ch) minmax(0, 1fr) 6ch 6ch; }
+}
+/* A pane this narrow puts the row's buttons on a line of their own. */
+@container ar (width < 460px) {
+    .ar-row { flex-wrap: wrap; }
+    .ar-pick {
+        flex-basis: 100%; grid-template-columns: 8px minmax(4ch, 10ch) minmax(0, 1fr) 5ch 6ch;
+    }
+    .ar-actions { width: auto; margin-left: auto; }
+    .ar-actions:empty { display: none; }
+}

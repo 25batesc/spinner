@@ -239,6 +239,7 @@ describe("the tty harness through the daemon", () => {
             model: "fake/default",
             thinking: "medium",
             process: "exited",
+            ended: expect.objectContaining({ by: "operator" }) as unknown,
         });
         const gone = attach(summary.dir, "backend");
         await expect(gone).rejects.toThrow(/upgrade refused: 404/);

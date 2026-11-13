@@ -266,6 +266,19 @@ export interface AgentSpec {
     repo?: string;
     /** Skill directories pi loads with `--skill`, beyond the session's `skills/` (s015). */
     skills?: string[];
+    /**
+     * How the process last ended (R9): the exit code (null for a signal), `operator` when
+     * the stop route ended it, and the ISO time. The Agents view tells stopped, done and
+     * failed apart by it. Absent while the process runs and before its first exit.
+     */
+    ended?: AgentEnded;
+}
+
+/** The last exit of an agent's process, as `AgentSpec.ended` records it. */
+export interface AgentEnded {
+    code: number | null;
+    by?: "operator" | "daemon";
+    at: string;
 }
 
 /**

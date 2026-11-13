@@ -1,15 +1,16 @@
 // The middle pane of a session (docs/designs/session-workspace.md, T5, D15): one row of view
 // tabs in EGM step order, each EGM tab marked with its step's state, and one view at a time:
-// Agents (the chips, the gate card, the chat or terminal), Brainstorm, Draft, Review, Files,
+// Agents (the gate card, the agent rows, the chat or terminal), Brainstorm, Draft, Review, Files,
 // History, Implement, Threads, Services. The pane fetches the design doc once per reload key
 // and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { agentRows, type RowAction } from "./agent-rows.ts";
 import {
-    agentState, agentTabs, contextLabel, contextTitle, contextTone, loadSurface, saveSurface,
-    showsTerminal, type SurfaceStorage,
+    agentTabs, loadSurface, saveSurface, showsTerminal, type SurfaceStorage,
 } from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
+import { AgentRows } from "./AgentRows.tsx";
 import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
@@ -24,12 +25,11 @@ import {
     docSource, EGM_VIEWS, reloadKey, shownView, stepTab, TAB_LABELS, tabMarks, viewTabs,
     WORKSPACE_VIEWS, type ViewId,
 } from "./design-workspace.ts";
-import { GoldfishChips, type GoldfishPick } from "./GoldfishChips.tsx";
 import { GoldfishTranscript } from "./GoldfishTranscript.tsx";
 import { capLine } from "./goldfish.ts";
 import { MissionWorkspace } from "./MissionWorkspace.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
-import { fetchDesignDoc, fetchDesignFile, useLoaded } from "./remote.ts";
+import { fetchDesignDoc, fetchDesignFile, fetchMissionView, useLoaded } from "./remote.ts";
 import { needsHuman, type Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
@@ -37,12 +37,7 @@ import { Tabs } from "./Tabs.tsx";
 import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
 import { ViewTabs, type ViewTabFold } from "./ViewTabs.tsx";
-import {
-    EGM_NOTICE, tty_path, type AgentContext, type AgentCost, type MissionView,
-    type SessionView,
-} from "@spinner/protocol";
-
-import { formatUsd } from "./costs.ts";
+import { EGM_NOTICE, tty_path, type MissionView, type SessionView } from "@spinner/protocol";
 
 import type { RunAction } from "./SessionForms.tsx";
 
@@ -81,7 +76,7 @@ export interface AgentsPaneProps {
 }
 
 /**
- * The gate card or the resolve card above the agent chips (entries 3.21, 3.22), or null when
+ * The gate card or the resolve card above the agent rows (entries 3.21, 3.22), or null when
  * the lead asks nothing.
  */
 function GateCard({ view, onError }: { view: SessionView; onError: (message: string) => void }) {
@@ -102,143 +97,16 @@ function GateCard({ view, onError }: { view: SessionView; onError: (message: str
 // (session-workspace.md, D14) without this module's terminals.
 export { agentState } from "./agent-view.ts";
 
-/**
- * The chip's context figure (dogfood row 45): from 40 % the share of the window the agent's
- * last prompt filled, amber from 50 %, red from 75 %. While the daemon hosts the agent a
- * `compact` button beside it sends pi's /compact, so the operator acts where the figure is.
- * The button waits for the daemon's answer, so a double click sends one compaction.
- */
-function ChipContext(props: {
-    context: AgentContext | null | undefined;
-    hosted: boolean;
-    name: string;
-    onCompact: () => Promise<void>;
-}) {
-    const { context, hosted, name, onCompact } = props;
-    const [sending, setSending] = useState(false);
-    const tone = contextTone(context);
-    if (tone === null || context === null || context === undefined) {
-        return null;
-    }
-    const toneClass = tone === "plain" ? "" : ` pill-${tone}`;
-    return (
-        <>
-            <span
-                className={`pill chip-context${toneClass}`}
-                data-tone={tone}
-                title={contextTitle(context)}
-            >
-                {contextLabel(context)}
-            </span>
-            {hosted && (
-                <button
-                    type="button"
-                    className="chip-compact"
-                    aria-label={`Compact ${name}`}
-                    title="Send pi's /compact: summarise the conversation to free the window"
-                    disabled={sending}
-                    onClick={() => {
-                        setSending(true);
-                        void onCompact().finally(() => setSending(false));
-                    }}
-                >
-                    compact
-                </button>
-            )}
-        </>
-    );
-}
-
-/**
- * The agent row: one chip per agent (a state dot, the name; the harness, model and state as
- * the tooltip; the context figure and `compact` from 40 %), the selected one filled with an
- * × that stops it, and the `+` chip at the end.
- */
-function AgentChips(props: {
-    view: SessionView;
-    selected: string | undefined;
-    adding: boolean;
-    onPick: (name: string) => void;
-    onAdd: () => void;
-    onStop: (name: string) => void;
-    onCompact: (name: string) => Promise<void>;
-    onResume: (name: string) => void;
-}) {
-    const { view, selected, adding, onPick, onAdd, onStop, onCompact, onResume } = props;
-    const agents = view.summary.session.agents;
-    return (
-        <div className="chips" role="tablist" aria-label="Agents">
-            {Object.entries(agents).map(([name, spec]) => {
-                const hosted = view.agents_running.includes(name);
-                const state = agentState(spec, hosted);
-                const current = !adding && name === selected;
-                const classes = ["chip", `chip-${state}`, current ? "chip-selected" : ""];
-                const cost = view.cost?.agents[name];
-                const spent = cost === undefined ? "" : ` · ${chipCost(cost)}`;
-                return (
-                    <span key={name} className={classes.join(" ").trim()}>
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={current}
-                            className={current ? "tab chip-name tab-selected" : "tab chip-name"}
-                            title={`${spec.harness} · ${spec.model} · ${state}${spent}`}
-                            data-name={name}
-                            onClick={() => onPick(name)}
-                        >
-                            <span className={`dot chip-dot dot-${state}`} />
-                            {name}
-                        </button>
-                        <ChipContext
-                            context={cost?.context}
-                            hosted={hosted}
-                            name={name}
-                            onCompact={() => onCompact(name)}
-                        />
-                        {!hosted && !name.startsWith("review-") && (
-                            <button
-                                type="button"
-                                className="chip-resume"
-                                title="Start the agent again on its transcript"
-                                onClick={() => onResume(name)}
-                            >
-                                resume
-                            </button>
-                        )}
-                        {current && hosted && (
-                            <button
-                                type="button"
-                                className="chip-stop"
-                                aria-label={`Stop ${name}`}
-                                title="Stop the agent's process; its transcript stays"
-                                onClick={() => onStop(name)}
-                            >
-                                ×
-                            </button>
-                        )}
-                    </span>
-                );
-            })}
-            <button
-                type="button"
-                className={adding ? "tab tab-add tab-selected" : "tab tab-add"}
-                aria-label="Add agent"
-                aria-pressed={adding}
-                onClick={onAdd}
-            >
-                +
-            </button>
-        </div>
-    );
-}
-
-/** `$0.42 · anthropic/claude-x`: the chip tooltip's tail; the model pi last answered with. */
-function chipCost(cost: AgentCost): string {
-    return cost.model === null ? formatUsd(cost.usd) : `${formatUsd(cost.usd)} · ${cost.model}`;
-}
-
 function agentBase(dir: string, agent: string): string {
     return `/sessions/${dir}/agents/${agent}`;
+}
+
+/** A row action on its existing route: `abort` ends the turn; a resume adds the agent again. */
+function postAction(dir: string, name: string, action: RowAction): Promise<void> {
+    if (action === "resume") {
+        return postAgent(`/sessions/${dir}/agents`, { name });
+    }
+    return postAgent(`${agentBase(dir, name)}/${action === "interrupt" ? "abort" : action}`, {});
 }
 
 /**
@@ -295,9 +163,9 @@ export function AgentsPane(props: AgentsPaneProps) {
     const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
     // The `+` chip at the end of the agent row: the add-agent form as the pane's view.
     const [adding, setAdding] = useState(false);
-    // The picked Goldfish chip (entry 4.16), per session: its transcript replaces the agent's
-    // tabs until an agent chip or `+` is picked.
-    const [fish, setFish] = useState<(GoldfishPick & { dir: string }) | null>(null);
+    // The picked Goldfish row (entry 4.16), per session: its transcript replaces the agent's
+    // tabs until an agent row or `+ add agent` is picked.
+    const [fish, setFish] = useState<{ run: string; step: number; dir: string } | null>(null);
     const design = view?.design;
     const fishView = fish === null || fish.dir !== view?.summary.dir
         ? undefined
@@ -345,6 +213,14 @@ export function AgentsPane(props: AgentsPaneProps) {
         ? ""
         : reloadKey(view.summary.dir, design);
     const doc = useDesignDoc(view);
+    // The rows' Roster fallback: the last `mission.changed`, else the mission read once per
+    // session and revision, so a reload shows what each agent said it does.
+    const missionDir = mission === undefined ? view?.summary.dir : undefined;
+    const loadedMission = useLoaded(`${missionDir ?? ""}#${revisions.mission}#roster`, (signal) =>
+        missionDir === undefined
+            ? Promise.resolve(undefined)
+            : fetchMissionView(missionDir, signal));
+    const roster = (mission ?? loadedMission.value)?.roster ?? [];
     // The step marks and the fold of the EGM tabs (T5): only on the design track.
     const steps = useMemo(
         () => (design?.track === "design" ? designSteps(design, needs) : null),
@@ -444,43 +320,35 @@ export function AgentsPane(props: AgentsPaneProps) {
                 <div className="agents-view" hidden={shown !== "agents"}>
                     {view !== undefined && <GateCard view={view} onError={props.onError} />}
                     {view !== undefined && (
-                        <AgentChips
-                            view={view}
-                            selected={showsFish ? undefined : selected}
+                        <AgentRows
+                            groups={agentRows(view, transcripts, roster)}
+                            selected={showsFish
+                                ? `fish:${fishView.run}/${fishView.step}`
+                                : selected === undefined ? null : `agent:${selected}`}
                             adding={adding}
-                            onPick={(name) => {
-                                setPicked(name);
+                            cap={design === undefined ? null : capLine(design.goldfish_live)}
+                            onPick={(target) => {
+                                const dir = view.summary.dir;
                                 setAdding(false);
-                                setFish(null);
+                                if (target.kind === "agent") {
+                                    setPicked(target.name);
+                                    setFish(null);
+                                } else {
+                                    setFish({ run: target.run, step: target.step, dir });
+                                }
                             }}
                             onAdd={() => {
                                 setAdding(true);
                                 setFish(null);
                             }}
-                            onStop={(name) =>
-                                void postAgent(`${agentBase(view.summary.dir, name)}/stop`, {})
-                            }
-                            onCompact={(name) =>
-                                postAgent(`${agentBase(view.summary.dir, name)}/compact`, {})
-                                    .catch((failure: unknown) => props.onError(String(failure)))
-                            }
-                            onResume={(name) => {
-                                setPicked(name);
-                                setAdding(false);
-                                setFish(null);
-                                postAgent(`/sessions/${view.summary.dir}/agents`, { name })
+                            onAction={(name, action) => {
+                                if (action === "resume") {
+                                    setPicked(name);
+                                    setAdding(false);
+                                    setFish(null);
+                                }
+                                return postAction(view.summary.dir, name, action)
                                     .catch((failure: unknown) => props.onError(String(failure)));
-                            }}
-                        />
-                    )}
-                    {view !== undefined && design !== undefined &&
-                        (design.goldfish.length > 0 || capLine(design.goldfish_live) !== null) && (
-                        <GoldfishChips
-                            design={design}
-                            selected={showsFish ? fish : null}
-                            onPick={(pick) => {
-                                setFish({ ...pick, dir: view.summary.dir });
-                                setAdding(false);
                             }}
                         />
                     )}
