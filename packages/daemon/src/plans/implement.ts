@@ -52,10 +52,13 @@ export interface PlanToImplement {
 
 /** Reads the plan and its document. Throws `PlanRefusal` without either. */
 export function plan_to_implement(home: SpinnerHome, id: string): PlanToImplement {
-    const record = read_plan(home, id);
-    if (record === null) {
+    const stored = read_plan(home, id);
+    if (stored === null) {
         throw new PlanRefusal(`no plan ${id}`, 404);
     }
+    // The lead of the planning session names the plan with `session_title`; that title
+    // is the plan's from then on, also after the session is archived.
+    const record = with_origin_title(home, stored);
     const doc_path = plan_doc_path(home, record);
     if (doc_path === null) {
         throw new PlanRefusal("the plan has no document yet");
@@ -68,6 +71,24 @@ export function plan_to_implement(home: SpinnerHome, id: string): PlanToImplemen
         throw new PlanRefusal(error instanceof Error ? error.message : String(error));
     }
     return { record, doc_path, text, entries };
+}
+
+/** The record with the title of its planning session, when that session lives; stored. */
+function with_origin_title(home: SpinnerHome, record: PlanRecord): PlanRecord {
+    if (record.origin === null) {
+        return record;
+    }
+    const origin = read_session(home, record.origin);
+    if (!origin.ok || origin.summary.session.kind !== "plan") {
+        return record;
+    }
+    const title = origin.summary.session.title;
+    if (title === record.title) {
+        return record;
+    }
+    const renamed = { ...record, title };
+    write_plan(home, renamed);
+    return renamed;
 }
 
 /** Why this session cannot implement the plan, or null. */

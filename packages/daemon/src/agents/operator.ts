@@ -339,7 +339,8 @@ export function notice_line(
                 return null;
             }
             const where = event.session ?? "(no session)";
-            return `${where}: job ${event.data.action} failed: ${event.error ?? "no message"}`;
+            // A job's error can hold several lines (git's); a notice is one line.
+            return `${where}: job ${event.data.action} failed: ${first_line(event.error)}`;
         }
         case "inbox.message":
             if (event.to !== "operator") {
@@ -402,4 +403,10 @@ function remove_process_record(dir: string): void {
 
 function describe(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+/** The first line of a job's error that has text, or `no message`. */
+function first_line(error: string | null | undefined): string {
+    const line = (error ?? "").split("\n").find((text) => text.trim().length > 0);
+    return line === undefined ? "no message" : line.trim();
 }

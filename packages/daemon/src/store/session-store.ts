@@ -216,7 +216,7 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
         // A session being created needs nothing from the operator yet (dogfood #2): its lead
         // writes the Goal, and a needs line here would badge every new session on the rail.
         needs_human: null,
-        branch: `feat/${slug}`,
+        branch: free_branch(home, slug, id),
         base: "main",
         repos: {},
         stack: { state: "none" },
@@ -241,6 +241,17 @@ export function create_session(home: SpinnerHome, input: CreateSessionInput): Se
     const check = read_session(home, dir);
     assert.ok(check.ok, "a freshly written session must read back");
     return check.summary;
+}
+
+/**
+ * `feat/<slug>`, or `feat/<slug>-<id>` when a live session has that branch already: two
+ * sessions with one title (a plan and the session that implements it) cannot both check the
+ * branch out, and `git worktree add` refuses the second.
+ */
+function free_branch(home: SpinnerHome, slug: string, id: string): string {
+    const branch = `feat/${slug}`;
+    const taken = list_sessions(home).sessions.some((entry) => entry.session.branch === branch);
+    return taken ? `${branch}-${id}` : branch;
 }
 
 /**

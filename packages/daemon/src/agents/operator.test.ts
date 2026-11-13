@@ -368,6 +368,15 @@ describe("notice_line", () => {
         expect(
             notice_line({ type: "agent.settled", ts, session: "s2-a", agent: "ui" }, seen),
         ).toBe("s2-a: agent ui settled");
+        // A failed job's error with several lines (git's) is one notice line: its first.
+        const failed = {
+            type: "job.finished", ts, session: "s2-a", job: "j-1", ok: false,
+            error: "git worktree add failed (128): Preparing worktree\nfatal: already used",
+            data: { action: "plan" },
+        } as unknown as Parameters<typeof notice_line>[0];
+        expect(notice_line(failed, seen)).toBe(
+            "s2-a: job plan failed: git worktree add failed (128): Preparing worktree",
+        );
         expect(
             notice_line(
                 {

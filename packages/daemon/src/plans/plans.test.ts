@@ -138,6 +138,19 @@ describe("Implement", () => {
         const message = implement_message(plan, seed);
         expect(message).toContain('Implement the plan "Export redesign"');
         expect(message).toContain("`change` `start`");
+        // The plan takes the title its planning session's lead gave it.
+        const planning = create_session(home, { title: "Export redesign" });
+        planning.session.kind = "plan";
+        planning.session.title = "CSV export, phase 1";
+        write_session(planning);
+        const stored = read_plan(home, "p1")!;
+        write_plan(home, { ...stored, origin: planning.dir });
+        expect(plan_to_implement(home, "p1").record.title).toBe("CSV export, phase 1");
+        expect(read_plan(home, "p1")?.title).toBe("CSV export, phase 1");
+        // Two sessions with one title do not share a branch.
+        const twin = create_session(home, { title: "Export redesign" });
+        expect(planning.session.branch).toBe("feat/export-redesign");
+        expect(twin.session.branch).toBe(`feat/export-redesign-${twin.session.id}`);
         // A session that implements a plan holds a copy; it is not imported as a plan.
         expect(import_designs(home, NOW)).toEqual([]);
     });
