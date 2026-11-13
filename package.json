@@ -1,7 +1,7 @@
 {
     "name": "spinner-monorepo",
     "private": true,
-    "version": "0.26.0",
+    "version": "0.27.0",
     "description": "Spinner: a local daemon, CLI and web UI for running agent sessions.",
     "license": "MIT",
     "packageManager": "pnpm@10.28.2",
