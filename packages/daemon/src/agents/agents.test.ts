@@ -278,6 +278,7 @@ describe("AgentManager with PiRpcHarness", () => {
             harness: "rpc",
             model: "anthropic/claude-x",
             process: "exited",
+            ended: { code: 0, by: "operator", at: expect.any(String) },
         });
         await expect(manager.stop(summary.dir, "backend")).rejects.toThrow(/not running/);
 
@@ -289,6 +290,35 @@ describe("AgentManager with PiRpcHarness", () => {
         await manager.stop_all();
         await resumed.exited;
         delete process.env["FAKE_PI_ARGS_FILE"];
+    });
+
+    // R9: the Agents view tells done from failed from stopped by `ended`; a resume clears it.
+    it("records how a process ended, and clears it on resume", async () => {
+        const summary = create_session(home, { title: "Ended" });
+        const bus = new EventBus();
+        const events: SpinnerEvent[] = [];
+        bus.subscribe((event) => events.push(event));
+        const now = () => new Date("2026-11-04T10:00:00Z");
+        const manager = new AgentManager(
+            home,
+            { default: "rpc", rpc: new PiRpcHarness({ pi: () => FAKE_PI }) },
+            bus,
+            { now },
+        );
+        const agent = () =>
+            (parse(readFileSync(join(summary.path, "session.yaml"), "utf8")) as Session)
+                .agents["worker"];
+
+        const handle = await manager.add(summary, { name: "worker" });
+        expect(await handle.prompt("exit")).toBe("started");
+        await until(() => events.some((event) => event.type === "agent.exited"));
+        expect(agent()?.ended).toEqual({ code: 0, at: "2026-11-04T10:00:00.000Z" });
+
+        const resumed = await manager.add(summary, { name: "worker" });
+        expect(agent()?.process).toBe("idle");
+        expect(agent()?.ended).toBeUndefined();
+        await manager.stop_all();
+        await resumed.exited;
     });
 
     it("notify_all steers a handle without notify only with steer_fallback (6.4)", async () => {

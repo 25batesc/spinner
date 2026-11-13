@@ -69,6 +69,8 @@ interface Hosted {
     handle: AgentHandle;
     /** True between `agent_start` and `agent_settled`: a steer reaches this run. */
     busy: boolean;
+    /** Set by `stop`, so the exit records that the operator ended the process. */
+    stopped_by?: "operator";
     unsubscribe: () => void;
 }
 
@@ -424,12 +426,17 @@ export class AgentManager {
         return reached.sort();
     }
 
-    /** Stops the agent's process. The transcript stays; `add` resumes it. */
+    /**
+     * Stops the agent's process. The transcript stays; `add` resumes it. The exit is recorded
+     * as the operator's, for the stop route and a review cancel. The swarm's stop of a done
+     * reviewer is recorded the same way; the reviewer's row reads its swarm state instead.
+     */
     async stop(dir: string, name: string): Promise<void> {
         const entry = this.hosted.get(key_of(dir, name));
         if (entry === undefined) {
             throw new Error(`agent ${name} is not running in ${dir}`);
         }
+        entry.stopped_by = "operator";
         await entry.handle.stop();
     }
 
@@ -562,7 +569,11 @@ export class AgentManager {
             this.log(`agent ${entry.name} in ${entry.dir} stopped with the daemon`);
             return;
         }
-        this.record(entry.dir, entry.name, { process: "exited" }, true);
+        const at = this.now().toISOString();
+        const ended = entry.stopped_by === undefined
+            ? { code, at }
+            : { code, by: entry.stopped_by, at };
+        this.record(entry.dir, entry.name, { process: "exited", ended }, true);
         this.bus.publish({
             type: "agent.exited",
             ts: this.now().toISOString(),
@@ -598,6 +609,10 @@ export class AgentManager {
         };
         const current = session.agents[name] ?? fresh;
         const next: AgentSpec = { ...current, ...patch };
+        // `ended` tells how the last process ended; a live one, a resume included, has none.
+        if (next.process !== "exited") {
+            delete next.ended;
+        }
         if (drop_pid) {
             delete next.pid;
             delete next.started;
