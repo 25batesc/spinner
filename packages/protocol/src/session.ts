@@ -245,8 +245,16 @@ export interface AgentSpec {
 /**
  * What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the
  * PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action.
+ * `plan` is a planning session (talk-change-ship.md, 4.2): its product is a plan document
+ * in the plans library, not code.
  */
-export type SessionKind = "session" | "review";
+export type SessionKind = "session" | "review" | "plan";
+
+/**
+ * The `design.repo` of a document in the plans library (talk-change-ship.md, 4.2 and 4.5):
+ * `design.doc` is then relative to `<home>/plans`, not to a repo's worktree.
+ */
+export const PLANS_REPO = "plans";
 
 /**
  * A reviewer's state (s015, s016). `done`: its verdict is in `artifacts/reviews/` and its pi

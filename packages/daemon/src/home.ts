@@ -11,6 +11,8 @@ export interface SpinnerHome {
     sessions: string;
     /** `<root>/archive`, where `spinner close` moves sessions. */
     archive: string;
+    /** `<root>/plans`, the plans library (docs/designs/talk-change-ship.md, 4.1). */
+    plans: string;
     /**
      * The proxy's dynamic-configuration directory. Machine-global, not per home: one
      * `spinner-proxy` serves every home, so every home writes its route files to one place.
@@ -39,6 +41,7 @@ export function resolve_home(env: NodeJS.ProcessEnv = process.env): SpinnerHome 
         root,
         sessions: join(root, "sessions"),
         archive: join(root, "archive"),
+        plans: join(root, "plans"),
         proxy,
         // The scope is a process-wide switch (tests set it for the whole run), so the
         // process environment is consulted even when a caller passes its own.

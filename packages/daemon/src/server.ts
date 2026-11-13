@@ -17,6 +17,8 @@ import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import { parse } from "yaml";
 import type {
+    NewSessionRequest,
+    PlansResponse,
     GithubAccess,
     AgentCommandResponse,
     AgentEventsResponse,
@@ -108,12 +110,21 @@ import {
     parse_agent_message,
     parse_extract,
     parse_new_session,
+    parse_plan_implement,
     parse_reviews,
     parse_session_adopt,
     parse_up,
     parse_verify,
 } from "./requests.js";
-import { start_lead_session } from "./agents/lead.js";
+import { start_lead_session, type LeadStartDeps } from "./agents/lead.js";
+import {
+    attach_plan,
+    implement_blocker,
+    implement_message,
+    plan_to_implement,
+    PlanRefusal,
+} from "./plans/implement.js";
+import { import_designs, plan_doc_path, plan_views, read_plan } from "./plans/library.js";
 import { MissionWriter, SPEC_AUTHOR } from "./store/mission-writer.js";
 import {
     find_session,
@@ -309,21 +320,107 @@ export function create_app(deps: AppDeps): Hono {
         const dir = summary.dir;
         if (request.text !== undefined) {
             // s014, chat first: attach, adopt, start the lead, send the paste as its message.
-            const lead_deps = {
-                home: deps.home,
-                ctx: deps.ctx,
-                agents: deps.agents,
-                ...(deps.egm === undefined ? {} : { egm: deps.egm }),
-                ...(deps.design === undefined ? {} : { design: deps.design }),
-                ...(deps.writer === undefined ? {} : { writer: deps.writer }),
-            };
             return start_job(c, deps, "new", dir, (log) =>
-                start_lead_session(lead_deps, summary, request, log).then(() => {}),
+                start_lead_session(lead_deps_of(deps), summary, request, log).then(() => {}),
             );
         }
         return start_job(c, deps, "new", dir, (log) =>
             actions.attach_new_session(deps.ctx, summary, request.project, log).then(() => {}),
         );
+    });
+
+    // A planning session (docs/designs/talk-change-ship.md, 4.2): `POST /sessions` with `plan`.
+    app.post("/plans", async (c) => {
+        const request = parse_new_session(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        if (request.text === undefined) {
+            return c.json(error_body("`text` is required: what the plan is about"), 400);
+        }
+        const planned = { ...request, plan: true, track: "design" as const };
+        let summary: SessionSummary;
+        try {
+            summary = actions.new_session(deps.ctx, planned);
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 409);
+        }
+        return start_job(c, deps, "new", summary.dir, (log) =>
+            start_lead_session(lead_deps_of(deps), summary, planned, log).then(() => {}),
+        );
+    });
+
+    app.get("/plans", (c) => {
+        const body: PlansResponse = {
+            plans: plan_views(deps.home, list_sessions(deps.home).sessions),
+        };
+        return c.json(body);
+    });
+
+    app.get("/plans/:id/doc", (c) => {
+        const record = read_plan(deps.home, c.req.param("id"));
+        const path = record === null ? null : plan_doc_path(deps.home, record);
+        if (path === null) {
+            return c.json(error_body(`no document for plan ${c.req.param("id")}`), 404);
+        }
+        return c.body(readFileSync(path, "utf8"), 200, { "content-type": "text/markdown" });
+    });
+
+    app.post("/plans/:id/implement", async (c) => {
+        const request = parse_plan_implement(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const writer = deps.writer;
+        if (writer === undefined) {
+            return c.json(error_body("the mission writer is not available"), 503);
+        }
+        const implement = { home: deps.home, writer };
+        try {
+            const plan = plan_to_implement(deps.home, c.req.param("id"));
+            if (request.session !== undefined) {
+                const target = find_session(deps.home, request.session);
+                if (target === null) {
+                    return c.json(error_body(`no session ${request.session}`), 404);
+                }
+                const blocker = implement_blocker(target, plan);
+                if (blocker !== null) {
+                    return c.json(error_body(blocker), 409);
+                }
+                return start_job(c, deps, "plan", target.dir, async (log) => {
+                    const seed = await attach_plan(implement, target, plan);
+                    log(`plan ${plan.record.id} attached: ${seed.added} items added`);
+                    await deps.design?.refresh(target.dir);
+                    const text = implement_message(plan, seed);
+                    const told = await tell_lead(deps.agents, target.dir, text, log);
+                    log(told ? "the lead was told to implement it" : "the lead was not reached");
+                });
+            }
+            // A new session for the plan: the plan is attached before its lead starts, so
+            // the lead's first message is the plan and its board is seeded.
+            const project = request.project ?? plan.record.project ?? undefined;
+            const created = actions.new_session(deps.ctx, {
+                title: plan.record.title,
+                text: plan.record.title,
+                ...(project === undefined ? {} : { project }),
+            });
+            return start_job(c, deps, "plan", created.dir, async (log) => {
+                const seed = await attach_plan(implement, created, plan);
+                log(`plan ${plan.record.id} attached: ${seed.added} items added`);
+                const fresh = read_session(deps.home, created.dir);
+                assert.ok(fresh.ok, fresh.ok ? "" : fresh.error);
+                const start: NewSessionRequest = {
+                    title: plan.record.title,
+                    text: implement_message(plan, seed),
+                    track: "direct",
+                    ...(project === undefined ? {} : { project }),
+                };
+                await start_lead_session(lead_deps_of(deps), fresh.summary, start, log);
+            });
+        } catch (error) {
+            const status = error instanceof PlanRefusal ? error.status : 409;
+            return c.json(error_body(describe_error(error)), status);
+        }
     });
 
     app.post("/sessions/extract", async (c) => {
@@ -1164,6 +1261,10 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     for (const resumed of await agents.adopt_all()) {
         log(`adopt: resumed tty agent ${resumed} on its transcript`);
     }
+    // The approved design of an older session becomes a plan of the library (4.4).
+    for (const id of import_designs(home, new Date())) {
+        log(`plans: imported the approved design of ${id}`);
+    }
     await swarm.prime();
     await designs.prime();
     // The operator agent comes last: a session agent's adoption must not wait on it, and its
@@ -1217,6 +1318,18 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
  * turns into `session.updated`; the notifier publishes `notify`. `poll_seconds: 0` is
  * off, for tests and for a machine without `gh`.
  */
+/** What `start_lead_session` needs of the daemon: the agents, and EGM when it is wired. */
+function lead_deps_of(deps: AppDeps): LeadStartDeps {
+    return {
+        home: deps.home,
+        ctx: deps.ctx,
+        agents: deps.agents,
+        ...(deps.egm === undefined ? {} : { egm: deps.egm }),
+        ...(deps.design === undefined ? {} : { design: deps.design }),
+        ...(deps.writer === undefined ? {} : { writer: deps.writer }),
+    };
+}
+
 /**
  * The autopilot's message to a session's lead (docs/designs/talk-change-ship.md, 1.5): a
  * stopped lead is resumed for it. False when the session has no lead or pi does not start;

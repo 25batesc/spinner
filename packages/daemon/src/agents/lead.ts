@@ -23,7 +23,7 @@ import { extract_prs } from "../pipeline/extract.js";
 import { attach_project, type Log } from "../stack/runner.js";
 import { load_spec } from "../stack/spec.js";
 import type { MissionWriter } from "../store/mission-writer.js";
-import { read_session } from "../store/session-store.js";
+import { read_session, write_session } from "../store/session-store.js";
 import type { AgentManager } from "./manager.js";
 
 export const LEAD_NAME = "lead";
@@ -138,6 +138,19 @@ async function choose_track(
 ): Promise<SessionSummary> {
     if (deps.egm === undefined || deps.design === undefined || deps.writer === undefined) {
         return summary;
+    }
+    if (summary.session.kind === "plan") {
+        // A planning session is on the design track with or without EGM: the lead writes
+        // the plan from the talk, and the guard keeps its writes to the plan's directory.
+        const read = read_session(deps.home, summary.dir);
+        assert.ok(read.ok, "a planning session must read back before its track write");
+        read.summary.session.design = { ...(read.summary.session.design ?? {}), track: "design" };
+        write_session(read.summary);
+        log("track: design (a planning session)");
+        await deps.design.refresh(summary.dir);
+        const planned = read_session(deps.home, summary.dir);
+        assert.ok(planned.ok, "a planning session must read back after its track write");
+        return planned.summary;
     }
     const status = deps.egm.status();
     const ready = status.state === "ready" && status.subagents;

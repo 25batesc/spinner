@@ -14,7 +14,7 @@ import {
     statSync,
     writeFileSync,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type {
     DesignChange,
@@ -27,6 +27,7 @@ import type {
     SessionSummary,
 } from "@spinner/protocol";
 import {
+    PLANS_REPO,
     APPROVED_COPY,
     DESIGN_DEFAULT_DIR,
     DESIGN_FILES_MAX,
@@ -39,6 +40,7 @@ import type { AgentManager } from "../agents/manager.js";
 import type { EventBus } from "../event-bus.js";
 import { run, type Runner } from "../git/pinned-clone.js";
 import type { SpinnerHome } from "../home.js";
+import { read_plan, write_plan } from "../plans/library.js";
 import { last_assistant_text } from "../agents/swarm.js";
 import { split_mission } from "../pipeline/mission-sections.js";
 import { config_for_session } from "../pipeline/poller.js";
@@ -304,6 +306,12 @@ export class DesignTracker {
      * repo and `DESIGN_DEFAULT_DIR`. Null when that repo has no worktree in this session.
      */
     designs_of(summary: SessionSummary): DesignsLocation | null {
+        if (summary.session.kind === "plan") {
+            // A planning session writes into its plan's directory of the library
+            // (docs/designs/talk-change-ship.md, 4.2); `design.doc` is relative to the library.
+            const plans = this.deps.home.plans;
+            return { repo: PLANS_REPO, worktree: plans, dir: join(plans, summary.dir) };
+        }
         const spec_file = join(summary.path, SESSION_SPEC);
         const spec = existsSync(spec_file) ? read_session_spec(summary).spec : null;
         const repos = summary.session.repos ?? {};
@@ -350,6 +358,14 @@ export class DesignTracker {
         const named = { ...fresh.summary.session.design, doc, repo: location.repo };
         fresh.summary.session.design = named;
         write_session(fresh.summary);
+        if (location.repo === PLANS_REPO) {
+            // The library's record names the document, so the plan stands without its session.
+            const record = read_plan(this.deps.home, dir);
+            if (record !== null) {
+                const updated = new Date().toISOString();
+                write_plan(this.deps.home, { ...record, doc: basename(path), updated });
+            }
+        }
         await this.deps.writer.write(dir, {
             section: "goal",
             mode: "replace",
@@ -498,6 +514,9 @@ export class DesignTracker {
         const design = summary.session.design;
         if (design?.doc === undefined || design.repo === undefined) {
             return null;
+        }
+        if (design.repo === PLANS_REPO) {
+            return join(this.deps.home.plans, design.doc);
         }
         const worktree = summary.session.repos?.[design.repo]?.worktree;
         if (worktree === undefined) {

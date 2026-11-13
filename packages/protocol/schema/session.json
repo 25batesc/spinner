@@ -150,9 +150,10 @@
             "type": "string",
             "enum": [
                 "session",
-                "review"
+                "review",
+                "plan"
             ],
-            "description": "What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action."
+            "description": "What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action. `plan` is a planning session (talk-change-ship.md, 4.2): its product is a plan document in the plans library, not code."
         },
         "ChangeHead": {
             "type": "object",

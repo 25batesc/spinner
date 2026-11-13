@@ -153,6 +153,11 @@ export function seed_log_line(doc_path: string, result: SeedResult): string {
 }
 
 /** The Plan block (added at the end when absent) with its lines and ids filled in. */
+/** The Plan items of a MISSION.md text, the placeholder left out: what links to plan entries. */
+export function plan_items(mission_text: string): (MissionItem & { id: number })[] {
+    return plan_section(split_mission(mission_text)).items;
+}
+
 function plan_section(blocks: MissionBlock[]): PlanSection {
     let block = blocks.find((entry) => entry.heading === SECTION_HEADINGS.plan);
     if (block === undefined) {

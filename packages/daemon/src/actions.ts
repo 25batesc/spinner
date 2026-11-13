@@ -54,6 +54,7 @@ import { post_message, post_view } from "./pipeline/post.js";
 import { reset_session } from "./pipeline/reset.js";
 import { start_change_job, switch_change_job } from "./pipeline/change-jobs.js";
 import { current_change, has_change } from "./pipeline/changes.js";
+import { ensure_plan } from "./plans/library.js";
 import { open_prs, type PrOutcome } from "./pipeline/pr.js";
 import { slack_client_from_env, type SlackClient } from "./pipeline/slack.js";
 import {
@@ -151,12 +152,27 @@ export function new_session(ctx: ActionContext, input: NewSessionRequest): Sessi
         throw new Error("`adopt` needs a `project`: a worktree needs a repo to come from");
     }
     const lead = input.text !== undefined;
-    return create_session(ctx.home, {
+    const created = create_session(ctx.home, {
         title,
         ...(input.slug === undefined ? {} : { slug: input.slug }),
         ...(lead ? { lead } : {}),
         ...(input.adopt === undefined || input.adopt.length === 0 ? {} : { adopted: input.adopt }),
     });
+    if (input.plan !== true) {
+        return created;
+    }
+    // A planning session: its plan's directory in the library is its designs directory, so
+    // it exists before the lead writes the document (talk-change-ship.md, 4.2).
+    created.session.kind = "plan";
+    write_session(created);
+    ensure_plan(ctx.home, {
+        id: created.dir,
+        title,
+        project: input.project ?? null,
+        origin: created.dir,
+        now: new Date(),
+    });
+    return created;
 }
 
 /**

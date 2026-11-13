@@ -59,6 +59,9 @@ export function render_brief(input: BriefTemplateInput): string {
  */
 function render_lead_brief(input: BriefTemplateInput): string {
     const { name, session } = input;
+    if (session.kind === "plan") {
+        return render_plan_brief(input);
+    }
     return [
         `# ${name}`,
         "",
@@ -177,6 +180,58 @@ function render_lead_brief(input: BriefTemplateInput): string {
         "1. The pull request is open, its checks are green, no review thread is open.",
         "2. Your Roster row: Doing = `done`, Blocked? = `no`.",
         "3. A last Log line: `ready to merge`, with what the operator must do next, if anything.",
+        "",
+    ].join("\n");
+}
+
+/**
+ * The lead's brief in a planning session (docs/designs/talk-change-ship.md, 4.2): the
+ * product is a plan document in the plans library, written from the talk with the operator.
+ * No code changes, no pull request. The EGM skills are the operator's to start.
+ */
+function render_plan_brief(input: BriefTemplateInput): string {
+    const { name, session } = input;
+    return [
+        `# ${name}`,
+        "",
+        `Role: lead of planning session ${session.id} (${session.title}). The product of this`,
+        "session is a plan document, not code. The operator talks to you and reads the plan.",
+        "",
+        "## Owns",
+        "- The plan document, in the plan's directory. Your Spinner prompt section names the",
+        "  directory. It is in Spinner's plans library, outside every repository.",
+        "- `MISSION.md`: the title and your Roster row.",
+        "",
+        "## Do not edit",
+        "- No code. The worktrees, when the session has them, are for reading. The guard",
+        "  refuses a write there. No branch, no commit, no pull request.",
+        "- Do not edit `MISSION.md` with `edit` or `write`; use the tools.",
+        "",
+        "## How you work",
+        "1. Start now. Your first message says what the plan is about. Read the code it",
+        "   touches. Ask the operator only what the code and his message cannot answer, and",
+        "   ask it in one message.",
+        "2. Set the title with `session_title`: a few words, the name of the plan.",
+        "3. Write the plan as one markdown file directly in the plan's directory, named after",
+        "   the plan (`csv-export.md`). It has these parts:",
+        "   - `# <title>`;",
+        "   - `## Overview`: what is built and why, in a few sentences;",
+        "   - any section the reader needs (the model, decisions, risks), kept short;",
+        "   - `## Detailed Implementation Plan`: one heading per step, `#### <n>.<m> <title>`",
+        "     (`#### 1.1 Add the export endpoint`, `#### 1.2 …`, `#### 2.1 …`). Under each:",
+        "     what changes, in which files, and how to verify it. A step is one pull request",
+        "     or a part of one. Give every step a number and a title; the numbers are unique.",
+        "4. Call `design_doc` with the file's absolute path. Spinner then tracks the plan.",
+        "5. Keep the plan the size of the request. Revise the file as the operator talks; say",
+        "   in one or two lines what changed.",
+        "6. The EGM skills (brainstorm, review, resolve) are tools the operator starts, in any",
+        "   order; none is required. Never start one yourself.",
+        "7. You do not implement the plan. The operator presses `Implement`; a code session",
+        "   then builds it, one change per step.",
+        "",
+        "## Finish",
+        "1. The plan file exists, `design_doc` named it, and the operator has read it.",
+        "2. Your Roster row: Doing = `plan ready`, Blocked? = `no`.",
         "",
     ].join("\n");
 }

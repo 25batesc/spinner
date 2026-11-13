@@ -183,6 +183,18 @@ export const ROUTES = {
     "POST /sessions/:dir/changes": "JobResponse",
     /** Make change `:id` the current one: its branch checked out in every worktree. */
     "POST /sessions/:dir/changes/:id/switch": "JobResponse",
+    /** Every plan of the library, with its status and the sessions that implement it. */
+    "GET /plans": "PlansResponse",
+    /** Start a planning session from a paste. Body: NewPlanRequest. Answers as `POST /sessions`. */
+    "POST /plans": "JobResponse",
+    /** The plan's document as markdown text. 404 without one. */
+    "GET /plans/:id/doc": "text",
+    /**
+     * Attach the plan to a session and seed its mission board; the job then tells the lead.
+     * Body: PlanImplementRequest. 409 without a document, for one the seed refuses, for a
+     * review or planning session.
+     */
+    "POST /plans/:id/implement": "JobResponse",
     /** Write one section of MISSION.md. Body: MissionSectionRequest. The daemon serializes. */
     "PUT /sessions/:dir/mission/section": "MissionSectionResponse",
     /** Write an `inbox/` message and deliver it. Body: InboxMessageRequest. */
@@ -825,6 +837,7 @@ export type JobAction =
     | "land"
     | "reset"
     | "change"
+    | "plan"
     | "diff"
     | "egm";
 
@@ -845,6 +858,7 @@ export const JOB_ACTIONS: readonly JobAction[] = [
     "land",
     "reset",
     "change",
+    "plan",
     "diff",
     "egm",
 ];
@@ -902,6 +916,11 @@ export interface NewSessionRequest {
      * is not ready or a pull request was adopted.
      */
     track?: DesignTrack;
+    /**
+     * True for a planning session (docs/designs/talk-change-ship.md, 4.2): `kind: plan`, the
+     * design track, a plan in the library. `POST /plans` sets it.
+     */
+    plan?: boolean;
 }
 
 /** `POST /sessions/extract`: the PR references in `text`, resolved against `project`'s repos. */
@@ -1139,6 +1158,76 @@ export interface ApproveRequest {
 export interface LandRequest {
     /** Repo key of one PR. Every PR when absent. */
     pr?: string;
+}
+
+/** One session that implements a plan, as `plan.json` records it. */
+export interface PlanImplementation {
+    /** The session's directory name. */
+    session: string;
+    /** ISO 8601 time of the `Implement`. */
+    at: string;
+    /** The first 12 hex digits of the document's hash at that time. */
+    sha12: string;
+}
+
+/** `plan.json` of one plan in the library (docs/designs/talk-change-ship.md, 4.1). */
+export interface PlanRecord {
+    /** The plan's directory name under `<home>/plans`. */
+    id: string;
+    title: string;
+    created: string;
+    updated: string;
+    /** Project name or spec path the plan is about, or null. */
+    project: string | null;
+    /** File name of the document in the plan's directory; null until the lead names it. */
+    doc: string | null;
+    /** Directory name of the session the plan was written in, or null. */
+    origin: string | null;
+    implementations: PlanImplementation[];
+}
+
+export type PlanStatus = "draft" | "drafted" | "reviewed" | "implementing" | "done";
+
+/** One implementing session of a plan, with its progress. */
+export interface PlanSessionView {
+    session: string;
+    /** False once the session is archived. */
+    live: boolean;
+    title: string | null;
+    /** Plan entries whose items are all ticked, and the entries the session's Plan links. */
+    done: number;
+    entries: number;
+}
+
+/** One plan, as the Plans view lists it (4.3). */
+export interface PlanView extends PlanRecord {
+    status: PlanStatus;
+    /** The entries of the document's plan section; 0 without a readable document. */
+    entries: number;
+    /** The highest `done` among the implementing sessions. */
+    done: number;
+    /** The planning session while it lives, else null. */
+    session: string | null;
+    sessions: PlanSessionView[];
+}
+
+export interface PlansResponse {
+    plans: PlanView[];
+}
+
+/** `POST /plans`: a planning session from a paste. */
+export interface NewPlanRequest {
+    text: string;
+    title?: string;
+    project?: string;
+}
+
+/** `POST /plans/:id/implement` (4.5). */
+export interface PlanImplementRequest {
+    /** Directory name of the session that implements the plan. A new session when absent. */
+    session?: string;
+    /** Project of the new session; the plan's project when absent. */
+    project?: string;
 }
 
 /** `POST /sessions/:dir/changes`: start a change (docs/designs/talk-change-ship.md, 2.3). */

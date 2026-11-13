@@ -39,6 +39,8 @@ export interface SessionFiles {
     designs_dir: string | null;
     /** `track` of the same file: `design` or `direct`; null when the file is absent. */
     track: string | null;
+    /** `kind:` of `session.yaml`: `plan` for a planning session; null for an ordinary one. */
+    kind: string | null;
 }
 
 /** The states of a change the prompt leaves out, unless the change is the current one. */
@@ -86,6 +88,7 @@ export function load_session_files(env: SpinnerEnv, view: SessionView | null): S
             })),
         designs_dir: design_designs_dir(env.session_dir),
         track: design_track(env.session_dir),
+        kind: /^kind:\s*"?([a-z]+)"?\s*$/m.exec(yaml)?.[1] ?? null,
     };
 }
 
@@ -131,9 +134,12 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
             "and `agent_steer` run the other agents; `adopt` brings a pull request in.",
         );
         lines.push(...github_lines(env.github));
+        if (files.kind === "plan") {
+            lines.push(...plan_lines(files.designs_dir));
+        }
         if (env.egm_root !== null && files.track === "design") {
             lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? "", files.designs_dir));
-        } else {
+        } else if (files.kind !== "plan") {
             lines.push(...fast_path_lines(env.egm_root));
         }
     }
@@ -226,6 +232,22 @@ function fast_path_lines(egm_root: string | null): string[] {
         );
     }
     return lines;
+}
+
+/** The lead's lines in a planning session (docs/designs/talk-change-ship.md, 4.2). */
+function plan_lines(designs_dir: string | null): string[] {
+    const where =
+        designs_dir === null
+            ? "The plan's directory is not known yet; ask the operator to reload the session."
+            : `The plan's directory: ${designs_dir}. Write the plan file directly in it.`;
+    return [
+        "This is a planning session: its product is a plan document, not code. Do not change",
+        "code, do not make a branch, do not open a pull request.",
+        where,
+        "The file has `## Overview` and `## Detailed Implementation Plan`, with one",
+        "`#### <n>.<m> <title>` heading per step. Name it with `design_doc` (absolute path).",
+        "The operator presses `Implement` to hand the plan to a code session.",
+    ];
 }
 
 /** The lead's EGM lines (docs/designs/egm-adoption.md, 1.23, 3.6). */
