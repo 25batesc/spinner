@@ -6,7 +6,7 @@ Updated: 2026-11-12, after v0.25.0 and the approved redesign.
 
 ## State in one paragraph
 
-Spinner builds Spinner, and since 2026-11-02 it does so the EGM way. Google's Elephant-Goldfish Model is the design process. The lead agent (the Elephant) brainstorms, drafts and reviews a design doc with fresh read-only Goldfish agents. The operator approves it with one click. The build runs on the doc, and the PR carries it. The releases run `v0.1.0` to `v0.14.0`. The repo holds about 160 commits by agents since the first release, 831 tests, CI with two jobs. Agent cost to date about $740. The design of the adoption, `docs/designs/egm-adoption.md`, was itself produced by that process and built in six sessions from its own plan.
+Spinner is in daily use on real work. Since 2026-11-12 its way of working is the fast path: the operator talks, the lead changes code, tests it, opens the pull request and keeps it ready. EGM planning is a tool he picks. The design is `docs/designs/talk-change-ship.md`; step 1 of 5 is built. The releases run `v0.1.0` to `v0.25.2`. The daemon suite has 502 tests.
 
 ## What changed since v0.1.0
 
@@ -14,6 +14,10 @@ Spinner builds Spinner, and since 2026-11-02 it does so the EGM way. Google's El
 - `v0.8.0` s018: a review runs the operator's `pr-review` skill end to end. Headless reviewers return verdicts. A headless lead writes the briefing and drafts one review in one voice. The operator posts with one click.
 - `v0.9.0` to `v0.14.0`, EGM sessions 1 to 6. Session 1: EGM fetched and pinned under `~/.spinner/egm/`, with generated Goldfish agent files. Session 2: the design stage derived from files, `design_doc`, the stepper, rounds. Session 3: the design-track lead brief, skill buttons, the `EGM ▾` menu, gate cards. Session 4: Goldfish chips with live state and cost, transcripts. Session 5: the design workspace with Brief, Design, Review, Files and History. Session 6: `approve and build`, re-approval on edits with the guard, the PR body from the doc, outcome counters. The evidence is in `docs/egm/HARNESS_EVIDENCE.md`: runs A to H with the real pi.
 - `v0.12.0` to `v0.13.1`: the sidebar in VS Code's shape (rail, one panel per view, `+ New …`), the reload focus fix, the needs-you badges count only unseen sessions.
+- `v0.15` to `v0.19`: the composer in the working area; the session workspace (one row of views, Implement, the Plan seeded from the doc), built by Spinner sessions on the `spinner` project.
+- `v0.20` to `v0.23`: the previews pop-out with every tab, file drop on the terminal, the working dot and recency in the sidebar, the worktree sync, preview comments.
+- `v0.24`: `settings.agents.github` (`guarded` or `full`), a daemon that survives a failed probe, agents that resume after a restart, `resume` on the chip.
+- `v0.25`: the fast path as the default, `pr open` and `stack up` for the lead, the autopilot.
 
 ## What runs on the operator's machine
 
@@ -25,15 +29,19 @@ Spinner builds Spinner, and since 2026-11-02 it does so the EGM way. Google's El
 | The proxy and the managed Postgres | `spinner-proxy` on `:80`, `spinner-postgres` on `:55432`, route files in `~/.spinner/proxy/` | `docker ps --filter name=spinner` |
 | The operator's project stack | sessions under `~/.spinner/sessions/`, host services under the session's `log/` and `stack/pids/` | `spinner show <id>` |
 
-The daemon needs three things in its environment. `SLACK_USER_TOKEN` posts as the operator. `SPINNER_PI` names the pi binary, under the Node version that installed it. Node 24 must be on PATH. Restart it from a shell that has them:
+The daemon needs three things in its environment. `SLACK_USER_TOKEN` posts as the operator. `SPINNER_PI` names the pi binary, under the Node version that installed it. Node 24 must be on PATH. `~/.spinner/env` holds the first two; never print that file. Check first that no agent is in a turn (`process: running` in `GET /sessions`), then restart:
 
 ```
 cd ~/Spinner && pnpm -r build
-pnpm spinner daemon stop && pnpm spinner daemon start
-curl -s localhost:7777/health
+pid=$(lsof -nP -iTCP:7777 -sTCP:LISTEN -t); kill $pid; sleep 5
+unset SPINNER_HOME; set -a; . ~/.spinner/env; set +a
+(nohup pnpm --silent daemon > ~/.spinner/daemon.log 2>&1 &)
+sleep 40; curl -s localhost:7777/health
 ```
 
-`~/.spinner/config.yaml` and `~/.spinner/env` hold the settings the launch agent needs. A UI change needs a daemon restart and a reload of the window (⌘R). An Electron change needs `pnpm desktop` again or `pnpm desktop:build`. A tty agent dies with the daemon (SIGHUP from the pty); the new daemon resumes each one on its transcript.
+Always unset `SPINNER_HOME`. A daemon started with a stray one reads an empty home, and the app then shows no sessions. The Sessions panel names a home that is not `~/.spinner`.
+
+A UI change needs a daemon restart and a reload of the window (⌘R). An Electron change needs the app quit and `pnpm desktop` again. A restart stops every agent; the new daemon resumes each tty agent on its transcript, but a turn in flight is lost.
 
 ## Where the state lives
 
