@@ -74,6 +74,7 @@ export const EXTENSION_TOOLS = [
     "message",
     "stack",
     "pr",
+    "change",
     "thread_list",
     "thread_reply",
     "thread_resolve",
@@ -165,6 +166,8 @@ export type ExtensionTool = (typeof EXTENSION_TOOLS)[number];
 
 export type StackToolCommand = "show" | "logs" | "restart" | "up";
 
+export type ChangeToolCommand = "list" | "start" | "switch";
+
 /** The arguments of each tool, as the model supplies them. */
 export interface ExtensionToolArgs {
     /** Overwrites the agent's own Roster row. `blocked` is `no` or `yes: <what you wait for>`. */
@@ -187,7 +190,13 @@ export interface ExtensionToolArgs {
      */
     stack: { command: StackToolCommand; service?: string; lines?: number; session?: string };
     /** `show` lists the session's PRs with stage, checks and open threads. */
-    pr: { command: "show"; session?: string };
+    pr: { command: "show" | "open"; body?: string; session?: string };
+    /**
+     * The session's changes (docs/designs/talk-change-ship.md, 2.4), the lead only. `list`
+     * shows them; `start` begins one on a new branch (`title` names it; `on` is the id of a
+     * change to build on top of); `switch` checks out the branch of change `id`.
+     */
+    change: { command: ChangeToolCommand; title?: string; on?: string; id?: string };
     /** Open threads of one PR (repo key) or of every PR. */
     thread_list: { pr?: string };
     /** Replies in a thread. `thread` is a `ThreadView.id` or its `label` within `pr`. */
@@ -428,14 +437,21 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         {
             name: "pr",
             description:
-                "Show the session's PRs: stage, checks, review and open threads. The lead " +
-                "also opens them (`open`): push, one PR per changed repo, the body from the " +
-                "mission; allowed when the operator's settings give GitHub access.",
+                "Show the PRs of every change: state, checks, review and open threads. The " +
+                "lead also opens the current change's (`open`): push, one PR per changed " +
+                "repo, titled with the change's title, `body` as the description; allowed " +
+                "when the operator's settings give GitHub access.",
             parameters: {
                 command: {
                     type: "string",
                     description: "`show`, or `open` (the lead)",
                     enum: ["show", "open"],
+                },
+                body: {
+                    type: "string",
+                    description:
+                        "For `open`: the PR description in markdown: what changed, why, how " +
+                        "you verified it. Always give it for a change after the first.",
                 },
                 session: {
                     type: "string",
@@ -445,6 +461,37 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["command"],
             roles: EVERY_ROLE,
             route: "GET /sessions/:dir",
+        },
+        {
+            name: "change",
+            description:
+                "The session's changes. A change is one branch and one pull request per " +
+                "repo; the session can hold several. `list` shows them. `start` begins a " +
+                "new change on a new branch from the base (or on top of the change `on` " +
+                "names) and puts the current one aside; its pull request stays open and " +
+                "watched. `switch` checks out another change's branch. Both refuse on " +
+                "uncommitted work: commit first. Never make or switch a branch with git.",
+            parameters: {
+                command: {
+                    type: "string",
+                    description: "What to do",
+                    enum: ["list", "start", "switch"],
+                },
+                title: {
+                    type: "string",
+                    description: "For `start`: the change's title; it becomes the PR title",
+                },
+                on: {
+                    type: "string",
+                    description:
+                        "For `start`: id of an unmerged change this one needs (c1). Leave " +
+                        "it out for an independent change from the base",
+                },
+                id: { type: "string", description: "For `switch`: the change's id (c1)" },
+            },
+            required: ["command"],
+            roles: LEAD,
+            route: "POST /sessions/:dir/changes",
         },
         {
             name: "thread_list",

@@ -5,6 +5,7 @@
 // capturing notifier records banners; everything runs against a temporary SPINNER_HOME with
 // a temporary project spec whose one repo is a real clone of a bare origin, so adopt with a
 // project can check the PR branches out.
+import assert from "node:assert/strict";
 import {
     existsSync,
     lstatSync,
@@ -21,7 +22,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Session } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { run_ok } from "../stack/shell.js";
+import { read_session, write_session } from "../store/session-store.js";
 import { adopt_prs, attach_adopted } from "./adopt.js";
+import { start_change } from "./changes.js";
 import { load_pipeline_config } from "./config.js";
 import type { GhRunner, PrResponse } from "./github.js";
 import { poll_once } from "./poller.js";
@@ -307,6 +310,50 @@ describe("poll_once", () => {
         const off = { ...autopilot, enabled: () => false };
         await poll_once(home, { ...options, autopilot: off });
         expect(told).toHaveLength(1);
+    });
+
+    it("polls a change that is not checked out and tells the lead how to get to it", async () => {
+        const dir = await adopt();
+        const told: string[] = [];
+        const autopilot = {
+            enabled: () => true,
+            tell: async (_dir: string, text: string): Promise<boolean> => {
+                told.push(text);
+                return true;
+            },
+        };
+        const options = { gh: gh.runner, notify, cwd: root, autopilot };
+        await poll_once(home, options);
+        // The lead starts a second change: the adopted pull request is now a record.
+        const read = read_session(home, dir);
+        assert.ok(read.ok);
+        const first_branch = read.summary.session.branch;
+        const second = start_change(read.summary.session, {
+            id: "c2",
+            title: "Second",
+            branch: "feat/second",
+            started: "2026-11-12T11:00:00Z",
+            keep_current: true,
+        });
+        write_session({ ...read.summary, session: second });
+        gh.responses.set(4812, load("pr-fixing"));
+        gh.responses.set(4825, load("pr-fixing"));
+        const report = await poll_once(home, options);
+        expect(report.polled).toEqual([dir]);
+        const after = read_yaml(dir);
+        // The top level is still the second change; the record carries the fresh facts.
+        expect(after.branch).toBe("feat/second");
+        expect(after.repos["backend"]?.pr).toBeNull();
+        const record = after.changes?.[0];
+        expect(record?.stage).toBe("fixing");
+        expect(record?.pipeline?.autopilot?.threads).toHaveLength(2);
+        expect(told).toHaveLength(1);
+        expect(told[0]).toMatch(/2 new review thread\(s\)/);
+        expect(told[0]).toContain(`change c1 "${read.summary.session.title}"`);
+        expect(told[0]).toContain(`(branch ${first_branch}), which is not checked out`);
+        expect(told[0]).toContain("`change switch c1`");
+        // The notice of the transition names the change.
+        expect(banners.at(-1)).toContain(` · ${read.summary.session.title}: `);
     });
 
     it("verify moves the session to peer-review; a push clears the tick", async () => {

@@ -12,6 +12,7 @@ import type {
     ApprovalCheckState,
     CheckState,
     GithubConfig,
+    PrDiff,
     PrState,
     PullRequest,
     QueueState,
@@ -119,6 +120,10 @@ export interface PrNode {
     baseRefName: string;
     headRefName: string;
     headRefOid: string;
+    /** The size of the pull request. Absent in a response recorded before step 2. */
+    additions?: number;
+    deletions?: number;
+    changedFiles?: number;
     updatedAt: string;
     mergeQueueEntry: { state: string; position: number | null } | null;
     commits: { nodes: { commit: { oid: string; statusCheckRollup: Rollup | null } }[] };
@@ -182,6 +187,15 @@ export interface FactsContext {
     owner_login: string;
 }
 
+/** The size of the pull request, when the response carries it. */
+function diff_of(node: PrNode): { diff?: PrDiff } {
+    if (node.additions === undefined || node.deletions === undefined) {
+        return {};
+    }
+    const files = node.changedFiles ?? 0;
+    return { diff: { files, additions: node.additions, deletions: node.deletions } };
+}
+
 /** Pure: one GraphQL response plus the configuration becomes the `pr:` block of a repo. */
 export function pr_facts_from_response(response: PrResponse, context: FactsContext): PullRequest {
     const node = response.data.repository.pullRequest;
@@ -213,6 +227,7 @@ export function pr_facts_from_response(response: PrResponse, context: FactsConte
         queue: queue.state,
         queue_reason: queue.reason,
         last_activity: node.updatedAt,
+        ...diff_of(node),
         // The Slack post and the approval dialog show the title; without it here, the first
         // poll after `pr` dropped the title `pr` had set (live loop, s007).
         title: node.title,

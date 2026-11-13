@@ -19,6 +19,7 @@ import { read_env, type SpinnerEnv } from "./env.js";
 import {
     guard_edit,
     read_design_state,
+    refuse_branch_change,
     refuse_operator_bash,
     refuse_process_sweep,
 } from "./guard.js";
@@ -106,7 +107,10 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
 
     pi.on("tool_call", (event, ctx) => {
         if (event.toolName === "bash") {
-            const sweep = refuse_process_sweep(String(event.input["command"] ?? ""));
+            const command = String(event.input["command"] ?? "");
+            // The operator agent has no session worktree, so branches are its own business.
+            const branch = env.role === "operator" ? null : refuse_branch_change(command);
+            const sweep = refuse_process_sweep(command) ?? branch;
             if (sweep !== null) {
                 if (ctx.hasUI) {
                     ctx.ui.notify(sweep, "warning");

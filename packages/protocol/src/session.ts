@@ -71,6 +71,15 @@ export interface PullRequest {
     title?: string;
     /** Names of the checks that are red, for the CI pill's tooltip (s015). Absent before s015. */
     checks_failing?: string[];
+    /** Files and lines the pull request changes, from the poll. Absent before step 2. */
+    diff?: PrDiff;
+}
+
+/** The size of a pull request, as GitHub counts it. */
+export interface PrDiff {
+    files: number;
+    additions: number;
+    deletions: number;
 }
 
 export interface SessionRepo {
@@ -99,6 +108,8 @@ export interface RepoSync {
     behind: number;
     /** True when the branch tracks a remote branch; false before the first push. */
     upstream: boolean;
+    /** Commits on the branch that the repo's base lacks. Absent before step 2. */
+    commits?: number;
     /** ISO 8601 time of the daemon's last push of this worktree. */
     pushed?: string;
     /** The first line of the last push failure; null when the last push succeeded. */
@@ -294,6 +305,15 @@ export interface Session {
      * and shows "n min ago". Absent until the first.
      */
     last_interaction?: string;
+    /**
+     * The current change (docs/designs/talk-change-ship.md, 2.1): the one checked out in the
+     * session's worktrees. `branch`, `repos[*].changed`, `repos[*].pr`, `pipeline`, `stage`
+     * and `needs_human` below describe it. Absent in a file written before step 2: it reads
+     * as `c1` with the session's title and creation time.
+     */
+    change?: ChangeHead;
+    /** Every other change of the session, open or finished, oldest first. Absent means none. */
+    changes?: ChangeRecord[];
     stage: Stage;
     /** The single next action for the operator, or null. */
     needs_human: string | null;
@@ -334,6 +354,46 @@ export interface OutcomeCounts {
     fix_rounds: number;
     operator_steers: number;
 }
+
+/** What names a change: the current one carries only this; a record adds its facts. */
+export interface ChangeHead {
+    /** `c1`, `c2`, …: unique in the session. */
+    id: string;
+    /** The title of the change and of its pull requests. */
+    title: string;
+    /** ISO 8601 time the change was started. */
+    started: string;
+    /**
+     * The change this one was started on top of. Its pull request opens against that
+     * change's branch while that pull request is open. Absent: started from the base.
+     */
+    on?: string;
+}
+
+/** The facts of one repo in a change that is not checked out. */
+export interface ChangeRepo {
+    changed: boolean;
+    pr?: PullRequest | null;
+}
+
+/**
+ * A change of the session that is not the current one: its branch stays in the worktrees'
+ * repositories, its pull requests are still polled. The fields mirror the session's
+ * top-level change fields, so `focus_change` swaps one for the other.
+ */
+export interface ChangeRecord extends ChangeHead {
+    branch: string;
+    /** By repo key of the session's `repos`. */
+    repos: Record<string, ChangeRepo>;
+    pipeline?: Pipeline;
+    stage: Stage;
+    needs_human: string | null;
+    /** ISO 8601 time every pull request of the change was merged or closed. Absent while open. */
+    ended?: string;
+}
+
+/** `session.changes` keeps at most this many records; past it the oldest finished drops. */
+export const CHANGES_MAX = 200;
 
 /** One PR of an earlier round. `merged_at` is the PR's `last_activity` when merged, else null. */
 export interface RoundPr {
@@ -386,4 +446,10 @@ export interface SessionSummary {
     /** Absolute path of the session directory. */
     path: string;
     session: Session;
+    /**
+     * Daemon-internal, never sent: the id of the change `session` is focused on (2.2). The
+     * top-level change fields of `session` are then that change's, and `write_session` stores
+     * only them, into wherever that change lives in the file at that moment.
+     */
+    focus?: string;
 }

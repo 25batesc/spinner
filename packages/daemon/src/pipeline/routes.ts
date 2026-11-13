@@ -8,6 +8,7 @@ import type { Hono, Context } from "hono";
 import type {
     ApproveRequest,
     ApproveResponse,
+    ChangeStartRequest,
     ErrorResponse,
     FixRequest,
     JobAction,
@@ -35,7 +36,8 @@ import type { ActionContext } from "../actions.js";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import type { JobRunner, JobWork } from "../jobs/jobs.js";
-import { find_session } from "../store/session-store.js";
+import { find_session, focus_summary } from "../store/session-store.js";
+import { current_change, has_change } from "./changes.js";
 
 /** What the routes need from the daemon; `server.ts` passes its `AppDeps` plus the bus. */
 export interface PipelineRouteDeps {
@@ -186,9 +188,9 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
     );
 
     app.get("/sessions/:dir/post", (c) => {
-        const summary = find_session(deps.home, c.req.param("dir"));
-        if (summary === null) {
-            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        const summary = focused_session(c, deps);
+        if (summary instanceof Response) {
+            return summary;
         }
         const body: PostResponse = {
             post: actions.post_preview(deps.ctx, summary, c.req.query("to")),
@@ -201,9 +203,9 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
         if (typeof request === "string") {
             return c.json(error_body(request), 400);
         }
-        const summary = find_session(deps.home, c.req.param("dir"));
-        if (summary === null) {
-            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        const summary = focused_session(c, deps);
+        if (summary instanceof Response) {
+            return summary;
         }
         return start_job(c, deps, "post", summary.dir, (log) =>
             actions.post(deps.ctx, summary, request, log).then(() => {}),
@@ -211,9 +213,9 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
     });
 
     app.get("/sessions/:dir/approve", async (c) => {
-        const summary = find_session(deps.home, c.req.param("dir"));
-        if (summary === null) {
-            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        const summary = focused_session(c, deps);
+        if (summary instanceof Response) {
+            return summary;
         }
         try {
             const body: ApproveResponse = {
@@ -230,9 +232,9 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
         if (typeof request === "string") {
             return c.json(error_body(request), 400);
         }
-        const summary = find_session(deps.home, c.req.param("dir"));
-        if (summary === null) {
-            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        const summary = focused_session(c, deps);
+        if (summary instanceof Response) {
+            return summary;
         }
         return start_job(c, deps, "approve", summary.dir, (log) =>
             actions.approve(deps.ctx, summary, request, log).then(() => {}),
@@ -244,12 +246,42 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
         if (typeof request === "string") {
             return c.json(error_body(request), 400);
         }
+        const summary = focused_session(c, deps);
+        if (summary instanceof Response) {
+            return summary;
+        }
+        // Not exclusive: a merge queue can hold a pull request for an hour, and the lead
+        // must be able to open the next change's pull request meanwhile. The job writes
+        // focused, and its one use of the worktree checks the branch first.
+        const work: JobWork = (log) => actions.land(deps.ctx, summary, request, log).then(() => {});
+        return start_job(c, deps, "land", summary.dir, work, { exclusive: false });
+    });
+
+    app.post("/sessions/:dir/changes", async (c) => {
+        const request = parse_change_start(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
         const summary = find_session(deps.home, c.req.param("dir"));
         if (summary === null) {
             return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
         }
-        return start_job(c, deps, "land", summary.dir, (log) =>
-            actions.land(deps.ctx, summary, request, log).then(() => {}),
+        return start_job(c, deps, "change", summary.dir, (log) =>
+            actions.change_start(deps.ctx, summary, request, log).then(() => {}),
+        );
+    });
+
+    app.post("/sessions/:dir/changes/:id/switch", (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const id = c.req.param("id") ?? "";
+        if (!has_change(summary.session, id)) {
+            return c.json(error_body(`no change ${id} in ${summary.dir}`), 404);
+        }
+        return start_job(c, deps, "change", summary.dir, (log) =>
+            actions.change_switch(deps.ctx, summary, id, log).then(() => {}),
         );
     });
 
@@ -281,6 +313,23 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
             ),
         );
     });
+}
+
+/**
+ * The session of the route, focused on the change `?change=<id>` names, or on its current
+ * change (docs/designs/talk-change-ship.md, 2.7). A 404 response when either is unknown.
+ */
+function focused_session(c: Context, deps: PipelineRouteDeps): SessionSummary | Response {
+    const dir = c.req.param("dir") ?? "";
+    const summary = find_session(deps.home, dir);
+    if (summary === null) {
+        return c.json(error_body(`no session ${dir}`), 404);
+    }
+    const id = c.req.query("change") ?? current_change(summary.session).id;
+    if (!has_change(summary.session, id)) {
+        return c.json(error_body(`no change ${id} in ${summary.dir}`), 404);
+    }
+    return focus_summary(summary, id);
 }
 
 /**
@@ -352,6 +401,7 @@ function start_job(
     action: JobAction,
     session: string,
     work: JobWork,
+    options: { exclusive?: boolean } = {},
 ): Response {
     const refreshed: JobWork = async (log, set_session) => {
         try {
@@ -361,7 +411,7 @@ function start_job(
         }
     };
     try {
-        const job = deps.jobs.start(action, session, refreshed);
+        const job = deps.jobs.start(action, session, refreshed, options);
         const body: JobResponse = { job };
         return c.json(body, 202);
     } catch (error) {
@@ -387,6 +437,13 @@ export function parse_pr(input: unknown): PrRequest | string {
             return "`draft` must be a boolean";
         }
         request.draft = record["draft"];
+    }
+    if (record["body"] !== undefined) {
+        const body = record["body"];
+        if (typeof body !== "string" || body.length > PR_BODY_MAX) {
+            return `\`body\` must be text of at most ${PR_BODY_MAX} characters`;
+        }
+        request.body = body;
     }
     return request;
 }
@@ -477,6 +534,31 @@ export function parse_land(input: unknown): LandRequest | string {
     }
     return pr === undefined ? {} : "`pr` must be a repo key";
 }
+
+export function parse_change_start(input: unknown): ChangeStartRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const title = record["title"];
+    if (typeof title !== "string" || title.trim().length === 0) {
+        return "`title` is required: it names the change, its branch and its pull requests";
+    }
+    if (title.length > CHANGE_TITLE_MAX) {
+        return `\`title\` must be at most ${CHANGE_TITLE_MAX} characters`;
+    }
+    const on = optional_string(record, "on");
+    if (on !== undefined && typeof on !== "string") {
+        return "`on` must be the id of a change";
+    }
+    return on === undefined ? { title: title.trim() } : { title: title.trim(), on };
+}
+
+/** GitHub refuses a pull request body past 65536 characters; the footer needs a little. */
+const PR_BODY_MAX = 60_000;
+
+/** A change's title is a pull request title; GitHub cuts longer ones in its lists. */
+const CHANGE_TITLE_MAX = 120;
 
 export function parse_reset(input: unknown): ResetRequest | string {
     const record = as_record(input);

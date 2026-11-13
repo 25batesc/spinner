@@ -7,6 +7,7 @@ import {
     EGM_SOURCE_URL,
     REVIEW_DRAFT_NEEDS_HUMAN,
     type BoardView,
+    type ChangeView,
     type DesignStage,
     type DesignView,
     type DiffRepoView,
@@ -221,8 +222,49 @@ export function view(
         agents_running: agentsRunning,
         diff,
         cost: sessionCost(base),
+        changes: fixtureChanges(base, prs),
     };
 }
+
+/**
+ * The changes of a fixture session (docs/designs/talk-change-ship.md, 2.8): its one current
+ * change from its PRs; `FIXTURE_PARKED_CHANGE` before it for the session with open PRs, so
+ * the rail, the card's `+1` and the PRs view have a change that is not checked out to show.
+ */
+export function fixtureChanges(base: Session, prs: PrFacts[]): ChangeView[] {
+    const open = prs.filter((pr) => pr.state === "open" || pr.state === "draft");
+    let state: ChangeView["state"] = "empty";
+    if (prs.length > 0 && open.length === 0) {
+        state = "merged";
+    } else if (open.some((pr) => pr.checks === "red")) {
+        state = "fixing CI";
+    } else if (open.some((pr) => pr.threads.bots_open + pr.threads.humans_open > 0)) {
+        state = "answering review";
+    } else if (open.length > 0) {
+        state = base.stage === "approving" ? "ready to merge" : "PR open";
+    } else if (Object.values(base.repos ?? {}).some((repo) => repo.changed)) {
+        state = "building";
+    }
+    const current: ChangeView = {
+        id: open.length > 1 ? "c2" : "c1", title: base.title, branch: base.branch,
+        current: true, state, stage: base.stage, needs_human: base.needs_human, prs,
+        on: null, started: base.created, ended: null,
+    };
+    return open.length > 1 ? [FIXTURE_PARKED_CHANGE, current] : [current];
+}
+
+/** A change that is not checked out: one open pull request, ready to merge. */
+export const FIXTURE_PARKED_CHANGE: ChangeView = {
+    id: "c1", title: "Export button label", branch: "feat/export-button-label",
+    current: false, state: "ready to merge", stage: "approving",
+    needs_human: "land web#77", on: null, started: "2026-10-19T09:00:00Z", ended: null,
+    prs: [{
+        repo: "web", number: 77, url: "https://github.com/acme/web/pull/77", state: "open",
+        title: "Export button label", checks: "green",
+        threads: { bots_open: 0, humans_open: 0, resolved: 2 },
+        diff: { files: 2, additions: 12, deletions: 4 },
+    }],
+};
 
 /** The window every fixture model has: 1M tokens, as the Opus and Sonnet models of pi. */
 export const FIXTURE_CONTEXT_WINDOW = 1_000_000;

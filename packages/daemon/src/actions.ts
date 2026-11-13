@@ -16,6 +16,7 @@ import type {
     FixRequest,
     LandRequest,
     NewSessionRequest,
+    ChangeStartRequest,
     ResetRequest,
     PostRequest,
     PostView,
@@ -51,6 +52,7 @@ import { land_prs } from "./pipeline/land.js";
 import { macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { post_message, post_view } from "./pipeline/post.js";
 import { reset_session } from "./pipeline/reset.js";
+import { start_change_job, switch_change_job } from "./pipeline/change-jobs.js";
 import { open_prs, type PrOutcome } from "./pipeline/pr.js";
 import { slack_client_from_env, type SlackClient } from "./pipeline/slack.js";
 import {
@@ -540,6 +542,28 @@ export async function reset(
         log,
         stack: true,
     });
+}
+
+/** `change start`: a new branch in every worktree; the current change is put aside. */
+export async function change_start(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    input: ChangeStartRequest,
+    log: Log,
+): Promise<SessionSummary> {
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
+    return start_change_job(ctx.home, summary, input, { git: writer_of(ctx).git, config, log });
+}
+
+/** `change switch`: the branch of change `id` checked out in every worktree. */
+export async function change_switch(
+    ctx: ActionContext,
+    summary: SessionSummary,
+    id: string,
+    log: Log,
+): Promise<SessionSummary> {
+    const config = config_for_session(summary, ctx.home, ctx.cwd, log);
+    return switch_change_job(ctx.home, summary, id, { git: writer_of(ctx).git, config, log });
 }
 
 function threads_deps(ctx: ActionContext, summary: SessionSummary, log: Log): ThreadsDeps {

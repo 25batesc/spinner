@@ -168,8 +168,14 @@ export async function commentAction(
     return send("POST", `/sessions/${dir}/comments/${encodeURIComponent(id)}/${verb}`, body);
 }
 
-export async function fetchPost(dir: string, signal: AbortSignal): Promise<PostView> {
-    return (await getJson<PostResponse>(`/sessions/${dir}/post`, signal)).post;
+/** The Slack post of the session's current change, or of change `change`. */
+export async function fetchPost(
+    dir: string,
+    signal: AbortSignal,
+    change?: string,
+): Promise<PostView> {
+    const query = change === undefined ? "" : `?change=${encodeURIComponent(change)}`;
+    return (await getJson<PostResponse>(`/sessions/${dir}/post${query}`, signal)).post;
 }
 
 export async function fetchApprove(dir: string, signal: AbortSignal): Promise<ApproveView> {

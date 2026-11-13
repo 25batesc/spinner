@@ -69,7 +69,9 @@ Rules that bit and are now in the briefs: stage by path, never `git add -A` or `
 
 ## The direction since 2026-11-12
 
-Read `docs/designs/talk-change-ship.md` first. The operator approved it. Spinner's main job is a request in and a mergeable pull request out, kept ready by the agent. The fast path is the default; EGM planning is a tool he picks. Step 1 is built (v0.25.0): the `direct` track by default, the lead's fast-path brief, `pr` `open`, `stack` `up`, the thread tools for the lead, and the autopilot. Steps 2 to 5 are approved in outline: several changes in one session, the stack following a change, plans as a library, the chat as the centre. Detail each step with the operator before it is built. The Agents view design (session s052) is paused until steps 2 and 5.
+Read `docs/designs/talk-change-ship.md` first. The operator approved it. Spinner's main job is a request in and a mergeable pull request out, kept ready by the agent. The fast path is the default; EGM planning is a tool he picks.
+
+Steps 1 and 2 of 5 are built. Step 1 (`v0.25.0`) is the fast path, the lead's `pr open` and `stack up`, and the autopilot. Step 2 (`v0.26.0`) is several changes in one session: the `change` tool, the poll and the autopilot per change, the Changes rail, the Pull requests view. `docs/DAEMON_API.md` has a section for each. Steps 3 to 5 are in outline in the design doc; each gets its detail there before it is built.
 
 ## The operator's current work
 

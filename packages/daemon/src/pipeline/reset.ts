@@ -31,6 +31,7 @@ import { DatabaseServer, server_address } from "../stack/postgres.js";
 import { read_session, write_session } from "../store/session-store.js";
 import type { GitRunner } from "./github-write.js";
 import { archive_round } from "./mission-sections.js";
+import { next_change_id } from "./changes.js";
 import { repo_base } from "./pr.js";
 import { round_record } from "./rounds.js";
 import { THREADS_DIR } from "./threads.js";
@@ -103,6 +104,12 @@ export async function reset_session(
     }
     session.branch = branch;
     session.round = round;
+    // The round is a new change: the records of the changes put aside keep their ids.
+    session.change = {
+        id: next_change_id(previous),
+        title: previous.title,
+        started: now().toISOString(),
+    };
     session.pipeline = { verified_locally: false, verified_heads: {}, slack_post: null };
     archive_threads(summary, round - 1, deps.log);
     archive_mission(summary, previous, round - 1);

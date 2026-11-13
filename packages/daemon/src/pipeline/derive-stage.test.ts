@@ -219,7 +219,7 @@ describe("derive_stage: one row of the stage table per test", () => {
 
     it("merged: every PR merged into base", () => {
         const result = derive_stage(facts({}, [pr({ state: "merged" })]));
-        expect(result).toEqual({ stage: "merged", needs_human: "close or reset", stale: false });
+        expect(result).toEqual({ stage: "merged", needs_human: null, stale: false });
     });
 
     it("closed: torn down and archived", () => {

@@ -1487,3 +1487,57 @@ button.badge.round-badge-button:hover { background: var(--accent-fill); }
 .dw-approval[data-mark="invalidated"] {
     background: var(--warn-tint); border-radius: var(--radius-control);
 }
+
+/* The Changes rail (talk-change-ship.md, 2.9): one card per change in the right pane. */
+.changes-rail {
+    flex: 1 1 auto; min-height: 0; overflow: auto;
+    padding: var(--space-2) var(--space-3); display: flex; flex-direction: column;
+    gap: var(--space-2);
+}
+.change-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.change-card {
+    border: 1px solid var(--border); border-radius: var(--radius-box);
+    padding: var(--space-2) var(--space-3); display: flex; flex-direction: column;
+    gap: var(--space-1); background: var(--surface);
+}
+.change-card[data-current="true"] { box-shadow: inset 2px 0 0 var(--accent); }
+.change-list-finished .change-card { opacity: 0.75; }
+.change-head { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.change-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.change-meta { font-size: var(--text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.change-state { color: var(--text); font-weight: 600; }
+.change-dot { background: var(--muted); flex: 0 0 auto; }
+[data-tone="ok"] .change-dot { background: var(--ok); }
+[data-tone="warn"] .change-dot { background: var(--warn); }
+[data-tone="bad"] .change-dot { background: var(--fail); }
+[data-tone="done"] .change-dot { background: transparent; border: 1px solid var(--muted); }
+.change-prs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.change-pr { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); font-size: var(--text-meta); }
+.change-pr-name { font-weight: 600; font-variant-numeric: tabular-nums; }
+.change-checks[data-checks="green"] { color: var(--ok); }
+.change-checks[data-checks="red"] { color: var(--fail); }
+.change-checks[data-checks="pending"] { color: var(--muted); }
+.change-threads { color: var(--warn); }
+.change-size { font-variant-numeric: tabular-nums; }
+.change-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+button.link.changes-finished-toggle {
+    align-self: flex-start; background: none; border: 0; padding: 0; color: var(--muted);
+    font-size: var(--text-meta); cursor: pointer;
+}
+.badge.change-count { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
+
+/* The PRs view of the sidebar: every pull request Spinner opened. */
+.prs-pane { display: flex; flex-direction: column; gap: var(--space-1); }
+.pr-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.pr-rows-heading { margin: var(--space-2) 0 0; font-size: var(--text-meta); font-weight: 600; }
+.pr-row {
+    width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px;
+    padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-box);
+    background: var(--surface); color: inherit; cursor: pointer; min-width: 0;
+}
+.pr-row:hover { background: var(--fill); }
+.pr-row-selected { box-shadow: inset 2px 0 0 var(--accent); background: var(--fill); }
+.pr-row-head { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.pr-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pr-row-meta, .pr-row-session { font-size: var(--text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-rows-finished .pr-row { opacity: 0.7; }

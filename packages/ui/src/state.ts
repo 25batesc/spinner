@@ -16,6 +16,7 @@ import type {
 import { describeEvent } from "./describe.ts";
 import { emptyTranscript, foldEvent, type Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
+import { otherChangeNeeds } from "./changes.ts";
 
 export const FEED_LIMIT = 100;
 export const JOB_LOG_LIMIT = 500;
@@ -281,8 +282,13 @@ export function stageOf(view: SessionView): string {
     return view.board?.stage ?? view.summary.session.stage;
 }
 
+/**
+ * What the session needs from the operator: the current change's line, else the line of
+ * another open change with its title (docs/designs/talk-change-ship.md, 2.9).
+ */
 export function needsHuman(view: SessionView): string | null {
-    return view.board === null ? view.summary.session.needs_human : view.board.needs_human;
+    const own = view.board === null ? view.summary.session.needs_human : view.board.needs_human;
+    return own ?? otherChangeNeeds(view);
 }
 
 /** Sessions waiting on the operator first, then newest first. Returns `[dir, view]` pairs. */

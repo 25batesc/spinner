@@ -1,7 +1,9 @@
-// Polls GitHub for every session with an open PR, writes the new facts and the derived stage
+// Polls GitHub for every change with an open PR, writes the new facts and the derived stage
 // to `session.yaml`, and notifies on transitions. One `gh` call per open PR per round, every
 // `github.poll_seconds` (60 by default). A round that changes nothing writes nothing and
-// notifies nobody.
+// notifies nobody. A session's changes are polled one by one, each focused
+// (docs/designs/talk-change-ship.md, 2.2 and 2.6), so the facts of a change that is not
+// checked out are as fresh as the current one's.
 import assert from "node:assert/strict";
 import type {
     PipelineConfig,
@@ -11,7 +13,12 @@ import type {
     SessionSummary,
 } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
-import { list_sessions, write_session } from "../store/session-store.js";
+import {
+    focus_summary,
+    list_sessions,
+    read_session,
+    write_session,
+} from "../store/session-store.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { SESSION_SPEC } from "../stack/runner.js";
@@ -35,6 +42,7 @@ import {
 } from "./threads.js";
 import { apply_pr_facts, refresh_session, session_prs, type Transition } from "./tracker.js";
 import { autopilot_step, baseline_autopilot } from "./autopilot.js";
+import { current_change, has_change, open_change_ids } from "./changes.js";
 
 export interface PollOptions {
     gh: GhRunner;
@@ -79,20 +87,32 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
     let owner_login: string | null = null;
     let fetches = 0;
     for (const entry of listed.sessions) {
-        const open = session_prs(entry.session).filter((pr) => is_open(pr.state));
-        if (open.length === 0) {
+        const ids = open_change_ids(entry.session);
+        if (ids.length === 0) {
             continue;
         }
-        fetches += open.length;
-        assert.ok(fetches <= FETCHES_PER_ROUND_MAX, `over ${FETCHES_PER_ROUND_MAX} PRs per round`);
         try {
             const config = config_for_session(entry, home, options.cwd, log);
             owner_login ??= config.github.owner_login ?? (await fetch_owner_login(options.gh));
-            const result = await poll_session(entry, open, config, owner_login, options, now());
-            report.polled.push(entry.dir);
-            if (result !== null) {
-                report.transitions.push({ dir: entry.dir, transition: result });
+            for (const id of ids) {
+                // Read again per change: the poll of the change before wrote the file, and
+                // the lead may have started or switched a change since the list.
+                const read = read_session(home, entry.dir);
+                if (!read.ok || !has_change(read.summary.session, id)) {
+                    continue;
+                }
+                const checked_out = current_change(read.summary.session).id === id;
+                const focused = focus_summary(read.summary, id);
+                const open = session_prs(focused.session).filter((pr) => is_open(pr.state));
+                fetches += open.length;
+                assert.ok(fetches <= FETCHES_PER_ROUND_MAX, `over ${FETCHES_PER_ROUND_MAX} PRs`);
+                const facts = { config, owner_login, checked_out };
+                const result = await poll_session(focused, open, facts, options, now());
+                if (result !== null) {
+                    report.transitions.push({ dir: entry.dir, transition: result });
+                }
             }
+            report.polled.push(entry.dir);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             report.errors.push({ dir: entry.dir, error: message });
@@ -135,14 +155,22 @@ export function config_for(
     return loaded.config;
 }
 
+interface PollFacts {
+    config: PipelineConfig;
+    owner_login: string;
+    /** True when the polled change is the one checked out in the worktrees. */
+    checked_out: boolean;
+}
+
+/** Polls the open PRs of one change. `entry` is focused on it; the write stores that change. */
 async function poll_session(
     entry: SessionSummary,
     open: PrFacts[],
-    config: PipelineConfig,
-    owner_login: string,
+    poll: PollFacts,
     options: PollOptions,
     now: Date,
 ): Promise<Transition | null> {
+    const { config, owner_login } = poll;
     let session = entry.session;
     const views: PrThreadsView[] = [];
     for (const pr of open) {
@@ -160,7 +188,7 @@ async function poll_session(
         session = apply_pr_facts(session, pr.repo, with_flagged(facts, view.flagged));
     }
     const refreshed = refresh_session(entry.session, session, config, now);
-    await run_autopilot(entry, refreshed.session, views, options);
+    await run_autopilot(entry, refreshed.session, views, poll.checked_out, options);
     const changed = JSON.stringify(refreshed.session) !== JSON.stringify(entry.session);
     if (changed) {
         write_session({ ...entry, session: refreshed.session });
@@ -185,6 +213,7 @@ async function run_autopilot(
     entry: SessionSummary,
     session: Session,
     views: readonly PrThreadsView[],
+    checked_out: boolean,
     options: PollOptions,
 ): Promise<void> {
     const autopilot = options.autopilot;
@@ -202,13 +231,35 @@ async function run_autopilot(
         (options.log ?? (() => {}))(`autopilot ${entry.dir}: stopped: ${line}`);
         await options.notify("Spinner", `${session.id} autopilot stopped: ${line}`, entry.dir);
     }
-    if (step.message === null || (await autopilot.tell(entry.dir, step.message))) {
+    const message = step.message;
+    const text = message === null ? null : with_change_note(session, checked_out, message);
+    if (text === null || (await autopilot.tell(entry.dir, text))) {
         pipeline.autopilot = step.state;
     }
 }
 
+/**
+ * The autopilot's message with the change it is about. For a change that is not checked
+ * out, the lead is told how to get to it: its worktrees are on another branch.
+ */
+export function with_change_note(session: Session, checked_out: boolean, message: string): string {
+    const change = current_change(session);
+    if (checked_out) {
+        return message;
+    }
+    return (
+        `${message}\n\nThese pull requests belong to change ${change.id} "${change.title}" ` +
+        `(branch ${session.branch}), which is not checked out. Commit your work in progress, ` +
+        `run \`change switch ${change.id}\`, handle the above, wait until the fix is pushed, ` +
+        "then switch back to the change you were on."
+    );
+}
+
+/** `session` is focused on the change of the transition; a second change adds its title. */
 export function transition_message(session: Session, transition: Transition): string {
-    const head = `${session.id} ${session.slug}: ${transition.from} → ${transition.to}`;
+    const several = (session.changes ?? []).length > 0;
+    const change = several ? ` · ${current_change(session).title}` : "";
+    const head = `${session.id} ${session.slug}${change}: ${transition.from} → ${transition.to}`;
     const parts = [head, ...transition.queue_changes];
     if (session.needs_human !== null) {
         parts.push(`needs you: ${session.needs_human}`);

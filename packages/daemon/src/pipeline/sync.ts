@@ -9,8 +9,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { RepoSync, Session, SessionSummary } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
-import { list_sessions, write_session } from "../store/session-store.js";
+import { list_sessions, read_session, write_session } from "../store/session-store.js";
 import type { GitRunner } from "./github-write.js";
+import { repo_base } from "./pr.js";
 
 /** Seconds between two sync rounds. A round is a few local git calls per worktree. */
 export const SYNC_SECONDS_DEFAULT = 15;
@@ -42,7 +43,7 @@ export async function sync_once(home: SpinnerHome, options: SyncOptions): Promis
         if (entry.session.kind === "review") {
             continue;
         }
-        let session_changed = false;
+        const updates: Record<string, RepoSync> = {};
         for (const [repo, spec] of Object.entries(entry.session.repos)) {
             if (spec.worktree === undefined) {
                 continue;
@@ -56,17 +57,49 @@ export async function sync_once(home: SpinnerHome, options: SyncOptions): Promis
                 return report;
             }
             const next = await sync_worktree(worktree, entry.session, repo, options, report, entry);
+            next.commits = await commits_on_base(options.git, worktree, repo_base(entry, repo));
             if (!same_sync(spec.sync, next)) {
-                spec.sync = next;
-                session_changed = true;
+                updates[repo] = next;
             }
         }
-        if (session_changed) {
-            write_session(entry);
+        if (Object.keys(updates).length > 0 && write_sync(home, entry.dir, updates)) {
             report.changed.push(entry.dir);
         }
     }
     return report;
+}
+
+/**
+ * Stores the sync facts into the session as it is on disk now, not as the round listed it:
+ * the git calls of a round take time, and a change may have been started meanwhile. False
+ * when the session is gone.
+ */
+function write_sync(home: SpinnerHome, dir: string, updates: Record<string, RepoSync>): boolean {
+    const fresh = read_session(home, dir);
+    if (!fresh.ok) {
+        return false;
+    }
+    for (const [repo, facts] of Object.entries(updates)) {
+        const entry = fresh.summary.session.repos[repo];
+        if (entry !== undefined) {
+            entry.sync = facts;
+        }
+    }
+    write_session(fresh.summary);
+    return true;
+}
+
+/** Commits on HEAD that the base lacks: `origin/<base>` when it is known here, else `<base>`. */
+async function commits_on_base(git: GitRunner, worktree: string, base: string): Promise<number> {
+    const ref = (await remote_ref(git, worktree, base)) ?? base;
+    try {
+        const out = await git(worktree, ["rev-list", "--count", `${ref}..HEAD`]);
+        const count = Number.parseInt(out.trim(), 10);
+        return Number.isInteger(count) && count >= 0 ? count : 0;
+    } catch {
+        // No such base in this repository (a hand-written session): no count.
+        return 0;
+    }
 }
 
 /** The facts of one worktree, after the push it may need. Errors land in the facts. */
@@ -146,7 +179,7 @@ async function current_branch(git: GitRunner, worktree: string): Promise<string 
 }
 
 /** `refs/remotes/origin/<branch>` when the remote branch is known here, else null. */
-async function remote_ref(
+export async function remote_ref(
     git: GitRunner,
     worktree: string,
     branch: string,
@@ -185,6 +218,7 @@ export function same_sync(a: RepoSync | undefined, b: RepoSync): boolean {
         a.ahead === b.ahead &&
         a.behind === b.behind &&
         a.upstream === b.upstream &&
+        (a.commits ?? 0) === (b.commits ?? 0) &&
         (a.error ?? null) === (b.error ?? null) &&
         (b.pushed === undefined || a.pushed === b.pushed)
     );

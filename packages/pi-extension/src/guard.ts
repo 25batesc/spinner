@@ -77,6 +77,33 @@ export function refuse_process_sweep(command: string): string | null {
     );
 }
 
+/**
+ * Refuses a bash command that makes a branch or moves the worktree to one (dogfood #54: a
+ * lead that improvised a branch left the session's facts on the wrong one). A session's
+ * branches are its changes; the lead's `change` tool starts and switches them, so the
+ * daemon knows which branch each pull request belongs to. Null when the command is allowed.
+ * `git checkout <path>` stays allowed (it restores a file), and so does any `git -C <dir>`
+ * command: that is how an agent works in a scratch repository outside the session.
+ */
+export function refuse_branch_change(command: string): string | null {
+    const start = "(^|[\\s;&|(])git\\s+";
+    const patterns = [
+        new RegExp(`${start}checkout\\s+(-b|-B|--orphan)\\b`),
+        new RegExp(`${start}switch\\b`),
+        new RegExp(`${start}branch\\s+(-m|-M|-c|-C)\\b`),
+        new RegExp(`${start}branch\\s+(?!-)[\\w./-]+`),
+    ];
+    if (!patterns.some((pattern) => pattern.test(command))) {
+        return null;
+    }
+    return (
+        "Making or switching a branch with git is refused: a session's branches are its " +
+        "changes. The lead uses the `change` tool (`start` for a new change, `switch` for " +
+        "another one); any other agent asks the lead. In a scratch repository outside the " +
+        "session, name it with `git -C <dir>`."
+    );
+}
+
 /** Upper bound on globs read from a brief. */
 const GLOBS_MAX = 100;
 

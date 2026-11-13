@@ -40,6 +40,17 @@
                     "type": "string",
                     "description": "When the operator last spoke to an agent of this session (a prompt or steer from the UI's box, Enter in its terminal, a design answer), ISO 8601. The sidebar sorts by it and shows \"n min ago\". Absent until the first."
                 },
+                "change": {
+                    "$ref": "#/definitions/ChangeHead",
+                    "description": "The current change (docs/designs/talk-change-ship.md, 2.1): the one checked out in the session's worktrees. `branch`, `repos[*].changed`, `repos[*].pr`, `pipeline`, `stage` and `needs_human` below describe it. Absent in a file written before step 2: it reads as `c1` with the session's title and creation time."
+                },
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ChangeRecord"
+                    },
+                    "description": "Every other change of the session, open or finished, oldest first. Absent means none."
+                },
                 "stage": {
                     "$ref": "#/definitions/Stage"
                 },
@@ -143,36 +154,97 @@
             ],
             "description": "What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action."
         },
-        "Stage": {
-            "type": "string",
-            "enum": [
-                "planned",
-                "building",
-                "bot-review",
-                "fixing",
-                "verifying",
-                "peer-review",
-                "addressing",
-                "approving",
-                "queued",
-                "merged",
-                "closed"
-            ]
-        },
-        "SessionRepo": {
+        "ChangeHead": {
             "type": "object",
             "properties": {
-                "path": {
+                "id": {
                     "type": "string",
-                    "description": "Path of the repo on this machine. May start with `~` or be relative to the session."
+                    "description": "`c1`, `c2`, …: unique in the session."
                 },
-                "worktree": {
+                "title": {
                     "type": "string",
-                    "description": "Worktree path relative to the session directory. Absent for the bootstrap session."
+                    "description": "The title of the change and of its pull requests."
                 },
+                "started": {
+                    "type": "string",
+                    "description": "ISO 8601 time the change was started."
+                },
+                "on": {
+                    "type": "string",
+                    "description": "The change this one was started on top of. Its pull request opens against that change's branch while that pull request is open. Absent: started from the base."
+                }
+            },
+            "required": [
+                "id",
+                "title",
+                "started"
+            ],
+            "additionalProperties": false,
+            "description": "What names a change: the current one carries only this; a record adds its facts."
+        },
+        "ChangeRecord": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "`c1`, `c2`, …: unique in the session."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "The title of the change and of its pull requests."
+                },
+                "started": {
+                    "type": "string",
+                    "description": "ISO 8601 time the change was started."
+                },
+                "on": {
+                    "type": "string",
+                    "description": "The change this one was started on top of. Its pull request opens against that change's branch while that pull request is open. Absent: started from the base."
+                },
+                "branch": {
+                    "type": "string"
+                },
+                "repos": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ChangeRepo"
+                    },
+                    "description": "By repo key of the session's `repos`."
+                },
+                "pipeline": {
+                    "$ref": "#/definitions/Pipeline"
+                },
+                "stage": {
+                    "$ref": "#/definitions/Stage"
+                },
+                "needs_human": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "ended": {
+                    "type": "string",
+                    "description": "ISO 8601 time every pull request of the change was merged or closed. Absent while open."
+                }
+            },
+            "required": [
+                "branch",
+                "id",
+                "needs_human",
+                "repos",
+                "stage",
+                "started",
+                "title"
+            ],
+            "additionalProperties": false,
+            "description": "A change of the session that is not the current one: its branch stays in the worktrees' repositories, its pull requests are still polled. The fields mirror the session's top-level change fields, so `focus_change` swaps one for the other."
+        },
+        "ChangeRepo": {
+            "type": "object",
+            "properties": {
                 "changed": {
-                    "type": "boolean",
-                    "description": "True when the session's branch has commits ahead of `base` in this repo."
+                    "type": "boolean"
                 },
                 "pr": {
                     "anyOf": [
@@ -182,19 +254,14 @@
                         {
                             "type": "null"
                         }
-                    ],
-                    "description": "The PR for this repo, or null when none has been opened."
-                },
-                "sync": {
-                    "$ref": "#/definitions/RepoSync",
-                    "description": "The worktree against its remote branch (the daemon's sync round). Absent before one."
+                    ]
                 }
             },
             "required": [
-                "path",
                 "changed"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "The facts of one repo in a change that is not checked out."
         },
         "PullRequest": {
             "type": "object",
@@ -260,6 +327,10 @@
                         "type": "string"
                     },
                     "description": "Names of the checks that are red, for the CI pill's tooltip (s015). Absent before s015."
+                },
+                "diff": {
+                    "$ref": "#/definitions/PrDiff",
+                    "description": "Files and lines the pull request changes, from the poll. Absent before step 2."
                 }
             },
             "required": [
@@ -380,45 +451,26 @@
                 "merging"
             ]
         },
-        "RepoSync": {
+        "PrDiff": {
             "type": "object",
             "properties": {
-                "dirty": {
-                    "type": "number",
-                    "description": "Tracked files with uncommitted changes."
+                "files": {
+                    "type": "number"
                 },
-                "ahead": {
-                    "type": "number",
-                    "description": "Local commits the upstream lacks."
+                "additions": {
+                    "type": "number"
                 },
-                "behind": {
-                    "type": "number",
-                    "description": "Upstream commits the worktree lacks."
-                },
-                "upstream": {
-                    "type": "boolean",
-                    "description": "True when the branch tracks a remote branch; false before the first push."
-                },
-                "pushed": {
-                    "type": "string",
-                    "description": "ISO 8601 time of the daemon's last push of this worktree."
-                },
-                "error": {
-                    "type": [
-                        "string",
-                        "null"
-                    ],
-                    "description": "The first line of the last push failure; null when the last push succeeded."
+                "deletions": {
+                    "type": "number"
                 }
             },
             "required": [
-                "dirty",
-                "ahead",
-                "behind",
-                "upstream"
+                "files",
+                "additions",
+                "deletions"
             ],
             "additionalProperties": false,
-            "description": "What the worktree holds that the remote branch lacks, and the reverse. The daemon pushes `ahead` commits itself when `upstream` is true, so `ahead` stays 0 unless a push failed."
+            "description": "The size of a pull request, as GitHub counts it."
         },
         "Pipeline": {
             "type": "object",
@@ -546,6 +598,103 @@
             ],
             "additionalProperties": false,
             "description": "The daemon's memory of the failed checks and review threads it sent to the lead."
+        },
+        "Stage": {
+            "type": "string",
+            "enum": [
+                "planned",
+                "building",
+                "bot-review",
+                "fixing",
+                "verifying",
+                "peer-review",
+                "addressing",
+                "approving",
+                "queued",
+                "merged",
+                "closed"
+            ]
+        },
+        "SessionRepo": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path of the repo on this machine. May start with `~` or be relative to the session."
+                },
+                "worktree": {
+                    "type": "string",
+                    "description": "Worktree path relative to the session directory. Absent for the bootstrap session."
+                },
+                "changed": {
+                    "type": "boolean",
+                    "description": "True when the session's branch has commits ahead of `base` in this repo."
+                },
+                "pr": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/PullRequest"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The PR for this repo, or null when none has been opened."
+                },
+                "sync": {
+                    "$ref": "#/definitions/RepoSync",
+                    "description": "The worktree against its remote branch (the daemon's sync round). Absent before one."
+                }
+            },
+            "required": [
+                "path",
+                "changed"
+            ],
+            "additionalProperties": false
+        },
+        "RepoSync": {
+            "type": "object",
+            "properties": {
+                "dirty": {
+                    "type": "number",
+                    "description": "Tracked files with uncommitted changes."
+                },
+                "ahead": {
+                    "type": "number",
+                    "description": "Local commits the upstream lacks."
+                },
+                "behind": {
+                    "type": "number",
+                    "description": "Upstream commits the worktree lacks."
+                },
+                "upstream": {
+                    "type": "boolean",
+                    "description": "True when the branch tracks a remote branch; false before the first push."
+                },
+                "commits": {
+                    "type": "number",
+                    "description": "Commits on the branch that the repo's base lacks. Absent before step 2."
+                },
+                "pushed": {
+                    "type": "string",
+                    "description": "ISO 8601 time of the daemon's last push of this worktree."
+                },
+                "error": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The first line of the last push failure; null when the last push succeeded."
+                }
+            },
+            "required": [
+                "dirty",
+                "ahead",
+                "behind",
+                "upstream"
+            ],
+            "additionalProperties": false,
+            "description": "What the worktree holds that the remote branch lacks, and the reverse. The daemon pushes `ahead` commits itself when `upstream` is true, so `ahead` stays 0 unless a push failed."
         },
         "StackState": {
             "type": "object",

@@ -62,7 +62,7 @@ The part that answers "what does each session need from me right now". It is a f
 - *Fixer*: an agent run with a fixed brief (`agents/fixer/BRIEF.md`, generated) and the `thread_*` tools, pointed at `threads/<repo>-<pr>.md`. Started by `spinner fix`, or automatically on new threads per `threads.autofix` (`all`: the agent answers, fixes and resolves human comments too; `bots`: humans handle humans; `off`). Threads the agent flags are surfaced in `needs_human`.
 - *Approve*: `spinner approve` submits your approving review on PRs whose rule includes you (for example bot-authored PRs you adopted), after showing the head SHA and diff stat. Explicit, never automatic.
 - *Re-queue loop*: on `queue: popped`, the daemon runs an agent (or plain `git rebase` when there is no conflict) to update the branch onto `base`, waits for green checks, re-enqueues with the new head, and logs it. Note that a rebase produces a new head, which invalidates your approval and the peer's; the loop re-requests approvals through `needs_human` rather than pretending the old ones carry over. If the rebase needs a decision, `needs_human` says so with the conflicting paths.
-- *Landed*: when every PR is merged, stage *merged*, notification, `needs_human: "close or reset"`.
+- *Landed*: when every PR is merged, stage *merged*, notification. A merged change needs nothing; the session goes on with the next change.
 
 #### PR authorship
 

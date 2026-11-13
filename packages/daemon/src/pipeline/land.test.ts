@@ -92,6 +92,8 @@ class Fake implements GithubWriter {
     rebase_fails = false;
     /** What `git status --porcelain` prints; empty is a clean worktree. */
     status = "";
+    /** The branch the worktree is on; `create_session` names a session's branch so. */
+    checked_out = "feat/land";
     diff = { additions: 12, deletions: 3, changedFiles: 2 };
     reads: GhRunner = async (args) => {
         if (args[0] === "api" && args[1] === "user") {
@@ -127,6 +129,9 @@ class Fake implements GithubWriter {
         }
         if (args[0] === "diff") {
             return "src/a.ts\nmigrations/0002.sql\n";
+        }
+        if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+            return `${this.checked_out}\n`;
         }
         if (args[0] === "rev-parse") {
             return "feedfacefeedfacefeedfacefeedfacefeedface\n";
@@ -358,6 +363,38 @@ describe("land", () => {
         expect(fake.git_calls.filter((call) => call.args[0] === "push")).toEqual([]);
         const mission = readFileSync(join(summary.path, "MISSION.md"), "utf8");
         expect(mission).toMatch(/rebase conflict in src\/a.ts/);
+    });
+
+    it("does not rebase after a pop-out when the worktree is on another change", async () => {
+        const summary = session_with(pr_with({}));
+        const green = ready_response();
+        const node = green.data.repository.pullRequest;
+        const popped = variant(green, {
+            mergeQueueEntry: null,
+            timelineItems: {
+                nodes: [
+                    {
+                        __typename: "RemovedFromMergeQueueEvent",
+                        createdAt: "2026-10-27T01:10:00Z",
+                        reason: "conflicts",
+                        beforeCommit: { oid: node.headRefOid },
+                    },
+                ],
+            },
+        });
+        fake.responses = [green, popped, popped];
+        // The lead started a second change while the job watched the queue.
+        fake.checked_out = "feat/second-change";
+        await expect(
+            land_prs(home, summary, {}, {
+                gh: fake.reads,
+                writer: fake,
+                config: config_with({}),
+                sleep: async () => {},
+            }),
+        ).rejects.toThrow(/the worktree is on feat\/second-change, not feat\/land/);
+        expect(fake.git_calls.filter((call) => call.args[0] === "rebase")).toEqual([]);
+        expect(fake.git_calls.filter((call) => call.args[0] === "push")).toEqual([]);
     });
 
     it("merges directly without a queue and refuses a PR that is not ready", async () => {

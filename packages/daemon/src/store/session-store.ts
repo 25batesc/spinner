@@ -8,6 +8,7 @@ import { parse, stringify } from "yaml";
 import type { Session, SessionSummary } from "@spinner/protocol";
 import { SESSION_VERSION } from "@spinner/protocol";
 import { is_inside_git_repo, type SpinnerHome } from "../home.js";
+import { focus_change, store_change } from "../pipeline/changes.js";
 import { SESSION_PORT_MAX } from "../stack/compose.js";
 import { session_numbers_of, spinner_projects_sync } from "../stack/docker.js";
 import { homes_in_route_files, session_numbers_in_route_files } from "../stack/host-service.js";
@@ -83,11 +84,31 @@ export function read_session(home: SpinnerHome, dir: string): ReadResult {
     return { ok: true, summary: { dir, path, session: parsed as Session } };
 }
 
-/** Writes `session.yaml` back. The caller holds the whole session, so this is one atomic write. */
+/**
+ * Writes `session.yaml` back. The caller holds the whole session, so this is one atomic
+ * write. A focused summary (`focus_summary`) stores only the change fields of its change
+ * into the file as it is now (docs/designs/talk-change-ship.md, 2.2).
+ */
 export function write_session(summary: SessionSummary): void {
     assert.ok(summary.session.id.length > 0, "session id must not be empty");
     assert.ok(existsSync(summary.path), `${summary.path} does not exist`);
-    writeFileSync(join(summary.path, "session.yaml"), stringify(summary.session));
+    const file = join(summary.path, "session.yaml");
+    if (summary.focus === undefined) {
+        writeFileSync(file, stringify(summary.session));
+        return;
+    }
+    const disk = parse(readFileSync(file, "utf8")) as Session;
+    assert.ok(disk.id === summary.session.id, `${file} is not session ${summary.session.id}`);
+    writeFileSync(file, stringify(store_change(disk, summary.session, summary.focus)));
+}
+
+/**
+ * The summary focused on change `id`: `session` carries that change's fields at the top
+ * level, and a `write_session` of it (or of a spread of it) stores them for that change.
+ */
+export function focus_summary(summary: SessionSummary, id: string): SessionSummary {
+    assert.ok(summary.focus === undefined, "the summary is focused already");
+    return { ...summary, session: focus_change(summary.session, id), focus: id };
 }
 
 /**

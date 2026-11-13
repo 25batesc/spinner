@@ -27,6 +27,7 @@ import { derive_stage } from "../pipeline/derive-stage.js";
 import { briefing_path, read_draft } from "../pipeline/review-draft.js";
 import { config_for } from "../pipeline/poller.js";
 import { facts_from_session, session_prs } from "../pipeline/tracker.js";
+import { changes_view } from "../pipeline/changes.js";
 import { round_of, rounds_of } from "../pipeline/rounds.js";
 import { SESSION_SPEC, read_session_spec } from "../stack/runner.js";
 
@@ -66,6 +67,7 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
     const cost = ctx.cost?.(summary.dir);
     const review = build_review(summary, cost ?? null);
     const design = ctx.design?.(summary);
+    const rounds = rounds_of(summary.session, mission_or_null(summary));
     return {
         summary,
         kind: summary.session.kind ?? "session",
@@ -83,7 +85,9 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         ...(review === null ? {} : { review }),
         ...(design === undefined ? {} : { design }),
         round: round_of(summary.session),
-        rounds: rounds_of(summary.session, mission_or_null(summary)),
+        rounds,
+        // A hand-written file may lack `repos`; it then has no change to show.
+        changes: summary.session.repos === undefined ? [] : changes_view(summary.session, rounds),
     };
 }
 

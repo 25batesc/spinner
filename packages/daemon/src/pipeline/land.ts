@@ -218,6 +218,17 @@ async function rebase_and_push(
     assert.ok(entry?.worktree !== undefined, `${pr.repo} has no worktree to rebase in`);
     const cwd = join(summary.path, entry.worktree);
     const git = deps.writer.git;
+    // The worktree may be on another change's branch by now (the lead started or switched
+    // one while this job watched the queue). A rebase there would rewrite the wrong branch.
+    const branch = summary.session.branch;
+    const checked_out = (await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    if (checked_out !== branch) {
+        throw new Error(
+            `${pr.repo}#${pr.number} popped out of the queue and needs a rebase, but the ` +
+                `worktree is on ${checked_out}, not ${branch}; make this change the current ` +
+                "one (the lead's `change switch`), then land again",
+        );
+    }
     const dirty = (await git(cwd, ["status", "--porcelain"])).trim();
     if (dirty.length > 0) {
         throw new Error(`${pr.repo}: worktree has uncommitted changes; rebase needs it clean`);

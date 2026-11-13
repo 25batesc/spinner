@@ -20,11 +20,13 @@ import {
     SESSION_FILES,
     SESSION_SUBDIRS,
     create_session,
+    focus_summary,
     list_sessions,
     next_session_id,
     read_session,
     session_numbers_in_other_homes,
     slugify,
+    write_session,
 } from "./session-store.js";
 
 let home: SpinnerHome;
@@ -141,6 +143,29 @@ describe("list_sessions and read_session", () => {
         if (!read.ok) {
             expect(read.error).toMatch(/newer than supported/);
         }
+    });
+});
+
+describe("a focused write", () => {
+    it("stores the change's fields into the file as it is now, and nothing else", () => {
+        const created = create_session(home, { title: "Focus" });
+        // A job takes the session, focused on its one change.
+        const held = focus_summary(created, "c1");
+        // Meanwhile the daemon records an agent in the file.
+        const fresh = read_session(home, created.dir);
+        expect(fresh.ok).toBe(true);
+        if (!fresh.ok) {
+            return;
+        }
+        fresh.summary.session.agents = { lead: { harness: "tty", model: "m", process: "idle" } };
+        write_session(fresh.summary);
+        // The job finishes and writes what it saw of the change; a spread keeps the focus.
+        write_session({ ...held, session: { ...held.session, stage: "building", agents: {} } });
+        const after = read_session(home, created.dir);
+        expect(after.ok && after.summary.session.stage).toBe("building");
+        expect(after.ok && Object.keys(after.summary.session.agents)).toEqual(["lead"]);
+        expect(() => focus_summary(held, "c1")).toThrow(/focused already/);
+        expect(() => focus_summary(created, "c9")).toThrow(/no change "c9"/);
     });
 });
 

@@ -114,7 +114,7 @@ describe("pr-merged-after-popout fixture", () => {
         expect(pr.queue).toBe("none");
         expect(derive_stage(facts(pr, true))).toEqual({
             stage: "merged",
-            needs_human: "close or reset",
+            needs_human: null,
             stale: false,
         });
     });

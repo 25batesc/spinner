@@ -190,6 +190,19 @@ design:
 outcomes:                  # absent before EGM build session 6
   fix_rounds: 1
   operator_steers: 3
+change:                    # the current change; absent in a file from before 2026-11-12 (reads as c1)
+  id: c2
+  title: Fix the export button
+  started: 2026-11-12T11:00:00+01:00
+changes:                   # every other change, open or finished, at most 200
+  - id: c1
+    title: CSV export
+    branch: feat/csv-export
+    repos: { web: { changed: true, pr: { number: 41, state: open } } }   # `pr` as under `repos`
+    pipeline: { verified_locally: false, slack_post: null }
+    stage: peer-review
+    needs_human: null
+    started: 2026-11-04T09:30:00+01:00
 rounds:                    # appended by reset since the EGM design, at most 200
   - round: 1
     branch: feat/csv-export
@@ -456,7 +469,7 @@ planned → building → bot-review → fixing → verifying → peer-review →
 | **addressing** | human threads open, or `changes_requested` | updates `threads/`; runs the fixer (with `threads.resolve_human: true` the agent answers, fixes and resolves human threads too); threads it flagged show up in `needs_human` | decide the flagged ones |
 | **approving** | threads resolved, checks green; the configured approval check is still waiting. The rule comes from `approval_policy` by PR author (example: a human-authored PR needs one peer approval; a bot-authored PR needs the peer **and** the person who instructed the bot) | tracks `approvals.required` vs. received per PR; `needs_human: "approve admin#98"` the moment a PR whose rule includes you has its peer approval and lacks yours | `spinner approve` (your GitHub approval, as you), or nudge the peer |
 | **queued** | approval check passed and enqueued (`spinner land`) | polls the queue entry; on removal sets `queue: popped`, has an agent rebase onto `base`, waits for green checks, re-enqueues, notifies | nothing, unless the rebase hits a conflict that needs a decision |
-| **merged** | every PR merged into `base` | notifies; `needs_human: "close or reset"` | `spinner close` or `spinner reset` |
+| **merged** | every PR merged into `base` | notifies; `needs_human` is null | nothing; the next request is a new change, or `spinner close` |
 | **closed** | torn down and archived | — | — |
 
 With a GitHub merge queue, a PR can be enqueued as soon as its checks pass, the approval check included. A pop-out then means a conflict or a failure against newer `base`, which is what the re-queue loop handles.
@@ -630,3 +643,4 @@ The protocol freezes at each milestone exit. A change needs a dated entry here b
 - 2026-11-03 The sidebar is VS Code's shape: an always-visible icon rail, one panel per view, the gear at the bottom; the needs-you badges count only sessions the operator has not looked at.
 - 2026-11-05 Session workspace (`docs/designs/session-workspace.md`, s046): the Plan is seeded from the design doc at approval and linked back to it. `PlanItem.entry` and `MissionItemRequest.entry` (`add` only) are added; a Plan line may start its text with the `[n.n]` entry token, which an older daemon reads as text; `POST …/design/approve` answers `DesignApproveResponse` (`SessionResponse` plus `seed: SeedResult`) and refuses with 409 a doc the seed cannot honour; `MissionWriter.rewrite` writes a whole-file change under the session's write chain. The design doc file format and `session.yaml` are unchanged.
 - 2026-11-12 The fast path is the default way of working (`docs/designs/talk-change-ship.md`). A new session is on the `direct` track: the lead builds, verifies, opens the pull request and keeps it ready, with no gate. EGM is a tool the operator picks (`Plan first`, the track chip). This replaces D1 of the EGM adoption. The operator's answers: one workspace per session; the agent opens pull requests, pushes fixes and answers bots and people, while merge, Slack posts and approvals stay his click; plans live in Spinner's library; the Agents view design waits for steps 2 and 5.
+- 2026-11-12 A session holds several changes (`docs/designs/talk-change-ship.md`, step 2). A change is one branch and its pull request per repo. The top-level `branch`, `repos.*.pr`, `pipeline`, `stage` and `needs_human` of `session.yaml` describe the current change; `change` names it and `changes` holds the others. The version stays 1 and no file migrates. The lead starts and switches changes with the `change` tool; no agent makes a branch with git. `reset` stays for one release.

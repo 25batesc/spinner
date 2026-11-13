@@ -10,11 +10,15 @@ import type {
     AgentProcessState,
     CheckState,
     HostProcess,
+    PrDiff,
     PrState,
+    PrThreads,
+    QueueState,
     ReviewDecision,
     RoundRecord,
     SessionKind,
     SessionSummary,
+    Stage,
     StackLastJob,
     StackStateName,
     SwarmState,
@@ -172,6 +176,13 @@ export const ROUTES = {
     "POST /sessions/:dir/land": "JobResponse",
     /** Start the next round: new branch from fresh base, facts cleared, mission history kept. */
     "POST /sessions/:dir/reset": "JobResponse",
+    /**
+     * Start a change: a new branch in every worktree, the current change put aside. Body:
+     * ChangeStartRequest. The job refuses on uncommitted work.
+     */
+    "POST /sessions/:dir/changes": "JobResponse",
+    /** Make change `:id` the current one: its branch checked out in every worktree. */
+    "POST /sessions/:dir/changes/:id/switch": "JobResponse",
     /** Write one section of MISSION.md. Body: MissionSectionRequest. The daemon serializes. */
     "PUT /sessions/:dir/mission/section": "MissionSectionResponse",
     /** Write an `inbox/` message and deliver it. Body: InboxMessageRequest. */
@@ -599,6 +610,63 @@ export interface SessionView {
      * so a fixture written before the EGM design still type-checks.
      */
     rounds?: RoundView[];
+    /**
+     * Every change of the session, oldest first: the rounds of earlier resets, the changes
+     * put aside, the current one. The daemon always sets it; optional so a fixture written
+     * before step 2 still type-checks.
+     */
+    changes?: ChangeView[];
+}
+
+/** The state of a change in plain words, for its card (talk-change-ship.md, 2.8). */
+export type ChangeStateName =
+    | "empty"
+    | "building"
+    | "PR open"
+    | "fixing CI"
+    | "answering review"
+    | "in review"
+    | "ready to merge"
+    | "in merge queue"
+    | "merged"
+    | "closed";
+
+/**
+ * One pull request on a change's card. A round recorded by `reset` carries only the first
+ * four fields; a change carries the rest from the poll.
+ */
+export interface ChangePr {
+    repo: string;
+    number: number;
+    url: string | null;
+    state: PrState;
+    title?: string;
+    head?: string;
+    checks?: CheckState;
+    checks_failing?: string[];
+    threads?: PrThreads;
+    review?: ReviewDecision;
+    queue?: QueueState;
+    diff?: PrDiff;
+}
+
+/** One change of a session, as its card shows it. */
+export interface ChangeView {
+    /** `c<n>`, or `r<n>` for a round recorded by `reset` before step 2. */
+    id: string;
+    title: string;
+    branch: string;
+    /** True for the change checked out in the session's worktrees. */
+    current: boolean;
+    state: ChangeStateName;
+    stage: Stage;
+    needs_human: string | null;
+    prs: ChangePr[];
+    /** Id of the change this one was started on, or null. */
+    on: string | null;
+    started: string | null;
+    /** When every pull request was merged or closed; null while the change is open. */
+    ended: string | null;
 }
 
 /**
@@ -751,6 +819,7 @@ export type JobAction =
     | "approve"
     | "land"
     | "reset"
+    | "change"
     | "diff"
     | "egm";
 
@@ -770,6 +839,7 @@ export const JOB_ACTIONS: readonly JobAction[] = [
     "approve",
     "land",
     "reset",
+    "change",
     "diff",
     "egm",
 ];
@@ -912,6 +982,11 @@ export interface PrRequest {
     repos?: string[];
     /** Open as draft PRs; the stage then stays `building`. */
     draft?: boolean;
+    /**
+     * The description of the change, as the pull request's body. Without it the body comes
+     * from the approved design doc or from the mission's Goal and Log.
+     */
+    body?: string;
 }
 
 export interface FixRequest {
@@ -1053,6 +1128,14 @@ export interface ApproveRequest {
 export interface LandRequest {
     /** Repo key of one PR. Every PR when absent. */
     pr?: string;
+}
+
+/** `POST /sessions/:dir/changes`: start a change (docs/designs/talk-change-ship.md, 2.3). */
+export interface ChangeStartRequest {
+    /** The title of the change and of its pull requests; its slug names the branch. */
+    title: string;
+    /** Id of the change to start on top of. From the base when absent. */
+    on?: string;
 }
 
 export interface ResetRequest {

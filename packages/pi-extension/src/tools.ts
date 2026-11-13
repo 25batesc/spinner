@@ -268,10 +268,28 @@ export async function run_tool(
                 throw new Error("`pr open` is the lead's; ask the lead, or the operator");
             }
             refuse_guarded(env, "`pr open`");
-            const started = await client.send<JobResponse>("POST", `${session}/pr`, {});
+            const body = typeof args["body"] === "string" ? { body: args["body"] } : {};
+            const started = await client.send<JobResponse>("POST", `${session}/pr`, body);
             const job = await wait_job(client, started.job, poll_ms);
             const tail = job.log.slice(-8).map((line) => `  ${line}`);
             return ["The pull request job ran. Its last lines:", ...tail].join("\n");
+        }
+        case "change": {
+            const command = text("command");
+            if (command === "list") {
+                return render_changes(await client.get<{ session: SessionView }>(session));
+            }
+            const path =
+                command === "start"
+                    ? `${session}/changes`
+                    : `${session}/changes/${encodeURIComponent(text("id"))}/switch`;
+            const on = typeof args["on"] === "string" ? { on: args["on"] } : {};
+            const body = command === "start" ? { title: text("title"), ...on } : {};
+            const started = await client.send<JobResponse>("POST", path, body);
+            const job = await wait_job(client, started.job, poll_ms);
+            const tail = job.log.slice(-6).map((line) => `  ${line}`);
+            const after = render_changes(await client.get<{ session: SessionView }>(session));
+            return [...tail, "", after].join("\n");
         }
         case "thread_list": {
             const view = await client.get<ThreadsResponse>(`${session}/threads`);
@@ -754,8 +772,40 @@ export function render_threads(prs: readonly PrThreadsView[]): string {
     return lines.join("\n");
 }
 
+/** One line per change, oldest first, and one per pull request under it. */
+export function render_changes(response: { session: SessionView }): string {
+    const changes = response.session.changes ?? [];
+    if (changes.length === 0) {
+        return "This session has no change yet.";
+    }
+    const lines: string[] = [];
+    for (const change of changes) {
+        const mark = change.current ? " (current: checked out in the worktrees)" : "";
+        const on = change.on === null ? "" : ` · on ${change.on}`;
+        lines.push(
+            `${change.id} "${change.title}" · ${change.state} · ${change.branch}${on}${mark}`,
+        );
+        for (const pr of change.prs) {
+            const threads =
+                pr.threads === undefined ? "" : ` · ${open_threads(pr.threads)} open thread(s)`;
+            const checks = pr.checks === undefined ? "" : ` · checks ${pr.checks}`;
+            const name = `${pr.repo}#${pr.number}`;
+            lines.push(`  - ${name} ${pr.state}${checks}${threads} · ${pr.url ?? ""}`);
+        }
+    }
+    return lines.join("\n");
+}
+
+function open_threads(threads: { bots_open: number; humans_open: number }): number {
+    return threads.bots_open + threads.humans_open;
+}
+
 export function render_prs(response: { session: SessionView }): string {
     const view = response.session;
+    // With more than one change, the list of changes says more than the current one's board.
+    if ((view.changes ?? []).filter((change) => change.prs.length > 0).length > 1) {
+        return render_changes(response);
+    }
     const board = view.board;
     if (board === null || board.prs.length === 0) {
         return `No PR yet; stage ${view.summary.session.stage}. Run \`spinner pr\` when ready.`;

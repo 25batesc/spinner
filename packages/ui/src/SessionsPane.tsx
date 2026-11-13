@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { SessionView } from "@spinner/protocol";
 
+import { otherOpenChanges } from "./changes.ts";
 import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
 import { designSteps, stepperText } from "./design.ts";
 import { fetchForeignHome } from "./events-client.ts";
@@ -70,6 +71,7 @@ function SessionCard(props: {
     const ago = agoText(view.summary.session.last_interaction, props.now);
     const stack = stackUsageOf(view, usage);
     const prs = view.board?.prs ?? [];
+    const others = otherOpenChanges(view);
     const detail = [dir, ...prs.map(prLine)].join("\n");
     if (asking) {
         return (
@@ -106,6 +108,14 @@ function SessionCard(props: {
                     <span className="badge">{stageOf(view)}</span>
                     <CardDots view={view} needs={needs} />
                     <RoundBadge view={view} />
+                    {others > 0 && (
+                        <span
+                            className="badge change-count"
+                            title={`${others} more open change${others === 1 ? "" : "s"}`}
+                        >
+                            +{others}
+                        </span>
+                    )}
                     <span className={stackDot(view)} />
                     <span className="muted">stack {view.stack.state}</span>
                     {stack !== null && (

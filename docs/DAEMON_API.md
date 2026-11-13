@@ -60,7 +60,9 @@ WebSockets below.
 | `GET /sessions/:dir/approve` | | `ApproveResponse` | Head, diff stat and open threads per PR. |
 | `POST /sessions/:dir/approve` | `ApproveRequest` | `JobResponse` | `confirm: true` or 400. |
 | `POST /sessions/:dir/land` | `LandRequest`, optional | `JobResponse` | Enqueue, watch, rebase and re-enqueue on a pop-out. |
-| `POST /sessions/:dir/reset` | `ResetRequest`, optional | `JobResponse` | The next round. |
+| `POST /sessions/:dir/reset` | `ResetRequest`, optional | `JobResponse` | The next round. Kept for one release; a new change replaces it. |
+| `POST /sessions/:dir/changes` | `ChangeStartRequest` | `JobResponse` | Start a change: a new branch in every worktree. |
+| `POST /sessions/:dir/changes/:id/switch` | none | `JobResponse` | Check out the branch of change `:id` in every worktree. |
 | `PUT /sessions/:dir/mission/section` | `MissionSectionRequest` | `MissionSectionResponse` | The daemon serializes writes. The `item` mode is below. |
 | `POST /sessions/:dir/inbox` | `InboxMessageRequest` | `InboxMessageResponse` | Writes the message and delivers it. |
 | `GET /sessions/:dir/agents/default-brief` | | `DefaultBriefResponse` | Query `name`, `repo`, both optional. |
@@ -931,7 +933,7 @@ The design is `docs/designs/talk-change-ship.md`, step 1. A new session is on th
 The lead's tools for it:
 
 - `stack` `up` runs the `up` job and waits up to 2 minutes. A longer start keeps running; `stack` `show` reads it.
-- `pr` `open` runs the `pr` job: a push, one pull request per changed repo, the body from the mission. It needs `agents.github: full`.
+- `pr` `open` runs the `pr` job: a push, one pull request per changed repo, with `body` as the description. It needs `agents.github: full`.
 - `thread_list`, `thread_reply`, `thread_resolve` and `thread_flag` are the lead's as well as the fixer's. For a lead, `thread_reply` and `thread_resolve` need `agents.github: full`.
 
 The autopilot runs inside the GitHub poll, for each session with an open pull request, when `agents.github` is `full`. It sends one message to the session's lead per poll, with what is new:
@@ -940,3 +942,37 @@ The autopilot runs inside the GitHub poll, for each session with an open pull re
 - Open review threads the lead was not told about, from bots and from people. Flagged threads are left out.
 
 A stopped lead is resumed for the message. A lead that cannot be reached is told at the next poll. The daemon keeps what it told in `session.yaml` under `pipeline.autopilot`: `red` (per repo key, the head and the count of red heads in a row) and `threads` (the thread ids, at most 500). The `pr` job starts a pull request with an empty state. A pull request that the poller sees with no state gets the baseline: what stands is recorded as told and no message is sent, so an adopted pull request does not flood its lead with history. After 5 red heads in a row on one pull request the autopilot stops telling the lead about its checks and notifies the operator; a green head resets the count. `reset` clears the state with the rest of `pipeline`.
+
+## Changes
+
+The design is `docs/designs/talk-change-ship.md`, step 2. A change is one branch and its pull request in each repo it touches. A session holds any number of them.
+
+The shape in `session.yaml`:
+
+- The top-level `branch`, `repos.<key>.changed`, `repos.<key>.pr`, `pipeline`, `stage` and `needs_human` describe the current change. That is the change checked out in the worktrees.
+- `change` names the current change: `id`, `title`, `started`, and `on` when it was started on another change. A file without it reads as change `c1` with the session's title.
+- `changes` holds every other change, open or finished, at most 200. A record carries `id`, `title`, `branch`, `repos`, `pipeline`, `stage`, `needs_human`, `started`, and `ended` once every pull request is merged or closed.
+
+A file written before step 2 is valid as it is. Nothing migrates.
+
+`POST /sessions/:dir/changes` starts a change. The body is `{ title, on? }`. The job does these steps:
+
+1. It refuses when a worktree has uncommitted or untracked files, and names the paths.
+2. It pushes the current branch when its remote branch exists and lacks commits.
+3. It makes the branch `feat/<slug of the title>` in every worktree. The branch starts at fresh `origin/<base>`, or at the branch of the change `on` names.
+4. It puts the current change into `changes` and makes the new one the top level. A current change with no commit and no pull request is not kept.
+5. It appends a Log line.
+
+`POST /sessions/:dir/changes/:id/switch` does steps 1 and 2, checks out the branch of change `:id`, and swaps the two changes. Neither job touches the stack.
+
+The `pr` job opens the pull requests of the current change. The title is the change's title. `PrRequest.body` is the description. Without it the first change takes the mission's Goal and Log, and a later change takes its title. A change started `on` another opens against that change's branch while that pull request is open.
+
+`land`, `post` and `approve` take `?change=<id>`, on the `GET` previews too. Without it they act on the current change. The daemon runs them focused on the change: it writes only that change's fields, into the file as it is at that moment. A `land` that watches the merge queue therefore never writes a stale session over a change started meanwhile. `land` is not an exclusive job, so the lead can open the next pull request while one waits in the queue. After a pop-out, `land` rebases only when the worktree is on the change's branch; else it stops and says so.
+
+The GitHub poll reads the open pull requests of every change. It derives each change's `stage` and `needs_human`. The autopilot keeps its state per change. For a change that is not checked out, its message tells the lead to commit, switch to it, fix, and switch back. A merged change has `needs_human: null`.
+
+`SessionView.changes` lists every change, oldest first: the rounds of earlier resets as `r<n>`, the records, the current one. Each entry has `id`, `title`, `branch`, `current`, `state`, `stage`, `needs_human`, `prs`, `on`, `started` and `ended`. `state` is one of `empty`, `building`, `PR open`, `fixing CI`, `answering review`, `in review`, `ready to merge`, `in merge queue`, `merged`, `closed`. A pull request carries `diff` (`files`, `additions`, `deletions`) from the poll. `repos.<key>.sync.commits` counts the commits on the branch that the base lacks.
+
+The lead's `change` tool has `list`, `start` and `switch`. The extension guard refuses `git checkout -b`, `git switch` and `git branch <name>` for a session's agents and names the tool. A command with `git -C <dir>` is allowed, for a scratch repository.
+
+In the UI, the right pane has a `changes` tab: one card per change, with its pull requests, what it needs, and `post` and `merge`. The pane opens on it while the stack is down and a pull request exists. The sidebar has a `Pull requests` view: every pull request of every session, open ones first.

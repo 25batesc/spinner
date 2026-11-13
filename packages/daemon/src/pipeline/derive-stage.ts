@@ -91,7 +91,9 @@ function derive_pipeline(facts: PipelineFacts): StageResult {
     if (facts.prs.length > 0 && open.length === 0) {
         const all_merged = facts.prs.every((pr) => pr.state === "merged");
         if (all_merged) {
-            return { stage: "merged", needs_human: "close or reset", stale: false };
+            // A merged change needs nothing: the session lives on for the next change
+            // (docs/designs/talk-change-ship.md, 2.7).
+            return { stage: "merged", needs_human: null, stale: false };
         }
     }
     if (open.length === 0) {

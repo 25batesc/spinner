@@ -32,6 +32,8 @@ import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
 import { isReview, ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
 import { ReviewPane } from "./ReviewPane.tsx";
+import { prRows } from "./changes.ts";
+import { PrsPane } from "./PrsPane.tsx";
 import { ReviewsPane } from "./ReviewsPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import {
@@ -454,6 +456,10 @@ export function App() {
         if (next.view === "sessions" || next.view === "reviews") {
             app.activate(next.view);
         }
+        // The PRs view lists pull requests of ordinary sessions; a row opens its session.
+        if (next.view === "prs") {
+            app.activate("sessions");
+        }
         if (next.view === null) {
             layout.fold("sessions");
         } else {
@@ -551,6 +557,7 @@ export function App() {
             run={run}
             unverify={app.unverify}
             commentsRevision={revisionsOf(state, selected).comments}
+            pipelineRevision={revisionsOf(state, selected).pipeline}
             diffJob={selected === undefined ? undefined : diffJob(state, selected)}
             controls={
                 inRoute
@@ -589,8 +596,17 @@ export function App() {
     // A collapsed panel keeps its column out of the grid; the last view stands in for none,
     // so the cell is never empty while the fold catches up.
     const sideView = sidebar.view ?? "sessions";
+    const prsPane = (
+        <PrsPane
+            sessions={ordinary}
+            selected={selected}
+            onSelect={(dir) => app.pick("sessions", dir)}
+        />
+    );
+    const openPrs = prRows(ordinary).open.length;
     const sideViews = {
         sessions: { facts: { count: ordinary.length }, pane: sessionsPane },
+        prs: { facts: { count: openPrs }, pane: prsPane },
         reviews: { facts: { count: reviewRows.length }, pane: reviewsPane },
         settings: { facts: undefined, pane: settingsPane },
     };

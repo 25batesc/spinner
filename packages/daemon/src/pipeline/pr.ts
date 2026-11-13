@@ -25,6 +25,7 @@ import { append_log_line, pr_body_from_mission } from "./mission-sections.js";
 import { threads_from_response, with_flagged, write_pr_threads } from "./threads.js";
 import { apply_pr_facts, refresh_session } from "./tracker.js";
 import { empty_autopilot } from "./autopilot.js";
+import { current_change, FIRST_CHANGE_ID, stacked_base } from "./changes.js";
 
 export type Log = (line: string) => void;
 
@@ -68,7 +69,9 @@ export async function open_prs(
             deps.log(`${repo}: worktree ${entry.worktree} is missing; skipped`);
             continue;
         }
-        const base = repo_base(summary, repo);
+        // A change started on another opens against that change's branch while its pull
+        // request is open (2.3); the commits are counted against the same base.
+        const base = stacked_base(session, repo) ?? repo_base(summary, repo);
         const ahead = await commits_ahead(deps.writer, worktree, base);
         if (ahead === 0 && (entry.pr === undefined || entry.pr === null)) {
             deps.log(`${repo}: no commits ahead of ${base}; no PR`);
@@ -88,7 +91,7 @@ export async function open_prs(
             outcomes.push({ repo, outcome: "pushed", url: entry.pr.url });
             continue;
         }
-        const body = write_pr_body(summary, repo);
+        const body = write_pr_body(summary, repo, input.body);
         const title = pr_title(session, repo);
         const args = ["pr", "create", "--repo", full_name, "--base", base];
         args.push("--head", session.branch, "--title", title, "--body-file", body);
@@ -154,14 +157,22 @@ async function commits_ahead(writer: GithubWriter, cwd: string, base: string): P
 }
 
 /**
- * Writes `artifacts/pr-<repo>.md` and returns its path. The body comes from the approved
+ * Writes `artifacts/pr-<repo>.md` and returns its path. The body is the one given (the
+ * lead's description of the change, 2.4); without one it comes from the approved
  * design doc in the designs repo's worktree (6.9), else from the mission. A doc that is
  * missing from the worktree falls back to the mission, so the PR never opens without a body.
  */
-function write_pr_body(summary: SessionSummary, repo: string): string {
+function write_pr_body(summary: SessionSummary, repo: string, given: string | undefined): string {
     const doc = approved_doc_of(summary);
+    const change = current_change(summary.session);
     let body: string;
-    if (doc !== null && existsSync(doc.absolute)) {
+    if (given !== undefined && given.trim().length > 0) {
+        body = `${given.trim()}\n\n_Opened by Spinner from session ${summary.session.id}._\n`;
+    } else if (change.id !== FIRST_CHANGE_ID) {
+        // The mission's Goal is the first change's; a later change without a description
+        // says only what it is.
+        body = `${change.title}\n\n_Opened by Spinner from session ${summary.session.id}._\n`;
+    } else if (doc !== null && existsSync(doc.absolute)) {
         const text = readFileSync(doc.absolute, "utf8");
         body = pr_body_from_design(text, doc.path, summary.session.id);
     } else {
@@ -171,7 +182,8 @@ function write_pr_body(summary: SessionSummary, repo: string): string {
     }
     const dir = join(summary.path, "artifacts");
     mkdirSync(dir, { recursive: true });
-    const path = join(dir, `pr-${repo}.md`);
+    const name = change.id === FIRST_CHANGE_ID ? `pr-${repo}.md` : `pr-${change.id}-${repo}.md`;
+    const path = join(dir, name);
     writeFileSync(path, body);
     return path;
 }
@@ -179,7 +191,7 @@ function write_pr_body(summary: SessionSummary, repo: string): string {
 function pr_title(session: Session, repo: string): string {
     const repos = Object.values(session.repos).filter((entry) => entry.worktree !== undefined);
     const suffix = repos.length > 1 ? ` (${repo})` : "";
-    return `${session.title}${suffix}`;
+    return `${current_change(session).title}${suffix}`;
 }
 
 /** `gh pr create` prints the PR URL as its last line. */

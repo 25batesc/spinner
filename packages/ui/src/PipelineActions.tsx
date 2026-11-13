@@ -19,16 +19,20 @@ type Confirm = "post" | "approve" | null;
 
 interface DialogProps {
     dir: string;
+    /** Id of the change to act on (the Changes rail); the current change when absent. */
+    change?: string;
     revision: number;
     run: RunAction;
     close: () => void;
 }
 
-function PostDialog(props: DialogProps) {
-    const loaded = useLoaded(`${props.dir}#${props.revision}`, (s) => fetchPost(props.dir, s));
+export function PostDialog(props: DialogProps) {
+    const query = props.change === undefined ? "" : `?change=${encodeURIComponent(props.change)}`;
+    const key = `${props.dir}#${props.change ?? ""}#${props.revision}`;
+    const loaded = useLoaded(key, (s) => fetchPost(props.dir, s, props.change));
     const post: PostView | undefined = loaded.value;
     const send = () =>
-        props.run(`/sessions/${props.dir}/post`, { confirm: true }).then(props.close);
+        props.run(`/sessions/${props.dir}/post${query}`, { confirm: true }).then(props.close);
     return (
         <div className="confirm" role="dialog" aria-label="Confirm Slack post">
             <h3>Post to Slack as you?</h3>

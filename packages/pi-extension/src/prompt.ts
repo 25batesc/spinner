@@ -179,6 +179,12 @@ function fast_path_lines(egm_root: string | null): string[] {
         "request with `pr` `open`, and keep it ready: Spinner sends you failed checks and new",
         "review comments; fix them and answer the threads without waiting for the operator.",
         "Decide open points yourself and log the assumption; do not ask for a plan approval.",
+        "One request is one change: one branch, one pull request. A new request that does not",
+        "belong to an open pull request is a new change: `change` `start` with a title, then",
+        "build, then `pr` `open` with a `body`. A follow-up to an open pull request is a",
+        "commit on its change (`change` `switch` to it first when it is not the current one).",
+        "Work that needs an unmerged change starts `on` it. Commit before you start or switch.",
+        "Never make or switch a branch with git; the operator says when two requests share a PR.",
     ];
     if (egm_root !== null) {
         lines.push(

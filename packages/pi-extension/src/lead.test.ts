@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { refuse_branch_change } from "./guard.js";
 import { register } from "./index.js";
 import type {
     BeforeAgentStartEvent,
@@ -82,7 +83,8 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
             } else if (
                 path === `/sessions/${DIR}/adopt` ||
                 path === `/sessions/${DIR}/pr` ||
-                path === `/sessions/${DIR}/up`
+                path === `/sessions/${DIR}/up` ||
+                path.startsWith(`/sessions/${DIR}/changes`)
             ) {
                 polls = 0;
                 answer(202, { job: job("running") });
@@ -224,12 +226,45 @@ describe("the lead role", () => {
             const full = fake_pi();
             const env = { ...env_for(daemon.url), SPINNER_GITHUB: "full" };
             register(full, { env, job_poll_ms: 5 });
-            const opened = await run(full, "pr", { command: "open" });
+            const opened = await run(full, "pr", { command: "open", body: "What and why." });
             expect(opened).toContain("The pull request job ran.");
-            expect(daemon.requests.some((r) => r.path === `/sessions/${DIR}/pr`)).toBe(true);
+            const pr_request = daemon.requests.find((r) => r.path === `/sessions/${DIR}/pr`);
+            expect(pr_request?.body).toEqual({ body: "What and why." });
         } finally {
             daemon.close();
         }
+    });
+
+    it("starts and switches changes through the daemon, never with git", async () => {
+        const daemon = await fake_daemon();
+        try {
+            const pi = fake_pi();
+            register(pi, { env: env_for(daemon.url), job_poll_ms: 5 });
+            await run(pi, "change", { command: "start", title: "Fix the button", on: "c1" });
+            expect(daemon.requests[0]).toEqual({
+                method: "POST",
+                path: `/sessions/${DIR}/changes`,
+                body: { title: "Fix the button", on: "c1" },
+            });
+            await run(pi, "change", { command: "switch", id: "c1" });
+            const switched = daemon.requests.find((r) => r.path.endsWith("/changes/c1/switch"));
+            expect(switched?.method).toBe("POST");
+        } finally {
+            daemon.close();
+        }
+        // The guard refuses a branch made or switched with git, for the lead and a worker.
+        expect(refuse_branch_change("git checkout -b feat/x")).toMatch(/`change` tool/);
+        expect(refuse_branch_change("cd app && git switch -c feat/x")).toMatch(/refused/);
+        expect(refuse_branch_change("git switch main")).toMatch(/refused/);
+        expect(refuse_branch_change("git branch feat/x")).toMatch(/refused/);
+        expect(refuse_branch_change("git branch -m old new")).toMatch(/refused/);
+        // Reading branches, restoring a file and a scratch repository stay allowed.
+        expect(refuse_branch_change("git branch --show-current")).toBeNull();
+        expect(refuse_branch_change("git branch -a")).toBeNull();
+        expect(refuse_branch_change("git checkout src/a.ts")).toBeNull();
+        expect(refuse_branch_change("git checkout -- src/a.ts")).toBeNull();
+        expect(refuse_branch_change("git -C /tmp/scratch checkout -b x")).toBeNull();
+        expect(refuse_branch_change("git log --oneline")).toBeNull();
     });
 
     it("turns each tool into the route's body on its own session", async () => {

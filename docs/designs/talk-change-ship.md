@@ -2,7 +2,7 @@
 
 * **Author:** the operator and his agent, in conversation
 * **Date:** 2026-11-12
-* **Status:** Approved by the operator on 2026-11-12. Step 1 is built in v0.25.0. Steps 2 to 5 are approved in outline; each gets its detail before it is built.
+* **Status:** Approved by the operator on 2026-11-12. Step 1 is built in v0.25.0, step 2 in v0.26.0. Steps 3 to 5 are approved in outline; each gets its detail before it is built.
 * **Review:** Not reviewed by Goldfish. The operator read the proposal and answered its five decisions. This doc replaces the EGM adoption's rule that the design track is the default (`egm-adoption.md`, D1).
 
 ## Overview
@@ -87,7 +87,7 @@ Each step ships on its own.
 | Step | What the operator gets | State |
 |---|---|---|
 | 1 | The fast path as the default, inside the one-change session of today. | Built, v0.25.0. Detail below. |
-| 2 | Changes: several pull requests in one session; the Changes rail; the PRs view; `round` and `reset` go away. | Outline. |
+| 2 | Changes: several pull requests in one session; the Changes rail; the PRs view; `round` and `reset` go away. | Built, v0.26.0. Detail below. |
 | 3 | The stack follows the selected change; `test locally` on the card. | Outline. |
 | 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Outline. |
 | 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Outline. |
@@ -116,13 +116,42 @@ One message per session per poll carries everything new. A stopped lead is resum
 
 **1.6 What step 1 does not change.** One change per session, `reset` for the next. The toolbar, the view tabs, the mission tools. The `fix` button and the fixer agent, for use by hand.
 
-### Step 2 in outline: changes
+### Step 2 in detail: changes
 
-* `session.yaml` gets `changes[]`: `{ id, title, branch, base, repos: { <key>: { pr } }, state, plan_step? }`. `session.branch`, `session.repos[*].pr`, `pipeline` and `round` move under a change. Files written before migrate forward: the session's one branch becomes its first change.
-* The pipeline tracker, the thread files (`threads/<change>/<repo>-<n>.md`), the worktree sync, the autopilot and the fixer work per change.
-* Lead tools: `change_start` (a branch from base, or on top of another change, in the session's worktrees), `change_switch`, and `pr open` per change. Switching refuses on uncommitted work.
-* The UI: the Changes rail on the session; the PRs view in the sidebar; the context bar's stage becomes the selected change's state.
-* Open point for the detail: a change that spans two repos is one change with two pull requests, as a session is today.
+**2.1 The shape, with no migration.** The top-level fields of `session.yaml` that describe one change stay where they are and mean *the current change*: the branch checked out in the session's worktrees. They are `branch`, `repos[*].changed`, `repos[*].pr`, `pipeline`, `stage` and `needs_human`. Two fields are new:
+
+* `change: { id, title, started, on? }` names the current change. Absent in a file written before, it reads as `c1` with the session's title and creation time.
+* `changes: ChangeRecord[]` holds every other change of the session, open or finished: `{ id, title, branch, repos: { <key>: { changed, pr } }, pipeline, stage, needs_human, started, ended?, on? }`. At most `CHANGES_MAX` (200); past it the oldest finished record drops.
+
+A file written before is valid as it is, so nothing migrates and every reader of the top-level fields keeps working. This replaces the outline's "move under a change"; the model is the same. The `rounds` records of earlier resets are read as finished changes. Ids are `c1`, `c2`, …, one more than the highest in use.
+
+**2.2 The focus.** Every pipeline function reads a `Session`. To run one on a change that is not the current one, the daemon *focuses* the session: a copy whose top-level change fields are that change's (`focus_change`). `SessionSummary.focus` carries the change id. `write_session` of a focused summary reads the file again and stores only the change fields, into the top level when that change is current on disk at that moment, else into its record. So a slow job (a `land` that watches the merge queue for an hour) never writes a stale session over a change the lead started meanwhile. The poll and the operator's `land`, `post` and `approve` always run focused. The session-level facts (the design gate, diff comments, preview comments, the review draft) belong to the current change's derivation only.
+
+**2.3 Start and switch.** `POST /sessions/:dir/changes { title, on? }` starts a change; `POST /sessions/:dir/changes/:id/switch` makes another one current. Both are jobs, and both:
+
+* refuse while a worktree has uncommitted changes, with the paths;
+* push the current branch first when it has a remote branch and is ahead, so a parked change is never left unpushed;
+* then swap: the current change becomes a record, and the new or chosen one becomes the top level.
+
+`start` makes the branch `feat/<slug of the title>` from fresh `origin/<base>` in every worktree, or from the branch of the change named by `on`. A current change with no commit and no pull request is not kept as a record; the new one replaces it. A change started `on` another opens its pull request against that change's branch while that pull request is open, and against the repo's base after. The default is `base`: independent pull requests. The stack is not touched (step 3).
+
+**2.4 The lead's tools.** `change` with the commands `list`, `start { title, on? }` and `switch { id }`, for the lead only. `pr open` takes `body`: the description of this change (what, why, how it was verified). The title of the pull request is the change's title. Without `body`, the first change falls back to the mission's Goal and Log. The extension guard refuses `git checkout -b`, `git switch -c` and `git branch <name>` for every agent and names the `change` tool (dogfood #54: a lead that improvised a branch left the session on the wrong one).
+
+**2.5 When the lead starts a change.** The brief says: one request is one change and one pull request. A new request that does not belong to an open pull request is a new change; a follow-up to an open one is a commit on it; work that needs an unmerged change starts `on` it. The operator can say "put this in the same PR" or "make this its own PR". There is no `new change` button: the operator's way to start work is to talk.
+
+**2.6 Poll, stage, autopilot, threads.** The poller polls the open pull requests of every change, focused, and derives each change's `stage` and `needs_human`. A transition's notice names the change when the session has more than one. The autopilot keeps its state per change (`pipeline.autopilot`). For a change that is not checked out, its message says so and tells the lead to commit, `change switch`, fix, and switch back. Thread files stay `threads/<repo>-<n>.md`: the pull request number already makes them unique, so the outline's `threads/<change>/` is not needed. `thread_list`, the thread tools and the Threads view cover the current change; the lead switches to a change before it answers that change's threads. The worktree sync is unchanged: it pushes what is checked out.
+
+**2.7 The operator's actions per change.** `land`, `post` and `approve` take `?change=<id>` (default: the current one). `land` is not an exclusive job, so a pull request that waits in the merge queue does not hold up the next change. A merge needs no worktree. The one case that does, the rebase after a pop-out of the merge queue, checks that the worktree is on the change's branch and stops with a clear message when it is not. `create PR`, `fix` and `verify` act on the current change. `reset` stays as a route and a CLI command for one release and leaves the UI; a merged change needs nothing from the operator, so `needs_human` of a merged session is null, not `close or reset`.
+
+**2.8 What the view carries.** `SessionView.changes`: every change, oldest first (earlier rounds, records, the current one), each with `id`, `title`, `branch`, `current`, `state` in plain words, `needs_human`, its pull requests and `on`. The states: `empty`, `building`, `PR open`, `fixing CI`, `answering review`, `in review`, `ready to merge`, `in merge queue`, `merged`, `closed`. A pull request carries `diff: { files, additions, deletions }` from the poll.
+
+**2.9 The UI.**
+
+* **The Changes rail** is a tab of the right pane, beside `previews` and `diff`, and the default tab while the stack is down and a pull request exists. One card per change, the current one first, finished ones folded: the title, the state, a line per pull request (repo, number, checks, open threads, `+n −m`), what it needs, and its actions (`merge` with a second click to confirm, `post`, and `create PR` on the current change).
+* **The PRs view** is a third icon of the sidebar's rail: every pull request Spinner opened, across sessions, open ones first. A row opens its session; the number links to GitHub.
+* **The session card** shows the current change as today, and `+n` for the other open changes. Its needs line is the first change's that needs the operator.
+
+**2.10 Not in step 2.** Two agents on two changes at once (non-goal 2). A reviewer's later reply in a thread already answered. The stack following a change (step 3).
 
 ### Step 3 in outline: the stack follows a change
 

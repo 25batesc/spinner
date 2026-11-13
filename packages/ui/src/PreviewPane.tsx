@@ -4,6 +4,8 @@ import { preview_key, type Job, type ServiceView, type SessionView } from "@spin
 
 import { CommentStrip } from "./CommentThreads.tsx";
 import { diffPreviewService, diffRepos, diffSelected } from "./diff-view.ts";
+import { opensOnChanges } from "./changes.ts";
+import { ChangesRail } from "./ChangesRail.tsx";
 import { isReview } from "./review.ts";
 import { DiffPage } from "./DiffPage.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
@@ -29,6 +31,8 @@ export interface PreviewPaneProps {
     unverify: (dir: string) => Promise<void>;
     /** Moves on `comment.updated` for the session: the preview comments reload (s054). */
     commentsRevision?: number | undefined;
+    /** Moves on pipeline events: the Changes rail's post preview reloads. */
+    pipelineRevision?: number | undefined;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
     controls?:
         | {
@@ -87,10 +91,22 @@ function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: Sess
     );
 }
 
-/** The pane's two views. `diff` is offered once the daemon sends `SessionView.diff`. */
-const VIEWS = ["previews", "diff"] as const;
-/** The previews pane's view tabs: the id is the label. */
-const VIEW_TABS = VIEWS.map((id) => ({ id, label: id }));
+/**
+ * The pane's views. `diff` is offered once the daemon sends `SessionView.diff`; `changes`
+ * (the Changes rail, talk-change-ship.md 2.9) for an ordinary session whose daemon sends
+ * `SessionView.changes`.
+ */
+const VIEWS = ["changes", "previews", "diff"] as const;
+
+/** The view tabs a session has: the id is the label. */
+function viewTabs(view: SessionView | undefined): { id: string; label: string }[] {
+    const has = {
+        changes: view !== undefined && !isReview(view) && view.changes !== undefined,
+        previews: true,
+        diff: view?.diff !== undefined,
+    };
+    return VIEWS.filter((id) => has[id]).map((id) => ({ id, label: id }));
+}
 
 /** The preview the pane shows in the browser bar's place: what a pop-out takes along. */
 function shownPreview(
@@ -115,6 +131,7 @@ function shownPreview(
 
 export function PreviewPane(props: PreviewPaneProps) {
     const { view, busy, run, unverify, controls, diffJob, commentsRevision = 0 } = props;
+    const pipelineRevision = props.pipelineRevision ?? 0;
     // The tabs are remembered per session in localStorage, which a popped-out pane window
     // shares with the main window: the pop-out opens on the tab the operator was on.
     const sessionDir = view?.summary.dir;
@@ -135,7 +152,11 @@ export function PreviewPane(props: PreviewPaneProps) {
     };
     // A review session (s015) opens on the diff at the PR head; it has no stack to preview.
     const [tabState, setTabState] = useState<string | undefined>(undefined);
-    const tab = tabState ?? saved.tab ?? (isReview(view) ? "diff" : "previews");
+    // With the stack down and a pull request open, the rail says more than an empty preview.
+    const opening = view !== undefined && opensOnChanges(view) ? "changes" : "previews";
+    const tabs = viewTabs(view);
+    const wanted = tabState ?? saved.tab ?? (isReview(view) ? "diff" : opening);
+    const tab = tabs.some((entry) => entry.id === wanted) ? wanted : "previews";
     const setTab = (name: string) => {
         setTabState(name);
         remember({ tab: name });
@@ -182,11 +203,25 @@ export function PreviewPane(props: PreviewPaneProps) {
                   }]),
               ];
 
+    if (tab === "changes" && view !== undefined) {
+        return (
+            <section className="pane preview-pane" aria-label="Previews">
+                <ViewTabs
+                    tabs={tabs}
+                    shown={tab}
+                    onSelect={setTab}
+                    controls={head}
+                    label="Preview views"
+                />
+                <ChangesRail view={view} busy={busy} run={run} revision={pipelineRevision} />
+            </section>
+        );
+    }
     if (hasDiff && tab === "diff" && view !== undefined) {
         return (
             <section className="pane preview-pane" aria-label="Previews">
                 <ViewTabs
-                    tabs={VIEW_TABS}
+                    tabs={tabs}
                     shown={tab}
                     onSelect={setTab}
                     controls={head}
@@ -206,7 +241,7 @@ export function PreviewPane(props: PreviewPaneProps) {
     return (
         <section className="pane preview-pane" aria-label="Previews">
             <ViewTabs
-                tabs={hasDiff ? VIEW_TABS : VIEW_TABS.slice(0, 1)}
+                tabs={tabs}
                 shown="previews"
                 onSelect={setTab}
                 controls={head}

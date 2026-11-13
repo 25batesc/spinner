@@ -8,7 +8,7 @@ import type { SessionView } from "@spinner/protocol";
 
 import { needsHuman } from "./state.ts";
 
-export type SidebarView = "sessions" | "reviews" | "settings";
+export type SidebarView = "sessions" | "prs" | "reviews" | "settings";
 
 export interface SidebarState {
     /** The view the side panel shows; null while the panel is collapsed. */
@@ -19,7 +19,7 @@ export const SIDEBAR_KEY = "spinner.sidebar.v2";
 
 export const DEFAULT_SIDEBAR: SidebarState = { view: "sessions" };
 
-const VIEWS: readonly SidebarView[] = ["sessions", "reviews", "settings"];
+const VIEWS: readonly SidebarView[] = ["sessions", "prs", "reviews", "settings"];
 
 /** The subset of `Storage` the record needs, so tests pass a plain object. */
 export interface SidebarStorage {

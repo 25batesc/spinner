@@ -4,6 +4,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       number url title isDraft state mergeable reviewDecision
       author { login }
       baseRefName headRefName headRefOid
+      additions deletions changedFiles
       updatedAt
       mergeQueueEntry { state position enqueuedAt estimatedTimeToMerge }
       commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 50) { nodes {
