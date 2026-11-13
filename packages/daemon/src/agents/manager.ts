@@ -87,6 +87,11 @@ export const FIRST_TURN =
 
 export class AgentManager {
     private readonly hosted = new Map<string, Hosted>();
+    /**
+     * Agents whose pi `add` is spawning: not hosted yet, but a second `add` of one of them
+     * would start a second pi on the same transcript.
+     */
+    private readonly starting = new Set<string>();
     private readonly pending = new Map<string, string[]>();
     /**
      * True from `stop_all`: the daemon stops its agents to shut down. Their exits are then
@@ -140,6 +145,12 @@ export class AgentManager {
 
     get(dir: string, name: string): AgentHandle | null {
         return this.hosted.get(key_of(dir, name))?.handle ?? null;
+    }
+
+    /** True while the agent runs or its pi is starting: an `add` of it now would throw. */
+    has(dir: string, name: string): boolean {
+        const key = key_of(dir, name);
+        return this.hosted.has(key) || this.starting.has(key);
     }
 
     /** True while the agent's process runs a turn, so a steer enters before its next model call. */
@@ -265,12 +276,27 @@ export class AgentManager {
         extra: AddAgentExtra = {},
     ): Promise<AgentHandle> {
         const key = key_of(summary.dir, request.name);
-        if (this.hosted.has(key)) {
+        if (this.has(summary.dir, request.name)) {
             throw new Error(`agent ${request.name} is already running in ${summary.dir}`);
         }
         if (this.at_cap) {
             throw new Error(`${this.running_max} agents running; the cap is reached`);
         }
+        this.starting.add(key);
+        try {
+            return await this.spawn_agent(summary, request, extra, key);
+        } finally {
+            this.starting.delete(key);
+        }
+    }
+
+    /** The body of `add` once the agent is reserved in `starting`. */
+    private async spawn_agent(
+        summary: SessionSummary,
+        request: AddAgentRequest,
+        extra: AddAgentExtra,
+        key: string,
+    ): Promise<AgentHandle> {
         // The caller's summary may predate an earlier run; the file has the model it used.
         const fresh = read_session(this.home, summary.dir);
         const listed = fresh.ok ? fresh.summary.session.agents?.[request.name] : undefined;

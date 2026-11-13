@@ -164,8 +164,9 @@ export class ReviewSwarm {
             }
             for (const model of chosen) {
                 const name = reviewer_name(model, target.key, targets.length > 1);
-                const state = summary.session.review?.swarm[name]?.state;
-                if (state === "reading" && this.deps.agents.get(summary.dir, name) !== null) {
+                // The manager, not the record, says whether the reviewer runs: the record of a
+                // running reviewer can say `queued` (dogfood #59b).
+                if (this.deps.agents.has(summary.dir, name)) {
                     throw new Error(`${name} still reads ${target.key}#${target.number}`);
                 }
                 plan.reviewers.push({ dir: summary.dir, name, model, target });
@@ -278,6 +279,13 @@ export class ReviewSwarm {
         const read = read_session(this.deps.home, entry.dir);
         if (!read.ok) {
             return false;
+        }
+        // A reviewer that runs already (a restart's `adopt_all` resumed it, then `prime` found
+        // its record `queued`) reads. Starting it again failed with `already running`, and the
+        // `failed` record hid the verdict of the reviewer that ran (dogfood #59b).
+        if (this.deps.agents.has(entry.dir, entry.name)) {
+            this.record(entry.dir, entry.name, "reading");
+            return true;
         }
         const skill = this.skill_dir();
         const skills = reviewer_skill_dirs(skill);
