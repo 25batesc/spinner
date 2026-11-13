@@ -747,10 +747,6 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                         )}
                     </div>
                 </form>
-                <div className="muted chat-foot">
-                    <span>${transcript.cost.toFixed(2)}</span>
-                    <span>Enter sends · Shift+Enter makes a new line · / lists skills</span>
-                </div>
             </div>
         </div>
     );

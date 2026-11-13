@@ -7,10 +7,11 @@
 // drawer starts collapsed and opens itself only for a failure (`drawerOpens`, dogfood row
 // 4): a watched job that fails, or an action that fails. A routine job and a `needs_human`
 // line only move the bar's line.
-import { useRef, type PointerEvent } from "react";
+import { useEffect, useRef, type PointerEvent } from "react";
 
 import type { Job } from "@spinner/protocol";
 
+import "./activity.css";
 import { DRAWER_MIN_PX, DRAWER_RESERVE_PX, type DrawerState } from "./layout.ts";
 import { IconButton } from "./PaneHead.tsx";
 import type { FeedLine } from "./state.ts";
@@ -107,6 +108,73 @@ function JobLog({ job, error, onDismiss }: JobLogProps) {
             {job?.error != null && <p className="needs-human">{job.error}</p>}
             {job !== undefined && <pre className="drawer-log">{job.log.join("\n")}</pre>}
         </section>
+    );
+}
+
+/** The window event that opens the activity tab of the right pane (a failed job). */
+const OPEN_ACTIVITY_EVENT = "spinner:open-activity";
+
+/** Opens the activity tab of the right pane. */
+export function openActivity(): void {
+    window.dispatchEvent(new Event(OPEN_ACTIVITY_EVENT));
+}
+
+/** Calls `onOpen` for every `openActivity` while mounted. */
+export function useOpenActivity(onOpen: () => void): void {
+    const latest = useRef(onOpen);
+    latest.current = onOpen;
+    useEffect(() => {
+        const listener = () => latest.current();
+        window.addEventListener(OPEN_ACTIVITY_EVENT, listener);
+        return () => window.removeEventListener(OPEN_ACTIVITY_EVENT, listener);
+    }, []);
+}
+
+/** `activity`, `activity · running`, `activity · failed`: the tab's label. */
+export function activityLabel(job: Job | undefined, error: string | null): string {
+    const tone = drawerTone(job, error);
+    if (tone !== null) {
+        return "activity · failed";
+    }
+    return job?.state === "running" ? "activity · running" : "activity";
+}
+
+export interface ActivityPanelProps {
+    feed: ActivityDrawerProps["feed"];
+    job: Job | undefined;
+    error: string | null;
+    onDismiss: () => void;
+}
+
+/**
+ * The activity as a tab of the right pane, beside the previews and the diff (the operator's
+ * request of 2026-11-13): the watched job's log and the event feed, the pane's full height.
+ */
+export function ActivityPanel({ feed, job, error, onDismiss }: ActivityPanelProps) {
+    const title = drawerTitle(job, error);
+    const tone = drawerTone(job, error);
+    return (
+        <div className={tone === null ? "activity-panel" : `activity-panel drawer-${tone}`}>
+            {title !== null && (
+                <strong className={`pill pill-${pillTone(job)} drawer-job-line`}>{title}</strong>
+            )}
+            {title !== null && <JobLog job={job} error={error} onDismiss={onDismiss} />}
+            <section className="drawer-section feed" aria-label="Events">
+                {title !== null && <div className="drawer-section-head muted">events</div>}
+                {title === null && feed.length === 0 && (
+                    <p className="muted drawer-empty">
+                        No job yet. The log of the next action shows here.
+                    </p>
+                )}
+                <ul>
+                    {[...feed].reverse().map((line, index) => (
+                        <li key={index}>
+                            <span className="muted">{line.session}</span> {line.text}
+                        </li>
+                    ))}
+                </ul>
+            </section>
+        </div>
     );
 }
 

@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { preview_key, type Job, type ServiceView, type SessionView } from "@spinner/protocol";
 
 import { CommentStrip } from "./CommentThreads.tsx";
 import { diffPreviewService, diffRepos, diffSelected } from "./diff-view.ts";
 import { opensOnChanges } from "./changes.ts";
+import { useOpenActivity } from "./ActivityDrawer.tsx";
 import { ChangesRail, useOpenChange } from "./ChangesRail.tsx";
 import { isReview } from "./review.ts";
 import { DiffPage } from "./DiffPage.tsx";
@@ -31,6 +32,11 @@ export interface PreviewPaneProps {
     unverify: (dir: string) => Promise<void>;
     /** Moves on `comment.updated` for the session: the preview comments reload (s054). */
     commentsRevision?: number | undefined;
+    /**
+     * The activity tab (the operator's request of 2026-11-13): the watched job's log and the
+     * event feed, beside the previews and the diff. `label` says when a job runs or failed.
+     */
+    activity?: { label: string; panel: ReactNode } | undefined;
     /** Moves on pipeline events: the Changes rail's post preview reloads. */
     pipelineRevision?: number | undefined;
     /** Header icons; absent when the pane is rendered alone by the `?pane=` route. */
@@ -96,22 +102,31 @@ function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: Sess
  * (the PR view, talk-change-ship.md 2.9) for an ordinary session whose daemon sends
  * `SessionView.changes`. Its id stays `changes`, the one a saved preview choice holds.
  */
-const VIEWS = ["changes", "previews", "diff"] as const;
+const VIEWS = ["changes", "previews", "diff", "activity"] as const;
 
 const VIEW_LABELS: Record<(typeof VIEWS)[number], string> = {
     changes: "PRs",
     previews: "previews",
     diff: "diff",
+    activity: "activity",
 };
 
 /** The view tabs a session has. */
-function viewTabs(view: SessionView | undefined): { id: string; label: string }[] {
+function viewTabs(
+    view: SessionView | undefined,
+    activity: string | undefined,
+): { id: string; label: string }[] {
     const has = {
         changes: view !== undefined && !isReview(view) && view.changes !== undefined,
         previews: true,
         diff: view?.diff !== undefined,
+        activity: activity !== undefined,
     };
-    return VIEWS.filter((id) => has[id]).map((id) => ({ id, label: VIEW_LABELS[id] }));
+    return VIEWS.filter((id) => has[id]).map((id) => ({
+        id,
+        // The activity tab's label says when a job runs or failed.
+        label: id === "activity" ? (activity ?? VIEW_LABELS.activity) : VIEW_LABELS[id],
+    }));
 }
 
 /** The preview the pane shows in the browser bar's place: what a pop-out takes along. */
@@ -160,12 +175,21 @@ export function PreviewPane(props: PreviewPaneProps) {
     const [tabState, setTabState] = useState<string | undefined>(undefined);
     // With the stack down and a pull request open, the rail says more than an empty preview.
     const opening = view !== undefined && opensOnChanges(view) ? "changes" : "previews";
-    const tabs = viewTabs(view);
-    const wanted = tabState ?? saved.tab ?? (isReview(view) ? "diff" : opening);
+    const tabs = viewTabs(view, props.activity?.label);
+    // A failed job shows the activity tab until the operator picks a tab; the pick he made
+    // before is not replaced, so the next session opens where he left it.
+    const [peek, setPeek] = useState(false);
+    useOpenActivity(() => setPeek(true));
+    const chosen = tabState ?? saved.tab ?? (isReview(view) ? "diff" : opening);
+    const wanted = peek && props.activity !== undefined ? "activity" : chosen;
     const tab = tabs.some((entry) => entry.id === wanted) ? wanted : "previews";
     const setTab = (name: string) => {
+        setPeek(false);
         setTabState(name);
-        remember({ tab: name });
+        // The activity is a look, not where a session opens.
+        if (name !== "activity") {
+            remember({ tab: name });
+        }
     };
     // The PR chip of the context bar opens this tab on one change.
     const [focus, setFocus] = useState<{ change: string; seq: number } | undefined>(undefined);
@@ -217,6 +241,20 @@ export function PreviewPane(props: PreviewPaneProps) {
                   }]),
               ];
 
+    if (tab === "activity" && props.activity !== undefined) {
+        return (
+            <section className="pane preview-pane" aria-label="Previews">
+                <ViewTabs
+                    tabs={tabs}
+                    shown={tab}
+                    onSelect={setTab}
+                    controls={head}
+                    label="Preview views"
+                />
+                {props.activity.panel}
+            </section>
+        );
+    }
     if (tab === "changes" && view !== undefined) {
         return (
             <section className="pane preview-pane" aria-label="Previews">

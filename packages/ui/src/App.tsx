@@ -2,7 +2,13 @@ import { Fragment, useEffect, useRef, useState } from "react";
 
 import { AgentsPane } from "./AgentsPane.tsx";
 import { fetchThemes, postAction, putSettings } from "./events-client.ts";
-import { ActivityDrawer, drawerOpens, type DrawerWatch } from "./ActivityDrawer.tsx";
+import {
+    ActivityPanel,
+    activityLabel,
+    drawerOpens,
+    openActivity,
+    type DrawerWatch,
+} from "./ActivityDrawer.tsx";
 import { ComposerPane } from "./Composer.tsx";
 import { isOpen, isStrip, PANES, type PaneName } from "./layout.ts";
 import { operatorHidden, operatorNotice, postOperator } from "./operator.ts";
@@ -347,22 +353,26 @@ export function App() {
     };
     const watchBefore = useRef<DrawerWatch>(watchNow);
     useEffect(() => {
-        if (drawerOpens(watchBefore.current, watchNow) && layout.layout.drawer.collapsed) {
-            layout.setDrawerCollapsed(false);
+        if (drawerOpens(watchBefore.current, watchNow)) {
+            // The activity is a tab of the right pane: bring the pane back and show it.
+            if (layout.fitted.panes.previews.collapsed) {
+                layout.restore("previews");
+            }
+            openActivity();
         }
         watchBefore.current = watchNow;
     }, [watchNow.jobId, watchNow.jobState, watchNow.error, watchNow.dir, watchNow.needs]);
-    const drawer = (
-        <ActivityDrawer
-            feed={feed}
-            job={app.job}
-            error={app.actionError}
-            onDismiss={app.dismiss}
-            drawer={layout.layout.drawer}
-            onResize={layout.setDrawerHeight}
-            onCollapse={layout.setDrawerCollapsed}
-        />
-    );
+    const activity = {
+        label: activityLabel(app.job, app.actionError),
+        panel: (
+            <ActivityPanel
+                feed={feed}
+                job={app.job}
+                error={app.actionError}
+                onDismiss={app.dismiss}
+            />
+        ),
+    };
     const popped = useRef<Partial<Record<PaneName, PoppedOut>>>({});
 
     const docked = (pane: PaneName) => () => {
@@ -535,9 +545,7 @@ export function App() {
         />
     );
     const composerPane = (
-        <ComposerPane label="Composer" form={composerForm}>
-            {drawer}
-        </ComposerPane>
+        <ComposerPane label="Composer" form={composerForm} />
     );
     const agentsPane = review !== null && view !== undefined ? (
         <ReviewPane
@@ -547,9 +555,7 @@ export function App() {
             run={run}
             revisions={revisionsOf(state, selected)}
             controls={inRoute ? undefined : []}
-        >
-            {drawer}
-        </ReviewPane>
+        />
     ) : (
         <AgentsPane
             view={view}
@@ -567,9 +573,7 @@ export function App() {
             onOpenAgent={openAgent}
             onOpenView={openView}
             onError={app.setActionError}
-        >
-            {drawer}
-        </AgentsPane>
+        />
     );
     const previewsPane = (
         <PreviewPane
@@ -579,6 +583,7 @@ export function App() {
             unverify={app.unverify}
             commentsRevision={revisionsOf(state, selected).comments}
             pipelineRevision={revisionsOf(state, selected).pipeline}
+            activity={activity}
             diffJob={selected === undefined ? undefined : diffJob(state, selected)}
             controls={
                 inRoute
@@ -716,7 +721,6 @@ export function App() {
         return (
             <div className="layout layout-single" data-pane={route.pane}>
                 {panes[route.pane]}
-                {route.pane !== "agents" && drawer}
                 {status}
             </div>
         );
@@ -743,9 +747,6 @@ export function App() {
         const props = layout.handle(before, pane);
         return [<div key={`${before}|${pane}`} className="handle" {...props} />, cell];
     });
-    // The drawer sits under the agents pane; with the pane folded or swapped for the operator
-    // tab, it takes a row of its own. Expanded, only the previews show: no drawer at all.
-    const agentsOff = !expanded && (isStrip(layout.fitted.panes.agents) || operatorOn);
     return (
         <div className={expanded ? "shell shell-expanded" : "shell"}>
             <ContextBar
@@ -787,7 +788,6 @@ export function App() {
                     data-armed={layout.armed ?? undefined}
                 >
                     {cells}
-                    {agentsOff && <div className="drawer-row">{drawer}</div>}
                     {status}
                 </div>
             </div>

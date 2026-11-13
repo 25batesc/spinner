@@ -266,3 +266,19 @@ export function agentRows(
         group("goldfish", "Goldfish", fish),
     ].filter((item) => item.rows.length + item.finished.length > 0);
 }
+
+/** The row whose key is `key`, among every group's rows and finished rows; null without. */
+export function rowOf(groups: readonly RowGroup[], key: string | null): AgentRow | null {
+    for (const group of groups) {
+        const found = [...group.rows, ...group.finished].find((row) => row.key === key);
+        if (found !== undefined) {
+            return found;
+        }
+    }
+    return null;
+}
+
+/** How many agents the session has, finished ones included. */
+export function rowCount(groups: readonly RowGroup[]): number {
+    return groups.reduce((sum, group) => sum + group.rows.length + group.finished.length, 0);
+}

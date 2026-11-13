@@ -2,7 +2,14 @@ import type { AgentSpec, RosterRow, SessionView } from "@spinner/protocol";
 import { describe, expect, it } from "vitest";
 
 import { initialDesignSessions, SEEDED_DIR } from "../fixture/data.ts";
-import { agentRows, hostedState, shortModel, type RowGroup } from "./agent-rows.ts";
+import {
+    agentRows,
+    hostedState,
+    rowCount,
+    rowOf,
+    shortModel,
+    type RowGroup,
+} from "./agent-rows.ts";
 import { emptyTranscript, type Transcript } from "./transcript.ts";
 
 const MODEL = "anthropic/claude-opus-5-5";
@@ -78,6 +85,16 @@ describe("agentRows", () => {
                 "| zoom_out done", "| comprehension stopped", "| security failed",
             ],
         });
+    });
+
+    it("finds the agent in focus among every row, and counts the agents", () => {
+        const groups = agentRows(seeded(), {}, []);
+        expect(rowOf(groups, "agent:lead")?.name).toBe("lead");
+        // A finished agent can be in focus too: its row is behind the fold.
+        expect(rowOf(groups, "agent:docs")?.state).toBe("stopped");
+        expect(rowOf(groups, "agent:nobody")).toBeNull();
+        expect(rowOf(groups, null)).toBeNull();
+        expect(rowCount(groups)).toBe(13);
     });
 
     it("keeps a row in place when its agent changes state", () => {

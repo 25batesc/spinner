@@ -1,7 +1,13 @@
 import type { Job } from "@spinner/protocol";
 import { describe, expect, it } from "vitest";
 
-import { drawerOpens, drawerTitle, drawerTone, type DrawerWatch } from "./ActivityDrawer.tsx";
+import {
+    activityLabel,
+    drawerOpens,
+    drawerTitle,
+    drawerTone,
+    type DrawerWatch,
+} from "./ActivityDrawer.tsx";
 
 const job = (state: Job["state"]): Job => ({
     id: "j-1", action: "up", session: "s1-a", state, started: "t", finished: null,
@@ -60,4 +66,12 @@ describe("the drawer opens itself only for what needs the operator (row 4)", () 
         expect(drawerOpens(quiet, watch({ dir: "s2-b", needs: "verify locally" }))).toBe(false);
         expect(drawerOpens(watch({ dir: null }), watch({ needs: "verify" }))).toBe(false);
     });
+});
+
+it("labels the activity tab with what the watched job does", () => {
+    expect(activityLabel(undefined, null)).toBe("activity");
+    expect(activityLabel(job("running"), null)).toBe("activity · running");
+    expect(activityLabel(job("failed"), null)).toBe("activity · failed");
+    expect(activityLabel(undefined, "POST /x failed (409)")).toBe("activity · failed");
+    expect(activityLabel(job("ok"), null)).toBe("activity");
 });

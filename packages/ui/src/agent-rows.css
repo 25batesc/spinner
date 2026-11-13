@@ -78,3 +78,31 @@
     .ar-actions { width: auto; margin-left: auto; }
     .ar-actions:empty { display: none; }
 }
+
+/* The head: the agent in focus as one line, the list dropped down from it over the chat. */
+.ar { position: relative; }
+.ar-focus { display: flex; align-items: center; gap: var(--space-1); }
+.ar-focus > .ar-row { flex: 1 1 auto; min-width: 0; }
+.ar-none { padding: var(--space-1) var(--space-2); }
+.ar-more { flex: none; list-style: none; }
+.ar-more-button {
+    display: inline-flex; align-items: center; gap: var(--space-1); height: 26px;
+    padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-box);
+    background: none; color: var(--muted); font: inherit; font-size: var(--text-dense);
+    cursor: pointer; white-space: nowrap;
+}
+.ar-more-button:hover, .ar-more-button[aria-expanded="true"] { color: var(--text); background: var(--fill); }
+.ar-chevron { display: inline-block; font-size: 14px; line-height: 1; transform: rotate(90deg); }
+.ar-chevron[data-open="true"] { transform: rotate(-90deg); }
+.ar-backdrop {
+    position: fixed; inset: 0; z-index: 20; border: 0; padding: 0; background: none;
+    cursor: default;
+}
+.ar-list {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 21;
+    max-height: min(60vh, 520px); overflow-y: auto; padding: var(--space-2);
+    border: 1px solid var(--border); border-radius: var(--radius-box); background: var(--surface);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 35%); display: flex; flex-direction: column;
+    gap: var(--space-2);
+}
+

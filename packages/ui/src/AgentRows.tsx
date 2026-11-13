@@ -1,9 +1,17 @@
-// The Agents view's list (docs/designs/talk-change-ship.md, R9): one line per agent, grouped
+// The Agents view's head (docs/designs/talk-change-ship.md, R9 and 5.10): the agent in focus
+// as one line, and a list of every agent that drops down from it: one line per agent, grouped
 // as `agent-rows.ts` builds them, each group's finished rows behind an `n finished` line, and
-// `+ add agent` at the end. A click on a row selects it; the pane shows its chat below.
+// `+ add agent` at the end. A pick in the list focuses the agent; the pane shows its chat.
 import { useState } from "react";
 
-import type { AgentRow, RowAction, RowGroup, RowTarget } from "./agent-rows.ts";
+import {
+    rowCount,
+    rowOf,
+    type AgentRow,
+    type RowAction,
+    type RowGroup,
+    type RowTarget,
+} from "./agent-rows.ts";
 import { formatUsd } from "./costs.ts";
 
 import "./agent-rows.css";
@@ -120,8 +128,14 @@ function Row(props: {
     );
 }
 
+/**
+ * The Agents view's head (the operator's request of 2026-11-13): the agent in focus as one
+ * line, and a control at its end that drops the list of every agent down over the chat. A
+ * pick in the list focuses that agent and closes the list; `+ add agent` is its last line.
+ */
 export function AgentRows(props: AgentRowsProps) {
     const { groups, selected, adding, cap, onPick, onAdd, onAction } = props;
+    const [listed, setListed] = useState(false);
     const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
     const toggle = (id: string) =>
         setOpen((old) => {
@@ -131,51 +145,99 @@ export function AgentRows(props: AgentRowsProps) {
             }
             return next;
         });
+    const focus = adding ? null : rowOf(groups, selected);
+    const others = rowCount(groups) - (focus === null ? 0 : 1);
     // One group needs no heading: a session with one agent is one line.
     const headed = groups.length > 1;
+    const pick = (target: RowTarget) => {
+        setListed(false);
+        onPick(target);
+    };
     const row = (item: AgentRow) => (
         <Row
             key={item.key}
             row={item}
             selected={!adding && item.key === selected}
-            onPick={onPick}
+            onPick={pick}
             onAction={onAction}
         />
     );
     return (
-        <div className="ar" aria-label="Agents">
-            {groups.map((group) => (
-                <section key={group.id} className="ar-group" data-group={group.id}>
-                    {headed && <h3 className="ar-heading">{group.label}</h3>}
-                    <ul className="ar-rows">
-                        {group.rows.map(row)}
-                        {group.finished.length > 0 && (
-                            <li className="ar-fold">
-                                <button
-                                    type="button"
-                                    className="ar-fold-line"
-                                    aria-expanded={open.has(group.id)}
-                                    onClick={() => toggle(group.id)}
-                                >
-                                    {open.has(group.id) ? "▾" : "▸"}
-                                    {` ${group.finished.length} finished`}
-                                </button>
-                            </li>
-                        )}
-                        {open.has(group.id) && group.finished.map(row)}
-                    </ul>
-                </section>
-            ))}
-            {cap !== null && <p className="muted ar-cap">{cap}</p>}
-            <button
-                type="button"
-                className={adding ? "ar-add ar-add-on" : "ar-add"}
-                aria-label="Add agent"
-                aria-pressed={adding}
-                onClick={onAdd}
-            >
-                + add agent
-            </button>
+        <div className="ar" aria-label="Agents" data-listed={listed}>
+            <ul className="ar-rows ar-focus">
+                {focus === null ? (
+                    <li className="ar-row ar-none muted">
+                        {adding ? "New agent" : "No agent in focus"}
+                    </li>
+                ) : (
+                    <Row
+                        row={focus}
+                        selected
+                        onPick={() => setListed(!listed)}
+                        onAction={onAction}
+                    />
+                )}
+                <li className="ar-more">
+                    <button
+                        type="button"
+                        className="ar-more-button"
+                        aria-expanded={listed}
+                        aria-label={listed ? "Hide the agents" : "Show every agent"}
+                        title={listed ? "Hide the list" : "Every agent of the session"}
+                        onClick={() => setListed(!listed)}
+                    >
+                        {others > 0 ? `${others} more ` : ""}
+                        <span className="ar-chevron" data-open={listed}>›</span>
+                    </button>
+                </li>
+            </ul>
+            {listed && (
+                <>
+                    <button
+                        type="button"
+                        className="ar-backdrop"
+                        aria-label="Close the list of agents"
+                        onClick={() => setListed(false)}
+                    />
+                    <div className="ar-list" role="listbox" aria-label="Every agent">
+                        {groups.map((group) => (
+                            <section key={group.id} className="ar-group" data-group={group.id}>
+                                {headed && <h3 className="ar-heading">{group.label}</h3>}
+                                <ul className="ar-rows">
+                                    {group.rows.map(row)}
+                                    {group.finished.length > 0 && (
+                                        <li className="ar-fold">
+                                            <button
+                                                type="button"
+                                                className="ar-fold-line"
+                                                aria-expanded={open.has(group.id)}
+                                                onClick={() => toggle(group.id)}
+                                            >
+                                                {open.has(group.id) ? "▾" : "▸"}
+                                                {` ${group.finished.length} finished`}
+                                            </button>
+                                        </li>
+                                    )}
+                                    {open.has(group.id) && group.finished.map(row)}
+                                </ul>
+                            </section>
+                        ))}
+                        {cap !== null && <p className="muted ar-cap">{cap}</p>}
+                        <button
+                            type="button"
+                            className={adding ? "ar-add ar-add-on" : "ar-add"}
+                            aria-label="Add agent"
+                            aria-pressed={adding}
+                            onClick={() => {
+                                setListed(false);
+                                onAdd();
+                            }}
+                        >
+                            + add agent
+                        </button>
+                    </div>
+                </>
+            )}
         </div>
     );
 }
