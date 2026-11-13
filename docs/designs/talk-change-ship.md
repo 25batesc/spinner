@@ -94,7 +94,7 @@ Each step ships on its own.
 | 1 | The fast path as the default, inside the one-change session of today. | Built, v0.25.0. Detail below. |
 | 2 | Changes: several pull requests in one session; the Changes rail; the PRs view; `round` and `reset` go away. | Built, v0.26.0. Detail below. |
 | 3 | The stack follows the selected change; `test locally` on the card. | Built, v0.27.0, with the database kept across a switch (3.4 is open). Detail below. |
-| 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Outline. |
+| 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Detail below; in build. |
 | 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Outline. |
 
 ### Step 1 in detail (built)
@@ -170,12 +170,27 @@ A file written before is valid as it is, so nothing migrates and every reader of
 
 **3.5 Found on the way.** A branch name the repositories already have (an older session used the same title) gets a number. The stack jobs store only the `stack` field into the file as it is at that moment, as the focused writes of 2.2 do.
 
-### Step 4 in outline: plans
+### Step 4 in detail: plans
 
-* `~/.spinner/plans/<id>/`: `plan.md`, the EGM artifacts, the review runs. `POST /plans`, `GET /plans`, `POST /plans/:id/run` (an EGM skill), `POST /plans/:id/implement { session? }`.
-* A planning session is a session with `kind: plan`: an agent, the chat, the plan document with comments, and the EGM tools as buttons. No worktree is required; a project gives the agent the code to read.
-* `Implement` attaches the plan to a session and seeds the board from its steps (the seed of `session-workspace.md`). The agent makes a change per step or group of steps.
-* The design track of a code session, the stepper and the design gate become the planning session. An approved doc of an old session opens as a plan.
+**4.1 The library.** `~/.spinner/plans/<plan id>/` holds one plan: its document (a `.md` file with `## Overview` and `## Detailed Implementation Plan`, as a design doc has) and `plan.json`, its record: `{ id, title, created, updated, project, doc, origin, implementations }`. `origin` names the session the plan was written in. `implementations` lists the sessions that implement it, each with the time and the hash of the document it took. The plan id is the directory name of the session the plan was written in.
+
+**4.2 A planning session.** `POST /plans { text, title?, project? }` makes a session with `kind: plan` on the design track and starts its lead, as `POST /sessions` does. Its product is the plan document, not code. Its designs directory is `~/.spinner/plans/<session dir>/`, with or without a project: the design tracker answers that location for a `kind: plan` session, and `design.repo` is the constant `plans`. A project gives the agent worktrees to read; the brief forbids code changes. The lead writes the document from the talk and names it with `design_doc`. The EGM skills (`brainstorm`, `review`, `resolve`) are the buttons of the session's Brainstorm, Draft and Review views, in any order; none is required. A planning session is listed under Plans, not under Sessions.
+
+**4.3 The list.** `GET /plans` answers every plan: `id`, `title`, `status`, `doc` (whether the document exists), `entries` and `done` (the plan entries and how many are done), `session` (the planning session while it lives), `implementations` and `updated`. The statuses: `draft` (no document yet), `drafted`, `reviewed` (a review ran), `implementing` (`done` of `entries`), `done`. `GET /plans/:id/doc` answers the document.
+
+**4.4 Old designs.** At start the daemon imports every session, live or archived, that has `design/approved.md` and no plan: the copy becomes the plan's document, and the session is its first implementation. Sessions on the design track from before stay as they are.
+
+**4.5 `Implement`.** `POST /plans/:id/implement { session?, project? }` attaches the plan to a session: the one named, or a new one with the plan's title (and the project given, else the plan's). It refuses without a document, for a document the seed cannot read, and for a review or planning session. It then:
+
+1. copies the document to `<session>/design/approved.md` and records it as the session's approved design (`design.doc`, `design.repo: plans`, `design.approved`); the session stays on the `direct` track;
+2. seeds the MISSION.md Plan from the document's entries (the seed of `session-workspace.md`), so the mission view shows the plan in progress;
+3. writes the Log lines, records the implementation in `plan.json`, and tells the session's lead: implement the plan, one change per step or group of steps, tick each item when its entry is done.
+
+A later edit of the plan's document marks the session's copy as changed, as an edited design doc does; `Implement` again re-seeds.
+
+**4.6 The UI.** The sidebar gets a `Plans` view: one row per plan with its status and the sessions that implement it, and `+ New plan`. A row with a live planning session opens that session. A row without one opens the plan's page in the middle pane: the document and `Implement`, with a choice of session. The composer's `Plan first (EGM)` box starts a planning session.
+
+**4.7 Not in step 4.** Removing the track chip and the EGM tabs from code sessions (step 5). Comments on the plan document (the `doc` anchor of preview comments). Saving a plan into a repo's `docs/designs/`.
 
 ### Step 5 in outline: the chat as the centre
 
