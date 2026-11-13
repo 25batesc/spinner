@@ -4,6 +4,8 @@
 import { useEffect, useState } from "react";
 
 import type {
+    PlansResponse,
+    PlanView,
     AttachmentResponse,
     CommentResponse,
     CommentsResponse,
@@ -385,6 +387,16 @@ async function getText(path: string, signal: AbortSignal): Promise<string> {
         throw await failure("GET", path, response);
     }
     return response.text();
+}
+
+/** `GET /plans`: the plans library (docs/designs/talk-change-ship.md, 4.3). */
+export async function fetchPlans(signal: AbortSignal): Promise<PlanView[]> {
+    return (await getJson<PlansResponse>("/plans", signal)).plans;
+}
+
+/** `GET /plans/:id/doc`: the plan's document as markdown text. */
+export async function fetchPlanDoc(id: string, signal: AbortSignal): Promise<string> {
+    return getText(`/plans/${encodeURIComponent(id)}/doc`, signal);
 }
 
 /** `GET /sessions/:dir/design/files`: the files of `<session>/design/` and the archived runs. */

@@ -44,6 +44,7 @@ export type IconName =
     | "operator"
     | "pull-request"
     | "merge"
+    | "plan"
     | "comment";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
@@ -74,6 +75,8 @@ const GLYPHS: Record<IconName, string> = {
     merge:
         "M4 4.5v7M4 4.5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M4 14.5a1.5 1.5 0 1 0 0-3" +
         "a1.5 1.5 0 0 0 0 3M12 7.5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M12 7.5c0 3-4 2.5-8 4",
+    // A page with lines: the plans library.
+    plan: "M4 2.5h6l2.5 2.5v8.5h-8.5zM10 2.5v2.5h2.5M6 8h4.5M6 10.5h4.5",
     // A speech bubble: comment on the preview (s054).
     comment: "M2.5 3.5h11v7.5h-6l-3 2.5V11h-2z",
     // A headset: the operator agent, the one that talks back.
@@ -182,7 +185,7 @@ export function PaneStrip({ name, popped, onRestore }: PaneStripProps) {
  * the peers' PRs (s015), and settings at the bottom.
  */
 export interface PanelView {
-    id: "sessions" | "prs" | "reviews" | "settings";
+    id: "sessions" | "prs" | "plans" | "reviews" | "settings";
     icon: IconName;
     label: string;
     /** Drawn at the bottom of the bar, apart from the views above. */
@@ -192,6 +195,7 @@ export interface PanelView {
 export const PANEL_VIEWS: readonly PanelView[] = [
     { id: "sessions", icon: "sessions", label: "Sessions" },
     { id: "prs", icon: "merge", label: "Pull requests" },
+    { id: "plans", icon: "plan", label: "Plans" },
     { id: "reviews", icon: "pull-request", label: "Reviews" },
     { id: "settings", icon: "gear", label: "Settings", bottom: true },
 ];

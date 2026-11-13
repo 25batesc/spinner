@@ -29,10 +29,13 @@ import {
     type FocusPanel,
 } from "./focus.ts";
 import { PreviewPane } from "./PreviewPane.tsx";
-import { deleteVerify, useLoaded } from "./remote.ts";
+import { deleteVerify, fetchPlans, useLoaded } from "./remote.ts";
 import { isReview, ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
 import { ReviewPane } from "./ReviewPane.tsx";
 import { prRows } from "./changes.ts";
+import { ImplementBar, PlanPage } from "./PlanPage.tsx";
+import { implementTargets } from "./plans.ts";
+import { PlansPane } from "./PlansPane.tsx";
 import { PrsPane } from "./PrsPane.tsx";
 import { ReviewsPane } from "./ReviewsPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
@@ -117,7 +120,23 @@ function windowStorage(): Storage | undefined {
  * What the middle pane shows: the selected session, the operator agent, or the composer that
  * `+ New session` or `+ New review` opens (s038).
  */
-type Middle = "agents" | "operator" | "new-session" | "new-review";
+/** How often the plans library is read again while it shows. */
+const PLANS_POLL_MS = 20_000;
+
+/** A counter that moves every `PLANS_POLL_MS` while `active`; it keys the plans' reload. */
+function usePlansTick(active: boolean): number {
+    const [tick, setTick] = useState(0);
+    useEffect(() => {
+        if (!active) {
+            return;
+        }
+        const timer = setInterval(() => setTick((old) => old + 1), PLANS_POLL_MS);
+        return () => clearInterval(timer);
+    }, [active]);
+    return tick;
+}
+
+type Middle = "agents" | "operator" | "new-session" | "new-review" | "plan";
 
 function isComposer(middle: Middle): boolean {
     return middle === "new-session" || middle === "new-review";
@@ -140,7 +159,8 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
     }, [focus, inRoute]);
     const [middle, setMiddle] = useState<Middle>("agents");
     // A pick in a list and a rail switch leave the composer; the draft stays for the way back.
-    const leaveComposer = () => setMiddle((old) => (isComposer(old) ? "agents" : old));
+    const leaveComposer = () =>
+        setMiddle((old) => (isComposer(old) || old === "plan" ? "agents" : old));
     // The agents pane's view and picked agent live here (entry 3.22), so the `needs you` pill
     // can open a gate card and a created session can open on its lead: the `agents` view
     // with `lead` picked. The view is held per session (session-workspace.md 2.8): a session
@@ -186,7 +206,7 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
 
     // The kind of composer whose `Start` job runs now: its button waits.
     const creates = job?.action === "new" || job?.action === "adopt" ||
-        job?.action === "reviews";
+        job?.action === "reviews" || job?.action === "plan";
     let starting: "session" | "review" | null = null;
     if (creates && job.state === "running") {
         starting = job.action === "reviews" ? "review" : "session";
@@ -278,6 +298,8 @@ export function App() {
         }
     }, [sidebar, inRoute]);
     const { middle, setMiddle, agentsShown, setAgentsShown, agentPicked, setAgentPicked } = app;
+    // The plan whose page shows in the middle pane (`middle === "plan"`).
+    const [planId, setPlanId] = useState<string | undefined>(undefined);
     const card = view === undefined ? null : gateCard(view.design, needsHuman(view));
     const openCard = card === null ? undefined : () => {
         setMiddle("agents");
@@ -457,7 +479,7 @@ export function App() {
             app.activate(next.view);
         }
         // The PRs view lists pull requests of ordinary sessions; a row opens its session.
-        if (next.view === "prs") {
+        if (next.view === "prs" || next.view === "plans") {
             app.activate("sessions");
         }
         if (next.view === null) {
@@ -604,9 +626,50 @@ export function App() {
         />
     );
     const openPrs = prRows(ordinary).open.length;
+    // The plans library. It is read again when a job ends or a session comes or goes, and
+    // every `PLANS_POLL_MS` while the Plans view, a plan's page or a planning session shows.
+    const plansShown = sidebar.view === "plans" || middle === "plan" || view?.kind === "plan";
+    const plansTick = usePlansTick(plansShown);
+    const jobsDone = Object.values(state.jobs).filter((entry) => entry.state !== "running").length;
+    const plansKey = `${sessions.length}#${jobsDone}#${plansTick}`;
+    const plansLoaded = useLoaded(plansKey, fetchPlans);
+    const plans = plansLoaded.value ?? [];
+    const planning = Object.values(state.jobs).some(
+        (entry) => entry.action === "plan" && entry.state === "running",
+    );
+    const targets = implementTargets(ordinary);
+    const pagePlan = middle === "plan" ? plans.find((plan) => plan.id === planId) : undefined;
+    const sessionPlan =
+        view?.kind === "plan" ? plans.find((plan) => plan.session === selected) : undefined;
+    const plansPane = (
+        <PlansPane
+            plans={plans}
+            error={plansLoaded.error}
+            selected={middle === "plan" ? planId : selected}
+            onSelect={(plan) => {
+                if (plan.session !== null) {
+                    app.pick("sessions", plan.session);
+                    setMiddle("agents");
+                    return;
+                }
+                setPlanId(plan.id);
+                setMiddle("plan");
+            }}
+            onSession={(dir) => {
+                app.pick("sessions", dir);
+                setMiddle("agents");
+            }}
+            onNew={() => {
+                app.setDraft({ ...app.draft, planFirst: true });
+                setMiddle("new-session");
+            }}
+            composing={composer === "session" && app.draft.planFirst === true}
+        />
+    );
     const sideViews = {
         sessions: { facts: { count: ordinary.length }, pane: sessionsPane },
         prs: { facts: { count: openPrs }, pane: prsPane },
+        plans: { facts: { count: plans.length }, pane: plansPane },
         reviews: { facts: { count: reviewRows.length }, pane: reviewsPane },
         settings: { facts: undefined, pane: settingsPane },
     };
@@ -624,6 +687,24 @@ export function App() {
         middlePane = operatorPane;
     } else if (composer !== null) {
         middlePane = composerPane;
+    } else if (pagePlan !== undefined) {
+        middlePane = (
+            <PlanPage
+                plan={pagePlan}
+                targets={targets}
+                busy={planning}
+                run={run}
+                revision={pagePlan.updated}
+            />
+        );
+    } else if (sessionPlan !== undefined) {
+        // A planning session shows under its plan's bar: `Implement` is one click away.
+        middlePane = (
+            <div className="plan-session">
+                <ImplementBar plan={sessionPlan} targets={targets} busy={planning} run={run} />
+                {agentsPane}
+            </div>
+        );
     }
     const panes = { sessions: sidePanel, agents: middlePane, previews: previewsPane };
     const status = (

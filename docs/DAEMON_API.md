@@ -988,3 +988,33 @@ The database is kept across a switch. `ChangeView.verified` is true when the ope
 
 `change start` gives the branch a number when a repository already has the name, locally or on the remote. The stack jobs write only the `stack` field of `session.yaml`, into the file as it is at that moment.
 
+## Plans
+
+The design is `docs/designs/talk-change-ship.md`, step 4. A plan is a document: what to build, in which steps. It lives in the plans library, `<home>/plans/<id>/`, outside every session. The directory holds the document and `plan.json`, the record: `id`, `title`, `created`, `updated`, `project`, `doc` (the file's name), `origin` (the session it was written in) and `implementations` (the sessions that implement it, each with the time and the first 12 digits of the document's hash).
+
+| Route | Body | Answer | What it does |
+|---|---|---|---|
+| `GET /plans` | none | `PlansResponse` | Every plan, newest first. |
+| `POST /plans` | `NewPlanRequest` | `JobResponse` | Starts a planning session. |
+| `GET /plans/:id/doc` | none | markdown text | The plan's document. 404 without one. |
+| `POST /plans/:id/implement` | `PlanImplementRequest`, optional | `JobResponse` | Attaches the plan to a session. |
+
+A planning session is a session with `kind: plan`. `POST /plans` is `POST /sessions` with `plan: true`. The session is on the design track, with EGM installed or not. Its designs directory is `<home>/plans/<session dir>/`, and `design.repo` is `plans`. The guard lets the lead write there and in the session directory, and refuses a write in a worktree. The lead writes the document from the talk and names it with `design_doc`. The document has `## Overview` and `## Detailed Implementation Plan`, with one `#### <n>.<m> <title>` heading per step. The EGM skills are the buttons of the session's views; none is required.
+
+A `PlanView` adds `status`, `entries`, `done`, `session` (the planning session while it lives) and `sessions` (each implementing session with `live`, `title`, `done` and `entries`). The statuses are `draft` (no steps yet), `drafted`, `reviewed` (the planning session has a consolidated review report), `implementing` and `done`. An entry counts as done when every Plan item linked to it is ticked.
+
+`POST /plans/:id/implement` takes `{ session?, project? }`. It answers 404 for an unknown plan and 409 for a plan without a document, for a document the seed refuses, and for a review or planning session. With `session`, the job attaches the plan to that session and tells its lead. Without it, the job makes a session with the plan's title and the given project (else the plan's), attaches the plan, and starts the lead with the plan as its first message. To attach a plan is to do these steps:
+
+1. Copy the document to `<session>/design/approved.md`.
+2. Record it in `session.yaml`: `design.doc` (`<plan id>/<file>`), `design.repo: plans`, `design.approved`. The track stays `direct`.
+3. Seed the MISSION.md Plan: one item per step, linked by the `[n.n]` token.
+4. Write two Log lines and add the session to the plan's `implementations`.
+
+The lead is told to build the steps in order, one change per step or group of steps, and to tick each item when its step is done.
+
+At start the daemon imports every session, live or archived, that has `design/approved.md` and no plan of its own. The copy becomes the plan's document (`plan.md`), and the session is its first implementation.
+
+Two sessions with one title no longer share a branch: the second gets `feat/<slug>-<id>`.
+
+In the UI, the sidebar has a `Plans` view. A row with a live planning session opens the session under a bar with `Implement`. A row without one opens the plan's page: the bar and the document. The composer's `Make a plan (no code)` box posts to `/plans`.
+

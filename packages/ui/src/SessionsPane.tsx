@@ -107,6 +107,11 @@ function SessionCard(props: {
                 <span className="badges">
                     <span className="badge">{stageOf(view)}</span>
                     <CardDots view={view} needs={needs} />
+                    {view.kind === "plan" && (
+                        <span className="badge change-count" title="A planning session: no code">
+                            plan
+                        </span>
+                    )}
                     <RoundBadge view={view} />
                     {others > 0 && (
                         <span

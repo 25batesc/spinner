@@ -26,7 +26,8 @@ export interface SidebarProps {
 }
 
 const TITLES: Record<SidebarView, string> = {
-    sessions: "Sessions", prs: "Pull requests", reviews: "Reviews", settings: "Settings",
+    sessions: "Sessions", prs: "Pull requests", plans: "Plans", reviews: "Reviews",
+    settings: "Settings",
 };
 
 function TitleRow({ view, facts }: { view: SidebarView; facts: ViewFacts | undefined }) {

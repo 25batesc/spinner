@@ -2,7 +2,7 @@
 
 * **Author:** the operator and his agent, in conversation
 * **Date:** 2026-11-12
-* **Status:** Approved by the operator on 2026-11-12. Step 1 is built in v0.25.0, step 2 in v0.26.0, step 3 in v0.27.0. Steps 4 and 5 are approved in outline; each gets its detail before it is built.
+* **Status:** Approved by the operator on 2026-11-12. Step 1 is built in v0.25.0, step 2 in v0.26.0, step 3 in v0.27.0, step 4 in v0.28.0. Step 5 is approved in outline, with R10 open; it gets its detail before it is built.
 * **Review:** Not reviewed by Goldfish. The operator read the proposal and answered its five decisions. This doc replaces the EGM adoption's rule that the design track is the default (`egm-adoption.md`, D1).
 
 ## Overview
@@ -94,7 +94,7 @@ Each step ships on its own.
 | 1 | The fast path as the default, inside the one-change session of today. | Built, v0.25.0. Detail below. |
 | 2 | Changes: several pull requests in one session; the Changes rail; the PRs view; `round` and `reset` go away. | Built, v0.26.0. Detail below. |
 | 3 | The stack follows the selected change; `test locally` on the card. | Built, v0.27.0, with the database kept across a switch (3.4 is open). Detail below. |
-| 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Detail below; in build. |
+| 4 | Plans: the library, planning sessions with EGM as optional tools, `Implement`. | Built, v0.28.0. Detail below. |
 | 5 | The chat as the centre; the old toolbar and view tabs removed; the Agents view redone on the new model. | Outline. |
 
 ### Step 1 in detail (built)
@@ -174,7 +174,7 @@ A file written before is valid as it is, so nothing migrates and every reader of
 
 **4.1 The library.** `~/.spinner/plans/<plan id>/` holds one plan: its document (a `.md` file with `## Overview` and `## Detailed Implementation Plan`, as a design doc has) and `plan.json`, its record: `{ id, title, created, updated, project, doc, origin, implementations }`. `origin` names the session the plan was written in. `implementations` lists the sessions that implement it, each with the time and the hash of the document it took. The plan id is the directory name of the session the plan was written in.
 
-**4.2 A planning session.** `POST /plans { text, title?, project? }` makes a session with `kind: plan` on the design track and starts its lead, as `POST /sessions` does. Its product is the plan document, not code. Its designs directory is `~/.spinner/plans/<session dir>/`, with or without a project: the design tracker answers that location for a `kind: plan` session, and `design.repo` is the constant `plans`. A project gives the agent worktrees to read; the brief forbids code changes. The lead writes the document from the talk and names it with `design_doc`. The EGM skills (`brainstorm`, `review`, `resolve`) are the buttons of the session's Brainstorm, Draft and Review views, in any order; none is required. A planning session is listed under Plans, not under Sessions.
+**4.2 A planning session.** `POST /plans { text, title?, project? }` makes a session with `kind: plan` on the design track and starts its lead, as `POST /sessions` does. Its product is the plan document, not code. Its designs directory is `~/.spinner/plans/<session dir>/`, with or without a project: the design tracker answers that location for a `kind: plan` session, and `design.repo` is the constant `plans`. A project gives the agent worktrees to read; the brief forbids code changes. The lead writes the document from the talk and names it with `design_doc`. The EGM skills (`brainstorm`, `review`, `resolve`) are the buttons of the session's Brainstorm, Draft and Review views, in any order; none is required. A planning session is listed under Plans, and under Sessions with a `plan` mark. It works without EGM installed: the lead writes the plan from the talk.
 
 **4.3 The list.** `GET /plans` answers every plan: `id`, `title`, `status`, `doc` (whether the document exists), `entries` and `done` (the plan entries and how many are done), `session` (the planning session while it lives), `implementations` and `updated`. The statuses: `draft` (no document yet), `drafted`, `reviewed` (a review ran), `implementing` (`done` of `entries`), `done`. `GET /plans/:id/doc` answers the document.
 
@@ -188,7 +188,7 @@ A file written before is valid as it is, so nothing migrates and every reader of
 
 A later edit of the plan's document marks the session's copy as changed, as an edited design doc does; `Implement` again re-seeds.
 
-**4.6 The UI.** The sidebar gets a `Plans` view: one row per plan with its status and the sessions that implement it, and `+ New plan`. A row with a live planning session opens that session. A row without one opens the plan's page in the middle pane: the document and `Implement`, with a choice of session. The composer's `Plan first (EGM)` box starts a planning session.
+**4.6 The UI.** The sidebar gets a `Plans` view: one row per plan with its status and the sessions that implement it, and `+ New plan`. A row with a live planning session opens that session, under a bar with the plan's status and `Implement`. A row without one opens the plan's page in the middle pane: the same bar and the document. `Implement` has a choice of session: a new one, or a live code session. The composer's box is now `Make a plan (no code)`; it starts a planning session.
 
 **4.7 Not in step 4.** Removing the track chip and the EGM tabs from code sessions (step 5). Comments on the plan document (the `doc` anchor of preview comments). Saving a plan into a repo's `docs/designs/`.
 
