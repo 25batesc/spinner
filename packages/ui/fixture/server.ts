@@ -21,6 +21,7 @@ import {
     type OperatorView,
     type PiAssistantMessage,
     type PiEvent,
+    type ProjectDetailResponse,
     type SessionView,
     type ServiceUsage,
     type SessionUsage,
@@ -39,8 +40,8 @@ import { handleGoldfish } from "./goldfish.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
     FIXTURE_PORT, designView, diffRepoStopped, diffViewerUrl, egmStatus, initialDesignSessions,
-    initialReviews, initialSessions, machineUsage, PROJECTS, pr, session, stackView, view,
-    withContext,
+    initialProjects, initialReviews, initialSessions, machineUsage, PROJECT_EXAMPLE_TEXT, PROJECTS,
+    fixtureProject, pr, session, stackView, view, withContext, type FixtureProject,
 } from "./data.ts";
 import { ReviewFixture } from "./reviews.ts";
 import type { DiffRepoView, DiffView } from "@spinner/protocol";
@@ -217,6 +218,8 @@ class FixtureDaemon {
     workspace = new WorkspaceFixture(this);
     /** The keys each fake viewer page received, per repo (`DIFF_VIEWER_ROUTE`). */
     diffKeys = new Map<string, string[]>();
+    /** The projects by name, for the Projects view's routes. */
+    projects = new Map(initialProjects().map((item) => [item.project.name, item]));
     /** The port the server listens on, set once it does: the fake viewer URLs name it. */
     port = FIXTURE_PORT;
 
@@ -697,6 +700,112 @@ class FixtureDaemon {
         return true;
     }
 
+    /**
+     * The Projects view's routes, as the daemon answers them: the list, a project's page, a
+     * save (a spec without the project's `name:` is refused with the daemon's reason), a new
+     * project, a delete (refused for an example and while a session uses it) and the
+     * re-attach of `update its copy`.
+     */
+    async projectRoute(
+        request: IncomingMessage,
+        response: ServerResponse,
+        method: string,
+        path: string,
+    ): Promise<boolean> {
+        if (path === "/projects" && method === "GET") {
+            sendJson(response, { projects: [...this.projects.values()].map((p) => p.project) });
+            return true;
+        }
+        if (path === "/projects/help" && method === "GET") {
+            sendJson(response, { doc: "/home/fixture/spinner/docs/STACK_SPEC.md",
+                example: PROJECT_EXAMPLE_TEXT });
+            return true;
+        }
+        if (path === "/projects" && method === "POST") {
+            const spec = String((await readBody(request))["spec"] ?? "");
+            const name = /^name:\s*(\S+)/m.exec(spec)?.[1];
+            if (name === undefined || this.projects.has(name)) {
+                const reason = name === undefined
+                    ? "the spec does not load: missing string `name`"
+                    : `a project "${name}" exists; pick another name`;
+                sendJson(response, { error: reason }, name === undefined ? 400 : 409);
+                return true;
+            }
+            const made = fixtureProject({
+                name, path: `/home/fixture/.spinner/projects/${name}/spinner.yaml`,
+                source: "home", repos: [], services: [],
+            }, spec);
+            this.projects.set(name, made);
+            sendJson(response, { project: made.project }, 201);
+            return true;
+        }
+        const attach = /^\/sessions\/([^/]+)\/attach$/.exec(path);
+        const attached = this.sessions.get(attach?.[1] ?? "");
+        if (attached !== undefined && method === "POST") {
+            const project = String((await readBody(request))["project"]);
+            const job = this.start("attach", attached.summary.dir, async (log) => {
+                await sleep(STEP_DELAY_MS);
+                log(`project ${project} attached; the session's copy of the spec is new`);
+                return null;
+            });
+            return this.accepted(response, job);
+        }
+        const match = /^\/projects\/([^/]+)(\/spec)?$/.exec(path);
+        if (match === null) {
+            return false;
+        }
+        const found = this.projects.get(decodeURIComponent(match[1] ?? ""));
+        if (found === undefined) {
+            sendJson(response, { error: `no project "${match[1]}"` }, 404);
+            return true;
+        }
+        const name = found.project.name;
+        if (method === "PUT" && match[2] !== undefined) {
+            const spec = String((await readBody(request))["spec"] ?? "");
+            const named = /^name:\s*(\S+)/m.exec(spec)?.[1];
+            if (!found.writable) {
+                sendJson(response, { error: `${found.project.path} is tracked; copy it` }, 409);
+            } else if (named !== name) {
+                const reason = named === undefined
+                    ? "the spec does not load: missing string `name`"
+                    : `the spec's name is "${named}"; it must be "${name}"`;
+                sendJson(response, { error: reason }, 400);
+            } else {
+                const saved = { ...found, spec };
+                this.projects.set(name, saved);
+                sendJson(response, this.projectDetail(saved));
+            }
+            return true;
+        }
+        if (method === "DELETE") {
+            const users = this.projectDetail(found).sessions;
+            if (!found.writable || users.length > 0) {
+                const reason = found.writable
+                    ? `the sessions ${users.map((u) => u.dir).join(", ")} use ${name}`
+                    : `${found.project.path} is under examples/, not the home`;
+                sendJson(response, { error: reason }, 409);
+            } else {
+                this.projects.delete(name);
+                sendJson(response, { ok: true });
+            }
+            return true;
+        }
+        sendJson(response, this.projectDetail(found));
+        return true;
+    }
+
+    /** `GET /projects/:name`: the stored project and the live sessions that use it. */
+    projectDetail(found: FixtureProject): ProjectDetailResponse {
+        const name = found.project.name;
+        const sessions = [...this.sessions.values()]
+            .filter((item) => item.summary.session.project === name)
+            .map((item) => ({
+                dir: item.summary.dir, id: item.summary.session.id,
+                title: item.summary.session.title, stack: item.stack.state,
+            }));
+        return { ...found, sessions };
+    }
+
     /** The repos of the project a body names, by name or by spec path; none without one. */
     projectRepos(project: unknown): string[] {
         const found = PROJECTS.find((item) => item.name === project || item.path === project);
@@ -864,6 +973,9 @@ class FixtureDaemon {
         if (await this.reviewRoute(request, response, method, path)) {
             return;
         }
+        if (await this.projectRoute(request, response, method, path)) {
+            return;
+        }
         if (await this.m2(request, response, method, path)) {
             return;
         }
@@ -892,8 +1004,6 @@ class FixtureDaemon {
                 { provider: "fixture", id: "small", contextWindow: 1000, reasoning: false },
             ];
             sendJson(response, { models });
-        } else if (method === "GET" && path === "/projects") {
-            sendJson(response, { projects: PROJECTS });
         } else if (method === "GET" && path === "/jobs") {
             sendJson(response, { jobs: [...this.jobs.values()] });
         } else if (method === "GET" && jobId !== undefined && this.jobs.has(jobId)) {

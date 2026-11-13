@@ -15,6 +15,8 @@ import {
     type EgmStatus,
     type MachineUsage,
     type PrFacts,
+    type ProjectDetailResponse,
+    type ProjectSummary,
     type ProjectView,
     type ReviewDraft,
     type ReviewFields,
@@ -35,15 +37,153 @@ import { fixturePort } from "./port.ts";
 
 export const FIXTURE_PORT = fixturePort(process.env);
 
-export const PROJECTS: ProjectView[] = [
-    {
-        name: "sample-stack",
-        path: "/home/fixture/spinner/examples/sample-stack/spinner.yaml",
-        source: "examples",
-        repos: ["web", "api"],
-        services: ["web", "api", "db"],
-    },
-];
+const SAMPLE: ProjectView = {
+    name: "sample-stack",
+    path: "/home/fixture/spinner/examples/sample-stack/spinner.yaml",
+    source: "examples",
+    repos: ["web", "api"],
+    services: ["web", "api"],
+};
+
+const WEBSHOP: ProjectView = {
+    name: "webshop",
+    path: "/home/fixture/.spinner/projects/webshop/spinner.yaml",
+    source: "home",
+    repos: ["web", "api"],
+    services: ["web", "api"],
+};
+
+const BLOCKCRAFT: ProjectView = {
+    name: "blockcraft",
+    path: "/home/fixture/.spinner/projects/blockcraft/spinner.yaml",
+    source: "home",
+    repos: ["game"],
+    services: ["web"],
+};
+
+export const PROJECTS: ProjectView[] = [SAMPLE, WEBSHOP, BLOCKCRAFT];
+
+/** A project of the fixture: its `GET /projects/:name` without the sessions, which are live. */
+export type FixtureProject = Omit<ProjectDetailResponse, "sessions">;
+
+/** The `GET /projects/help` example, as the daemon's `PROJECT_EXAMPLE` starts. */
+export const PROJECT_EXAMPLE_TEXT = [
+    "name: my-game",
+    "base: main",
+    "",
+    "repos:",
+    "  game:",
+    "    path: ~/code/my-game",
+    "    base: main",
+    "",
+    "services:",
+    "  web:",
+    "    repo: game",
+    "    runtime: host",
+    "    command: python3 -m http.server ${PORT}",
+    "    host: web",
+    "    healthcheck: GET /",
+    "",
+].join("\n");
+
+const NO_PIPELINE: ProjectSummary["pipeline"] = {
+    write_repos: [], bot_logins: [], merge_queue: "none", approval_check: null,
+    slack_channel: null, slack_post: "confirm", threads_autofix: "off",
+};
+
+/** A host service on `repo` with a preview at `host`, as most fixture specs have. */
+function hostService(name: string, repo: string, command: string) {
+    return {
+        name, runtime: "host" as const, repo, command, image: null, host: name, port: null,
+        healthcheck: "GET /", preview: "frame" as const, depends_on: [],
+    };
+}
+
+/** A container service on `repo`, reachable at `host` = its name. */
+function containerService(name: string, repo: string, image: string, port: number) {
+    return {
+        name, runtime: "container" as const, repo, command: null, image, host: name, port,
+        healthcheck: "GET /health", preview: "frame" as const, depends_on: [],
+    };
+}
+
+/** What `create_project` would make of a spec text in the fixture: one repo, no service. */
+export function fixtureProject(view: ProjectView, spec: string): FixtureProject {
+    return {
+        project: view, spec, writable: true, linked: false,
+        summary: { base: "main", repos: [], services: [], database: null, pipeline: NO_PIPELINE },
+    };
+}
+
+/** The three projects: an example (read-only), a linked one, and one the daemon holds. */
+export function initialProjects(): FixtureProject[] {
+    return [
+        {
+            project: SAMPLE,
+            spec: "name: sample-stack\nbase: main\nrepos:\n  web: { path: ../.. }\n",
+            writable: false,
+            linked: false,
+            summary: {
+                base: "main",
+                repos: [
+                    { key: "web", path: "../..", absolute: "/home/fixture/spinner", base: "main",
+                      git: true },
+                    { key: "api", path: "../..", absolute: "/home/fixture/spinner", base: "main",
+                      git: true },
+                ],
+                services: [
+                    containerService("web", "web", "spinner/sample-web-dev", 3000),
+                    containerService("api", "api", "spinner/sample-api-dev", 3000),
+                ],
+                database: { mode: "template", server: "spinner-postgres", template: "sample_seed" },
+                pipeline: NO_PIPELINE,
+            },
+        },
+        {
+            project: WEBSHOP,
+            spec: [
+                "name: webshop", "base: main", "repos:", "  web: { path: ~/code/web }",
+                "  api: { path: ~/code/api }", "services:", "  web:", "    repo: web",
+                "    runtime: host", "    command: pnpm dev --port ${PORT}", "    host: web",
+                "  api:", "    repo: api", "    runtime: host",
+                "    command: uvicorn app:app --port ${PORT}", "    host: api",
+                "pipeline:", "  github: { write_repos: [acme/web, acme/api], merge_queue: github }",
+                "",
+            ].join("\n"),
+            writable: true,
+            linked: true,
+            summary: {
+                base: "main",
+                repos: [
+                    { key: "web", path: "~/code/web", absolute: "/home/fixture/code/web",
+                      base: "main", git: true },
+                    { key: "api", path: "~/code/api", absolute: "/home/fixture/code/api",
+                      base: "main", git: false },
+                ],
+                services: [
+                    hostService("web", "web", "pnpm dev --port ${PORT}"),
+                    hostService("api", "api", "uvicorn app:app --port ${PORT}"),
+                ],
+                database: null,
+                pipeline: {
+                    ...NO_PIPELINE, write_repos: ["acme/web", "acme/api"],
+                    merge_queue: "github", slack_channel: "#webshop",
+                },
+            },
+        },
+        {
+            ...fixtureProject(BLOCKCRAFT, PROJECT_EXAMPLE_TEXT.replace("my-game", "blockcraft")),
+            summary: {
+                base: "main",
+                repos: [{ key: "game", path: "~/code/blockcraft",
+                          absolute: "/home/fixture/code/blockcraft", base: "main", git: true }],
+                services: [hostService("web", "game", "python3 -m http.server ${PORT}")],
+                database: null,
+                pipeline: NO_PIPELINE,
+            },
+        },
+    ];
+}
 
 export function session(
     partial: Partial<Session> & Pick<Session, "id" | "slug" | "title">,
@@ -490,6 +630,7 @@ export function initialSessions(): SessionView[] {
         id: "s17",
         slug: "refund-flow",
         title: "Refund flow",
+        project: "webshop",
         stage: "peer-review",
         needs_human: "Approve the refund copy in PR #412",
         repos: {
@@ -506,6 +647,7 @@ export function initialSessions(): SessionView[] {
         slug: "bootstrap",
         title: "Bootstrap: Spinner builds Spinner",
         created: "2026-10-27T09:00:00Z",
+        project: "blockcraft",
     });
     // Open threads on web#412, both approvals on api#87: the PR view's in-depth facts.
     const refundPrs = [
@@ -526,7 +668,7 @@ export function initialSessions(): SessionView[] {
         "s17-refund-flow", refund, stackView("s17", "up"), refundPrs, ["backend"],
     );
     return [
-        view("s001-bootstrap", boot, stackView("s001", "none")),
+        view("s001-bootstrap", boot, stackView("s001", "down")),
         // The hosted backend's figure shows plain; the stopped frontend's is unknown.
         withContext(refundView, { backend: 45, frontend: null }),
     ];

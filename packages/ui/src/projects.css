@@ -1,0 +1,38 @@
+/* The Projects view (`ProjectsPane.tsx`) and a project's page (`ProjectPage.tsx`). The rows
+   reuse the `.pr-row` cards of the Plans and PRs views; the page is a head and a scrolling
+   body of three parts: Overview, Spec and Sessions. */
+.sidebar .side-body > .projects-pane { display: flex; flex-direction: column; min-height: 0; }
+.projects-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-3) var(--space-1); }
+.project-source { flex: none; font-size: var(--text-meta); }
+.project-stack { display: flex; flex-direction: column; gap: var(--space-1); }
+.project-stack-actions, .project-session-actions, .project-spec-actions {
+    display: flex; gap: var(--space-1); flex-wrap: wrap;
+}
+.project-stack-actions { padding: 0 var(--space-2); }
+
+.project-page { display: flex; flex-direction: column; min-height: 0; padding: 0; }
+.project-head {
+    display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2);
+    padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--border);
+}
+.project-path { font-size: var(--text-meta); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.project-delete { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-meta); }
+.project-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); }
+.project-part { margin-bottom: var(--space-4); }
+.project-part h3 { margin: 0 0 var(--space-2); font-size: var(--text-body); }
+.project-part h4 { margin: var(--space-3) 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; }
+.project-table { border-collapse: collapse; width: 100%; font-size: var(--text-dense); }
+.project-table th { text-align: left; font-weight: 600; color: var(--muted); }
+.project-table th, .project-table td {
+    padding: 2px var(--space-2) 2px 0; border-bottom: 1px solid var(--border); vertical-align: top;
+}
+.project-spec {
+    display: block; width: 100%; min-height: 320px; box-sizing: border-box;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-dense);
+    border-radius: var(--radius-box);
+}
+.project-spec-actions { margin-top: var(--space-2); }
+.project-refusal { margin: var(--space-2) 0 0; white-space: pre-wrap; }
+.project-sessions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.project-sessions li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.project-session-actions { margin-left: auto; }
