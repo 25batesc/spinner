@@ -192,8 +192,13 @@ export async function fetchPost(
     return (await getJson<PostResponse>(`/sessions/${dir}/post${query}`, signal)).post;
 }
 
-export async function fetchApprove(dir: string, signal: AbortSignal): Promise<ApproveView> {
-    return (await getJson<ApproveResponse>(`/sessions/${dir}/approve`, signal)).approve;
+export async function fetchApprove(
+    dir: string,
+    signal: AbortSignal,
+    change?: string,
+): Promise<ApproveView> {
+    const query = change === undefined ? "" : `?change=${encodeURIComponent(change)}`;
+    return (await getJson<ApproveResponse>(`/sessions/${dir}/approve${query}`, signal)).approve;
 }
 
 /**

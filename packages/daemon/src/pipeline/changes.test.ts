@@ -220,6 +220,28 @@ describe("a session's changes", () => {
         expect(changes_view(moved, [])[0]?.verified).toBe(false);
         expect(views[2]?.verified).toBe(false);
     });
+
+    it("carries the pull request's facts, the Slack post and the operator's approval", () => {
+        const session = session_with(pr_with({ queue: "popped", queue_reason: "conflict" }));
+        const [first] = changes_view(session, []);
+        expect(first?.prs[0]).toMatchObject({
+            author: "owner-1",
+            approvals: { required: ["peer"], peer: [], owner: false },
+            approval_check: "pending",
+            bot_reviewed_head: null,
+            queue_reason: "conflict",
+            last_activity: "2026-11-12T10:00:00Z",
+        });
+        expect(first?.posted).toBe("p1");
+        expect(first?.approved).toBe(false);
+        session.pipeline!.approved_heads = { app: "a".repeat(40) };
+        expect(changes_view(session, [])[0]?.approved).toBe(true);
+        // A new head needs a new approval; an empty change has nothing to approve.
+        session.repos["app"]!.pr!.head = "b".repeat(40);
+        expect(changes_view(session, [])[0]?.approved).toBe(false);
+        const empty = changes_view(session_with(null), [])[0];
+        expect([empty?.posted, empty?.approved]).toEqual(["p1", false]);
+    });
 });
 
 function session_merged(first: Session): Session {

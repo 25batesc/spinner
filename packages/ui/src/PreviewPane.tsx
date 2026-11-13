@@ -5,7 +5,7 @@ import { preview_key, type Job, type ServiceView, type SessionView } from "@spin
 import { CommentStrip } from "./CommentThreads.tsx";
 import { diffPreviewService, diffRepos, diffSelected } from "./diff-view.ts";
 import { opensOnChanges } from "./changes.ts";
-import { ChangesRail } from "./ChangesRail.tsx";
+import { ChangesRail, useOpenChange } from "./ChangesRail.tsx";
 import { isReview } from "./review.ts";
 import { DiffPage } from "./DiffPage.tsx";
 import type { IconButtonProps } from "./PaneHead.tsx";
@@ -93,19 +93,25 @@ function Verified({ view, busy, run, unverify }: PreviewPaneProps & { view: Sess
 
 /**
  * The pane's views. `diff` is offered once the daemon sends `SessionView.diff`; `changes`
- * (the Changes rail, talk-change-ship.md 2.9) for an ordinary session whose daemon sends
- * `SessionView.changes`.
+ * (the PR view, talk-change-ship.md 2.9) for an ordinary session whose daemon sends
+ * `SessionView.changes`. Its id stays `changes`, the one a saved preview choice holds.
  */
 const VIEWS = ["changes", "previews", "diff"] as const;
 
-/** The view tabs a session has: the id is the label. */
+const VIEW_LABELS: Record<(typeof VIEWS)[number], string> = {
+    changes: "PRs",
+    previews: "previews",
+    diff: "diff",
+};
+
+/** The view tabs a session has. */
 function viewTabs(view: SessionView | undefined): { id: string; label: string }[] {
     const has = {
         changes: view !== undefined && !isReview(view) && view.changes !== undefined,
         previews: true,
         diff: view?.diff !== undefined,
     };
-    return VIEWS.filter((id) => has[id]).map((id) => ({ id, label: id }));
+    return VIEWS.filter((id) => has[id]).map((id) => ({ id, label: VIEW_LABELS[id] }));
 }
 
 /** The preview the pane shows in the browser bar's place: what a pop-out takes along. */
@@ -161,6 +167,14 @@ export function PreviewPane(props: PreviewPaneProps) {
         setTabState(name);
         remember({ tab: name });
     };
+    // The PR chip of the context bar opens this tab on one change.
+    const [focus, setFocus] = useState<{ change: string; seq: number } | undefined>(undefined);
+    useOpenChange((detail) => {
+        if (detail.dir === sessionDir) {
+            setTab("changes");
+            setFocus({ change: detail.change, seq: (focus?.seq ?? 0) + 1 });
+        }
+    });
     const [repoState, setRepoState] = useState<string | undefined>(undefined);
     const repoPicked = repoState ?? saved.repo;
     const setRepoPicked = (name: string) => {
@@ -213,7 +227,13 @@ export function PreviewPane(props: PreviewPaneProps) {
                     controls={head}
                     label="Preview views"
                 />
-                <ChangesRail view={view} busy={busy} run={run} revision={pipelineRevision} />
+                <ChangesRail
+                    view={view}
+                    busy={busy}
+                    run={run}
+                    revision={pipelineRevision}
+                    focus={focus}
+                />
             </section>
         );
     }

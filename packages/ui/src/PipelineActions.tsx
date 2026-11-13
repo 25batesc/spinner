@@ -1,25 +1,13 @@
-import { useState } from "react";
-
+// The confirm dialogs of the PR view's `post` and `approve` (ChangesRail.tsx), which show
+// what they will send, and one sentence per pipeline action as its tooltip.
 import type { ApproveView, PostView } from "@spinner/protocol";
 
 import { fetchApprove, fetchPost, useLoaded } from "./remote.ts";
 import type { RunAction } from "./SessionsPane.tsx";
 
-export interface PipelineActionsProps {
-    dir: string | undefined;
-    busy: boolean;
-    /** True when the session has an open PR: what `review` needs. */
-    openPr: boolean;
-    run: RunAction;
-    /** Moves on pipeline events; the confirm dialogs read the daemon's preview again. */
-    revision: number;
-}
-
-type Confirm = "post" | "approve" | null;
-
 interface DialogProps {
     dir: string;
-    /** Id of the change to act on (the Changes rail); the current change when absent. */
+    /** Id of the change to act on (the PR view); the current change when absent. */
     change?: string;
     revision: number;
     run: RunAction;
@@ -62,12 +50,14 @@ export function PostDialog(props: DialogProps) {
     );
 }
 
-function ApproveDialog(props: DialogProps) {
-    const loaded = useLoaded(`${props.dir}#${props.revision}`, (s) => fetchApprove(props.dir, s));
+export function ApproveDialog(props: DialogProps) {
+    const query = props.change === undefined ? "" : `?change=${encodeURIComponent(props.change)}`;
+    const key = `${props.dir}#${props.change ?? ""}#${props.revision}`;
+    const loaded = useLoaded(key, (s) => fetchApprove(props.dir, s, props.change));
     const approve: ApproveView | undefined = loaded.value;
     const ready = approve?.prs.some((pr) => pr.blocked === null) === true;
     const send = () =>
-        props.run(`/sessions/${props.dir}/approve`, { confirm: true }).then(props.close);
+        props.run(`/sessions/${props.dir}/approve${query}`, { confirm: true }).then(props.close);
     return (
         <div className="confirm" role="dialog" aria-label="Confirm approval">
             <h3>Approve as you?</h3>
@@ -98,54 +88,10 @@ function ApproveDialog(props: DialogProps) {
 
 /** One sentence per button, as its tooltip. */
 export const PIPELINE_TIPS = {
-    pr: "Open a pull request from this session's branch, one per changed repo.",
+    pr: "Open a pull request from this change, one per changed repo.",
     review: "Start the review swarm: one reviewer per model on the PR; they post as you.",
     fix: "Have the fixer answer the open review threads.",
     post: "Post the review request to Slack as you, after a preview.",
     approve: "Approve the pull request as you, after a preview.",
     land: "Enqueue the PR in the merge queue and watch it to the merge.",
 } as const;
-
-/**
- * The pipeline group of the toolbar: `post` and `approve` open a dialog that shows what they
- * will send; `land` is the irreversible one and looks it.
- */
-export function PipelineActions({ dir, busy, openPr, run, revision }: PipelineActionsProps) {
-    const [confirm, setConfirm] = useState<Confirm>(null);
-    const off = dir === undefined || busy;
-    const job = (action: string) => () => void run(`/sessions/${dir}/${action}`);
-    const close = () => setConfirm(null);
-    return (
-        <>
-            <button disabled={off} title={PIPELINE_TIPS.pr} onClick={job("pr")}>create PR</button>
-            <button disabled={off || !openPr} title={PIPELINE_TIPS.review} onClick={job("review")}>
-                review
-            </button>
-            <button disabled={off} title={PIPELINE_TIPS.fix} onClick={job("fix")}>fix</button>
-            <button disabled={off} title={PIPELINE_TIPS.post} onClick={() => setConfirm("post")}>
-                post
-            </button>
-            <button
-                disabled={off}
-                title={PIPELINE_TIPS.approve}
-                onClick={() => setConfirm("approve")}
-            >
-                approve
-            </button>
-            <button
-                className="danger"
-                disabled={off}
-                title={PIPELINE_TIPS.land}
-                onClick={job("land")}
-            >
-                land
-            </button>
-            {dir !== undefined && confirm === "post" && (
-                <PostDialog dir={dir} revision={revision} run={run} close={close} />
-            )}
-            {dir !== undefined && confirm === "approve" && (
-                <ApproveDialog dir={dir} revision={revision} run={run} close={close} />
-            )}
-        </>
-    );
-}

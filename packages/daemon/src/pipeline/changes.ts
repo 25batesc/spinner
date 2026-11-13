@@ -366,6 +366,8 @@ function view_of_record(record: ChangeRecord, current: boolean): ChangeView {
         prs,
         on: record.on ?? null,
         verified: is_verified(record, prs),
+        posted: record.pipeline?.slack_post ?? null,
+        approved: is_approved(record, prs),
         started: record.started,
         ended: record.ended ?? null,
     };
@@ -379,6 +381,13 @@ function is_verified(record: ChangeRecord, prs: readonly PrFacts[]): boolean {
         return false;
     }
     return open.every((pr) => pipeline.verified_heads?.[pr.repo] === pr.head);
+}
+
+/** True when `spinner approve` stands at the head of every open pull request. */
+function is_approved(record: ChangeRecord, prs: readonly PrFacts[]): boolean {
+    const approved = record.pipeline?.approved_heads ?? {};
+    const open = prs.filter((pr) => pr.state === "open" || pr.state === "draft");
+    return open.length > 0 && open.every((pr) => approved[pr.repo] === pr.head);
 }
 
 /**
