@@ -69,6 +69,8 @@ interface Hosted {
     handle: AgentHandle;
     /** True between `agent_start` and `agent_settled`: a steer reaches this run. */
     busy: boolean;
+    /** When the process last sent an event; null before the first one. */
+    last_event: Date | null;
     /** Set by `stop`, so the exit records that the operator ended the process. */
     stopped_by?: "operator" | "daemon";
     unsubscribe: () => void;
@@ -153,6 +155,11 @@ export class AgentManager {
     has(dir: string, name: string): boolean {
         const key = key_of(dir, name);
         return this.hosted.has(key) || this.starting.has(key);
+    }
+
+    /** When the hosted agent's process last sent an event; null when not hosted or none came. */
+    last_event(dir: string, name: string): string | null {
+        return this.hosted.get(key_of(dir, name))?.last_event?.toISOString() ?? null;
     }
 
     /** True while the agent's process runs a turn, so a steer enters before its next model call. */
@@ -357,6 +364,9 @@ export class AgentManager {
             const ts = this.now().toISOString();
             this.bus.publish({ type: "agent.event", ts, session: dir, agent, event });
             const entry = this.hosted.get(key);
+            if (entry !== undefined) {
+                entry.last_event = this.now();
+            }
             if (event.type === "agent_start") {
                 if (entry !== undefined) {
                     entry.busy = true;
@@ -383,6 +393,7 @@ export class AgentManager {
             cwd,
             handle,
             busy: false,
+            last_event: null,
             unsubscribe,
         });
         this.bus.publish({

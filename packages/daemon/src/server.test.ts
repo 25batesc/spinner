@@ -362,6 +362,14 @@ describe("agents", () => {
         });
         await until(() => events.some((event) => event.type === "agent.settled"));
         expect(events.some((event) => event.type === "agent.event")).toBe(true);
+        // The stamp's `active` is the time of the agent's last event: a turn that began
+        // after a long rest shows life before its transcript is written (dogfood #71).
+        const before_stamp = Date.now();
+        const alive = await fetch(`${base}/sessions/s001-alpha/agents/backend/events/stamp`);
+        const active = ((await alive.json()) as AgentEventsStamp).active;
+        expect(active).not.toBeNull();
+        expect(Date.parse(active ?? "")).toBeLessThanOrEqual(before_stamp);
+        expect(before_stamp - Date.parse(active ?? "")).toBeLessThan(10_000);
         expect((await post("/sessions/s001-alpha/agents/backend/steer", {})).status).toBe(400);
         const steered = await post("/sessions/s001-alpha/agents/backend/steer", { text: "go" });
         expect((await steered.json()) as AgentCommandResponse).toEqual({
@@ -425,7 +433,9 @@ describe("agents", () => {
         expect(read.bytes).toBe(statSync(transcript).size);
         expect(read.written).toBe(statSync(transcript).mtime.toISOString());
         const absent = await fetch(`${base}/sessions/s001/agents/nobody/events/stamp`);
-        expect(await absent.json()).toEqual({ written: null, bytes: 0 });
+        expect(await absent.json()).toEqual({ written: null, bytes: 0, active: null });
+        // The agent was stopped above, so the daemon no longer hosts it.
+        expect(read.active).toBeNull();
         expect((await fetch(`${base}/sessions/nope/agents/backend/events/stamp`)).status).toBe(404);
 
         const models = (await (await fetch(`${base}/models`)).json()) as ModelsResponse;

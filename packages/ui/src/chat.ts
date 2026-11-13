@@ -1,6 +1,8 @@
 // The chat's pure half (docs/designs/talk-change-ship.md, 5.2 to 5.5): what a tool row says,
 // which entries are drawn, what Enter does in the message box, and the text of a message
 // with its attached images. `AgentChat.tsx` draws them.
+import type { AgentEventsStamp } from "@spinner/protocol";
+
 import type { Entry } from "./transcript.ts";
 
 /** The entries drawn when the tab opens, and how many `show earlier` adds. */
@@ -362,7 +364,7 @@ export const STAMP_POLL_MS = 15_000;
 export const QUIET_HINT_MS = 3 * 60_000;
 
 /** One value for a transcript stamp, to compare two reads; "" without a transcript. */
-export function stampKey(stamp: { written: string | null; bytes: number } | null): string {
+export function stampKey(stamp: Pick<AgentEventsStamp, "written" | "bytes"> | null): string {
     return stamp === null || stamp.written === null ? "" : `${stamp.written}/${stamp.bytes}`;
 }
 
@@ -375,10 +377,17 @@ export function settledStamp(read: string, previous: string, current: string): s
     return current === previous ? current : read;
 }
 
-/** How long ago the transcript was last written; 0 without one or when the clocks disagree. */
-export function quietMs(now: number, written: string | null): number {
-    const at = written === null ? Number.NaN : Date.parse(written);
-    return Number.isNaN(at) ? 0 : Math.max(0, now - at);
+/**
+ * How long a turn has shown no sign of life: the time since the later of the transcript's
+ * last write and the agent's last event. A turn that starts after a long rest has an old
+ * transcript, and a long answer streams without a write, so the event time counts too.
+ * 0 without either time, or when the clocks disagree.
+ */
+export function quietMs(now: number, written: string | null, active: string | null): number {
+    const times = [written, active]
+        .map((time) => (time === null ? Number.NaN : Date.parse(time)))
+        .filter((time) => !Number.isNaN(time));
+    return times.length === 0 ? 0 : Math.max(0, now - Math.max(...times));
 }
 
 /** `12 min`, `2 h 14 min`: a quiet time in the status line. */

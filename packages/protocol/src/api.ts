@@ -281,8 +281,9 @@ export const ROUTES = {
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
     /**
-     * When the agent's transcript was last written and how large it is: a cheap way for the
-     * chat to learn that the history moved without reading it.
+     * When the agent's transcript was last written, how large it is, and when its pi last
+     * sent an event: a cheap way for the chat to learn that the history moved, and whether
+     * a turn still gives signs of life.
      */
     "GET /sessions/:dir/agents/:name/events/stamp": "AgentEventsStamp",
     /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
@@ -1609,6 +1610,12 @@ export interface AgentEventsStamp {
     /** ISO 8601 time of the last write. */
     written: string | null;
     bytes: number;
+    /**
+     * ISO 8601 time of the last event from the agent's pi, streaming included. Null when
+     * the daemon does not host the agent, or when no event came since the daemon started.
+     * A turn that began after a long rest has an old `written` and a new `active`.
+     */
+    active: string | null;
 }
 
 /** The agent's past turns, as the `message_end` events the UI folds, oldest first. */

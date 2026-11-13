@@ -853,7 +853,9 @@ export function create_app(deps: AppDeps): Hono {
         if (summary === null) {
             return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
         }
-        return c.json(agent_history_stamp(summary.path, c.req.param("name")));
+        const name = c.req.param("name");
+        const active = deps.agents.last_event(summary.dir, name);
+        return c.json(agent_history_stamp(summary.path, name, active));
     });
 
     app.get("/sessions/:dir/stack/logs/:service", async (c) => {

@@ -261,15 +261,22 @@ export function TranscriptView({ transcript }: { transcript: Transcript }) {
  * The agent's past turns from the daemon, loaded when the tab opens and again when the agent
  * is resumed. Live events then add to them; `mergeTranscripts` shows each message once.
  */
+interface StampState {
+    stamp: AgentEventsStamp | null;
+    settled: string;
+    /** `base` and `phase` of the poll that read `stamp`. */
+    key: string;
+}
+
 /**
- * The stamp of the agent's transcript, asked for every `STAMP_POLL_MS` while the chat shows.
- * `settled` is the stamp seen on two polls in a row. The interval ends with the component.
+ * The stamp of the agent's transcript, asked for every `STAMP_POLL_MS` while the chat shows,
+ * and at once when `phase` changes: a stamp read before a turn began says nothing about
+ * that turn, so `stamp` is null until a poll of this phase answers. `settled` is the stamp
+ * seen on two polls in a row. The interval ends with the component.
  */
-function useStamp(base: string): { stamp: AgentEventsStamp | null; settled: string } {
-    const [state, setState] = useState<{ stamp: AgentEventsStamp | null; settled: string }>({
-        stamp: null,
-        settled: "",
-    });
+function useStamp(base: string, phase: string): Pick<StampState, "stamp" | "settled"> {
+    const key = `${base}#${phase}`;
+    const [state, setState] = useState<StampState>({ stamp: null, settled: "", key });
     useEffect(() => {
         const abort = new AbortController();
         let previous = "";
@@ -282,6 +289,7 @@ function useStamp(base: string): { stamp: AgentEventsStamp | null; settled: stri
                     setState((old) => ({
                         stamp,
                         settled: settledStamp(old.settled, before, current),
+                        key,
                     }));
                 },
                 () => undefined,
@@ -293,8 +301,8 @@ function useStamp(base: string): { stamp: AgentEventsStamp | null; settled: stri
             clearInterval(timer);
             abort.abort();
         };
-    }, [base]);
-    return state;
+    }, [base, key]);
+    return { stamp: state.key === key ? state.stamp : null, settled: state.settled };
 }
 
 function useHistory(base: string, revision: string): Transcript {
@@ -457,7 +465,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     const phase = `${hosted ? "hosted" : "stopped"}/${working ? "turn" : "idle"}`;
     // A turn's end can fail to arrive (pi that does not settle, a lost event). So the
     // history is also read whenever the transcript moved and then went quiet.
-    const { stamp, settled } = useStamp(base);
+    const { stamp, settled } = useStamp(base, phase);
     const history = useHistory(base, `${phase}@${settled}`);
     const transcript = useMemo(() => {
         const merged = mergeTranscripts(history, live);
@@ -631,7 +639,10 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     }
     // "On it" is what pi reports, and pi can be wrong or stuck in one tool call. After a
     // few minutes without a write to the transcript the line says so, with the facts.
-    const quiet = working ? quietMs(Date.now(), stamp?.written ?? null) : 0;
+    // The agent's last event counts as well: a turn that starts after a long rest has an
+    // old transcript, and the hint must not show on it (dogfood #71).
+    const quiet =
+        working && stamp !== null ? quietMs(Date.now(), stamp.written, stamp.active) : 0;
     if (quiet >= QUIET_HINT_MS) {
         const tool = runningTool(transcript.entries);
         const what = tool === "" ? "no tool call runs" : `still running: ${tool}`;

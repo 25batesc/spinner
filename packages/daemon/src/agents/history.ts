@@ -58,14 +58,21 @@ function message_of(entry: unknown): PiMessage | null {
     return message as PiMessage;
 }
 
-/** When the agent's transcript was last written and its size; nulls without a transcript. */
-export function agent_history_stamp(session_path: string, name: string): AgentEventsStamp {
+/**
+ * When the agent's transcript was last written and its size; nulls without a transcript.
+ * `active` comes from the caller: the manager knows when the process last sent an event.
+ */
+export function agent_history_stamp(
+    session_path: string,
+    name: string,
+    active: string | null,
+): AgentEventsStamp {
     const file = newest_transcript(join(session_path, agent_pi_dir(name)));
     if (file === null) {
-        return { written: null, bytes: 0 };
+        return { written: null, bytes: 0, active };
     }
     const stat = statSync(file);
-    return { written: stat.mtime.toISOString(), bytes: stat.size };
+    return { written: stat.mtime.toISOString(), bytes: stat.size, active };
 }
 
 function newest_transcript(dir: string): string | null {

@@ -1002,7 +1002,7 @@ class FixtureDaemon {
         } else if (method === "GET" && /\/agents\/[^/]+\/events\/stamp$/.test(path)) {
             // A transcript last written 14 minutes ago: a working agent then reads as quiet.
             const written = new Date(Date.now() - 14 * 60_000).toISOString();
-            sendJson(response, { written, bytes: 1 });
+            sendJson(response, { written, bytes: 1, active: null });
         } else if (method === "GET" && path === "/models") {
             const models = [
                 { provider: "fixture", id: "small", contextWindow: 1000, reasoning: false },

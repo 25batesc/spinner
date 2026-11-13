@@ -303,9 +303,13 @@ it("reads the history again once the transcript went quiet, and not while it mov
 
 it("says how long a working agent has been quiet and which tool call still runs", () => {
     const now = Date.parse("2026-11-13T14:35:00Z");
-    expect(quietMs(now, "2026-11-13T12:21:00Z")).toBe(134 * 60_000);
-    expect(quietMs(now, null)).toBe(0);
-    expect(quietMs(now, "2026-11-13T14:36:00Z")).toBe(0);
+    expect(quietMs(now, "2026-11-13T12:21:00Z", null)).toBe(134 * 60_000);
+    expect(quietMs(now, null, null)).toBe(0);
+    expect(quietMs(now, "2026-11-13T14:36:00Z", null)).toBe(0);
+    // A turn that began after a rest of 19 minutes: the transcript is old, but the agent
+    // sent an event 5 seconds ago, so the turn is not quiet (dogfood #71).
+    expect(quietMs(now, "2026-11-13T14:16:00Z", "2026-11-13T14:34:55Z")).toBe(5000);
+    expect(quietMs(now, null, "2026-11-13T14:34:55Z")).toBe(5000);
     expect(quietText(12 * 60_000 + 30_000)).toBe("12 min");
     expect(quietText(134 * 60_000)).toBe("2 h 14 min");
     const call: Entry = {
