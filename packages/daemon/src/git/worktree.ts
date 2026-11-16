@@ -121,6 +121,40 @@ export async function list_worktrees(repo_path: string): Promise<string[]> {
         .map((line) => canonical(line.slice("worktree ".length)));
 }
 
+/** One worktree of a repository: its canonical path, branch and head commit. */
+export interface WorktreeBranch {
+    path: string;
+    /** The branch checked out there; null on a detached head. */
+    branch: string | null;
+    head: string;
+}
+
+/** Pure: the records of `git worktree list --porcelain`, one per worktree, in git's order. */
+export function parse_worktree_list(porcelain: string): WorktreeBranch[] {
+    const found: WorktreeBranch[] = [];
+    for (const block of porcelain.split("\n\n")) {
+        const lines = block.split("\n");
+        const value = (key: string): string | null => {
+            const line = lines.find((entry) => entry.startsWith(`${key} `));
+            return line === undefined ? null : line.slice(key.length + 1);
+        };
+        const path = value("worktree");
+        if (path === null) {
+            continue;
+        }
+        const ref = value("branch");
+        const branch = ref === null ? null : ref.replace(/^refs\/heads\//, "");
+        found.push({ path: canonical(path), branch, head: value("HEAD") ?? "" });
+    }
+    return found;
+}
+
+/** Every worktree of the repository that `repo_path` belongs to, with its branch and head. */
+export async function worktree_branches(repo_path: string): Promise<WorktreeBranch[]> {
+    const out = await run_ok("git", ["-C", repo_path, "worktree", "list", "--porcelain"]);
+    return parse_worktree_list(out);
+}
+
 /**
  * Git prints real paths (`/private/var` on macOS, where `/var` is a symlink), so comparisons
  * use the real path of the nearest existing ancestor plus the rest.

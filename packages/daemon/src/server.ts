@@ -96,6 +96,7 @@ import { git_runner, type GithubWriter, type GitRunner } from "./pipeline/github
 import { event_notifier, macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
 import { count_outcome, counts_as_operator_steer } from "./pipeline/outcomes.js";
+import { new_found_state } from "./pipeline/found-prs.js";
 import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
 import { start_syncer, SYNC_SECONDS_DEFAULT, type Syncer } from "./pipeline/sync.js";
 import { mount_review_routes } from "./pipeline/review-routes.js";
@@ -1613,6 +1614,7 @@ function poll_options_for(
         cwd: ctx.cwd,
         log,
         slack: (summary) => actions.slack_of(ctx, summary),
+        found: new_found_state(),
     };
 }
 

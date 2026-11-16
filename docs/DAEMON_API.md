@@ -989,6 +989,17 @@ A file written before step 2 is valid as it is. Nothing migrates.
 5. It appends a Log line.
 
 `POST /sessions/:dir/changes/:id/switch` does steps 1 and 2, checks out the branch of change `:id`, and swaps the two changes. Neither job touches the stack.
+It refuses first when another worktree has the branch checked out, and names that worktree.
+
+An agent can open a pull request outside a change: it makes a worktree of its own under the session directory and runs `gh pr create` there. The poll finds such a pull request:
+
+1. Once per repository, at most every 2 minutes, it lists the operator's open pull requests with `gh pr list --author @me`.
+2. It drops each one that a live session holds in a change or a round.
+3. For each one left, it looks for the session whose worktrees had the head branch checked out. It reads the present branch and the HEAD reflog of each worktree under the session directory.
+4. It records the pull request in that session. A change on that branch without a pull request for the repo takes it. Else it becomes a new record in `changes`, with the pull request's title and creation time.
+5. It appends the Log line `pr: found <repo>#<n> on <branch>, opened outside a change: tracked as <id>`.
+
+The poll of the same round then reads the pull request's facts. A review session and a planning session are skipped. A pull request that no session's worktree had is left alone. A failed `gh` call is logged and does not stop the poll.
 
 The `pr` job opens the pull requests of the current change. The title is the change's title. `PrRequest.body` is the description. Without it the first change takes the mission's Goal and Log, and a later change takes its title. A change started `on` another opens against that change's branch while that pull request is open.
 

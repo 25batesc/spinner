@@ -13,7 +13,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { run_ok } from "../stack/shell.js";
-import { add_worktree, fetch_branch, list_worktrees, remove_worktree } from "./worktree.js";
+import {
+    add_worktree,
+    fetch_branch,
+    list_worktrees,
+    parse_worktree_list,
+    remove_worktree,
+    worktree_branches,
+} from "./worktree.js";
 
 async function make_repo(root: string): Promise<string> {
     const repo = join(root, "repo");
@@ -161,3 +168,33 @@ describe("fetch_branch", () => {
         expect((await run_ok("git", ["-C", worktree_path, "rev-parse", "HEAD"])).trim()).toBe(mine);
     });
 });
+
+describe("the branches of a repository's worktrees", () => {
+    it("parses git's porcelain list: path, branch and head; a detached head has no branch", () => {
+        const head = "a".repeat(40);
+        const text = [
+            `worktree /code/app\nHEAD ${head}\nbranch refs/heads/main`,
+            `worktree /code/wt/fix\nHEAD ${head}\nbranch refs/heads/feat/price-plan`,
+            `worktree /code/wt/loose\nHEAD ${head}\ndetached`,
+            "",
+        ].join("\n\n");
+        expect(parse_worktree_list(text)).toEqual([
+            { path: "/code/app", branch: "main", head },
+            { path: "/code/wt/fix", branch: "feat/price-plan", head },
+            { path: "/code/wt/loose", branch: null, head },
+        ]);
+        expect(parse_worktree_list("")).toEqual([]);
+    });
+
+    it("lists a worktree that was added by hand, asked from any worktree", async () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-wt-"));
+        const repo = await make_repo(root);
+        const extra = join(root, "session", "worktrees", "app-fix");
+        await run_ok("git", ["-C", repo, "worktree", "add", "--quiet", "-b", "feat/fix", extra]);
+        const listed = await worktree_branches(extra);
+        expect(listed.map((entry) => entry.branch)).toEqual(["develop", "feat/fix"]);
+        expect(listed[1]?.path).toBe(realpathSync(extra));
+        expect(listed[1]?.head).toMatch(/^[0-9a-f]{40}$/);
+    });
+});
+

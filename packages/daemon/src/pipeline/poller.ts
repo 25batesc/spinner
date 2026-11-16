@@ -43,6 +43,12 @@ import {
 import { apply_pr_facts, refresh_session, session_prs, type Transition } from "./tracker.js";
 import { autopilot_step, baseline_autopilot } from "./autopilot.js";
 import { current_change, has_change, open_change_ids } from "./changes.js";
+import {
+    new_found_state,
+    track_found_prs,
+    type FoundDeps,
+    type FoundState,
+} from "./found-prs.js";
 
 export interface PollOptions {
     gh: GhRunner;
@@ -63,6 +69,11 @@ export interface PollOptions {
         enabled: () => boolean;
         tell: (dir: string, text: string) => Promise<boolean>;
     };
+    /**
+     * What the look for pull requests opened outside a change remembers between rounds
+     * (found-prs.ts). Absent: every round asks about every repository, which suits a test.
+     */
+    found?: FoundState;
 }
 
 export interface PollReport {
@@ -85,15 +96,27 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
         report.errors.push(failure);
     }
     let owner_login: string | null = null;
+    const login = async (config: PipelineConfig): Promise<string> => {
+        owner_login ??= config.github.owner_login ?? (await fetch_owner_login(options.gh));
+        return owner_login;
+    };
     let fetches = 0;
-    for (const entry of listed.sessions) {
+    const sessions = await with_found(home, listed.sessions, {
+        gh: options.gh,
+        config: (summary) => config_for_session(summary, home, options.cwd, log),
+        owner_login: login,
+        now: now(),
+        log,
+        state: options.found ?? new_found_state(),
+    });
+    for (const entry of sessions) {
         const ids = open_change_ids(entry.session);
         if (ids.length === 0) {
             continue;
         }
         try {
             const config = config_for_session(entry, home, options.cwd, log);
-            owner_login ??= config.github.owner_login ?? (await fetch_owner_login(options.gh));
+            const owner = await login(config);
             for (const id of ids) {
                 // Read again per change: the poll of the change before wrote the file, and
                 // the lead may have started or switched a change since the list.
@@ -106,7 +129,7 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
                 const open = session_prs(focused.session).filter((pr) => is_open(pr.state));
                 fetches += open.length;
                 assert.ok(fetches <= FETCHES_PER_ROUND_MAX, `over ${FETCHES_PER_ROUND_MAX} PRs`);
-                const facts = { config, owner_login, checked_out };
+                const facts = { config, owner_login: owner, checked_out };
                 const result = await poll_session(focused, open, facts, options, now());
                 if (result !== null) {
                     report.transitions.push({ dir: entry.dir, transition: result });
@@ -120,6 +143,28 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
         }
     }
     return report;
+}
+
+/**
+ * The sessions after the round's look for pull requests that an agent opened outside a
+ * change (found-prs.ts): read again when the look recorded one. A failure is logged and the
+ * sessions are polled as they were: the look must never stop the poll of the pull requests
+ * the sessions already track.
+ */
+async function with_found(
+    home: SpinnerHome,
+    sessions: SessionSummary[],
+    deps: FoundDeps,
+): Promise<SessionSummary[]> {
+    try {
+        const recorded = await track_found_prs(home, sessions, deps);
+        return recorded.length === 0 ? sessions : list_sessions(home).sessions;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // One line: a failed `gh` prints its command and the cause on separate lines.
+        deps.log(`find pull requests: ${message.trim().replace(/\s*\n\s*/g, " | ")}`);
+        return sessions;
+    }
 }
 
 /**

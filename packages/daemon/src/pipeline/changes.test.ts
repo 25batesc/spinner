@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import type { PullRequest, Session } from "@spinner/protocol";
 import { SESSION_VERSION } from "@spinner/protocol";
 import {
+    add_found_change,
     change_branch,
+    change_on_branch,
     change_state,
     changes_view,
     current_change,
@@ -16,6 +18,7 @@ import {
     start_change,
     store_change,
     switch_change,
+    tracked_numbers,
 } from "./changes.js";
 
 function pr_with(over: Partial<PullRequest>): PullRequest {
@@ -241,6 +244,67 @@ describe("a session's changes", () => {
         expect(changes_view(session, [])[0]?.approved).toBe(false);
         const empty = changes_view(session_with(null), [])[0];
         expect([empty?.posted, empty?.approved]).toEqual(["p1", false]);
+    });
+});
+
+describe("a pull request opened outside a change (dogfood #72)", () => {
+    const FOUND = {
+        id: "c2",
+        title: "Price plan",
+        branch: "feat/price-plan",
+        started: "2026-11-16T03:25:11Z",
+    };
+
+    it("gets a record of its own; the current change stays current", () => {
+        const first = session_merged(session_with(pr_with({})));
+        const next = add_found_change(first, FOUND);
+        expect(current_change(next).id).toBe("c1");
+        expect(next.branch).toBe("feat/exports");
+        expect(next.repos["app"]?.pr?.state).toBe("merged");
+        expect(next.changes).toEqual([
+            {
+                ...FOUND,
+                repos: { app: { changed: false, pr: null } },
+                pipeline: { verified_locally: false, verified_heads: {}, slack_post: null },
+                stage: "planned",
+                needs_human: null,
+            },
+        ]);
+        // The record is a change like any other: it can be focused and stored.
+        const focused = focus_change(next, "c2");
+        focused.repos["app"]!.pr = pr_with({ number: 5633 });
+        const stored = store_change(next, focused, "c2");
+        expect(stored.changes?.[0]?.repos["app"]?.pr?.number).toBe(5633);
+        expect(open_change_ids(stored)).toEqual(["c2"]);
+        expect(() => add_found_change(next, FOUND)).toThrow(/change id c2 is in use/);
+    });
+
+    it("knows the numbers a session holds: the current change, the records, the rounds", () => {
+        const first = session_with(pr_with({ number: 7 }));
+        const second = start_change(first, SECOND);
+        second.rounds = [
+            {
+                round: 1,
+                branch: "feat/exports-r1",
+                prs: [{ repo: "app", number: 3, url: null, state: "merged", merged_at: null }],
+                started: null,
+                ended: null,
+            },
+        ];
+        expect([...tracked_numbers(second, "app")].sort()).toEqual([3, 7]);
+        expect(tracked_numbers(second, "web").size).toBe(0);
+    });
+
+    it("puts a pull request found on a change's own branch into that change", () => {
+        const first = session_with(pr_with({}));
+        const second = start_change(first, SECOND);
+        // The current change (c2) has no pull request: one found on its branch is its own.
+        expect(change_on_branch(second, "app", SECOND.branch)).toBe("c2");
+        // The first change has one already: a second one on that branch is a new change.
+        expect(change_on_branch(second, "app", "feat/exports")).toBeNull();
+        expect(change_on_branch(second, "app", "feat/price-plan")).toBeNull();
+        const back = switch_change(second, "c1", true);
+        expect(change_on_branch(back, "app", SECOND.branch)).toBe("c2");
     });
 });
 

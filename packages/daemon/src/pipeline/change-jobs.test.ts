@@ -13,6 +13,7 @@ import { resolve_home, type SpinnerHome } from "../home.js";
 import { read_session, write_session } from "../store/session-store.js";
 import { on_change_for_up } from "../actions.js";
 import { start_change_job, switch_change_job } from "./change-jobs.js";
+import { add_found_change } from "./changes.js";
 import { load_pipeline_config } from "./config.js";
 import { git_runner } from "./github-write.js";
 
@@ -147,6 +148,29 @@ describe("change start", () => {
         await expect(
             start_change_job(home, again, { title: "x", on: "c7" }, deps),
         ).rejects.toThrow(/no change "c7" to start on/);
+    });
+
+    it("refuses a switch to a branch that another worktree holds, and says where", async () => {
+        commit("b.txt", "exports in parallel");
+        // An agent made a worktree of its own under the session, on a branch of its own.
+        const extra = join(summary.path, "worktrees", "app-fix");
+        git(worktree, "worktree", "add", "--quiet", "-b", "feat/price-plan", extra, "origin/main");
+        const read = reread();
+        const found = add_found_change(read.session, {
+            id: "c2",
+            title: "Price plan",
+            branch: "feat/price-plan",
+            started: "2026-11-12T10:30:00Z",
+        });
+        write_session({ ...read, session: found });
+        await expect(switch_change_job(home, reread(), "c2", deps)).rejects.toThrow(
+            "change switch refused: feat/price-plan is checked out in worktrees/app-fix; " +
+                "work on it there",
+        );
+        // Nothing moved: the session's worktree and the session are on the first change.
+        expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feat/exports");
+        expect(reread().session.branch).toBe("feat/exports");
+        expect(reread().session.changes?.map((entry) => entry.id)).toEqual(["c2"]);
     });
 
     it("test locally switches to the change, and refuses while an agent is in a turn", async () => {

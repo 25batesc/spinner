@@ -107,6 +107,9 @@ function github_lines(github: SpinnerEnv["github"]): string[] {
             "merge. This overrides a brief line that says you do not push. Say in the Log what",
             "you posted and where. Slack posts, `spinner approve`, `land`, `reset` and `close`",
             "stay the operator's.",
+            "Open a pull request with `pr open` when you can: Spinner tracks it at once. One",
+            "you open with `gh pr create` from a worktree under the session directory is found",
+            "within a few minutes and tracked as a change of its own.",
         ];
     }
     return ["The operator pushes, posts, approves, lands, resets and closes; you do not."];

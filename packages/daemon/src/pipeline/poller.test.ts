@@ -27,6 +27,14 @@ import { adopt_prs, attach_adopted } from "./adopt.js";
 import { start_change } from "./changes.js";
 import { load_pipeline_config } from "./config.js";
 import type { GhRunner, PrResponse } from "./github.js";
+import {
+    FOUND_RECHECK_MS,
+    is_due,
+    new_found_state,
+    reflog_branches,
+    untracked,
+    type ListedPr,
+} from "./found-prs.js";
 import { poll_once } from "./poller.js";
 import { verify_session } from "./verify.js";
 
@@ -52,14 +60,22 @@ const SPEC = [
     "",
 ].join("\n");
 
-/** A fake `gh`: answers `api user` and serves one response per PR number. */
+/**
+ * A fake `gh`: answers `api user`, serves one response per PR number, and answers
+ * `pr list --repo <owner/name>` from `lists` (an empty list for a repository it does not name).
+ */
 class FakeGh {
     responses = new Map<number, PrResponse>();
+    lists = new Map<string, unknown[]>();
     calls: string[][] = [];
     runner: GhRunner = async (args) => {
         this.calls.push(args);
         if (args[0] === "api" && args[1] === "user") {
             return "owner-1\n";
+        }
+        if (args[0] === "pr" && args[1] === "list") {
+            const slug = args[args.indexOf("--repo") + 1] ?? "";
+            return JSON.stringify(this.lists.get(slug) ?? []);
         }
         const number_arg = args.find((arg) => arg.startsWith("number="));
         const number = Number.parseInt(number_arg?.slice("number=".length) ?? "0", 10);
@@ -407,5 +423,143 @@ describe("poll_once", () => {
         expect(report.polled).toEqual([]);
         expect(report.errors).toEqual([{ dir, error: "fake gh has no PR #4812" }]);
         expect(banners).toEqual([]);
+    });
+});
+
+describe("a pull request opened outside a change (dogfood #72)", () => {
+    const SLUG = "acme/backend";
+    const FOUND_URL = "https://github.com/acme/backend/pull/4900";
+    const listed = (branch: string, title: string): ListedPr[] => [
+        {
+            number: 4900,
+            url: FOUND_URL,
+            title,
+            createdAt: "2026-11-16T03:25:11Z",
+            headRefName: branch,
+        },
+    ];
+
+    /** The fixture as pull request 4900 on `branch`. */
+    function found_response(branch: string, title: string): PrResponse {
+        const base = load("pr-approving");
+        const node = base.data.repository.pullRequest;
+        const pullRequest = { ...node, number: 4900, url: FOUND_URL, title, headRefName: branch };
+        return { data: { repository: { pullRequest } } };
+    }
+
+    /** An adopted session whose clone names GitHub as its origin, as a real one does. */
+    async function adopt_on_github(): Promise<{ dir: string; path: string; worktree: string }> {
+        gh.responses.set(4812, load("pr-approving"));
+        const input = { project, cwd: root, gh: gh.runner };
+        const urls = ["https://github.com/acme/backend/pull/4812"];
+        const summary = await adopt_prs(home, { ...input, urls });
+        const worktree = join(summary.path, "worktrees", "backend");
+        const origin = "https://github.com/acme/backend.git";
+        await run_ok("git", ["-C", worktree, "remote", "set-url", "origin", origin]);
+        return { dir: summary.dir, path: summary.path, worktree };
+    }
+
+    const list_calls = (): string[][] => gh.calls.filter((call) => call[1] === "list");
+
+    it("finds one whose branch a worktree of the session had; it is a change", async () => {
+        const { dir, path, worktree } = await adopt_on_github();
+        // The lead made a worktree of its own, opened the pull request from it, and has
+        // moved that worktree to another branch since: only the reflog names the branch.
+        const extra = join(path, "worktrees", "backend-fix");
+        const add = ["worktree", "add", "--quiet", "-b", "feat/price-plan", extra, "develop"];
+        await run_ok("git", ["-C", worktree, ...add]);
+        await run_ok("git", ["-C", extra, "checkout", "--quiet", "-b", "feat/metric-v2"]);
+        const title = "Price plan in shadow";
+        gh.lists.set(SLUG, [
+            ...listed("feat/price-plan", title),
+            // Tracked already, and one that no worktree of the session ever had.
+            { ...listed("devin/example-feature", "x")[0], number: 4812 },
+            { ...listed("feat/somebody-else", "y")[0], number: 4950 },
+        ]);
+        gh.responses.set(4900, found_response("feat/price-plan", title));
+        const lines: string[] = [];
+        const log = (line: string): number => lines.push(line);
+        const options = { gh: gh.runner, notify, cwd: root, log, found: new_found_state() };
+        const report = await poll_once(home, options);
+        expect(report.errors).toEqual([]);
+        const session = read_yaml(dir);
+        // The adopted change stays current; the found pull request is a record of its own.
+        expect(session.branch).toBe("devin/example-feature");
+        expect(session.repos["backend"]?.pr?.number).toBe(4812);
+        expect(session.changes).toHaveLength(1);
+        const record = session.changes?.[0];
+        expect(record).toMatchObject({
+            id: "c2",
+            title,
+            branch: "feat/price-plan",
+            started: "2026-11-16T03:25:11Z",
+            stage: "verifying",
+        });
+        expect(record?.repos["backend"]?.pr).toMatchObject({ number: 4900, url: FOUND_URL });
+        const found_line =
+            "found backend#4900 on feat/price-plan, opened outside a change: tracked as c2";
+        expect(lines).toContain(`${dir}: ${found_line}`);
+        expect(readFileSync(join(path, "MISSION.md"), "utf8")).toMatch(
+            new RegExp(`\\n- \\d\\d:\\d\\d spinner: pr: ${found_line}\\n`),
+        );
+        expect(list_calls()).toHaveLength(1);
+        expect(list_calls()[0]?.slice(0, 6)).toEqual([
+            "pr",
+            "list",
+            "--repo",
+            SLUG,
+            "--author",
+            "@me",
+        ]);
+        // The next round polls the found change as any other. The repository is not asked
+        // about again before the recheck time.
+        const again = await poll_once(home, options);
+        expect(again.polled).toEqual([dir]);
+        expect(read_yaml(dir).changes).toHaveLength(1);
+        expect(list_calls()).toHaveLength(1);
+    });
+
+    it("puts one found on the current change's branch into that change", async () => {
+        const { dir, worktree } = await adopt_on_github();
+        const read = read_session(home, dir);
+        assert.ok(read.ok);
+        // The lead started a second change and opened its pull request with `gh` itself.
+        const start = { id: "c2", title: "Second", branch: "feat/second", keep_current: true };
+        const started = "2026-11-12T11:00:00Z";
+        write_session({
+            ...read.summary,
+            session: start_change(read.summary.session, { ...start, started }),
+        });
+        await run_ok("git", ["-C", worktree, "checkout", "--quiet", "-b", "feat/second"]);
+        gh.lists.set(SLUG, listed("feat/second", "Second"));
+        gh.responses.set(4900, found_response("feat/second", "Second"));
+        await poll_once(home, { gh: gh.runner, notify, cwd: root });
+        const session = read_yaml(dir);
+        expect(session.change?.id).toBe("c2");
+        expect(session.repos["backend"]?.pr?.number).toBe(4900);
+        expect(session.changes?.map((record) => record.id)).toEqual(["c1"]);
+    });
+
+    it("reads branches from a reflog, and knows what is due and what is held", () => {
+        const subjects = [
+            "checkout: moving from feat/price-plan to feat/metric-v2",
+            "commit: price plan",
+            `checkout: moving from ${"a".repeat(40)} to feat/price-plan`,
+            "reset: moving to HEAD",
+            "",
+        ].join("\n");
+        expect([...reflog_branches(subjects)].sort()).toEqual([
+            "feat/metric-v2",
+            "feat/price-plan",
+        ]);
+        const state = new_found_state();
+        expect(is_due(state, SLUG, 1000)).toBe(true);
+        state.asked.set(SLUG, 1000);
+        expect(is_due(state, SLUG, 1000 + FOUND_RECHECK_MS - 1)).toBe(false);
+        expect(is_due(state, SLUG, 1000 + FOUND_RECHECK_MS)).toBe(true);
+        expect(is_due(state, "acme/web", 1001)).toBe(true);
+        const held = new Set([`${SLUG}#4900`, "acme/web#7"]);
+        const two = [...listed("a", "A"), { ...listed("b", "B")[0], number: 7 }] as ListedPr[];
+        expect(untracked(SLUG, two, held).map((pr) => pr.number)).toEqual([7]);
     });
 });

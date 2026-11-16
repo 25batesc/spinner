@@ -4,14 +4,15 @@
 // chosen branch, then swap the change fields in `session.yaml` (`changes.ts`). The stack is
 // not touched.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import type {
     ChangeStartRequest,
     PipelineConfig,
     Session,
     SessionSummary,
 } from "@spinner/protocol";
+import { parse_worktree_list } from "../git/worktree.js";
 import type { SpinnerHome } from "../home.js";
 import { read_session, slugify, write_session } from "../store/session-store.js";
 import {
@@ -156,6 +157,29 @@ async function ref_exists(git: GitRunner, cwd: string, ref: string): Promise<boo
     }
 }
 
+/**
+ * The path of a worktree, other than the session's own, that has `branch` checked out; null
+ * when there is none. Git refuses a second checkout of a branch, so a change whose branch
+ * lives in a worktree an agent made (a found pull request, dogfood #72) cannot be switched
+ * to. Asked before anything is pushed or moved.
+ */
+async function checked_out_elsewhere(
+    git: GitRunner,
+    worktrees: Worktree[],
+    branch: string,
+): Promise<string | null> {
+    const own = new Set(worktrees.map((worktree) => realpathSync(worktree.cwd)));
+    for (const worktree of worktrees) {
+        const out = await git(worktree.cwd, ["worktree", "list", "--porcelain"]);
+        const listed = parse_worktree_list(out);
+        const other = listed.find((entry) => entry.branch === branch && !own.has(entry.path));
+        if (other !== undefined) {
+            return other.path;
+        }
+    }
+    return null;
+}
+
 /** Checks out `branch` in every worktree; on a failure, puts the moved ones back. */
 async function move_worktrees(
     git: GitRunner,
@@ -286,6 +310,14 @@ export async function switch_change_job(
     const record = (session.changes ?? []).find((entry) => entry.id === id);
     if (record === undefined) {
         throw new Error(`change switch refused: no change "${id}"`);
+    }
+    const elsewhere = await checked_out_elsewhere(deps.git, worktrees, record.branch);
+    if (elsewhere !== null) {
+        // Git prints real paths, so the session's path is made real before the two compare.
+        const where = relative(realpathSync(summary.path), elsewhere);
+        throw new Error(
+            `change switch refused: ${record.branch} is checked out in ${where}; work on it there`,
+        );
     }
     await refuse_dirty(deps.git, worktrees, "switch");
     const ahead = await push_and_measure(summary, worktrees, deps);

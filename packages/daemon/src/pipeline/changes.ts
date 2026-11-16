@@ -243,6 +243,80 @@ export function start_change(session: Session, input: StartChange): Session {
     return next;
 }
 
+/** Pure: the numbers of the pull requests of `repo` that any change or round holds. */
+export function tracked_numbers(session: Session, repo: string): Set<number> {
+    const numbers = new Set<number>();
+    const add = (pr: { number: number } | null | undefined): void => {
+        if (pr !== undefined && pr !== null) {
+            numbers.add(pr.number);
+        }
+    };
+    add(session.repos[repo]?.pr);
+    for (const record of records_of(session)) {
+        add(record.repos[repo]?.pr);
+    }
+    for (const round of session.rounds ?? []) {
+        for (const pr of round.prs) {
+            if (pr.repo === repo) {
+                numbers.add(pr.number);
+            }
+        }
+    }
+    return numbers;
+}
+
+/**
+ * Pure: the change a pull request found on `branch` belongs to: the one on that branch
+ * that has no pull request for `repo` yet. Null when there is none: the pull request then
+ * gets a change of its own.
+ */
+export function change_on_branch(session: Session, repo: string, branch: string): string | null {
+    const lacks = (pr: unknown): boolean => pr === undefined || pr === null;
+    if (session.branch === branch && lacks(session.repos[repo]?.pr)) {
+        return current_change(session).id;
+    }
+    const record = records_of(session).find(
+        (entry) => entry.branch === branch && lacks(entry.repos[repo]?.pr),
+    );
+    return record?.id ?? null;
+}
+
+export interface FoundChange {
+    id: string;
+    title: string;
+    branch: string;
+    /** ISO 8601. */
+    started: string;
+}
+
+/**
+ * Pure: the session with one more record, for a pull request that an agent opened outside
+ * a change (dogfood #72). The current change stays current: the branch lives in a worktree
+ * the agent made, so nothing is checked out. The pull request's facts are applied after.
+ */
+export function add_found_change(session: Session, input: FoundChange): Session {
+    assert.ok(!has_change(session, input.id), `change id ${input.id} is in use`);
+    assert.ok(input.title.trim().length > 0, "a change needs a title");
+    assert.ok(input.branch.length > 0, "a change needs a branch");
+    const repos: Record<string, ChangeRepo> = {};
+    for (const repo of Object.keys(session.repos)) {
+        repos[repo] = { changed: false, pr: null };
+    }
+    const record: ChangeRecord = {
+        id: input.id,
+        title: input.title,
+        started: input.started,
+        branch: input.branch,
+        repos,
+        pipeline: empty_pipeline(),
+        stage: "planned",
+        needs_human: null,
+    };
+    const next: Session = structuredClone(session);
+    next.changes = bounded([...records_of(session), record]);
+    return next;
+}
+
 /** Pure: the session after `switch`: change `id` on top, the current one put aside. */
 export function switch_change(session: Session, id: string, keep_current: boolean): Session {
     const record = records_of(session).find((entry) => entry.id === id);
