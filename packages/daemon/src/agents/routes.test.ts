@@ -189,7 +189,7 @@ describe("agents without a brief", () => {
         expect(brief).toContain("# api\n");
         expect(brief).toContain(`Role: engineer for session ${summary.session.id}`);
         expect(brief).toContain("- `backend` (no worktree yet, branch `devin/example-feature`).");
-        expect(brief).toContain("1. Read `.spinner/MISSION.md` in full.");
+        expect(brief).toContain("1. Read `.spinner/MISSION.md` with `mission_read` once");
 
         // No brief in the body: the default one is written, and the agent starts.
         const blank = await call("POST", `/sessions/${dir}/agents`, { name: "api", brief: "" });

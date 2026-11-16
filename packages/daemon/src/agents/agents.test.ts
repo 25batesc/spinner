@@ -177,7 +177,7 @@ describe("ensure_brief", () => {
         expect(brief).toContain("- The other repos: `web`.");
         expect(brief).toContain("- What `other` owns (its Roster row).");
         expect(brief).toContain("- api: http://api.s001.localhost");
-        expect(brief).toContain("1. Read `.spinner/MISSION.md` in full.");
+        expect(brief).toContain("1. Read `.spinner/MISSION.md` with `mission_read` once");
         expect(brief).toContain("`HH:MM backend-api: <what>`");
         expect(brief).toContain("4. Put an API change under Contracts before you implement it.");
         expect(brief).toContain("## Finish");

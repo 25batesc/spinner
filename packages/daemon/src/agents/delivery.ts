@@ -2,8 +2,10 @@
 // "Change propagation"). An `inbox/` file for a running agent becomes a steer; for an idle or
 // stopped agent it waits for its next prompt in the manager; for `operator` it becomes a Log
 // line and an `inbox.message` event. A change to `MISSION.md` or to an agent's `NOTES.md`
-// becomes one debounced steer per other agent, at most one per 30 s per agent, that names the
-// sections that changed. Every delivery publishes `message.delivered`.
+// becomes one debounced notice per other agent, at most one per 30 s per agent, that carries
+// the new lines. A Plan, Contract, Goal, Done when or Open question change steers a busy
+// agent; a Log line or a Roster row waits for the agent's next prompt, so the news does not
+// break its turn. Every delivery publishes `message.delivered`.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +16,7 @@ import type { SpinnerHome } from "../home.js";
 import { mission_view } from "../pipeline/mission-sections.js";
 import { read_session } from "../store/session-store.js";
 import type { MissionWriter } from "../store/mission-writer.js";
-import { describe_changes, diff_mission } from "../watch/mission-diff.js";
+import { diff_mission, is_urgent, render_notice } from "../watch/mission-diff.js";
 import { parse_inbox_file } from "./inbox.js";
 import type { AgentManager } from "./manager.js";
 
@@ -38,6 +40,8 @@ export interface DelivererOptions {
 interface Debounce {
     last_sent_at: number;
     lines: string[];
+    /** True when one of the waiting lines may interrupt a busy agent. */
+    urgent: boolean;
     timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -143,8 +147,8 @@ export class Deliverer {
         const known =
             last !== null && this.now().getTime() - last.at <= ATTRIBUTION_WINDOW_MS ? last : null;
         const author = known?.author ?? "unknown";
-        const described = describe_changes(changes, known !== null);
-        const line = `MISSION.md changed by ${author}: ${described}.`;
+        const text = render_notice(author, changes, known !== null);
+        const urgent = is_urgent(changes);
         if (known === null) {
             // A hand edit: the event tells the UI what changed, as the route does for a tool write.
             this.bus.publish({
@@ -158,7 +162,7 @@ export class Deliverer {
         }
         for (const agent of this.agent_names(summary)) {
             if (agent !== author) {
-                this.notice(dir, agent, line);
+                this.notice(dir, agent, text, urgent);
             }
         }
     }
@@ -177,7 +181,7 @@ export class Deliverer {
         }
         for (const other of this.agent_names(summary)) {
             if (other !== agent) {
-                this.notice(dir, other, `agents/${agent}/NOTES.md changed.`);
+                this.notice(dir, other, `agents/${agent}/NOTES.md changed.`, false);
             }
         }
     }
@@ -194,15 +198,21 @@ export class Deliverer {
         }
     }
 
-    /** Queues a change line for the agent and sends when the 30 s window allows. */
-    private notice(dir: string, agent: string, line: string): void {
+    /** Queues a change notice for the agent and sends when the 30 s window allows. */
+    private notice(dir: string, agent: string, text: string, urgent: boolean): void {
         const key = `${dir}/${agent}`;
-        const state = this.debounces.get(key) ?? { last_sent_at: 0, lines: [], timer: null };
+        const state = this.debounces.get(key) ?? {
+            last_sent_at: 0,
+            lines: [],
+            urgent: false,
+            timer: null,
+        };
         this.debounces.set(key, state);
         assert.ok(state.lines.length < NOTICES_MAX, `${NOTICES_MAX} notices wait for ${agent}`);
-        if (!state.lines.includes(line)) {
-            state.lines.push(line);
+        if (!state.lines.includes(text)) {
+            state.lines.push(text);
         }
+        state.urgent = state.urgent || urgent;
         if (state.timer !== null) {
             return;
         }
@@ -221,19 +231,27 @@ export class Deliverer {
         if (state.lines.length === 0) {
             return;
         }
-        const text = [...state.lines, "Re-read `.spinner/MISSION.md` before your next edit."].join(
-            "\n",
-        );
+        const text = state.lines.join("\n\n");
+        const urgent = state.urgent;
         state.lines = [];
+        state.urgent = false;
         state.last_sent_at = this.now().getTime();
-        const how = await this.send(dir, agent, text);
+        const how = await this.send(dir, agent, text, urgent);
         this.published(dir, null, agent, how);
     }
 
-    /** A steer to a busy agent; otherwise the text waits for the agent's next prompt. */
-    private async send(dir: string, agent: string, text: string): Promise<DeliveryKind> {
+    /**
+     * A steer to a busy agent when the text is urgent; otherwise the text waits for the
+     * agent's next prompt.
+     */
+    private async send(
+        dir: string,
+        agent: string,
+        text: string,
+        urgent = true,
+    ): Promise<DeliveryKind> {
         const handle = this.agents.get(dir, agent);
-        if (handle !== null && this.agents.is_busy(dir, agent)) {
+        if (urgent && handle !== null && this.agents.is_busy(dir, agent)) {
             try {
                 await handle.steer(text);
                 return "steer";

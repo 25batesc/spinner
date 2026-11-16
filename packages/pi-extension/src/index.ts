@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
     EXTENSION_MANIFEST,
+    LOCAL_ROUTE,
     redact_values,
     secret_values,
     type SecretValue,
@@ -93,7 +94,8 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
             promptSnippet: spec.description,
             parameters: schema_of(spec),
             async execute(_id, params) {
-                const text = await run_tool(spec, params, env, client_of(), options.job_poll_ms);
+                const client = spec.route === LOCAL_ROUTE ? null : client_of();
+                const text = await run_tool(spec, params, env, client, options.job_poll_ms);
                 return { content: [{ type: "text", text }], details: undefined };
             },
         };

@@ -8,6 +8,7 @@ import {
     EXTENSION_ENV,
     EXTENSION_MANIFEST,
     EXTENSION_TOOLS,
+    LOCAL_ROUTE,
     SUBAGENTS_TEMP_ROOT_ENV,
     SUBAGENT_CHILD_ENV,
     SUBAGENT_EXTRA_AGENT_DIRS_ENV,
@@ -28,9 +29,11 @@ describe("extension manifest", () => {
         expect(EXTENSION_MANIFEST.tools.map((tool) => tool.name)).toEqual([...EXTENSION_TOOLS]);
     });
 
-    it("calls only routes the API declares", () => {
+    it("calls only routes the API declares, or none", () => {
         for (const tool of EXTENSION_MANIFEST.tools) {
-            expect(Object.keys(ROUTES)).toContain(tool.route);
+            if (tool.route !== LOCAL_ROUTE) {
+                expect(Object.keys(ROUTES)).toContain(tool.route);
+            }
         }
     });
 
@@ -107,6 +110,7 @@ describe("extension manifest", () => {
             .filter((tool) => tool.roles.includes("lead"))
             .map((tool) => tool.name);
         expect(lead_tools).toEqual([
+            "mission_read",
             "mission_roster",
             "mission_log",
             "mission_contract",

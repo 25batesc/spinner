@@ -30,7 +30,13 @@ import { PIPELINE_CONFIG_DEFAULTS } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { start_daemon, type Daemon } from "../server.js";
 import { create_session } from "../store/session-store.js";
-import { describe_changes, diff_mission } from "../watch/mission-diff.js";
+import {
+    NOTICE_LINES_MAX,
+    describe_changes,
+    diff_mission,
+    is_urgent,
+    render_notice,
+} from "../watch/mission-diff.js";
 import { fixer_prompt, plan_fixer_work, render_fixer_brief } from "./fixer.js";
 import { parse_inbox_file_name } from "./inbox.js";
 
@@ -158,9 +164,10 @@ describe("PUT /sessions/:dir/mission/section", () => {
         expect(to_beta).toHaveLength(1);
         expect(to_beta[0]).toMatchObject({ file: null, how: "prompt" });
         expect(delivered().some((event) => event.agent === "alpha")).toBe(false);
-        expect(daemon.agents.pending_for(summary.dir, "beta")[0]).toMatch(
-            /^MISSION\.md changed by alpha: Roster \(own row\), Log \(\+1\)\.\n/,
-        );
+        const notice = daemon.agents.pending_for(summary.dir, "beta")[0] ?? "";
+        expect(notice).toMatch(/^MISSION\.md changed by alpha: Roster \(own row\), Log \(\+1\)\./);
+        expect(notice).toMatch(/\nRoster:\n {2}\| alpha \| — \| tests \| no \| \d\d:\d\d \|\n/);
+        expect(notice).toMatch(/\nLog:\n {2}- \d\d:\d\d alpha: contract posted$/);
         expect(events.filter((event) => event.type === "mission.changed")).toHaveLength(2);
 
         // The notice is prepended to beta's next prompt.
@@ -315,7 +322,7 @@ describe("pure helpers", () => {
         expect(parse_inbox_file_name("notes.md", known)).toBeNull();
     });
 
-    it("describes mission changes by section with counts", () => {
+    it("describes mission changes by section with counts, and carries the new lines", () => {
         const before = "# t\n\n## Roster\n| a |\n\n## Log\n- 1\n";
         const after =
             "# t\n\n## Roster\n| b |\n\n## Contracts & decisions\n- c\n\n## Log\n- 1\n- 2\n- 3\n";
@@ -326,7 +333,37 @@ describe("pure helpers", () => {
         expect(describe_changes(changes, false)).toBe(
             "Roster, Contracts & decisions (+1), Log (+2)",
         );
+        expect(changes.map((change) => change.lines)).toEqual([["| b |"], ["- c"], ["- 2", "- 3"]]);
         expect(diff_mission(after, after)).toEqual([]);
+        // The notice shows the new lines, so the agent has nothing to re-read. A Contract
+        // is urgent (it steers a busy agent); a Log line or a Roster row alone is not.
+        expect(render_notice("alpha", changes, true)).toBe(
+            [
+                "MISSION.md changed by alpha: Roster (own row), Contracts & decisions (+1), " +
+                    "Log (+2).",
+                "Roster:",
+                "  | b |",
+                "Contracts & decisions:",
+                "  - c",
+                "Log:",
+                "  - 2",
+                "  - 3",
+            ].join("\n"),
+        );
+        expect(is_urgent(changes)).toBe(true);
+        const log_only = diff_mission(before, "# t\n\n## Roster\n| a |\n\n## Log\n- 1\n- 2\n");
+        expect(is_urgent(log_only)).toBe(false);
+        // More new lines than a notice shows: the rest is counted, and the section is named
+        // to read. A Goal rewritten to the same line count still shows its new text.
+        const many = Array.from({ length: NOTICE_LINES_MAX + 2 }, (_, i) => `- ${i + 10}`);
+        const long = diff_mission(before, `${before}${many.join("\n")}\n`);
+        const text = render_notice("beta", long, true);
+        expect(text).toContain(`  - ${NOTICE_LINES_MAX + 9}\n  (2 more)\n`);
+        expect(text).toContain("Read log with `mission_read`; nothing else changed.");
+        const goal = diff_mission("## Goal\nShip it.\n", "## Goal\nShip it well.\n");
+        expect(render_notice("lead", goal, true)).toBe(
+            "MISSION.md changed by lead: Goal.\nGoal:\n  Ship it well.",
+        );
     });
 
     it("plans the fixer's work by threads.autofix and renders the prompt and brief", () => {

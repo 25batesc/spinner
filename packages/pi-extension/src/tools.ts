@@ -2,7 +2,9 @@
 // manifest names, and a short text for the model. The extension holds no state; the daemon
 // serializes the mission writes and enforces the thread rules (409 with the reason). The
 // `thread_resolve` pre-check reads the threads first so a missing reply is refused with a
-// clear sentence before anything reaches GitHub.
+// clear sentence before anything reaches GitHub. `mission_read` is the one tool answered from
+// disk, so an agent can read the mission while the daemon is unreachable.
+import assert from "node:assert/strict";
 import { Type, type TSchema, type TProperties } from "typebox";
 import {
     DESIGN_GATE_OPTIONS_MAX,
@@ -39,6 +41,7 @@ import type {
     ThreadsResponse,
 } from "@spinner/protocol";
 import type { SpinnerEnv } from "./env.js";
+import { read_mission } from "./prompt.js";
 import { run_comment_tool } from "./tools-comments.js";
 import { run_operator_tool, wait_job } from "./tools-operator.js";
 
@@ -186,10 +189,16 @@ export async function run_tool(
     spec: ExtensionToolSpec,
     args: Record<string, unknown>,
     env: SpinnerEnv,
-    client: DaemonClient,
+    client: DaemonClient | null,
     poll_ms?: number,
 ): Promise<string> {
     const text = (key: string): string => String(args[key] ?? "");
+    if (spec.name === "mission_read") {
+        const section = typeof args["section"] === "string" ? args["section"] : undefined;
+        const lines = typeof args["lines"] === "number" ? args["lines"] : undefined;
+        return read_mission(env.session_dir, section, lines);
+    }
+    assert.ok(client !== null, `${spec.name} needs the daemon`);
     const operator_deps = { client, ...(poll_ms === undefined ? {} : { poll_ms }) };
     if (spec.roles.every((role) => role === "operator")) {
         return run_operator_tool(spec.name, args, operator_deps);

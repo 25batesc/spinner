@@ -178,7 +178,7 @@ export function render_fixer_brief(session_id: string, resolve_human: boolean): 
         "- Files outside the threads' scope. Flag a thread that asks for them.",
         "",
         "## Every turn",
-        "1. Read `.spinner/MISSION.md` in full.",
+        "1. Read `.spinner/MISSION.md` with `mission_read` once; Spinner tells you what changes.",
         "2. Run `thread_list` to see the open threads with their ids.",
         "3. For each open thread, do one of two things. Fix it and `thread_reply` with one " +
             "line that says what changed. Or `thread_reply` with a one-line reason and " +

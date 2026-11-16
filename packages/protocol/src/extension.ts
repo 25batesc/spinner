@@ -67,6 +67,7 @@ export function role_of_agent(name: string): ExtensionRole {
 }
 
 export const EXTENSION_TOOLS = [
+    "mission_read",
     "mission_roster",
     "mission_log",
     "mission_contract",
@@ -173,6 +174,11 @@ export type ProjectToolCommand = "help" | "list" | "create" | "update" | "attach
 
 /** The arguments of each tool, as the model supplies them. */
 export interface ExtensionToolArgs {
+    /**
+     * Reads MISSION.md from the session directory: whole, with the last Log lines, or one
+     * `section`. `lines` is how many Log lines to show. No daemon call.
+     */
+    mission_read: { section?: MissionSection; lines?: number };
     /** Overwrites the agent's own Roster row. `blocked` is `no` or `yes: <what you wait for>`. */
     mission_roster: { doing: string; blocked: string };
     /** Appends one Log line. The daemon stamps the time and the agent name. */
@@ -322,7 +328,10 @@ export interface ExtensionToolSpec {
     required: readonly string[];
     /** The roles the tool registers for; `SPINNER_ROLE` picks. */
     roles: readonly ExtensionRole[];
-    /** The daemon route the tool calls. `:dir` is the session, `:name` the agent. */
+    /**
+     * The daemon route the tool calls. `:dir` is the session, `:name` the agent. `local`
+     * for a tool the extension answers from the session directory without the daemon.
+     */
     route: string;
 }
 
@@ -350,6 +359,9 @@ const OPERATOR_OR_LEAD: readonly ExtensionRole[] = ["operator", "lead"];
 const WORKER_OR_LEAD: readonly ExtensionRole[] = ["worker", "lead"];
 const LEAD: readonly ExtensionRole[] = ["lead"];
 
+/** The `route` of a tool the extension answers from disk, with no daemon call. */
+export const LOCAL_ROUTE = "local";
+
 const COMMENT_ID_PARAM = {
     id: { type: "string", description: "The comment id, `c3`, as comments_list shows it" },
 } as const satisfies Record<string, ToolParameterSpec>;
@@ -362,6 +374,27 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
     version: EXTENSION_VERSION,
     env: EXTENSION_ENV,
     tools: [
+        {
+            name: "mission_read",
+            description:
+                "Read MISSION.md: the whole file with the last Log lines, or one section. " +
+                "Read it once at your first turn; after that Spinner tells you what changed.",
+            parameters: {
+                section: {
+                    type: "string",
+                    description:
+                        "One of goal, done_when, plan, roster, contracts, open_questions, log; " +
+                        "absent for the whole file",
+                },
+                lines: {
+                    type: "number",
+                    description: "How many of the latest Log lines to show (30 by default)",
+                },
+            },
+            required: [],
+            roles: SESSION_ROLES,
+            route: LOCAL_ROUTE,
+        },
         {
             name: "mission_roster",
             description: "Overwrite your own Roster row in MISSION.md.",

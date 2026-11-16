@@ -21,7 +21,6 @@ import type {
     ToolCallResult,
     ToolDefinition,
 } from "./pi-api.js";
-import { roster_digests } from "./prompt.js";
 import { schema_of } from "./tools.js";
 
 interface FakePi extends ExtensionAPI {
@@ -363,7 +362,7 @@ describe("tool result redaction", () => {
 });
 
 describe("prompt section", () => {
-    it("carries the session, hosts, brief, mission and the other agents' digests", async () => {
+    it("carries the session, hosts and brief; the mission stays out of the prompt", async () => {
         const daemon = await fake_daemon(false);
         try {
             const pi = fake_pi();
@@ -377,12 +376,12 @@ describe("prompt section", () => {
             const section = event.systemPromptOptions.sections["spinner_session"] ?? "";
             expect(section).toContain("agent `alpha` (role worker) in Spinner session s1 · X.");
             expect(section).toContain("- web: http://web.s1.localhost");
-            expect(section).toContain("- beta: page (blocked: yes: /x)");
-            expect(section).not.toContain("- alpha: tests");
             expect(section).toContain("## Your brief (agents/alpha/BRIEF.md)\n\n# alpha");
-            expect(section).toContain(
-                "## MISSION.md (read in full; this is the current file)\n\n# s1 · X",
-            );
+            // The mission changes on nearly every turn, and pi appends the whole section
+            // to the context at each change: it is read with `mission_read` instead.
+            expect(section).not.toContain("# s1 · X");
+            expect(section).not.toContain("beta: page");
+            expect(section).toContain("Read it with `mission_read` once");
         } finally {
             daemon.close();
         }
@@ -446,12 +445,31 @@ describe("prompt section", () => {
         expect(plain).not.toContain("EGM");
     });
 
-    it("refuses a newer session.yaml and digests the roster", () => {
-        writeFileSync(join(session_dir, "session.yaml"), "version: 9\nid: s1\n");
+    it("mission_read gives the file with a bounded Log tail, or one section", async () => {
+        const log = Array.from({ length: 40 }, (_, i) => {
+            return `- 10:${String(i).padStart(2, "0")} alpha: step ${i}`;
+        });
+        writeFileSync(join(session_dir, "MISSION.md"), `${MISSION}${log.join("\n")}\n`);
         const pi = fake_pi();
         register(pi, { env: env_for("worker", "") });
-        expect(roster_digests(MISSION, "alpha")).toEqual(["beta: page (blocked: yes: /x)"]);
-        expect(roster_digests(MISSION, "beta")).toEqual(["alpha: tests"]);
+        const whole = await run(pi, "mission_read", {});
+        expect(whole).toContain("# s1 · X");
+        expect(whole).toContain("| beta | `web/**` | page | yes: /x | 10:01 |");
+        expect(whole).toContain(
+            "## Log (last lines)\n(11 earlier lines not shown; ask for more with `lines`)",
+        );
+        expect(whole).not.toContain("- 10:00 alpha: started");
+        expect(whole).toContain("- 10:39 alpha: step 39");
+        const two = await run(pi, "mission_read", { section: "log", lines: 2 });
+        expect(two).toBe(
+            "## Log\n(39 earlier lines not shown; ask for more with `lines`)\n" +
+                "- 10:38 alpha: step 38\n- 10:39 alpha: step 39",
+        );
+        const roster = await run(pi, "mission_read", { section: "roster" });
+        expect(roster).toContain("## Roster\n| Agent |");
+        expect(roster).not.toContain("## Log");
+        expect(await run(pi, "mission_read", { section: "nope" })).toContain("unknown section");
+        expect(await run(pi, "mission_read", { lines: 0 })).toContain("positive whole number");
     });
 });
 
