@@ -1,6 +1,6 @@
 // The PR view's pure half. Method: a view with a merged round, a change in review that is
 // not checked out, and an empty current change; check the cards, the `+n`, the needs line,
-// the facts and actions of a block, the PR chip and the rows of the PRs view.
+// the facts and actions of a block, the PR chip, the rows of the PRs view and the PR table.
 import { describe, expect, it } from "vitest";
 import type { ChangePr, ChangeView, SessionView } from "@spinner/protocol";
 
@@ -17,6 +17,8 @@ import {
     prChip,
     prFacts,
     prRows,
+    prTableRows,
+    startRow,
     stateTone,
     SWITCH_FIRST,
     threadsText,
@@ -180,5 +182,75 @@ describe("the Changes rail", () => {
         expect(opensOnChanges(view_with([FIRST, EMPTY]))).toBe(true);
         expect(opensOnChanges(view_with([FIRST, EMPTY], "up"))).toBe(false);
         expect(opensOnChanges(view_with([EMPTY]))).toBe(false);
+    });
+
+    it("draws the PR table: a row per pull request or change, its cells, links and detail", () => {
+        const now = new Date("2026-11-12T10:16:00Z");
+        const api: ChangePr = {
+            ...OPEN_PR, repo: "api", number: 87, url: "https://github.com/acme/api/pull/87",
+            title: "POST /refunds", author: "sam",
+            head: "0123456789abcdef", review: "none", last_activity: "2026-11-12T10:00:00Z",
+            approvals: { required: ["peer"], peer: [], owner: false },
+            threads: { bots_open: 0, humans_open: 0, resolved: 2 },
+        };
+        const red: ChangePr = {
+            ...OPEN_PR, number: 9, url: "https://github.com/acme/backend/pull/9", checks: "red", checks_failing: ["lint", "e2e"],
+            review: "changes_requested",
+        };
+        const two = change({ prs: [OPEN_PR, api], needs_human: "land backend#482", on: "c0" });
+        const fixing = change({ id: "c3", title: "Fix it", state: "fixing CI", prs: [red] });
+        const bare = change({ id: "c4", title: "Copy edits", state: "building", current: true });
+        const rows = prTableRows(view_with([ROUND, two, fixing, bare]), now);
+        expect(rows.open.map((row) => [row.key, row.name, row.title, row.tone])).toEqual([
+            ["c4", "no PR", "Copy edits", "idle"],
+            ["c3:backend#9", "backend #9", "Fix it", "bad"],
+            ["c1:backend#482", "backend #482", "Parallel exports", "idle"],
+            ["c1:api#87", "api #87", "POST /refunds", "idle"],
+        ]);
+        expect(rows.finished.map((row) => [row.key, row.ci, row.review])).toEqual([
+            ["r1:backend#482", null, null],
+        ]);
+        const [none, fail, first, second] = rows.open;
+        expect(none?.ci).toBeNull();
+        expect(none?.facts.map((fact) => [fact.label, fact.text])).toEqual([
+            ["change", "building"], ["branch", "feat/exports"],
+        ]);
+        const url = "https://github.com/acme/backend/pull/9";
+        expect(fail?.ci).toEqual({
+            mark: "✗", text: "red", tone: "fail", href: `${url}/checks`, title: "lint, e2e",
+        });
+        expect(fail?.review).toEqual({ text: "changes requested", tone: "fail" });
+        expect(fail?.threads).toMatchObject({ text: "2 open", tone: "warn", href: `${url}/files` });
+        expect(fail?.state).toEqual({ text: "fixing CI", tone: "plain" });
+        expect(first?.state).toEqual({
+            text: "in review", tone: "warn", title: "land backend#482",
+        });
+        expect([first?.ci?.mark, first?.ci?.text, first?.ci?.title]).toEqual([
+            "✓", "green", undefined,
+        ]);
+        expect(first?.size).toEqual({ text: "+84 −31", tone: "plain", title: "4 files" });
+        // Nobody reviewed and a required approval is missing: review required.
+        expect(second?.review).toEqual({ text: "review required", tone: "warn" });
+        expect(second?.threads?.text).toBe("none");
+        expect(second?.updated).toEqual({ text: "16 min ago", tone: "plain" });
+        const pull = "https://github.com/acme/api/pull/87";
+        expect(second?.facts.map((fact) => [fact.label, fact.column, fact.href])).toEqual([
+            ["state", undefined, undefined],
+            ["CI", "ci", undefined],
+            ["approval", undefined, undefined],
+            ["review", "review", undefined],
+            ["threads", "threads", undefined],
+            ["size", "size", undefined],
+            ["head", undefined, `${pull}/commits/0123456789abcdef`],
+            ["updated", "updated", undefined],
+            ["author", undefined, undefined],
+            ["change", "state", undefined],
+            ["branch", undefined, undefined],
+            ["on", undefined, undefined],
+        ]);
+        // The row that needs him opens first, else the current one, else none.
+        expect(startRow(rows.open)).toBe("c1:backend#482");
+        expect(startRow(rows.open.filter((row) => row.change.id !== "c1"))).toBe("c4");
+        expect(startRow(rows.finished)).toBeNull();
     });
 });
