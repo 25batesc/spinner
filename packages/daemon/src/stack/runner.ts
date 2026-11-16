@@ -91,7 +91,7 @@ import {
     type UpstreamRoute,
 } from "./host-service.js";
 import { DatabaseServer, server_address } from "./postgres.js";
-import { run_attached, run_ok } from "./shell.js";
+import { run, run_attached, run_ok } from "./shell.js";
 import { load_spec, type LoadedSpec } from "./spec.js";
 
 export type Log = (line: string) => void;
@@ -228,6 +228,10 @@ export async function attach_project(
         if (copied.length > 0) {
             log(`  copied from the primary checkout: ${copied.join(", ")}`);
         }
+        const hidden = await hide_seed_files(join(summary.path, worktree), files);
+        if (hidden.length > 0) {
+            log(`  hidden from git status (skip-worktree): ${hidden.join(", ")}`);
+        }
         // An adopted session already tracks the repo's PR; the worktree joins that entry.
         const current = session.repos[name];
         session.repos[name] = {
@@ -280,6 +284,32 @@ export function copy_seed_files(repo_path: string, worktree: string, files: stri
         copied.push(file);
     }
     return copied;
+}
+
+/**
+ * Marks the tracked seed files `skip-worktree` in the worktree, so the local copy (tokens,
+ * session ports) does not show as a change: not in `git status`, not in the session's
+ * uncommitted count, not in an agent's `git add`. Untracked files need nothing. Returns the
+ * paths it marked. Idempotent: a second call marks them again.
+ */
+export async function hide_seed_files(worktree: string, files: string[]): Promise<string[]> {
+    const hidden: string[] = [];
+    for (const file of files) {
+        assert.ok(!file.startsWith("/") && !file.includes(".."), `seed_files entry: ${file}`);
+        const target = join(worktree, file);
+        if (!existsSync(target) || statSync(target).isDirectory()) {
+            continue;
+        }
+        const tracked = await run("git", ["ls-files", "--error-unmatch", "--", file], {
+            cwd: worktree,
+        });
+        if (tracked.code !== 0) {
+            continue;
+        }
+        await run_ok("git", ["update-index", "--skip-worktree", "--", file], { cwd: worktree });
+        hidden.push(file);
+    }
+    return hidden;
 }
 
 interface SkippedLink {

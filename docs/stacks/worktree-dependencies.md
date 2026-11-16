@@ -16,7 +16,7 @@ repos:
     seed_files: [app/.npmrc, app/envs/.env.local]   # copied from the primary checkout when untracked there
 ```
 
-Registry tokens in `.npmrc`, local overrides in `.env.local`: the primary checkout has them, git does not. `seed_files` copies them into the new worktree. The copy carries whatever the operator keeps there, including tokens; the files are gitignored in the repo and stay in the session directory.
+Registry tokens in `.npmrc`, local overrides in `.env.local`: the primary checkout has them, git does not. `seed_files` copies them into the new worktree. The copy carries whatever the operator keeps there, including tokens; the files are gitignored in the repo and stay in the session directory. A seed file that git does track (a committed `.env.local` with placeholder values) is marked `skip-worktree` in the worktree after the copy, so the local copy does not show in `git status`, in the session's uncommitted count, or in an agent's `git add`.
 
 ## Installed dependencies
 

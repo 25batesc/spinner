@@ -21,7 +21,8 @@ import {
     shared_use_lines,
 } from "./docker.js";
 import { homes_in_route_files, session_numbers_in_route_files } from "./host-service.js";
-import { copy_seed_files, link_seed_dirs, stack_has_database } from "./runner.js";
+import { copy_seed_files, hide_seed_files, link_seed_dirs, stack_has_database } from "./runner.js";
+import { run_ok } from "./shell.js";
 
 describe("link_seed_dirs", () => {
     it("links when the lockfile matches and skips when it differs", () => {
@@ -113,6 +114,37 @@ describe("copy_seed_files", () => {
         expect(existsSync(join(worktree, "vendor", "darwin-arm64", "binding.node"))).toBe(true);
         const second = copy_seed_files(primary, worktree, [".env", "vendor/darwin-arm64"]);
         expect(second).toEqual(["vendor/darwin-arm64"]);
+    });
+
+    it("hides a tracked seed file from git status, and leaves an untracked one alone", async () => {
+        const root = mkdtempSync(join(tmpdir(), "spinner-seed-"));
+        const primary = join(root, "primary");
+        const worktree = join(root, "worktree");
+        mkdirSync(primary);
+        mkdirSync(worktree);
+        const git = (...args: string[]) => run_ok("git", args, { cwd: worktree });
+        await git("init", "--quiet");
+        await git("config", "user.email", "t@example.com");
+        await git("config", "user.name", "t");
+        writeFileSync(join(worktree, ".env.local"), "PORT=3000\n");
+        writeFileSync(join(worktree, ".gitignore"), ".npmrc\n");
+        await git("add", ".env.local", ".gitignore");
+        await git("commit", "--quiet", "-m", "seed");
+        // The primary's copies differ: the local values Spinner seeds in.
+        writeFileSync(join(primary, ".env.local"), "PORT=4100\n");
+        writeFileSync(join(primary, ".npmrc"), "//registry/:_authToken=x\n");
+        expect(copy_seed_files(primary, worktree, [".env.local", ".npmrc"])).toEqual([
+            ".env.local",
+            ".npmrc",
+        ]);
+        expect((await git("status", "--short")).trim()).toBe("M .env.local");
+        expect(await hide_seed_files(worktree, [".env.local", ".npmrc", "missing"])).toEqual([
+            ".env.local",
+        ]);
+        expect((await git("status", "--short")).trim()).toBe("");
+        expect(readFileSync(join(worktree, ".env.local"), "utf8")).toBe("PORT=4100\n");
+        // Again: still hidden, still reported.
+        expect(await hide_seed_files(worktree, [".env.local"])).toEqual([".env.local"]);
     });
 
     it("reports a path the worktree already has and skips a copy into a linked directory", () => {
