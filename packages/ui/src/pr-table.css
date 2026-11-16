@@ -51,10 +51,13 @@ button.pr-table-chevron {
     padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
     border-bottom: 1px solid var(--line-soft); background: var(--fill-soft);
 }
-.pr-table-facts { margin: 0; font-size: var(--text-dense); line-height: 1.6; }
-/* React writes no space between the facts; this one lets the line wrap between them. */
-.pr-table-fact { display: inline; margin-right: var(--space-2); }
-.pr-table-fact::after { content: " "; }
+/* The facts flow and wrap between pairs: a pair breaks inside only when it alone is wider
+   than the pane, so a label never ends a line with its value on the next. */
+.pr-table-facts {
+    display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 0;
+    font-size: var(--text-dense); line-height: 1.5;
+}
+.pr-table-fact { display: block; min-width: 0; }
 .pr-table-fact dt { display: inline; margin-right: var(--space-1); color: var(--muted); }
 .pr-table-fact dd { display: inline; margin: 0; font-variant-numeric: tabular-nums; }
 .pr-table-fact a { color: var(--accent); text-decoration: none; }
@@ -72,7 +75,7 @@ button.pr-table-chevron {
             max-content max-content 14px;
     }
     .pr-table [data-column="size"] { display: none; }
-    .pr-table-fact[data-column="size"] { display: inline; }
+    .pr-table-fact[data-column="size"] { display: block; }
 }
 @container pr-rail (max-width: 700px) {
     .pr-table {
@@ -80,26 +83,26 @@ button.pr-table-chevron {
             max-content 14px;
     }
     .pr-table [data-column="updated"] { display: none; }
-    .pr-table-fact[data-column="updated"] { display: inline; }
+    .pr-table-fact[data-column="updated"] { display: block; }
 }
 @container pr-rail (max-width: 630px) {
     .pr-table {
         --pr-columns: 8px max-content minmax(0, 1fr) max-content max-content max-content 14px;
     }
     .pr-table [data-column="threads"] { display: none; }
-    .pr-table-fact[data-column="threads"] { display: inline; }
+    .pr-table-fact[data-column="threads"] { display: block; }
 }
 @container pr-rail (max-width: 560px) {
     .pr-table { --pr-columns: 8px max-content minmax(0, 1fr) max-content max-content 14px; }
     .pr-table [data-column="review"] { display: none; }
-    .pr-table-fact[data-column="review"] { display: inline; }
+    .pr-table-fact[data-column="review"] { display: block; }
 }
 @container pr-rail (max-width: 460px) {
     .pr-table [data-column="ci"] { display: none; }
-    .pr-table-fact[data-column="ci"] { display: inline; }
+    .pr-table-fact[data-column="ci"] { display: block; }
 }
 @container pr-rail (max-width: 400px) {
     .pr-table { --pr-columns: 8px max-content minmax(0, 1fr) max-content 14px; }
     .pr-table [data-column="state"] { display: none; }
-    .pr-table-fact[data-column="state"] { display: inline; }
+    .pr-table-fact[data-column="state"] { display: block; }
 }

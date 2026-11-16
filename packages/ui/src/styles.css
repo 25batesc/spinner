@@ -1488,24 +1488,12 @@ button.badge.round-badge-button:hover { background: var(--accent-fill); }
     background: var(--warn-tint); border-radius: var(--radius-control);
 }
 
-/* The Changes rail (talk-change-ship.md, 2.9): one card per change in the right pane. */
+/* The PRs tab of the right pane (talk-change-ship.md, 2.9): its table is in pr-table.css. */
 .changes-rail {
     flex: 1 1 auto; min-height: 0; overflow: auto;
     padding: var(--space-2) var(--space-3); display: flex; flex-direction: column;
     gap: var(--space-2);
 }
-.change-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.change-card {
-    border: 1px solid var(--border); border-radius: var(--radius-box);
-    padding: var(--space-2) var(--space-3); display: flex; flex-direction: column;
-    gap: var(--space-1); background: var(--surface);
-}
-.change-card[data-current="true"] { box-shadow: inset 2px 0 0 var(--accent); }
-.change-list-finished .change-card { opacity: 0.75; }
-.change-head { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
-.change-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.change-meta { font-size: var(--text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.change-state { color: var(--text); font-weight: 600; }
 .change-dot { background: var(--muted); flex: 0 0 auto; }
 [data-tone="ok"] .change-dot { background: var(--ok); }
 [data-tone="warn"] .change-dot { background: var(--warn); }

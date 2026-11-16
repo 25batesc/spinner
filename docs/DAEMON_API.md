@@ -1011,7 +1011,7 @@ The GitHub poll reads the open pull requests of every change. It derives each ch
 
 The lead's `change` tool has `list`, `start` and `switch`. The extension guard refuses `git checkout -b`, `git switch` and `git branch <name>` for a session's agents and names the tool. A command with `git -C <dir>` is allowed, for a scratch repository.
 
-In the UI, the right pane has a `changes` tab: one card per change, with its pull requests, what it needs, and `post` and `merge`. The pane opens on it while the stack is down and a pull request exists. The sidebar has a `Pull requests` view: every pull request of every session, open ones first.
+In the UI, the right pane has a `PRs` tab (its id is still `changes`): a table with one line per pull request, described under "The PR view and the Agents view". The pane opens on it while the stack is down and a pull request exists. The sidebar has a `Pull requests` view: every pull request of every session, open ones first.
 
 `UpRequest.change` is `test locally` on a change (step 3). For the current change, `up` runs as before. For another change the job does these steps:
 
@@ -1077,6 +1077,8 @@ An image pasted or dropped on the message box is saved with `POST /sessions/:dir
 ## The PR view and the Agents view
 
 `ChangeView` carries what the session's PR view shows. A `ChangePr` has, besides the fields of the Changes section, `author`, `approvals` (`required`, `peer`, `owner`), `approval_check`, `bot_reviewed_head`, `queue_reason` and `last_activity`. A `ChangeView` has `posted` (the Slack permalink of the change's post, or null) and `approved` (true when `pipeline.approved_heads` holds the head of every open pull request). `GET` and `POST /sessions/:dir/approve` take `?change=<id>`, as `post` and `land` do.
+
+The PR view is a table. Each pull request is one line at every width of the pane. The columns are `PR` (a link to GitHub), `Title`, `State`, `CI` (a link to the checks), `Review`, `Threads` (a link to the files), `Size` and `Updated`. As the pane narrows the columns drop from the right; `PR` and `Title` stay. A click on a line opens its detail: what the change needs, the facts of the dropped columns, the branch, the head, the author, the approval, and the actions. One detail is open at a time. A change without a pull request is one line with `no PR`.
 
 `AgentSpec.ended` records how an agent's process ended: `code` (null for a signal), `by` (`operator` for the stop route, `daemon` for a reviewer the swarm stops; absent when the process ended on its own) and `at`. A resume clears it. The Agents view reads it: stopped by someone is `stopped`, code 0 is `done`, any other end is `failed`.
 
