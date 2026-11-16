@@ -20,7 +20,7 @@ import type {
     SessionSummary,
     Settings,
 } from "@spinner/protocol";
-import { SETTINGS_DEFAULT, role_of_agent } from "@spinner/protocol";
+import { PENDING_PROMPT_SEPARATOR, SETTINGS_DEFAULT, role_of_agent } from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import { egm_spawn } from "../egm/spawn.js";
 import type { SpinnerHome } from "../home.js";
@@ -576,7 +576,8 @@ export class AgentManager {
                 if (queued.length === 0) {
                     return handle.prompt(text, images);
                 }
-                return handle.prompt(`${queued.join("\n\n")}\n\n---\n\n${text}`, images);
+                const joined = `${queued.join("\n\n")}${PENDING_PROMPT_SEPARATOR}${text}`;
+                return handle.prompt(joined, images);
             },
         };
     }

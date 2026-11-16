@@ -12,6 +12,7 @@ import {
     chatBlocks,
     durationText,
     isSpinnerNotice,
+    splitPendingNotices,
     messageWithFiles,
     modelLabel,
     quietMs,
@@ -246,6 +247,22 @@ it("tells Spinner's own messages to an agent from the operator's", () => {
     expect(isSpinnerNotice('Implement the plan "Exports": /p/exports.md')).toBe(true);
     expect(isSpinnerNotice("please fix the MISSION.md changed by me")).toBe(false);
     expect(isSpinnerNotice("fix the test")).toBe(false);
+});
+
+it("splits the notices the daemon queued before the operator's words", () => {
+    const notices =
+        "MISSION.md changed by unknown: Log (+1).\nRe-read it.\n\n" +
+        "MISSION.md changed by unknown: Log (+1).\nRe-read it.";
+    const merged = `${notices}\n\n---\n\ncan you roll up all the stacks?`;
+    expect(splitPendingNotices(merged)).toEqual({
+        notice: notices,
+        operator: "can you roll up all the stacks?",
+    });
+    // The operator's own `---` stays theirs: the split is only after a notice.
+    const own = "first\n\n---\n\nsecond";
+    expect(splitPendingNotices(own)).toEqual({ notice: null, operator: own });
+    const alone = "Spinner autopilot: your pull request needs you.";
+    expect(splitPendingNotices(alone)).toEqual({ notice: alone, operator: null });
 });
 
 it("shows the lead's open question as the last block of its chat", () => {

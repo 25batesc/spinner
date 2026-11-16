@@ -29,7 +29,7 @@ import {
     boxRows,
     chatBlocks,
     imagesLabel,
-    isSpinnerNotice,
+    splitPendingNotices,
     messageWithFiles,
     modelLabel,
     quietMs,
@@ -190,20 +190,24 @@ function SpinnerNotice({ text }: { text: string }) {
 
 function BlockView({ block }: { block: ChatBlock }) {
     switch (block.kind) {
-        case "user":
-            if (isSpinnerNotice(block.entry.text)) {
-                return <SpinnerNotice text={block.entry.text} />;
-            }
+        case "user": {
+            const { notice, operator } = splitPendingNotices(block.entry.text);
             return (
-                <li className="chat-user">
-                    <div className="chat-user-text">{block.entry.text}</div>
-                    {block.entry.images !== undefined && (
-                        <span className="muted chat-user-images">
-                            {imagesLabel(block.entry.images)}
-                        </span>
+                <>
+                    {notice !== null && <SpinnerNotice text={notice} />}
+                    {operator !== null && (
+                        <li className="chat-user">
+                            <div className="chat-user-text">{operator}</div>
+                            {block.entry.images !== undefined && (
+                                <span className="muted chat-user-images">
+                                    {imagesLabel(block.entry.images)}
+                                </span>
+                            )}
+                        </li>
                     )}
-                </li>
+                </>
             );
+        }
         case "answer":
             return (
                 <li className="chat-assistant">

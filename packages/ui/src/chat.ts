@@ -1,7 +1,7 @@
 // The chat's pure half (docs/designs/talk-change-ship.md, 5.2 to 5.5): what a tool row says,
 // which entries are drawn, what Enter does in the message box, and the text of a message
 // with its attached images. `AgentChat.tsx` draws them.
-import type { AgentEventsStamp } from "@spinner/protocol";
+import { PENDING_PROMPT_SEPARATOR, type AgentEventsStamp } from "@spinner/protocol";
 
 import type { Entry } from "./transcript.ts";
 
@@ -356,6 +356,28 @@ const SPINNER_STARTS = [
 export function isSpinnerNotice(text: string): boolean {
     const start = text.trimStart();
     return SPINNER_STARTS.some((prefix) => start.startsWith(prefix));
+}
+
+/**
+ * A user message as its parts: the notices Spinner queued for the agent's next prompt, and
+ * the operator's own words after `PENDING_PROMPT_SEPARATOR`. The daemon joins them into one
+ * prompt when a notice could not be steered in while the agent ran; shown whole, the message
+ * read as one notice and the operator's words were lost (s039). A message that starts with
+ * a notice and has no separator is one notice; one that starts with the operator's words is
+ * theirs, whole.
+ */
+export function splitPendingNotices(
+    text: string,
+): { notice: string | null; operator: string | null } {
+    if (!isSpinnerNotice(text)) {
+        return { notice: null, operator: text };
+    }
+    const at = text.indexOf(PENDING_PROMPT_SEPARATOR);
+    if (at < 0) {
+        return { notice: text, operator: null };
+    }
+    const operator = text.slice(at + PENDING_PROMPT_SEPARATOR.length);
+    return { notice: text.slice(0, at), operator: operator.trim() === "" ? null : operator };
 }
 
 /** How often the chat asks the daemon for the transcript's stamp. */

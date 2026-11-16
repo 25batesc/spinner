@@ -1618,6 +1618,13 @@ export interface AgentEventsStamp {
     active: string | null;
 }
 
+/**
+ * What the daemon puts between the texts it queued for an agent's next prompt (a notice
+ * that could not be steered in) and the prompt itself, in one user message. The chat splits
+ * the message on it, so the queued notices show as Spinner's and the rest as the operator's.
+ */
+export const PENDING_PROMPT_SEPARATOR = "\n\n---\n\n";
+
 /** The agent's past turns, as the `message_end` events the UI folds, oldest first. */
 export interface AgentEventsResponse {
     events: PiEvent[];
