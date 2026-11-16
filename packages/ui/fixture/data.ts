@@ -368,9 +368,9 @@ export function view(
 
 /**
  * The changes of a fixture session (docs/designs/talk-change-ship.md, 2.8): its one current
- * change from its PRs; `FIXTURE_MERGED_CHANGE` and `FIXTURE_PARKED_CHANGE` before it for the
- * session with open PRs, so the PR view, the PR chip, the card's `+1` and the PRs view have a
- * finished change and a change that is not checked out to show.
+ * change from its PRs; for the session with several open PRs, a closed and a merged change,
+ * a change whose CI is red, one in review and one without a pull request before it, so the
+ * PR table, the PR chip, the card's `+n` and the PRs view have every kind of row to show.
  */
 export function fixtureChanges(base: Session, prs: PrFacts[]): ChangeView[] {
     const open = prs.filter((pr) => pr.state === "open" || pr.state === "draft");
@@ -392,8 +392,29 @@ export function fixtureChanges(base: Session, prs: PrFacts[]): ChangeView[] {
         on: null, started: base.created, ended: null,
         posted: base.pipeline?.slack_post ?? null, approved: false,
     };
-    return open.length > 1 ? [FIXTURE_MERGED_CHANGE, FIXTURE_PARKED_CHANGE, current] : [current];
+    return open.length > 1
+        ? [
+              FIXTURE_CLOSED_CHANGE, FIXTURE_MERGED_CHANGE, FIXTURE_PARKED_CHANGE,
+              FIXTURE_REVIEW_CHANGE, FIXTURE_DRAFT_CHANGE, current,
+          ]
+        : [current];
 }
+
+/** A finished change: its one pull request closed unmerged. */
+export const FIXTURE_CLOSED_CHANGE: ChangeView = {
+    id: "c0", title: "Refund by bank transfer", branch: "feat/refund-transfer",
+    current: false, state: "closed", stage: "merged", needs_human: null, on: null,
+    started: "2026-10-08T09:00:00Z", ended: "2026-10-10T11:00:00Z", posted: null,
+    approved: false,
+    prs: [{
+        repo: "api", number: 58, url: "https://github.com/example/api/pull/58", state: "closed",
+        title: "Refund by bank transfer", author: "operator", head: "1a2b3c4d5e6f7a8b",
+        checks: "green", review: "none", queue: "none",
+        threads: { bots_open: 0, humans_open: 0, resolved: 1 },
+        last_activity: "2026-10-10T11:00:00Z",
+        diff: { files: 5, additions: 140, deletions: 22 },
+    }],
+};
 
 /** A finished change: its one pull request merged. */
 export const FIXTURE_MERGED_CHANGE: ChangeView = {
@@ -428,6 +449,32 @@ export const FIXTURE_PARKED_CHANGE: ChangeView = {
         last_activity: "2026-10-26T17:20:00Z",
         diff: { files: 2, additions: 12, deletions: 4 },
     }],
+};
+
+/** A change that is not checked out, in review: one open pull request, CI still running. */
+export const FIXTURE_REVIEW_CHANGE: ChangeView = {
+    id: "c4", title: "Show the refund reason on the order history page and in the receipt email",
+    branch: "feat/refund-reason-history", current: false, state: "in review",
+    stage: "peer-review", needs_human: null, on: "c1",
+    started: "2026-10-21T09:00:00Z", ended: null, verified: false,
+    posted: "https://slack.example/archives/C0FIXTURE/p1", approved: false,
+    prs: [{
+        repo: "web", number: 81, url: "https://github.com/example/web/pull/81", state: "open",
+        title: "Show the refund reason on the order history page and in the receipt email",
+        author: "operator", head: "7c6b5a4f3e2d1c0b", checks: "pending", review: "none",
+        approvals: { required: ["peer"], peer: [], owner: false }, approval_check: "pending",
+        bot_reviewed_head: null, queue: "none",
+        threads: { bots_open: 0, humans_open: 0, resolved: 0 },
+        last_activity: "2026-10-26T17:30:00Z",
+        diff: { files: 23, additions: 1984, deletions: 290 },
+    }],
+};
+
+/** A change that is not checked out, with commits and no pull request yet. */
+export const FIXTURE_DRAFT_CHANGE: ChangeView = {
+    id: "c5", title: "Refund audit log", branch: "feat/refund-audit-log", current: false,
+    state: "building", stage: "building", needs_human: null, on: null,
+    started: "2026-10-24T09:00:00Z", ended: null, posted: null, approved: false, prs: [],
 };
 
 /** The window every fixture model has: 1M tokens, as the Opus and Sonnet models of pi. */

@@ -1,23 +1,28 @@
-// The PR view (docs/designs/talk-change-ship.md, 2.9; the operator's ask of 2026-11-13): one
-// block per change of the session. A block shows the change's state in plain words, `tested`,
-// `posted`, what it needs from the operator, a grid of facts per pull request, and the PR
-// actions that were the top toolbar's. `merge`, `post` and `approve` act on that change,
-// checked out or not (`?change=<id>`); `create PR`, `review` and `fix` on the current one.
-// Finished changes fold under a count.
+// The PR view (docs/designs/talk-change-ship.md, 2.9; the operator's asks of 2026-11-13 and
+// 2026-11-15): a table with one line per pull request of the session's changes, and one for a
+// change without any. A click on a row opens its detail under it: what the change needs from
+// the operator, the facts the narrowed columns no longer show, and the PR actions that were
+// the top toolbar's. `merge`, `post` and `approve` act on that change, checked out or not
+// (`?change=<id>`); `create PR`, `review` and `fix` on the current one. Finished changes fold
+// under a count.
 import { useEffect, useRef, useState } from "react";
 
-import type { ChangePr, ChangeView, SessionView } from "@spinner/protocol";
+import type { ChangeView, SessionView } from "@spinner/protocol";
 
 import "./pr-view.css";
+import "./pr-table.css";
 import {
     changeCards,
     hasStack,
     isFinished,
     prActions,
-    prFacts,
-    stateTone,
+    prTableRows,
+    startRow,
     type PrAction,
     type PrActionName,
+    type PrCell,
+    type PrColumn,
+    type PrTableRow,
 } from "./changes.ts";
 import { ApproveDialog, PIPELINE_TIPS, PostDialog } from "./PipelineActions.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
@@ -59,7 +64,7 @@ export interface ChangesRailProps {
     run: RunAction;
     /** Moves on pipeline events; the post and approve dialogs read the daemon's preview again. */
     revision: number;
-    /** The change the PR chip asked for; its block scrolls into view. `seq` moves per ask. */
+    /** The change the PR chip asked for; its row opens and scrolls into view. `seq` moves. */
     focus?: { change: string; seq: number } | undefined;
 }
 
@@ -88,47 +93,12 @@ function actionTip(name: PrActionName, change: ChangeView): string {
     }
 }
 
-function PrBlock({ pr, now }: { pr: ChangePr; now: Date }) {
-    const name = `${pr.repo} #${pr.number}`;
-    return (
-        <li className="pr-block" data-state={pr.state}>
-            <div className="pr-block-head">
-                {pr.url === null ? (
-                    <span className="change-pr-name">{name}</span>
-                ) : (
-                    <a
-                        className="change-pr-name"
-                        href={pr.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open on GitHub"
-                    >
-                        {name} ↗
-                    </a>
-                )}
-                {pr.title !== undefined && (
-                    <span className="pr-block-title" title={pr.title}>{pr.title}</span>
-                )}
-                {pr.author !== undefined && <span className="muted">by {pr.author}</span>}
-            </div>
-            <dl className="pr-facts">
-                {prFacts(pr, now).map((fact) => (
-                    <div key={fact.label} className="pr-fact" data-tone={fact.tone}>
-                        <dt>{fact.label}</dt>
-                        <dd title={fact.title}>{fact.text}</dd>
-                    </div>
-                ))}
-            </dl>
-        </li>
-    );
-}
-
 interface Dialog {
     kind: "post" | "approve";
     change: string;
 }
 
-interface CardProps {
+interface ActionsProps {
     dir: string;
     /** True when the session has a stack: `test locally` is offered. */
     stack: boolean;
@@ -138,10 +108,9 @@ interface CardProps {
     onDialog: (dialog: Dialog) => void;
 }
 
-function ChangeCard({ dir, stack, change, busy, run, onDialog }: CardProps) {
+function ChangeActions({ dir, stack, change, busy, run, onDialog }: ActionsProps) {
     // `merge` cannot be undone, so the first click arms it and the second sends it.
     const [armed, setArmed] = useState(false);
-    const now = new Date();
     const query = `?change=${encodeURIComponent(change.id)}`;
     const merge = () => {
         setArmed(false);
@@ -189,54 +158,157 @@ function ChangeCard({ dir, stack, change, busy, run, onDialog }: CardProps) {
         );
     };
     const actions = prActions(change, stack, busy);
-    const on = change.on === null ? "" : ` · on ${change.on}`;
+    return actions.length > 0 && <div className="change-actions">{actions.map(button)}</div>;
+}
+
+/** A cell's text, a link in a new tab when it has one. */
+function CellText({ cell }: { cell: PrCell | null }) {
+    if (cell === null) {
+        return null;
+    }
+    if (cell.href === undefined) {
+        return <span title={cell.title}>{cell.text}</span>;
+    }
     return (
-        <li
-            className="change-card"
-            data-change={change.id}
-            data-current={change.current}
-            data-tone={stateTone(change.state)}
-        >
-            <header className="change-head">
-                <span className="dot change-dot" aria-hidden="true" />
-                <strong className="change-title">{change.title}</strong>
-                {change.verified === true && (
-                    <span className="badge change-tested" title="You verified it at this head">
-                        tested
-                    </span>
-                )}
-                {change.posted != null && (
-                    <a
-                        className="badge change-posted"
-                        href={change.posted}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="The review request on Slack"
+        <a href={cell.href} target="_blank" rel="noreferrer" title={cell.title}>
+            {cell.text}
+        </a>
+    );
+}
+
+const HEADINGS: [string, PrColumn | undefined][] = [
+    ["", undefined], ["PR", undefined], ["Title", undefined], ["State", "state"],
+    ["CI", undefined], ["Review", "review"], ["Threads", "threads"], ["Size", "size"],
+    ["Updated", "updated"], ["", undefined],
+];
+
+interface RowProps extends Omit<ActionsProps, "change"> {
+    row: PrTableRow;
+    open: boolean;
+    onToggle: () => void;
+}
+
+function TableRow({ row, open, onToggle, ...actions }: RowProps) {
+    const { change, ci } = row;
+    return (
+        <>
+            <div
+                className="pr-table-row"
+                role="row"
+                data-change={change.id}
+                data-tone={row.tone}
+                data-open={open}
+                onClick={(event) => {
+                    // A link opens GitHub or Slack; it does not fold the row.
+                    if (event.target instanceof Element && event.target.closest("a") !== null) {
+                        return;
+                    }
+                    onToggle();
+                }}
+            >
+                <span role="cell"><span className="dot change-dot" aria-hidden="true" /></span>
+                <span role="cell">
+                    {row.href === null ? (
+                        <span className="change-pr-name">{row.name}</span>
+                    ) : (
+                        <a
+                            className="change-pr-name"
+                            href={row.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open on GitHub"
+                        >
+                            {row.name} ↗
+                        </a>
+                    )}
+                </span>
+                <span role="cell" className="pr-table-title">
+                    <span className="pr-table-title-text" title={row.title}>{row.title}</span>
+                    {change.current && (
+                        <span className="badge" title="Checked out in the session's worktrees">
+                            current
+                        </span>
+                    )}
+                    {change.verified === true && (
+                        <span className="badge change-tested" title="You verified it at this head">
+                            tested
+                        </span>
+                    )}
+                    {change.posted != null && (
+                        <a
+                            className="badge change-posted"
+                            href={change.posted}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="The review request on Slack"
+                        >
+                            posted ↗
+                        </a>
+                    )}
+                </span>
+                <span role="cell" data-column="state" data-tone={row.state.tone}>
+                    <CellText cell={row.state} />
+                </span>
+                <span role="cell" data-tone={ci?.tone}>
+                    {ci !== null && (
+                        <a href={ci.href} target="_blank" rel="noreferrer" title={ci.title}>
+                            {ci.mark}
+                            <span data-column="ci"> {ci.text}</span>
+                        </a>
+                    )}
+                </span>
+                <span role="cell" data-column="review" data-tone={row.review?.tone}>
+                    <CellText cell={row.review} />
+                </span>
+                <span role="cell" data-column="threads" data-tone={row.threads?.tone}>
+                    <CellText cell={row.threads} />
+                </span>
+                <span role="cell" data-column="size">
+                    <CellText cell={row.size} />
+                </span>
+                <span role="cell" data-column="updated">
+                    <CellText cell={row.updated} />
+                </span>
+                <span role="cell">
+                    <button
+                        className="pr-table-chevron"
+                        aria-expanded={open}
+                        aria-label={open ? "Close the detail" : "Open the detail"}
                     >
-                        posted ↗
-                    </a>
-                )}
-                {change.current && (
-                    <span className="badge" title="Checked out in the session's worktrees">
-                        current
-                    </span>
-                )}
-            </header>
-            <div className="muted change-meta" title={change.branch}>
-                <span className="change-state">{change.state}</span> · {change.branch}{on}
+                        {open ? "▾" : "▸"}
+                    </button>
+                </span>
             </div>
-            {change.needs_human !== null && (
-                <div className="needs-human change-needs">needs you: {change.needs_human}</div>
+            {open && (
+                <div className="pr-table-detail">
+                    {change.needs_human !== null && (
+                        <div className="needs-human">needs you: {change.needs_human}</div>
+                    )}
+                    <dl className="pr-table-facts">
+                        {row.facts.map((fact) => (
+                            <div
+                                key={fact.label}
+                                className="pr-table-fact"
+                                data-column={fact.column}
+                                data-tone={fact.tone}
+                            >
+                                <dt>{fact.label}</dt>
+                                <dd title={fact.title}>
+                                    {fact.href === undefined ? (
+                                        fact.text
+                                    ) : (
+                                        <a href={fact.href} target="_blank" rel="noreferrer">
+                                            {fact.text}
+                                        </a>
+                                    )}
+                                </dd>
+                            </div>
+                        ))}
+                    </dl>
+                    <ChangeActions change={change} {...actions} />
+                </div>
             )}
-            {change.prs.length > 0 && (
-                <ul className="pr-blocks">
-                    {change.prs.map((pr) => (
-                        <PrBlock key={`${pr.repo}#${pr.number}`} pr={pr} now={now} />
-                    ))}
-                </ul>
-            )}
-            {actions.length > 0 && <div className="change-actions">{actions.map(button)}</div>}
-        </li>
+        </>
     );
 }
 
@@ -245,7 +317,9 @@ export function ChangesRail({ view, busy, run, revision, focus }: ChangesRailPro
     const [showFinished, setShowFinished] = useState(false);
     const list = useRef<HTMLDivElement | null>(null);
     const dir = view.summary.dir;
-    const cards = changeCards(view);
+    const rows = prTableRows(view, new Date());
+    const finished = changeCards(view).finished.length;
+    const [openRow, setOpenRow] = useState(() => startRow(rows.open));
     const focused = focus === undefined
         ? undefined
         : (view.changes ?? []).find((change) => change.id === focus.change);
@@ -256,18 +330,22 @@ export function ChangesRail({ view, busy, run, revision, focus }: ChangesRailPro
         if (isFinished(focused)) {
             setShowFinished(true);
         }
-        // After the fold opens: the block of a finished change mounts with it.
+        const first = [...rows.open, ...rows.finished].find((row) => row.change.id === focused.id);
+        setOpenRow(first?.key ?? null);
+        // After the fold opens: the rows of a finished change mount with it.
         requestAnimationFrame(() => {
-            const block = list.current?.querySelector(`[data-change="${focused.id}"]`);
-            block?.scrollIntoView({ block: "start", behavior: "smooth" });
+            const row = list.current?.querySelector(`[data-change="${focused.id}"]`);
+            row?.scrollIntoView({ block: "start", behavior: "smooth" });
         });
     }, [focus?.seq]);
-    const card = (change: ChangeView) => (
-        <ChangeCard
-            key={change.id}
+    const tableRow = (row: PrTableRow) => (
+        <TableRow
+            key={row.key}
+            row={row}
+            open={openRow === row.key}
+            onToggle={() => setOpenRow(openRow === row.key ? null : row.key)}
             dir={dir}
             stack={hasStack(view)}
-            change={change}
             busy={busy}
             run={run}
             onDialog={setDialog}
@@ -276,25 +354,30 @@ export function ChangesRail({ view, busy, run, revision, focus }: ChangesRailPro
     const close = () => setDialog(null);
     return (
         <div className="changes-rail" aria-label="Pull requests" ref={list}>
-            {cards.open.length === 0 && cards.finished.length === 0 && (
+            {rows.open.length === 0 && rows.finished.length === 0 && (
                 <p className="muted">No change yet. Tell the agent what to build.</p>
             )}
-            <ul className="change-list">{cards.open.map(card)}</ul>
-            {cards.finished.length > 0 && (
-                <>
-                    <button
-                        className="link changes-finished-toggle"
-                        aria-expanded={showFinished}
-                        onClick={() => setShowFinished(!showFinished)}
-                    >
-                        {showFinished ? "▾" : "▸"} {cards.finished.length} finished
-                    </button>
-                    {showFinished && (
-                        <ul className="change-list change-list-finished">
-                            {cards.finished.map(card)}
-                        </ul>
+            {rows.open.length + rows.finished.length > 0 && (
+                <div className="pr-table" role="table">
+                    <div className="pr-table-row pr-table-head" role="row">
+                        {HEADINGS.map(([name, column], index) => (
+                            <span key={index} role="columnheader" data-column={column}>
+                                {name}
+                            </span>
+                        ))}
+                    </div>
+                    {rows.open.map(tableRow)}
+                    {rows.finished.length > 0 && (
+                        <button
+                            className="link changes-finished-toggle"
+                            aria-expanded={showFinished}
+                            onClick={() => setShowFinished(!showFinished)}
+                        >
+                            {showFinished ? "▾" : "▸"} {finished} finished
+                        </button>
                     )}
-                </>
+                    {showFinished && rows.finished.map(tableRow)}
+                </div>
             )}
             {dialog?.kind === "post" && (
                 <PostDialog

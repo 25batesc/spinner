@@ -393,3 +393,168 @@ export function opensOnChanges(view: SessionView): boolean {
     }
     return (view.changes ?? []).some((change) => change.prs.length > 0);
 }
+
+/**
+ * The columns of the PR table that drop as the pane narrows, in the order they drop. `ci`
+ * is the word of the CI cell (its mark stays) and `state` the state text (the dot stays).
+ */
+export type PrColumn = "size" | "updated" | "threads" | "review" | "ci" | "state";
+
+/** A cell of the PR table: its text and tone, the link it opens and its tooltip. */
+export interface PrCell {
+    text: string;
+    tone: Tone;
+    href?: string | undefined;
+    title?: string | undefined;
+}
+
+/** A fact of a row's detail; one with a `column` shows only while that column is hidden. */
+export interface DetailFact extends PrFact {
+    column?: PrColumn;
+    href?: string;
+}
+
+/** One row of the PR table: a pull request of a change, or a change without one. */
+export interface PrTableRow {
+    key: string;
+    change: ChangeView;
+    pr: ChangePr | null;
+    tone: ReturnType<typeof stateTone>;
+    /** `web #412`, or `no PR`. */
+    name: string;
+    href: string | null;
+    /** The pull request's title, else the change's. */
+    title: string;
+    /** The change's state; amber with the `needs_human` text when the change needs him. */
+    state: PrCell;
+    ci: (PrCell & { mark: string }) | null;
+    review: PrCell | null;
+    threads: PrCell | null;
+    size: PrCell | null;
+    updated: PrCell | null;
+    facts: DetailFact[];
+}
+
+const FACT_COLUMN: Record<string, PrColumn> = {
+    CI: "ci", review: "review", threads: "threads", size: "size", updated: "updated",
+};
+
+function link(pr: ChangePr, path: string): string | undefined {
+    return pr.url === null ? undefined : `${pr.url}/${path}`;
+}
+
+function ciCell(pr: ChangePr): (PrCell & { mark: string }) | null {
+    const fact = ciFact(pr);
+    if (fact === null) {
+        return null;
+    }
+    const failing = (pr.checks_failing ?? []).join(", ");
+    return {
+        mark: ciMark(pr), text: pr.checks ?? "", tone: fact.tone, href: link(pr, "checks"),
+        title: failing === "" ? undefined : failing,
+    };
+}
+
+/**
+ * The review decision; `review required` when nobody decided yet and a required approval
+ * is missing. A pull request no longer open has none.
+ */
+function reviewCell(pr: ChangePr): PrCell | null {
+    if (pr.review === undefined || !isOpenPr(pr)) {
+        return null;
+    }
+    if (pr.review === "none" && approvalFact(pr)?.tone === "warn") {
+        return { text: "review required", tone: "warn" };
+    }
+    return { text: REVIEW_TEXT[pr.review], tone: REVIEW_TONE[pr.review] };
+}
+
+function threadsCell(pr: ChangePr): PrCell | null {
+    const fact = threadsFact(pr);
+    if (fact === null || pr.threads === undefined) {
+        return null;
+    }
+    const open = pr.threads.bots_open + pr.threads.humans_open;
+    const text = open === 0 || !isOpenPr(pr) ? "none" : `${open} open`;
+    return { text, tone: fact.tone, href: link(pr, "files"), title: fact.text };
+}
+
+function prRow(change: ChangeView, pr: ChangePr | null, now: Date): PrTableRow {
+    const needs = change.needs_human;
+    const state: PrCell = needs === null
+        ? { text: change.state, tone: "plain" }
+        : { text: change.state, tone: "warn", title: needs };
+    const facts: DetailFact[] = [];
+    if (pr !== null) {
+        for (const fact of prFacts(pr, now)) {
+            const detail: DetailFact = { ...fact };
+            const column = FACT_COLUMN[fact.label];
+            if (column !== undefined) {
+                detail.column = column;
+            }
+            const sha = fact.label === "head" ? pr.head : undefined;
+            const href = sha === undefined ? undefined : link(pr, `commits/${sha}`);
+            if (href !== undefined) {
+                detail.href = href;
+            }
+            facts.push(detail);
+        }
+        if (pr.author !== undefined) {
+            facts.push({ label: "author", text: pr.author, tone: "plain" });
+        }
+    }
+    facts.push(
+        { label: "change", text: change.state, tone: state.tone, column: "state" },
+        { label: "branch", text: change.branch, tone: "plain" },
+    );
+    if (change.on !== null) {
+        facts.push({ label: "on", text: change.on, tone: "plain" });
+    }
+    const updated = pr === null ? null : agoText(pr.last_activity, now);
+    return {
+        key: pr === null ? change.id : `${change.id}:${pr.repo}#${pr.number}`,
+        change,
+        pr,
+        tone: stateTone(change.state),
+        name: pr === null ? "no PR" : `${pr.repo} #${pr.number}`,
+        href: pr?.url ?? null,
+        title: pr?.title ?? change.title,
+        state,
+        ci: pr === null ? null : ciCell(pr),
+        review: pr === null ? null : reviewCell(pr),
+        threads: pr === null ? null : threadsCell(pr),
+        size: pr?.diff === undefined
+            ? null
+            : {
+                  text: diffText(pr),
+                  tone: "plain",
+                  title: `${pr.diff.files} file${pr.diff.files === 1 ? "" : "s"}`,
+              },
+        updated: updated === null ? null : { text: updated, tone: "plain" },
+        facts,
+    };
+}
+
+/**
+ * The rows of the PR table, in the order of the cards: one per pull request, one for a
+ * change without any. The finished changes' rows fold apart.
+ */
+export function prTableRows(
+    view: SessionView,
+    now: Date,
+): { open: PrTableRow[]; finished: PrTableRow[] } {
+    const rows = (changes: ChangeView[]) => changes.flatMap((change) =>
+        change.prs.length === 0
+            ? [prRow(change, null, now)]
+            : change.prs.map((pr) => prRow(change, pr, now)),
+    );
+    const cards = changeCards(view);
+    return { open: rows(cards.open), finished: rows(cards.finished) };
+}
+
+/** The row open at the start: the first that needs the operator, else the current one. */
+export function startRow(rows: PrTableRow[]): string | null {
+    const row = rows.find((r) => r.change.needs_human !== null)
+        ?? rows.find((r) => r.change.current);
+    return row?.key ?? null;
+}

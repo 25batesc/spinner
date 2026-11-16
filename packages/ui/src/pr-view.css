@@ -1,35 +1,5 @@
-/* The PR view (`ChangesRail.tsx`) and the PR chip of the context bar (`PaneHead.tsx`). It
-   builds on the `.change-*` card classes of `styles.css` and adds a block per pull request:
-   its name and title, then a grid of labelled facts whose value takes the tone of its state. */
-.pr-blocks {
-    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
-    gap: var(--space-2);
-}
-.pr-block {
-    display: flex; flex-direction: column; gap: var(--space-1);
-    padding-top: var(--space-1); border-top: 1px solid var(--border);
-}
-.pr-block-head {
-    display: flex; align-items: baseline; gap: var(--space-2); min-width: 0;
-    font-size: var(--text-dense);
-}
-.pr-block-title {
-    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.pr-facts {
-    margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: var(--space-1) var(--space-3);
-}
-.pr-fact { min-width: 0; }
-.pr-fact dt { font-size: var(--text-meta); color: var(--muted); }
-.pr-fact dd {
-    margin: 0; font-size: var(--text-dense); overflow-wrap: anywhere;
-    font-variant-numeric: tabular-nums;
-}
-.pr-fact[data-tone="ok"] dd { color: var(--ok); }
-.pr-fact[data-tone="warn"] dd { color: var(--warn); }
-.pr-fact[data-tone="fail"] dd { color: var(--fail); }
-.pr-fact[data-tone="done"] dd { color: var(--accent); }
+/* The PR view's actions (`ChangesRail.tsx`, its table is `pr-table.css`) and the PR chip of
+   the context bar (`PaneHead.tsx`). */
 .change-actions button:disabled { opacity: 0.5; cursor: default; }
 .pr-merge-confirm { display: inline-flex; gap: var(--space-1); }
 a.badge.change-posted { color: var(--accent); text-decoration: none; }
