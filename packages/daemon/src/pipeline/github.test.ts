@@ -28,11 +28,36 @@ function load(name: string): PrResponse {
 const config: GithubConfig = {
     bot_logins: ["devin-ai-integration[bot]", "sonarqubecloud[bot]"],
     approval_check: "Independent Approval",
+    checks_ignore: [],
     approval_policy: { human_author: ["peer"], bot_author: ["peer", "owner"] },
+    write_repos: [],
     merge_queue: "github",
     poll_seconds: 60,
 };
 const context = { config, owner_login: "owner-1" };
+
+/** The fixture with one more check run on its head, at the end of the rollup. */
+function with_check(
+    base: PrResponse,
+    name: string,
+    conclusion: string,
+    rules?: PrResponse["data"]["repository"]["pullRequest"]["baseRef"],
+): PrResponse {
+    const node = base.data.repository.pullRequest;
+    const commit = node.commits.nodes[0]?.commit;
+    if (commit === undefined || commit.statusCheckRollup === null) {
+        throw new Error("fixture has no rollup");
+    }
+    const rollup = commit.statusCheckRollup;
+    const added = { __typename: "CheckRun" as const, name, status: "COMPLETED", conclusion };
+    const contexts = { nodes: [...rollup.contexts.nodes, added] };
+    const pullRequest = {
+        ...node,
+        baseRef: rules,
+        commits: { nodes: [{ commit: { ...commit, statusCheckRollup: { ...rollup, contexts } } }] },
+    };
+    return { data: { repository: { pullRequest } } };
+}
 
 function facts(pr: PullRequest, verified: boolean): PipelineFacts {
     return {
@@ -171,6 +196,69 @@ describe("pr-merged-after-popout fixture", () => {
         // not, so a push asks for it again.
         expect(pr.review).toBe("approved");
         expect(pr.approvals.peer).toEqual([]);
+    });
+});
+
+// Goal: a check that is red on every pull request and that GitHub does not require must
+// not make the rollup red, else the autopilot tells the lead to fix it at every push.
+// Method: add a cancelled check run to the green fixture, then leave it out by name
+// (`checks_ignore`) and by the base branch's rules (`baseRef.rules`).
+describe("checks that do not count", () => {
+    const green = load("pr-approving");
+    const analysis = "SonarCloud Code Analysis";
+
+    it("a cancelled check run is red when nothing leaves it out", () => {
+        const pr = pr_facts_from_response(with_check(green, analysis, "CANCELLED"), context);
+        expect(pr.checks).toBe("red");
+        expect(pr.checks_failing).toEqual([analysis]);
+    });
+
+    it("`checks_ignore` leaves a check out by name, case-insensitive", () => {
+        const ignoring = {
+            ...context,
+            config: { ...config, checks_ignore: ["sonarcloud code analysis"] },
+        };
+        const pr = pr_facts_from_response(with_check(green, analysis, "CANCELLED"), ignoring);
+        expect(pr.checks).toBe("green");
+        expect(pr.checks_failing).toEqual([]);
+    });
+
+    it("only the checks the base branch requires count when its rules name any", () => {
+        const rules = {
+            rules: {
+                nodes: [
+                    { type: "PULL_REQUEST", parameters: {} },
+                    { type: "NON_FAST_FORWARD", parameters: null },
+                    {
+                        type: "REQUIRED_STATUS_CHECKS",
+                        parameters: {
+                            requiredStatusChecks: [
+                                { context: "Independent Approval" },
+                                { context: "Check Changed Paths" },
+                            ],
+                        },
+                    },
+                ],
+            },
+        };
+        const red = with_check(green, analysis, "CANCELLED", rules);
+        const pr = pr_facts_from_response(red, context);
+        expect(pr.checks).toBe("green");
+        expect(pr.checks_failing).toEqual([]);
+        // The approval check is still split out, not rolled up, when the rules require it.
+        expect(pr.approval_check).toBe("fail");
+        // A required check that is red still counts.
+        const required_red = with_check(red, "Check Changed Paths", "FAILURE", rules);
+        expect(pr_facts_from_response(required_red, context).checks).toBe("red");
+        expect(pr_facts_from_response(required_red, context).checks_failing).toEqual([
+            "Check Changed Paths",
+        ]);
+    });
+
+    it("a base branch whose rules require no check counts every check", () => {
+        const rules = { rules: { nodes: [{ type: "PULL_REQUEST", parameters: {} }] } };
+        const pr = pr_facts_from_response(with_check(green, analysis, "CANCELLED", rules), context);
+        expect(pr.checks).toBe("red");
     });
 });
 

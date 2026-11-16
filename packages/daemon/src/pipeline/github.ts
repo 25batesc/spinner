@@ -120,6 +120,11 @@ export interface PrNode {
     baseRefName: string;
     headRefName: string;
     headRefOid: string;
+    /**
+     * The rules of the base branch, for the checks it requires. Absent in a response
+     * recorded before the rules were queried; null when the base branch no longer exists.
+     */
+    baseRef?: { rules: { nodes: RuleNode[] } } | null;
     /** The size of the pull request. Absent in a response recorded before step 2. */
     additions?: number;
     deletions?: number;
@@ -135,6 +140,12 @@ export interface PrNode {
 interface Rollup {
     state: string;
     contexts: { nodes: CheckNode[] };
+}
+
+/** `parameters` is null for a rule type without any, and lacks the list for other types. */
+interface RuleNode {
+    type: string;
+    parameters: { requiredStatusChecks?: { context: string }[] } | null;
 }
 
 type CheckNode =
@@ -204,7 +215,11 @@ export function pr_facts_from_response(response: PrResponse, context: FactsConte
     const author = node.author?.login ?? "ghost";
     const author_is_bot = is_bot_login(author, context.config.bot_logins);
     const rollup = node.commits.nodes[0]?.commit.statusCheckRollup ?? null;
-    const checks = split_checks(rollup, context.config.approval_check);
+    const checks = split_checks(rollup, {
+        approval_name: context.config.approval_check,
+        ignored: context.config.checks_ignore,
+        required: required_checks(node),
+    });
     const approvals = collect_approvals(node, context);
     const queue = derive_queue(node);
     return {
@@ -262,23 +277,48 @@ interface SplitChecks {
     failing: string[];
 }
 
+interface CheckSelection {
+    /** `github.approval_check`: split out of the rollup. */
+    approval_name: string | undefined;
+    /** `github.checks_ignore`: left out of the rollup. */
+    ignored: readonly string[];
+    /**
+     * The checks the base branch requires to merge, or null when its rules name none. With
+     * a list, only those count: a red check GitHub does not require blocks nothing.
+     */
+    required: readonly string[] | null;
+}
+
 /**
- * Rolls up every check except the approval check. A re-run adds a second node with the same
+ * Rolls up the checks that count: not the approval check, not an ignored one, and one the
+ * base branch requires when it requires any. A re-run adds a second node with the same
  * name, so the last node per name is the one that counts. A rollup with no checks is green:
  * a repo without CI has nothing to wait for.
  */
-function split_checks(rollup: Rollup | null, approval_name: string | undefined): SplitChecks {
+function split_checks(rollup: Rollup | null, selection: CheckSelection): SplitChecks {
     const latest = new Map<string, CheckState>();
     let approval: ApprovalCheckState = "pending";
-    const approval_key = approval_name?.toLowerCase();
+    const approval_key = selection.approval_name?.toLowerCase();
+    const ignored = new Set(selection.ignored.map((name) => name.toLowerCase()));
+    const required =
+        selection.required === null
+            ? null
+            : new Set(selection.required.map((name) => name.toLowerCase()));
     for (const node of rollup?.contexts.nodes ?? []) {
         const name = node.__typename === "CheckRun" ? node.name : node.context;
+        const key = name.toLowerCase();
         const state = check_state(node);
-        if (approval_key !== undefined && name.toLowerCase() === approval_key) {
+        if (approval_key !== undefined && key === approval_key) {
             approval = state === "green" ? "pass" : state === "red" ? "fail" : "pending";
-        } else {
-            latest.set(name, state);
+            continue;
         }
+        if (ignored.has(key)) {
+            continue;
+        }
+        if (required !== null && !required.has(key)) {
+            continue;
+        }
+        latest.set(name, state);
     }
     const states = [...latest.values()];
     const failing = [...latest.entries()]
@@ -291,6 +331,17 @@ function split_checks(rollup: Rollup | null, approval_name: string | undefined):
         return { rollup: "pending", approval, failing };
     }
     return { rollup: "green", approval, failing };
+}
+
+/** The checks the base branch's rules require, or null when no rule names any. */
+function required_checks(node: PrNode): string[] | null {
+    for (const rule of node.baseRef?.rules.nodes ?? []) {
+        const list = rule.parameters?.requiredStatusChecks;
+        if (rule.type === "REQUIRED_STATUS_CHECKS" && list !== undefined && list.length > 0) {
+            return list.map((check) => check.context);
+        }
+    }
+    return null;
 }
 
 function check_state(node: CheckNode): CheckState {

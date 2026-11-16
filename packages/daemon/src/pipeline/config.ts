@@ -40,6 +40,7 @@ export function pipeline_config_from_spec(spec: Pick<StackSpec, "pipeline">): Pi
     const config: PipelineConfig = {
         github: {
             bot_logins: string_list(github["bot_logins"]) ?? defaults.github.bot_logins,
+            checks_ignore: string_list(github["checks_ignore"]) ?? defaults.github.checks_ignore,
             approval_policy: {
                 human_author: roles(policy["human_author"]) ?? default_policy.human_author,
                 bot_author: roles(policy["bot_author"]) ?? default_policy.bot_author,

@@ -6,6 +6,7 @@
 // checked out are as fresh as the current one's.
 import assert from "node:assert/strict";
 import type {
+    AutopilotState,
     PipelineConfig,
     PrFacts,
     PrThreadsView,
@@ -41,7 +42,7 @@ import {
     write_pr_threads,
 } from "./threads.js";
 import { apply_pr_facts, refresh_session, session_prs, type Transition } from "./tracker.js";
-import { autopilot_step, baseline_autopilot } from "./autopilot.js";
+import { autopilot_step, autopilot_text, baseline_autopilot } from "./autopilot.js";
 import { current_change, has_change, open_change_ids } from "./changes.js";
 import {
     new_found_state,
@@ -117,6 +118,7 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
         try {
             const config = config_for_session(entry, home, options.cwd, log);
             const owner = await login(config);
+            const pending: AutopilotPending[] = [];
             for (const id of ids) {
                 // Read again per change: the poll of the change before wrote the file, and
                 // the lead may have started or switched a change since the list.
@@ -131,10 +133,14 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
                 assert.ok(fetches <= FETCHES_PER_ROUND_MAX, `over ${FETCHES_PER_ROUND_MAX} PRs`);
                 const facts = { config, owner_login: owner, checked_out };
                 const result = await poll_session(focused, open, facts, options, now());
-                if (result !== null) {
-                    report.transitions.push({ dir: entry.dir, transition: result });
+                if (result.transition !== null) {
+                    report.transitions.push({ dir: entry.dir, transition: result.transition });
+                }
+                if (result.autopilot !== null) {
+                    pending.push(result.autopilot);
                 }
             }
+            await tell_autopilot(home, entry.dir, pending, options);
             report.polled.push(entry.dir);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -207,6 +213,19 @@ interface PollFacts {
     checked_out: boolean;
 }
 
+/** What the autopilot has to tell the lead about one change, once the session is polled. */
+interface AutopilotPending {
+    change_id: string;
+    body: string;
+    /** The state to store for the change once the lead is told. */
+    state: AutopilotState;
+}
+
+interface PollOutcome {
+    transition: Transition | null;
+    autopilot: AutopilotPending | null;
+}
+
 /** Polls the open PRs of one change. `entry` is focused on it; the write stores that change. */
 async function poll_session(
     entry: SessionSummary,
@@ -214,7 +233,7 @@ async function poll_session(
     poll: PollFacts,
     options: PollOptions,
     now: Date,
-): Promise<Transition | null> {
+): Promise<PollOutcome> {
     const { config, owner_login } = poll;
     let session = entry.session;
     const views: PrThreadsView[] = [];
@@ -233,7 +252,13 @@ async function poll_session(
         session = apply_pr_facts(session, pr.repo, with_flagged(facts, view.flagged));
     }
     const refreshed = refresh_session(entry.session, session, config, now);
-    await run_autopilot(entry, refreshed.session, views, poll.checked_out, options);
+    const autopilot = await run_autopilot(
+        entry,
+        refreshed.session,
+        views,
+        poll.checked_out,
+        options,
+    );
     const changed = JSON.stringify(refreshed.session) !== JSON.stringify(entry.session);
     if (changed) {
         write_session({ ...entry, session: refreshed.session });
@@ -246,13 +271,14 @@ async function poll_session(
         const message = transition_message(refreshed.session, refreshed.transition);
         await options.notify("Spinner", message, entry.dir);
     }
-    return refreshed.transition;
+    return { transition: refreshed.transition, autopilot };
 }
 
 /**
- * Tells the lead what is new on the session's pull requests and records it in `session`
- * (mutated: the caller writes it). A session seen without a state gets the baseline and no
- * message. A message that cannot be delivered leaves the state as it was.
+ * What is new on the change's pull requests for the lead, and the state to store once it
+ * is told. A session seen without a state gets the baseline and no message; a round with
+ * nothing new stores its state at once (a green head resets the red count). Both are
+ * recorded in `session` (mutated: the caller writes it).
  */
 async function run_autopilot(
     entry: SessionSummary,
@@ -260,26 +286,61 @@ async function run_autopilot(
     views: readonly PrThreadsView[],
     checked_out: boolean,
     options: PollOptions,
-): Promise<void> {
+): Promise<AutopilotPending | null> {
     const autopilot = options.autopilot;
     if (autopilot === undefined || !autopilot.enabled() || session.kind === "review") {
-        return;
+        return null;
     }
     const pipeline = session.pipeline ?? { verified_locally: false, slack_post: null };
     session.pipeline = pipeline;
     if (pipeline.autopilot === undefined) {
         pipeline.autopilot = baseline_autopilot(session, views);
-        return;
+        return null;
     }
     const step = autopilot_step(session, views, pipeline.autopilot);
     for (const line of step.stopped) {
         (options.log ?? (() => {}))(`autopilot ${entry.dir}: stopped: ${line}`);
         await options.notify("Spinner", `${session.id} autopilot stopped: ${line}`, entry.dir);
     }
-    const message = step.message;
-    const text = message === null ? null : with_change_note(session, checked_out, message);
-    if (text === null || (await autopilot.tell(entry.dir, text))) {
+    if (step.message === null) {
         pipeline.autopilot = step.state;
+        return null;
+    }
+    const body = with_change_note(session, checked_out, step.message);
+    return { change_id: current_change(session).id, body, state: step.state };
+}
+
+/**
+ * Tells the lead once per session per round, with the bodies of every change that has news
+ * (one interrupt, not one per change). Delivered: each change's state is stored, so the
+ * next round tells only what is newer. Not delivered: nothing is stored, so the next round
+ * tells the same facts.
+ */
+async function tell_autopilot(
+    home: SpinnerHome,
+    dir: string,
+    pending: readonly AutopilotPending[],
+    options: PollOptions,
+): Promise<void> {
+    if (pending.length === 0) {
+        return;
+    }
+    assert.ok(options.autopilot !== undefined, "pending autopilot bodies without an autopilot");
+    const text = autopilot_text(pending.map((item) => item.body));
+    const delivered = await options.autopilot.tell(dir, text);
+    if (!delivered) {
+        return;
+    }
+    for (const { change_id, state } of pending) {
+        // Read again per change: the poll of the changes after this one wrote the file.
+        const read = read_session(home, dir);
+        if (!read.ok || !has_change(read.summary.session, change_id)) {
+            continue;
+        }
+        const focused = focus_summary(read.summary, change_id);
+        const pipeline = focused.session.pipeline ?? { verified_locally: false, slack_post: null };
+        focused.session.pipeline = { ...pipeline, autopilot: state };
+        write_session(focused);
     }
 }
 

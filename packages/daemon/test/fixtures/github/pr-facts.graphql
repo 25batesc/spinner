@@ -4,6 +4,9 @@ query($owner: String!, $name: String!, $number: Int!) {
       number url title isDraft state mergeable reviewDecision
       author { login }
       baseRefName headRefName headRefOid
+      baseRef { rules(first: 50) { nodes { type parameters {
+        ... on RequiredStatusChecksParameters { requiredStatusChecks { context } }
+      } } } }
       additions deletions changedFiles
       updatedAt
       mergeQueueEntry { state position enqueuedAt estimatedTimeToMerge }

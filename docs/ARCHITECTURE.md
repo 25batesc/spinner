@@ -46,7 +46,7 @@ The part that answers "what does each session need from me right now". It is a f
 **Facts from GitHub**, per PR, via `gh api graphql` (uses the `gh` login you already have; no app to install):
 
 - PR state, draft flag, author login, head SHA, mergeability, `reviewDecision`.
-- Checks: status check rollup on the head commit → `pending | green | red`. The check named in `github.approval_check` is split out as `approval_check`, because it is the one check a human action flips. Unset means no approval check.
+- Checks: status check rollup on the head commit → `pending | green | red`. The check named in `github.approval_check` is split out as `approval_check`, because it is the one check a human action flips. Unset means no approval check. Checks named in `github.checks_ignore` are left out. When the base branch's rules (`baseRef.rules`, a ruleset or branch protection) require checks, only those count: a red check GitHub does not require blocks nothing, so it must not make the rollup red or the autopilot would ask the lead to fix it at every push. A base branch without a required-checks rule (a stacked pull request on a feature branch) counts every check.
 - Approvals: `reviews(states: APPROVED) { author { login } commit { oid } }` → `approvals.peer` (logins other than you, on the current head) and `approvals.owner` (yours), compared against `approvals.required`, which `github.approval_policy` derives from the PR author. Example policy: a human-authored PR needs one peer; a bot-authored PR needs the peer and the person who instructed the bot. This is what tells *approving* whether the next action is yours, a peer's, or nobody's.
 - Review threads: `reviewThreads { id isResolved isOutdated path line comments { author { login } body } }`. The tracker buckets each thread by the login of its first comment: logins in `github.bot_logins` are **bot** threads, everything else **human**. Open counts drive *fixing* vs *addressing*. Top-level PR comments (not threads) are shown but never counted as blocking. With no bot logins configured there is no *bot-review* stage.
 - Bot re-reviews: review bots post again after substantial pushes or after a while. The tracker records `bot_reviewed_head` (the head SHA of the latest bot review) so the UI can say "reviewed 2 pushes ago", but no stage waits for a re-review; new bot threads re-enter *fixing* whenever they appear.
@@ -74,6 +74,7 @@ GitHub does not let a PR's author approve it. Spinner therefore opens PRs as **y
 github:
   bot_logins: ["devin-ai-integration[bot]", "sonarqubecloud[bot]"]   # quoted: brackets are YAML syntax
   approval_check: "Independent Approval"   # name of the check that encodes the approval policy; unset = none
+  checks_ignore: ["SonarCloud Code Analysis"]   # checks the rollup leaves out: red everywhere, required nowhere
   approval_policy:
     human_author: [peer]                   # PRs Spinner opens as you
     bot_author: [peer, owner]              # adopted bot PRs; owner = the person who instructed the bot

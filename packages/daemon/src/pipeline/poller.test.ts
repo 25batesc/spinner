@@ -372,6 +372,78 @@ describe("poll_once", () => {
         expect(banners.at(-1)).toContain(` · ${read.summary.session.title}: `);
     });
 
+    it("tells the lead once per round when several changes have news", async () => {
+        const dir = await adopt();
+        const told: string[] = [];
+        let reachable = true;
+        const autopilot = {
+            enabled: () => true,
+            tell: async (_dir: string, text: string): Promise<boolean> => {
+                if (reachable) {
+                    told.push(text);
+                }
+                return reachable;
+            },
+        };
+        const options = { gh: gh.runner, notify, cwd: root, autopilot };
+        await poll_once(home, options);
+        // A second change with a pull request of its own (#4900), served from a renumbered
+        // copy of the fixing fixture with thread ids of its own.
+        const read = read_session(home, dir);
+        assert.ok(read.ok);
+        const second = start_change(read.summary.session, {
+            id: "c2",
+            title: "Second",
+            branch: "feat/second",
+            started: "2026-11-12T11:00:00Z",
+            keep_current: true,
+        });
+        const first_pr = second.changes?.[0]?.repos["backend"]?.pr;
+        assert.ok(first_pr != null);
+        const url = "https://github.com/acme/backend/pull/4900";
+        const pr = { ...first_pr, number: 4900, url };
+        second.repos["backend"] = { ...second.repos["backend"], pr };
+        write_session({ ...read.summary, session: second });
+        const renumbered = (base: PrResponse): PrResponse => {
+            const node = base.data.repository.pullRequest;
+            const nodes = node.reviewThreads.nodes.map((t) => ({ ...t, id: `c2-${t.id}` }));
+            const reviewThreads = { ...node.reviewThreads, nodes };
+            const pullRequest = { ...node, number: 4900, url, reviewThreads };
+            return { data: { repository: { pullRequest } } };
+        };
+        gh.responses.set(4900, renumbered(load("pr-approving")));
+        // First sight of #4900: its baseline, nothing sent.
+        await poll_once(home, options);
+        expect(told).toEqual([]);
+        // Both pull requests get two new threads. The lead cannot be reached: neither
+        // change records them, so the next round tells both again.
+        const fixing = load("pr-fixing");
+        const threads = renumbered(fixing).data.repository.pullRequest.reviewThreads.nodes;
+        gh.responses.set(4812, fixing);
+        gh.responses.set(4825, fixing);
+        gh.responses.set(4900, renumbered(fixing));
+        reachable = false;
+        await poll_once(home, options);
+        expect(read_yaml(dir).pipeline?.autopilot?.threads).toEqual([]);
+        expect(read_yaml(dir).changes?.[0]?.pipeline?.autopilot?.threads).toEqual([]);
+        reachable = true;
+        await poll_once(home, options);
+        // One message with one header and one footer, a body per change, and the note for
+        // the change that is not checked out.
+        expect(told).toHaveLength(1);
+        const text = told[0] ?? "";
+        expect(text.split("Spinner autopilot:")).toHaveLength(2);
+        expect(text.split("ready to merge")).toHaveLength(2);
+        expect(text).toMatch(/2 new review thread\(s\) on backend#4825/);
+        expect(text).toMatch(/2 new review thread\(s\) on backend#4900/);
+        expect(text.split("change switch c1")).toHaveLength(2);
+        expect(read_yaml(dir).pipeline?.autopilot?.threads).toEqual(threads.map((t) => t.id));
+        expect(read_yaml(dir).changes?.[0]?.pipeline?.autopilot?.threads).toHaveLength(2);
+        // Nothing new: nothing sent.
+        await poll_once(home, options);
+        expect(told).toHaveLength(1);
+    });
+
     it("verify moves the session to peer-review; a push clears the tick", async () => {
         const dir = await adopt();
         const { config } = load_pipeline_config(project, home, root);

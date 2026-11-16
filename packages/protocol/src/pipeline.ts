@@ -26,6 +26,11 @@ export interface GithubConfig {
     bot_logins: string[];
     /** Name of the check that encodes the approval policy. Absent means no such check. */
     approval_check?: string;
+    /**
+     * Names of checks the rollup leaves out, case-insensitive. For a check that is red on
+     * every pull request and blocks nothing (an external analysis the repo does not require).
+     */
+    checks_ignore: string[];
     approval_policy: ApprovalPolicy;
     /** The operator's login. Read from `gh api user` at runtime when absent. */
     owner_login?: string;
@@ -63,6 +68,7 @@ export interface PipelineConfig {
 export const PIPELINE_CONFIG_DEFAULTS: PipelineConfig = {
     github: {
         bot_logins: [],
+        checks_ignore: [],
         approval_policy: { human_author: ["peer"], bot_author: ["peer", "owner"] },
         write_repos: [],
         merge_queue: "none",

@@ -2,7 +2,8 @@
 // requests, what the lead must be told so the pull request stays ready. Two facts: the checks
 // are red at a head the lead was not told about, and open review threads it was not told
 // about. This file is pure: it takes the session and the thread views of one poll and
-// returns the message and the next state. The poller sends the message and writes the state.
+// returns the body and the next state. The poller joins the bodies of the session's changes
+// into one message (`autopilot_text`), sends it, and writes the states.
 import assert from "node:assert/strict";
 import {
     AUTOPILOT_RED_MAX,
@@ -13,7 +14,7 @@ import {
 } from "@spinner/protocol";
 
 export interface AutopilotStep {
-    /** The text for the lead, or null when nothing is new. */
+    /** The facts for the lead, without the header and the footer, or null when nothing is new. */
     message: string | null;
     /** The state after the lead is told. Equal to the input when nothing changed. */
     state: AutopilotState;
@@ -103,7 +104,16 @@ export function autopilot_step(
     if (parts.length === 0) {
         return { message: null, state, stopped };
     }
-    return { message: [HEADER, ...parts, FOOTER].join("\n\n"), state, stopped };
+    return { message: parts.join("\n\n"), state, stopped };
+}
+
+/**
+ * One message for the lead from the bodies of every change that has news this round: one
+ * header, one footer, so a session with several changes interrupts the lead once per poll.
+ */
+export function autopilot_text(bodies: readonly string[]): string {
+    assert.ok(bodies.length > 0, "an autopilot message needs at least one body");
+    return [HEADER, ...bodies, FOOTER].join("\n\n");
 }
 
 const HEADER =

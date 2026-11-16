@@ -11,7 +11,12 @@ import {
     type Session,
     type ThreadView,
 } from "@spinner/protocol";
-import { autopilot_step, baseline_autopilot, empty_autopilot } from "./autopilot.js";
+import {
+    autopilot_step,
+    autopilot_text,
+    baseline_autopilot,
+    empty_autopilot,
+} from "./autopilot.js";
 
 function session_with(checks: CheckState, head: string, failing: string[] = []): Session {
     return {
@@ -92,7 +97,12 @@ describe("autopilot_step", () => {
         const first = autopilot_step(red, [], empty_autopilot());
         expect(first.message).toContain("Checks failed on backend#12 at aaaaaaa");
         expect(first.message).toContain("Failing: test, lint.");
-        expect(first.message).toContain("Do not wait for the operator");
+        // The body carries the facts; the header and the footer come once per message.
+        expect(first.message).not.toContain("Do not wait for the operator");
+        const text = autopilot_text([first.message ?? "", "second change"]);
+        expect(text.split("Do not wait for the operator")).toHaveLength(2);
+        expect(text.split("ready to merge")).toHaveLength(2);
+        expect(text.indexOf("Checks failed")).toBeLessThan(text.indexOf("second change"));
         expect(first.state.red).toEqual({ backend: { head: "aaaaaaa1", rounds: 1 } });
         // The same head again: told already.
         expect(autopilot_step(red, [], first.state).message).toBeNull();
