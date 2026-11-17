@@ -515,6 +515,18 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     const matches = query === null ? [] : slashMatches(commands, query);
     const picked = matches[Math.min(slashAt, matches.length - 1)];
 
+    // The box grows with what is typed: `rows` counts newlines only, so a long line that
+    // wraps stayed one row high and scrolled inside itself. The height follows the content
+    // up to the stylesheet's `max-height`; past that the box scrolls.
+    useLayoutEffect(() => {
+        const node = input.current;
+        if (node === null) {
+            return;
+        }
+        node.style.height = "auto";
+        node.style.height = `${node.scrollHeight}px`;
+    }, [text]);
+
     // Stay at the newest message while the operator is there; leave him where he scrolled.
     const count = transcript.entries.length;
     const last = transcript.entries[count - 1];
