@@ -147,10 +147,9 @@ describe("compose_post", () => {
         expect(compose_post(unverified, no_channel, fixture, undefined).blocked).toBe(
             "no pipeline.slack.channel configured",
         );
+        // The verify tick does not gate the post.
         const config = config_with({ channel: "C0TEST" });
-        expect(compose_post(unverified, config, fixture, undefined).blocked).toBe(
-            "not verified: run spinner verify first",
-        );
+        expect(compose_post(unverified, config, fixture, undefined).blocked).toBeNull();
         const never = config_with({ channel: "C0TEST", post: "never" });
         const verified = session_with_pr(true);
         expect(compose_post(verified, never, fixture, undefined).blocked).toBe(

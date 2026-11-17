@@ -129,7 +129,10 @@ function derive_pr(pr: PrFacts, facts: PipelineFacts): StageResult {
         return { stage: "bot-review", needs_human: null, stale: false };
     }
     assert.equal(pr.checks, "green");
-    if (!is_verified(pr, facts)) {
+    // A posted change is out for review whether or not the operator ticked verify: the
+    // post is not gated on it (2026-11-17), and the stage must not ask for a tick after it.
+    const posted = facts.pipeline.slack_post !== null && facts.pipeline.slack_post !== undefined;
+    if (!posted && !is_verified(pr, facts)) {
         return { stage: "verifying", needs_human: `verify locally (${ref})`, stale: false };
     }
     if (pr.threads.humans_open > 0 || pr.review === "changes_requested") {

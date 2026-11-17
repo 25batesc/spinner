@@ -160,6 +160,17 @@ describe("derive_stage: one row of the stage table per test", () => {
         });
     });
 
+    it("peer-review: posted without the verify tick; the post is not gated on it", () => {
+        const posted = facts({
+            pipeline: { verified_locally: false, verified_heads: {}, slack_post: "https://s/p1" },
+        });
+        expect(derive_stage(posted)).toEqual({
+            stage: "peer-review",
+            needs_human: null,
+            stale: false,
+        });
+    });
+
     it("peer-review: verified and no reviewer activity yet", () => {
         const result = derive_stage(verified());
         expect(result).toEqual({ stage: "peer-review", needs_human: null, stale: false });

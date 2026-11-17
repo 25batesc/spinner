@@ -84,10 +84,9 @@ function blocked_reason(session: Session, prs: PrLink[], config: PipelineConfig)
     if (prs.filter((pr) => pr.state === "open").length === 0) {
         return "no open PR to post";
     }
-    if (session.pipeline?.verified_locally !== true) {
-        return "not verified: run spinner verify first";
-    }
-    const posted = session.pipeline.slack_post;
+    // The verify tick is not a gate (2026-11-17): a post asks for a review, and the operator
+    // decides when the change is ready to show.
+    const posted = session.pipeline?.slack_post;
     if (posted !== null && posted !== undefined) {
         return `already posted: ${posted}`;
     }
