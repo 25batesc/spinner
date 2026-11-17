@@ -13,6 +13,7 @@ import {
     durationText,
     isSpinnerNotice,
     splitPendingNotices,
+    unconfirmedSent,
     messageWithFiles,
     modelLabel,
     quietMs,
@@ -247,6 +248,20 @@ it("tells Spinner's own messages to an agent from the operator's", () => {
     expect(isSpinnerNotice('Implement the plan "Exports": /p/exports.md')).toBe(true);
     expect(isSpinnerNotice("please fix the MISSION.md changed by me")).toBe(false);
     expect(isSpinnerNotice("fix the test")).toBe(false);
+});
+
+it("keeps a sent message until the transcript holds it", () => {
+    const sent = [{ text: "roll up the stacks", ts: 10_000 }];
+    const user = (text: string, ts: number): Entry => ({ kind: "user", text, ts });
+    expect(unconfirmedSent(sent, [])).toEqual(sent);
+    // An older user entry with the same words is not this message.
+    expect(unconfirmedSent(sent, [user("roll up the stacks", 1_000)])).toEqual(sent);
+    // pi's clock may stamp it a little before the box did.
+    expect(unconfirmedSent(sent, [user("roll up the stacks", 8_000)])).toEqual([]);
+    // Queued notices before it, and an image hint after it, still confirm it.
+    const merged = "MISSION.md changed by x: Log (+1).\n\n---\n\nroll up the stacks\n\n[image 1]";
+    expect(unconfirmedSent(sent, [user(merged, 12_000)])).toEqual([]);
+    expect(unconfirmedSent(sent, [user("something else", 12_000)])).toEqual(sent);
 });
 
 it("splits the notices the daemon queued before the operator's words", () => {

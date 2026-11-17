@@ -380,6 +380,42 @@ export function splitPendingNotices(
     return { notice: text.slice(0, at), operator: operator.trim() === "" ? null : operator };
 }
 
+/** A message the operator sent that the transcript has not shown yet. */
+export interface SentMessage {
+    text: string;
+    /** When the box sent it, in ms. */
+    ts: number;
+    images?: number;
+}
+
+/**
+ * The sent messages the transcript does not hold yet. The box shows a message the moment
+ * it is sent: pi records a prompt only after its start hooks ran, and a steer only when the
+ * running tool call ends, seconds later (s039: 1 to 13 s). A sent message is confirmed by a
+ * user entry at or after its time whose operator text starts with it (the daemon may put
+ * queued notices before it, and pi may add an image hint after it).
+ */
+export function unconfirmedSent(
+    sent: readonly SentMessage[],
+    entries: readonly Entry[],
+): SentMessage[] {
+    const users = entries.filter((entry) => entry.kind === "user");
+    return sent.filter((message) => {
+        const wanted = message.text.trim();
+        return !users.some((entry) => {
+            const recorded = (entry.ts ?? 0) >= message.ts - SENT_CLOCK_SLACK_MS;
+            const text = (splitPendingNotices(entry.text).operator ?? "").trim();
+            return recorded && text.startsWith(wanted);
+        });
+    });
+}
+
+/** pi stamps the message on its own clock; this much earlier than the box still counts. */
+const SENT_CLOCK_SLACK_MS = 5_000;
+
+/** A sent message the transcript still lacks after this long is dropped from the box. */
+export const SENT_SHOWN_MS_MAX = 10 * 60_000;
+
 /** How often the chat asks the daemon for the transcript's stamp. */
 export const STAMP_POLL_MS = 15_000;
 /** After this long without a write to its transcript, the chat says a working agent is quiet. */

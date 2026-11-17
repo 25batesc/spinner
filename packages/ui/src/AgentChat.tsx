@@ -24,6 +24,7 @@ import {
     CHAT_SHOWN_STEP,
     THINKING_LEVELS,
     QUIET_HINT_MS,
+    SENT_SHOWN_MS_MAX,
     STAMP_POLL_MS,
     TOOL_RESULT_SHOWN,
     boxRows,
@@ -42,7 +43,9 @@ import {
     stampKey,
     toolSummary,
     toolText,
+    unconfirmedSent,
     windowed,
+    type SentMessage,
     withDictation,
     workLabel,
     type ChatBlock,
@@ -455,6 +458,12 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     const [away, setAway] = useState(false);
     const [slashAt, setSlashAt] = useState(0);
     const [slashOff, setSlashOff] = useState(false);
+    // What the box sent and the transcript has not shown yet (5.2): drawn at once, so the
+    // operator sees the message the moment it goes, not when pi records it.
+    const [sent, setSent] = useState<{ base: string; messages: SentMessage[] }>({
+        base: "",
+        messages: [],
+    });
     const scroller = useRef<HTMLDivElement>(null);
     const input = useRef<HTMLTextAreaElement>(null);
     const picker = useRef<HTMLInputElement>(null);
@@ -473,8 +482,27 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     const history = useHistory(base, `${phase}@${settled}`);
     const transcript = useMemo(() => {
         const merged = mergeTranscripts(history, live);
-        return { ...merged, running: working };
-    }, [history, live, working]);
+        const pending = sent.base === base ? unconfirmedSent(sent.messages, merged.entries) : [];
+        const echoed = pending.map((message) => ({
+            kind: "user" as const,
+            text: message.text,
+            ts: message.ts,
+            ...(message.images === undefined ? {} : { images: message.images }),
+        }));
+        return { ...merged, entries: [...merged.entries, ...echoed], running: working };
+    }, [history, live, working, sent, base]);
+    // A confirmed or stale sent message leaves the list, so it cannot show twice later.
+    useEffect(() => {
+        if (sent.base !== base || sent.messages.length === 0) {
+            return;
+        }
+        const now = Date.now();
+        const kept = unconfirmedSent(sent.messages, mergeTranscripts(history, live).entries)
+            .filter((message) => now - message.ts < SENT_SHOWN_MS_MAX);
+        if (kept.length !== sent.messages.length) {
+            setSent({ base, messages: kept });
+        }
+    }, [history, live, sent, base]);
     const models = useLoaded("models", fetchModels).value ?? [];
     // The agent's skills and prompt templates, for the completion after `/`.
     const context = useLoaded(`${base}#${hosted ? "hosted" : "stopped"}`, (signal) =>
@@ -547,8 +575,22 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
         setAway(false);
         // The box marks its messages: the daemon resumes a stopped agent for them and
         // counts a steer to the lead (entry 6.20). The images go as images too.
-        const sent = images.length > 0 ? { images } : {};
-        void post(working ? "steer" : "prompt", { text: message, source: "operator", ...sent });
+        const withImages = images.length > 0 ? { images } : {};
+        const echo: SentMessage = {
+            text: message,
+            ts: Date.now(),
+            ...(images.length === 0 ? {} : { images: images.length }),
+        };
+        setSent((old) => ({ base, messages: [...(old.base === base ? old.messages : []), echo] }));
+        const body = { text: message, source: "operator", ...withImages };
+        postAgent(`${base}/${working ? "steer" : "prompt"}`, body).then(
+            () => setError(null),
+            (failure: unknown) => {
+                // Not sent: the echo goes, so the box does not show a message the agent lacks.
+                setSent((old) => ({ base, messages: old.messages.filter((m) => m !== echo) }));
+                setError(String(failure));
+            },
+        );
     };
     const attach = (files: readonly File[]) => {
         const pathOf = window.spinnerDesktop?.files?.pathOf;
