@@ -34,6 +34,23 @@ const POST_TIMEOUT_MS = 10_000;
  *  only the latest `agent_start` / `agent_settled` pair to be right. */
 const EVENTS_PENDING_MAX = 500;
 
+/**
+ * Upper bound on one event's JSON. A bigger one (a tool result of hundreds of kilobytes) goes
+ * as a stub that names its type and size: the chat shows a few thousand characters of a
+ * result, and the transcript file holds the whole of it.
+ */
+export const EVENT_BYTES_MAX = 512 * 1024;
+
+/**
+ * Upper bound on one `events` post. The daemon refuses a body past 8 MB, and a refused batch
+ * must never be posted again: the lead of s039 queued 500 events of ~16 KB each, every post
+ * was refused, and no event of its reached the chat for a day (2026-11-18).
+ */
+export const BATCH_BYTES_MAX = 2 * 1024 * 1024;
+
+/** The outcome of one post: the daemon took it, refused it, or could not be reached. */
+export type PostOutcome = "ok" | "refused" | "away";
+
 export const LIFECYCLE_EVENTS: readonly LifecycleEventName[] = [
     "agent_start",
     "agent_end",
@@ -122,6 +139,43 @@ export interface TtyChannel {
     flush(): Promise<void>;
 }
 
+/**
+ * The events as posted: each one as its own JSON text, with an event that is too big or
+ * cannot be serialized replaced by a stub. `batches` groups them so no post passes
+ * `BATCH_BYTES_MAX`; one event alone is always a batch.
+ */
+export function wire_batches(events: readonly LifecycleEvent[]): string[][] {
+    const texts: string[] = [];
+    for (const event of events) {
+        let text: string;
+        try {
+            text = JSON.stringify(event);
+        } catch {
+            text = JSON.stringify({ type: event.type, dropped: "not serializable" });
+        }
+        if (text.length > EVENT_BYTES_MAX) {
+            text = JSON.stringify({ type: event.type, dropped: "too big", bytes: text.length });
+        }
+        texts.push(text);
+    }
+    const batches: string[][] = [];
+    let batch: string[] = [];
+    let bytes = 0;
+    for (const text of texts) {
+        if (batch.length > 0 && bytes + text.length > BATCH_BYTES_MAX) {
+            batches.push(batch);
+            batch = [];
+            bytes = 0;
+        }
+        batch.push(text);
+        bytes += text.length + 1;
+    }
+    if (batch.length > 0) {
+        batches.push(batch);
+    }
+    return batches;
+}
+
 /** Registers the hooks; returns the channel so a test can wait on it. */
 export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyChannel {
     const env = options.env;
@@ -147,17 +201,44 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
         }
     };
 
+    /** One `events` post of pre-serialized events; the body is built by hand to keep them. */
+    const post_events = async (batch: readonly string[]): Promise<PostOutcome> => {
+        try {
+            const response = await fetch_(`${base}/events`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: `{"events":[${batch.join(",")}]}`,
+                signal: AbortSignal.timeout(POST_TIMEOUT_MS),
+            });
+            if (response.ok) {
+                return "ok";
+            }
+            // 404 while the daemon restarts and has not adopted this pi yet; 5xx likewise.
+            return response.status === 404 || response.status >= 500 ? "away" : "refused";
+        } catch {
+            return "away";
+        }
+    };
+
     const flush_events = (): Promise<void> => {
         flushing = flushing.then(async () => {
             if (pending.length === 0) {
                 return;
             }
-            const batch = pending;
+            const taken = pending;
             pending = [];
-            const posted = await post("/events", { events: batch });
-            if (!posted) {
-                // The daemon is away (a restart); the batch waits with whatever comes next.
-                pending = [...batch, ...pending].slice(-EVENTS_PENDING_MAX);
+            const batches = wire_batches(taken);
+            for (const [index, batch] of batches.entries()) {
+                const outcome = await post_events(batch);
+                if (outcome === "ok" || outcome === "refused") {
+                    // A refused batch is dropped: posting it again would be refused again,
+                    // and every event after it would wait behind it for ever.
+                    continue;
+                }
+                // The daemon is away (a restart); what is left waits with whatever comes next.
+                const left = taken.slice(taken_index(batches, index));
+                pending = [...left, ...pending].slice(-EVENTS_PENDING_MAX);
+                return;
             }
         });
         return flushing;
@@ -257,6 +338,15 @@ export function register_tty(pi: ExtensionAPI, options: TtyChannelOptions): TtyC
         },
         flush: () => flush_events(),
     };
+}
+
+/** The index in the taken events of the first event of batch `index`. */
+function taken_index(batches: readonly string[][], index: number): number {
+    let count = 0;
+    for (const batch of batches.slice(0, index)) {
+        count += batch.length;
+    }
+    return count;
 }
 
 /** The `customType` of a daemon notice in pi's transcript, for example a failed stack job. */

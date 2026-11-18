@@ -56,8 +56,12 @@ export interface TtyRouteDeps {
  * the operator agent. `agent_of` resolves the pty, or the reason there is none (a 404).
  */
 export function mount_tty_routes(app: Hono, deps: TtyRouteDeps): void {
-    mount_extension_routes(app, "/sessions/:dir/agents/:name", (c) =>
-        tty_agent_of(deps, c.req.param("dir") ?? "", c.req.param("name") ?? ""),
+    const log = deps.log ?? (() => undefined);
+    mount_extension_routes(
+        app,
+        "/sessions/:dir/agents/:name",
+        (c) => tty_agent_of(deps, c.req.param("dir") ?? "", c.req.param("name") ?? ""),
+        log,
     );
     const operator = deps.operator;
     if (operator !== undefined) {
@@ -65,6 +69,7 @@ export function mount_tty_routes(app: Hono, deps: TtyRouteDeps): void {
             app,
             "/operator",
             () => operator.tty() ?? "the operator agent is not running",
+            log,
         );
     }
 }
@@ -73,6 +78,7 @@ function mount_extension_routes(
     app: Hono,
     prefix: string,
     agent_of: (c: Context) => TtyAgent | string,
+    log: (line: string) => void,
 ): void {
     app.post(`${prefix}/hello`, async (c) => {
         const agent = agent_of(c);
@@ -110,8 +116,14 @@ function mount_extension_routes(
         if (typeof agent === "string") {
             return c.json(error_body(agent), 404);
         }
-        const request = parse_events(await json_body(c, EVENTS_BODY_BYTES_MAX));
+        const text = await c.req.text();
+        const request =
+            text.length > EVENTS_BODY_BYTES_MAX
+                ? `events body of ${text.length} bytes is over ${EVENTS_BODY_BYTES_MAX}`
+                : parse_events(json_of(text));
         if (typeof request === "string") {
+            // The refusal is logged: a refused batch is lost, and the chat shows the gap.
+            log(`tty ${agent.name}: events refused: ${request}`);
             return c.json(error_body(request), 400);
         }
         agent.channel.push_events(request.events);
@@ -383,6 +395,11 @@ async function json_body(c: Context, bytes_max: number): Promise<unknown> {
     if (text.length > bytes_max) {
         return null;
     }
+    return json_of(text);
+}
+
+/** The body parsed: `undefined` for an empty one, `null` for one that is not JSON. */
+function json_of(text: string): unknown {
     if (text.trim().length === 0) {
         return undefined;
     }

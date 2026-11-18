@@ -18,10 +18,13 @@ import type {
     SlashCommandInfo,
 } from "./pi-api.js";
 import {
+    BATCH_BYTES_MAX,
+    EVENT_BYTES_MAX,
     act,
     expand_skill,
     expand_template,
     push_pending,
+    wire_batches,
     wire_message_event,
 } from "./tty.js";
 
@@ -117,9 +120,11 @@ interface Recorded {
 /** Serves hello, events, and a scripted list of commands; after the list, 204 at once. */
 async function fake_daemon(
     script: AgentExtensionCommand[],
+    events_statuses: number[] = [],
 ): Promise<{ url: string; requests: Recorded[]; close(): void }> {
     const requests: Recorded[] = [];
     const queue = [...script];
+    const statuses = [...events_statuses];
     const server: Server = createServer((request, response) => {
         let raw = "";
         request.on("data", (chunk: Buffer) => (raw += chunk.toString()));
@@ -138,9 +143,14 @@ async function fake_daemon(
                 response.end(JSON.stringify({ command: next }));
                 return;
             }
-            response.writeHead(path.endsWith("/events") ? 202 : 200, {
-                "content-type": "application/json",
-            });
+            if (path.endsWith("/events")) {
+                // The scripted status for this post, then 202.
+                const status = statuses.shift() ?? 202;
+                response.writeHead(status, { "content-type": "application/json" });
+                response.end(JSON.stringify(status === 202 ? { ok: true } : { error: "no" }));
+                return;
+            }
+            response.writeHead(200, { "content-type": "application/json" });
             response.end(JSON.stringify({ ok: true }));
         });
     });
@@ -298,6 +308,67 @@ describe("the tty channel", () => {
 
         await pi.fire("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
         expect(registered?.tty_channel?.running).toBe(false);
+    });
+
+    it("drops a refused batch and keeps one the daemon could not take (2026-11-18)", async () => {
+        // The first post is refused (400), the second fails (503), then the daemon is back.
+        const served = await fake_daemon([], [400, 503]);
+        daemon = served;
+        const pi = fake_pi();
+        const registered = register(pi, {
+            env: {
+                SPINNER_SESSION_DIR: "/sessions/s1-x",
+                SPINNER_AGENT: "engine",
+                SPINNER_DAEMON_URL: served.url,
+                SPINNER_HARNESS: "tty",
+            },
+            tty: { retry_delay_ms: 10, pid: 4242 },
+        });
+        const ctx = fake_ctx(true, { count: 0 });
+        const channel = registered?.tty_channel;
+        // Refused: the first batch (model, thinking level) is gone for good.
+        await pi.fire("session_start", { type: "session_start" }, ctx);
+        await channel?.flush();
+        // Away: agent_start waits, and goes with the next event once the daemon answers.
+        await pi.fire("agent_start", { type: "agent_start" }, ctx);
+        await pi.fire("turn_end", { type: "turn_end" }, ctx);
+        await channel?.flush();
+        await pi.fire("agent_settled", { type: "agent_settled" }, ctx);
+        await channel?.flush();
+        const posts = served.requests
+            .filter((r) => r.path.endsWith("/events"))
+            .map((r) => (r.body as { events: Array<{ type: string }> }).events.map((e) => e.type));
+        expect(posts).toEqual([
+            ["model_select", "thinking_level_select"],
+            ["agent_start"],
+            ["agent_start", "turn_end"],
+            ["agent_settled"],
+        ]);
+        await pi.fire("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+    });
+
+    it("wire_batches: a huge event becomes a stub, and a post stays under the bound", () => {
+        const big = { type: "tool_execution_end", result: "x".repeat(EVENT_BYTES_MAX) };
+        const small = { type: "turn_end" };
+        const [first] = wire_batches([big as LifecycleEvent, small as LifecycleEvent]);
+        expect(first?.map((text) => JSON.parse(text) as unknown)).toEqual([
+            { type: "tool_execution_end", dropped: "too big", bytes: EVENT_BYTES_MAX + 41 },
+            small,
+        ]);
+        // Six events of 400 KB: five fit under 2 MB, the sixth starts the next batch.
+        const large = { type: "message_end", text: "y".repeat(400 * 1024) };
+        const events = [...Array.from({ length: 6 }, () => large), small] as LifecycleEvent[];
+        const batches = wire_batches(events);
+        expect(batches.map((batch) => batch.length)).toEqual([5, 2]);
+        for (const batch of batches) {
+            expect(batch.join(",").length).toBeLessThanOrEqual(BATCH_BYTES_MAX + 2);
+        }
+        const circular: Record<string, unknown> = { type: "agent_end" };
+        circular["self"] = circular;
+        expect(JSON.parse(wire_batches([circular as LifecycleEvent])[0]?.[0] ?? "")).toEqual({
+            type: "agent_end",
+            dropped: "not serializable",
+        });
     });
 
     it("does not open the channel without SPINNER_HARNESS=tty", () => {
