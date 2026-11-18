@@ -142,7 +142,9 @@ export interface LifecycleEvent {
         | "message_update"
         | "message_end"
         | "model_select"
-        | "thinking_level_select";
+        | "thinking_level_select"
+        | "ui_prompt_start"
+        | "ui_prompt_end";
     [key: string]: unknown;
 }
 

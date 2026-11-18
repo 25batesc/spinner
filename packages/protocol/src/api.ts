@@ -258,6 +258,12 @@ export const ROUTES = {
     "POST /sessions/:dir/agents/:name/steer": "AgentCommandResponse",
     /** Abort the agent's current run. */
     "POST /sessions/:dir/agents/:name/abort": "AgentCommandResponse",
+    /**
+     * Answer the prompt pi's terminal waits on (`ui_prompt_start` without its end): Enter
+     * for `yes`, Escape for `no`, typed into the pty. Body: AgentAnswerRequest. 409 when the
+     * agent is not a tty agent or no prompt waits, so a key never lands in pi's editor.
+     */
+    "POST /sessions/:dir/agents/:name/answer": "AgentCommandResponse",
     /** Stop the agent's process. Its transcript stays and `resume` picks it up. */
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
     /**
@@ -1678,6 +1684,11 @@ export interface AgentCommandPollResponse {
 /** `POST /sessions/:dir/agents/:name/events`, batched by the extension; body bound 8 MiB. */
 export interface AgentEventsRequest {
     events: PiEvent[];
+}
+
+/** `POST …/agents/:name/answer`: `yes` confirms the waiting prompt, `no` declines it. */
+export interface AgentAnswerRequest {
+    answer: "yes" | "no";
 }
 
 export interface AgentCommandResponse {

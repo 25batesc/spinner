@@ -12,6 +12,7 @@ import type { Duplex } from "node:stream";
 import type { Context, Hono } from "hono";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
+    AgentAnswerRequest,
     AgentCommandPollResponse,
     AgentCommandResponse,
     AgentEventsRequest,
@@ -130,6 +131,36 @@ function mount_extension_routes(
         const body: AgentCommandResponse = { ok: true };
         return c.json(body, 202);
     });
+
+    // The operator's answer to the prompt pi's terminal waits on, from the chat.
+    app.post(`${prefix}/answer`, async (c) => {
+        const agent = agent_of(c);
+        if (typeof agent === "string") {
+            return c.json(error_body(agent), 404);
+        }
+        const request = parse_answer(await json_body(c, HELLO_BODY_BYTES_MAX));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        if (!agent.answer(request.answer)) {
+            return c.json(error_body(`${agent.name} waits on no prompt`), 409);
+        }
+        const body: AgentCommandResponse = { ok: true, disposition: request.answer };
+        return c.json(body);
+    });
+}
+
+/** `{ answer: "yes" | "no" }`, else the reason it is not. */
+export function parse_answer(input: unknown): AgentAnswerRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const answer = record["answer"];
+    if (answer !== "yes" && answer !== "no") {
+        return "`answer` must be `yes` or `no`";
+    }
+    return { answer };
 }
 
 export interface TtyUpgrader {

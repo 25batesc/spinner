@@ -252,6 +252,48 @@ describe("the tty harness through the daemon", () => {
         again.socket.close();
     }, 30_000);
 
+    it("answers the prompt pi's terminal waits on, and only then", async () => {
+        const summary = create_session(home, { title: "Prompt" });
+        mkdirSync(join(summary.path, "agents", "asked"), { recursive: true });
+        writeFileSync(join(summary.path, "agents", "asked", "BRIEF.md"), "# asked\n");
+        const added = await call("POST", `/sessions/${summary.dir}/agents`, { name: "asked" });
+        expect(added.status).toBe(201);
+        await until(() => events.some((event) => event.type === "agent.settled"));
+        const client = await attach(summary.dir, "asked");
+        await until(() => client.text().includes("fake pi tty ready"));
+        const route = `/sessions/${summary.dir}/agents/asked`;
+        try {
+            // No prompt waits: the key must not land in pi's editor.
+            const early = await call("POST", `${route}/answer`, { answer: "yes" });
+            expect(early.status).toBe(409);
+            expect(await call("POST", `${route}/answer`, { answer: "maybe" })).toMatchObject({
+                status: 400,
+            });
+            // The extension reports a confirm: `yes` is Enter in the pty (the fake echoes it).
+            const start = { type: "ui_prompt_start", reason: "ui_prompt", kind: "confirm" };
+            await call("POST", `${route}/events`, { events: [{ ...start, title: "damage" }] });
+            await until(() => events.some((event) =>
+                event.type === "agent.event" && event.event.type === "ui_prompt_start",
+            ));
+            const before = client.text().length;
+            const answered = await call("POST", `${route}/answer`, { answer: "yes" });
+            expect(answered.status).toBe(200);
+            expect(await answered.json()).toEqual({ ok: true, disposition: "yes" });
+            await until(() => client.text().length > before && client.text().endsWith("\r"));
+            // The prompt ended: a second answer is refused again.
+            const end = { type: "ui_prompt_end", reason: "ui_prompt", kind: "confirm" };
+            await call("POST", `${route}/events`, { events: [end] });
+            await until(() => events.some((event) =>
+                event.type === "agent.event" && event.event.type === "ui_prompt_end",
+            ));
+            const late = await call("POST", `${route}/answer`, { answer: "no" });
+            expect(late.status).toBe(409);
+        } finally {
+            client.socket.close();
+            await call("POST", `${route}/stop`, {});
+        }
+    });
+
     it("presses the key pi's startup notice waits for, once, before hello", async () => {
         const summary = create_session(home, { title: "Notice" });
         mkdirSync(join(summary.path, "agents", "warned"), { recursive: true });

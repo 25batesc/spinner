@@ -4,7 +4,7 @@ import type { PiEvent } from "@spinner/protocol";
 import { expect, it } from "vitest";
 
 import { replyScript } from "../fixture/server.ts";
-import { emptyTranscript, foldEvent } from "./transcript.ts";
+import { emptyTranscript, foldEvent, mergeTranscripts } from "./transcript.ts";
 
 function play(prompt: string, upTo = Infinity) {
     return replyScript(prompt)
@@ -32,6 +32,25 @@ it("streams: mid-reply the answer is partial, the tool runs and the agent is wor
     });
     expect(mid.entries.find((e) => e.kind === "tool")).toMatchObject({ state: "running" });
     expect(mid.cost).toBe(0);
+});
+
+it("holds the prompt pi's terminal waits on until its end, or until the run settles", () => {
+    const start: PiEvent = {
+        type: "ui_prompt_start", reason: "ui_prompt", kind: "confirm", title: "damage-control",
+    };
+    const mid = play("fix it", 6);
+    const waiting = foldEvent(mid, start);
+    expect(waiting.prompt).toEqual({ kind: "confirm", title: "damage-control" });
+    expect(waiting.running).toBe(true);
+    const ended = foldEvent(waiting, { ...start, type: "ui_prompt_end" });
+    expect(ended.prompt).toBeNull();
+    // Without a title the kind names the prompt; a settled run drops a prompt that got no end.
+    const select: PiEvent = { type: "ui_prompt_start", reason: "ui_prompt", kind: "select" };
+    const untitled = foldEvent(mid, select);
+    expect(untitled.prompt).toEqual({ kind: "select", title: "select" });
+    expect(foldEvent(untitled, { type: "agent_settled", aborted: false }).prompt).toBeNull();
+    // The merged transcript carries the live prompt.
+    expect(mergeTranscripts(emptyTranscript, waiting).prompt).toEqual(waiting.prompt);
 });
 
 it("rebuilds a tab from the daemon's history, which has `message_end` records only", () => {

@@ -188,6 +188,16 @@ export type PiEvent =
      * `model_select` and `thinking_level_select`), and the daemon records them.
      */
     | { type: "model_select"; model: string }
-    | { type: "thinking_level_select"; level: ThinkingLevel };
+    | { type: "thinking_level_select"; level: ThinkingLevel }
+    /**
+     * pi waits on a blocking prompt an extension opened in its terminal (`ctx.ui.confirm`
+     * and the like: a damage-control rule, a trust question). A tty agent's extension
+     * forwards both, so the chat can show the question and the operator can answer it from
+     * there instead of finding the agent stuck.
+     */
+    | { type: "ui_prompt_start"; reason: "ui_prompt"; kind: PiPromptKind; title?: string }
+    | { type: "ui_prompt_end"; reason: "ui_prompt"; kind: PiPromptKind; title?: string };
+
+export type PiPromptKind = "select" | "confirm" | "input" | "editor" | "custom";
 
 export type PiEventType = PiEvent["type"];

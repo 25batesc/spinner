@@ -58,6 +58,10 @@ export const LIFECYCLE_EVENTS: readonly LifecycleEventName[] = [
     "turn_end",
     "tool_execution_start",
     "tool_execution_end",
+    // A blocking prompt in pi's terminal (a damage-control confirm): the chat shows it and
+    // answers it, instead of a turn that looks stuck.
+    "ui_prompt_start",
+    "ui_prompt_end",
 ];
 
 /**

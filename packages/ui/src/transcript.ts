@@ -4,6 +4,7 @@ import type {
     PiAssistantMessage,
     PiEvent,
     PiMessage,
+    PiPromptKind,
     PiToolResultMessage,
 } from "@spinner/protocol";
 
@@ -44,6 +45,16 @@ export interface Transcript {
     running: boolean;
     /** Role of the message between `message_start` and `message_end`, else null. */
     open: "user" | "assistant" | null;
+    /**
+     * The blocking prompt pi's terminal waits on (`ui_prompt_start` without its end): a
+     * damage-control confirm, a trust question. Absent or null when none waits.
+     */
+    prompt?: PromptWaiting | null;
+}
+
+export interface PromptWaiting {
+    kind: PiPromptKind;
+    title: string;
 }
 
 export const emptyTranscript: Transcript = { entries: [], cost: 0, running: false, open: null };
@@ -205,7 +216,14 @@ export function foldEvent(state: Transcript, event: PiEvent): Transcript {
             next = { ...state, running: true };
             break;
         case "agent_settled":
-            next = { ...state, running: false };
+            // A prompt cannot outlive the run; a pi that died mid-prompt sends no end.
+            next = { ...state, running: false, prompt: null };
+            break;
+        case "ui_prompt_start":
+            next = { ...state, prompt: { kind: event.kind, title: event.title ?? event.kind } };
+            break;
+        case "ui_prompt_end":
+            next = { ...state, prompt: null };
             break;
         case "message_start":
             next = startMessage(state, event.message);
@@ -327,5 +345,6 @@ export function mergeTranscripts(history: Transcript, live: Transcript): Transcr
         cost: Math.max(history.cost, live.cost),
         running: live.running,
         open: live.open,
+        prompt: live.prompt ?? null,
     };
 }

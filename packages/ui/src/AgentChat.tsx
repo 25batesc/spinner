@@ -54,6 +54,7 @@ import {
 } from "./chat.ts";
 import { agentLabel } from "./agent-view.ts";
 import { ChatGate, chatQuestion } from "./ChatGate.tsx";
+import { ChatPrompt } from "./ChatPrompt.tsx";
 import {
     fetchAgentHistory,
     fetchAgentStamp,
@@ -695,13 +696,19 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     if (asked !== null && !working) {
         status = `${who} has a question for you`;
     }
+    // pi waits on a prompt in its terminal (a damage-control confirm): the turn is not stuck,
+    // it waits for the operator, and the card on the box answers it.
+    const prompt = transcript.prompt ?? null;
+    if (prompt !== null) {
+        status = `${who} waits for your answer: ${prompt.title}`;
+    }
     // "On it" is what pi reports, and pi can be wrong or stuck in one tool call. After a
     // few minutes without a write to the transcript the line says so, with the facts.
     // The agent's last event counts as well: a turn that starts after a long rest has an
     // old transcript, and the hint must not show on it (dogfood #71).
     const quiet =
         working && stamp !== null ? quietMs(Date.now(), stamp.written, stamp.active) : 0;
-    if (quiet >= QUIET_HINT_MS) {
+    if (quiet >= QUIET_HINT_MS && prompt === null) {
         const tool = runningTool(transcript.entries);
         const what = tool === "" ? "no tool call runs" : `still running: ${tool}`;
         const since = quietText(quiet);
@@ -755,6 +762,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                 )}
                 {error !== null && <p className="needs-human chat-error">{error}</p>}
                 {asked !== null && <ChatGate key={asked.key} dir={dir} asked={asked} />}
+                {prompt !== null && <ChatPrompt base={base} who={who} prompt={prompt} />}
                 {matches.length > 0 && (
                     <ul className="chat-slash" role="listbox" aria-label="Skills and commands">
                         {matches.map((command, index) => (
