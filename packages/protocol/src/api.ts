@@ -290,14 +290,8 @@ export const ROUTES = {
      * source besides the live `agent.event`s. 404 for an agent the session does not list.
      */
     "GET /sessions/:dir/agents/:name/transcript": "AgentTranscriptResponse",
-    /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
+    /** The agent's past turns, the whole of its pi transcript file. The chat does not use it. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
-    /**
-     * When the agent's transcript was last written, how large it is, and when its pi last
-     * sent an event: a cheap way for the chat to learn that the history moved, and whether
-     * a turn still gives signs of life.
-     */
-    "GET /sessions/:dir/agents/:name/events/stamp": "AgentEventsStamp",
     /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
     "POST /sessions/:dir/agents/:name/hello": "AgentCommandResponse",
     /** Long-poll (30 s) for the next command to a tty agent's extension. Query: ack, disposition */
@@ -1615,19 +1609,6 @@ export interface AgentResponse {
 /** The 409 body of `prompt` or `steer` on an agent the daemon does not host. */
 export interface AgentNotRunningResponse extends ErrorResponse {
     process: AgentProcessState;
-}
-
-/** `GET …/agents/:name/events/stamp`: the transcript file's time and size; nulls without one. */
-export interface AgentEventsStamp {
-    /** ISO 8601 time of the last write. */
-    written: string | null;
-    bytes: number;
-    /**
-     * ISO 8601 time of the last event from the agent's pi, streaming included. Null when
-     * the daemon does not host the agent, or when no event came since the daemon started.
-     * A turn that began after a long rest has an old `written` and a new `active`.
-     */
-    active: string | null;
 }
 
 /**

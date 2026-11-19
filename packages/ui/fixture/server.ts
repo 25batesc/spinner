@@ -44,7 +44,7 @@ import {
     fixtureProject, pr, session, stackView, view, withContext, type FixtureProject,
 } from "./data.ts";
 import { ReviewFixture } from "./reviews.ts";
-import type { DiffRepoView, DiffView } from "@spinner/protocol";
+import type { AgentTranscriptResponse, DiffRepoView, DiffView } from "@spinner/protocol";
 import { EchoPty } from "./tty.ts";
 import { WorkspaceFixture, withWorkspace } from "./workspace.ts";
 
@@ -194,8 +194,10 @@ class FixtureDaemon {
     jobs = new Map<string, Job>();
     sockets = new Set<WebSocket>();
     counter = 0;
-    /** `message_end` events per `<dir>/<agent>`, what `GET .../events` returns. */
+    /** `message_end` events per `<dir>/<agent>`, what `GET .../transcript` returns. */
     history = new Map<string, PiEvent[]>();
+    /** The number of the newest agent event per `<dir>/<agent>`, as the daemon counts them. */
+    seqs = new Map<string, number>();
     /** One fake pty per `<dir>/<agent>` that a terminal attached to; it outlives the socket. */
     ptys = new Map<string, EchoPty>();
     /** How many samples went out; each one moves the numbers a little. */
@@ -507,11 +509,13 @@ class FixtureDaemon {
         const name = match[2] ?? String(body["name"]);
         const emit = (event: PiEvent) => {
             const ts = new Date().toISOString();
+            const key = `${dir}/${name}`;
             if (event.type === "message_end") {
-                const key = `${dir}/${name}`;
                 this.history.set(key, [...(this.history.get(key) ?? []), event]);
             }
-            this.emit({ type: "agent.event", ts, session: dir, agent: name, event });
+            const seq = (this.seqs.get(key) ?? 0) + 1;
+            this.seqs.set(key, seq);
+            this.emit({ type: "agent.event", ts, session: dir, agent: name, event, seq });
         };
         if (match[3] === undefined) {
             const base = current.summary.session;
@@ -995,14 +999,20 @@ class FixtureDaemon {
             sendJson(response, { sessions: [...this.sessions.values()] });
         } else if (method === "GET" && dir !== undefined && this.sessions.has(dir)) {
             sendJson(response, { session: this.sessions.get(dir) });
-        } else if (method === "GET" && /\/agents\/[^/]+\/events$/.test(path)) {
+        } else if (method === "GET" && /\/agents\/[^/]+\/transcript$/.test(path)) {
+            // The whole transcript each time: the finished messages. An agent whose last
+            // event came 14 minutes ago: a working agent then reads as quiet.
             const parts = path.split("/");
-            const events = this.history.get(`${parts[2]}/${parts[4]}`) ?? [];
-            sendJson(response, { events });
-        } else if (method === "GET" && /\/agents\/[^/]+\/events\/stamp$/.test(path)) {
-            // A transcript last written 14 minutes ago: a working agent then reads as quiet.
-            const written = new Date(Date.now() - 14 * 60_000).toISOString();
-            sendJson(response, { written, bytes: 1, active: null });
+            const key = `${parts[2]}/${parts[4]}`;
+            const page: AgentTranscriptResponse = {
+                reset: true,
+                next: this.seqs.get(key) ?? 0,
+                events: this.history.get(key) ?? [],
+                running: false,
+                prompt: null,
+                active: new Date(Date.now() - 14 * 60_000).toISOString(),
+            };
+            sendJson(response, page);
         } else if (method === "GET" && path === "/models") {
             const models = [
                 { provider: "fixture", id: "small", contextWindow: 1000, reasoning: false },

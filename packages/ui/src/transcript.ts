@@ -8,10 +8,11 @@ import type {
     PiToolResultMessage,
 } from "@spinner/protocol";
 
-/** The live fold keeps this many entries; the history holds more (`HISTORY_ENTRIES_MAX`). */
-export const ENTRIES_LIMIT = 2000;
-/** The entries a history holds; past it the oldest drop (talk-change-ship.md, 5.2). */
-export const HISTORY_ENTRIES_MAX = 20_000;
+/**
+ * The fold keeps this many entries. The daemon holds at most `TRANSCRIPT_EVENTS_MAX` events,
+ * and one assistant message is an entry per tool call besides its own.
+ */
+export const ENTRIES_LIMIT = 6000;
 
 type AssistantEntry = {
     kind: "assistant";
@@ -166,15 +167,20 @@ function endMessage(state: Transcript, message: PiMessage): Transcript {
     const assistant = message as PiAssistantMessage;
     const done: Entry = assistantEntry(assistant);
     const cost = state.cost + (assistant.usage?.cost?.total ?? 0);
-    if (opened) {
-        return { ...closed, entries: withLastAssistant(state.entries, () => done), cost };
-    }
+    // The message's tool calls show from here, whether or not `tool_execution_start` comes:
+    // the daemon's page holds a finished call as its messages alone. A call that shows
+    // already (its start came first) is not added again.
+    const ids = state.entries.flatMap((entry) => (entry.kind === "tool" ? [entry.id] : []));
+    const shown = new Set(ids);
     const tools: Entry[] = assistant.content.flatMap((part) =>
-        part.type === "toolCall"
+        part.type === "toolCall" && !shown.has(part.id)
             ? [toolEntry(part.id, part.name, part.arguments)]
             : [],
     );
-    return { ...closed, entries: [...state.entries, done, ...tools], cost };
+    const before = opened
+        ? withLastAssistant(state.entries, () => done)
+        : [...state.entries, done];
+    return { ...closed, entries: [...before, ...tools], cost };
 }
 
 type Update = Extract<PiEvent, { type: "message_update" }>;
@@ -233,21 +239,15 @@ export function foldEvent(state: Transcript, event: PiEvent): Transcript {
         case "message_end":
             next = endMessage(state, event.message);
             break;
-        case "tool_execution_start":
-            next = {
-                ...state,
-                entries: [
-                    ...state.entries,
-                    {
-                        kind: "tool",
-                        id: event.toolCallId,
-                        name: event.toolName,
-                        args: event.args,
-                        state: "running",
-                    },
-                ],
-            };
+        case "tool_execution_start": {
+            // The assistant message that asked for the call shows it already.
+            const shown = state.entries.some(
+                (entry) => entry.kind === "tool" && entry.id === event.toolCallId,
+            );
+            const entry = toolEntry(event.toolCallId, event.toolName, event.args);
+            next = shown ? state : { ...state, entries: [...state.entries, entry] };
             break;
+        }
         case "tool_execution_end":
             next = { ...state, entries: toolEnd(state.entries, event) };
             break;
@@ -259,17 +259,24 @@ export function foldEvent(state: Transcript, event: PiEvent): Transcript {
 }
 
 /**
- * The agent's past turns as a transcript (5.2). The daemon sends them as `message_end`
- * events. This fold appends in place, so a history of thousands of messages costs one pass;
- * `foldEvent` copies the list per event, which suits the live stream only.
+ * A page of the daemon's transcript, folded from nothing. Most of a page is finished
+ * messages (`message_end`); this pass appends them in place, so thousands of messages cost
+ * one pass, where `foldEvent` copies the list per event. The events of the open message at
+ * the page's end go through `foldEvent`, so both paths give the same entries.
  */
-export function foldHistory(events: readonly PiEvent[]): Transcript {
+export function foldPage(events: readonly PiEvent[]): Transcript {
     const entries: Entry[] = [];
     const tools = new Map<string, number>();
     let cost = 0;
-    for (const event of events) {
-        if (event.type !== "message_end") {
+    let index = 0;
+    for (; index < events.length; index += 1) {
+        const event = events[index];
+        if (event?.type === "ui_notify") {
+            entries.push({ kind: "note", text: event.message });
             continue;
+        }
+        if (event?.type !== "message_end") {
+            break;
         }
         const message = event.message;
         if (message.role === "user") {
@@ -279,17 +286,17 @@ export function foldHistory(events: readonly PiEvent[]): Transcript {
             entries.push(assistantEntry(assistant));
             cost += assistant.usage?.cost?.total ?? 0;
             for (const part of assistant.content) {
-                if (part.type === "toolCall") {
+                if (part.type === "toolCall" && !tools.has(part.id)) {
                     tools.set(part.id, entries.length);
                     entries.push(toolEntry(part.id, part.name, part.arguments));
                 }
             }
         } else if (message.role === "toolResult") {
             const result = message as PiToolResultMessage;
-            const index = tools.get(result.toolCallId);
-            const entry = index === undefined ? undefined : entries[index];
-            if (index !== undefined && entry?.kind === "tool") {
-                entries[index] = {
+            const at = tools.get(result.toolCallId);
+            const entry = at === undefined ? undefined : entries[at];
+            if (at !== undefined && entry?.kind === "tool") {
+                entries[at] = {
                     ...entry,
                     state: result.isError ? "error" : "ok",
                     result: textOf(result.content),
@@ -297,53 +304,12 @@ export function foldHistory(events: readonly PiEvent[]): Transcript {
             }
         }
     }
-    const over = entries.length - HISTORY_ENTRIES_MAX;
-    return {
+    const over = entries.length - ENTRIES_LIMIT;
+    const settled: Transcript = {
         entries: over > 0 ? entries.slice(over) : entries,
         cost,
         running: false,
         open: null,
     };
-}
-
-/**
- * One transcript from the history and the live fold (5.3). A message both hold shows once:
- * a live message at or before the history's newest timestamp is the history's; a live tool
- * call whose id the history holds is the history's, and gives it its result when the history
- * read it while it ran. The cost is the history's plus what the live messages past it cost;
- * the live fold cannot tell, so the history's cost stands when it is the larger.
- */
-export function mergeTranscripts(history: Transcript, live: Transcript): Transcript {
-    let newest = 0;
-    const tool_at = new Map<string, number>();
-    for (const [index, entry] of history.entries.entries()) {
-        if (entry.kind === "tool") {
-            tool_at.set(entry.id, index);
-        } else if (entry.kind !== "note" && entry.ts !== undefined && entry.ts > newest) {
-            newest = entry.ts;
-        }
-    }
-    const entries = [...history.entries];
-    for (const entry of live.entries) {
-        if (entry.kind === "tool") {
-            const index = tool_at.get(entry.id);
-            if (index === undefined) {
-                entries.push(entry);
-            } else if (entry.state !== "running") {
-                entries[index] = entry;
-            }
-            continue;
-        }
-        const old = entry.kind !== "note" && entry.ts !== undefined && entry.ts <= newest;
-        if (!old) {
-            entries.push(entry);
-        }
-    }
-    return {
-        entries,
-        cost: Math.max(history.cost, live.cost),
-        running: live.running,
-        open: live.open,
-        prompt: live.prompt ?? null,
-    };
+    return events.slice(index).reduce(foldEvent, settled);
 }

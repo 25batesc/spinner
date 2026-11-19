@@ -13,7 +13,7 @@ import {
 
 import {
     LEAD_NAME,
-    type AgentEventsStamp,
+    type AgentTranscriptResponse,
     type ModelView,
     type ProjectView,
     type SessionView,
@@ -25,7 +25,6 @@ import {
     THINKING_LEVELS,
     QUIET_HINT_MS,
     SENT_SHOWN_MS_MAX,
-    STAMP_POLL_MS,
     TOOL_RESULT_SHOWN,
     boxRows,
     chatBlocks,
@@ -37,10 +36,8 @@ import {
     quietText,
     runningTool,
     sendsOnKey,
-    settledStamp,
     slashMatches,
     slashQuery,
-    stampKey,
     toolSummary,
     toolText,
     unconfirmedSent,
@@ -55,13 +52,7 @@ import {
 import { agentLabel } from "./agent-view.ts";
 import { ChatGate, chatQuestion } from "./ChatGate.tsx";
 import { ChatPrompt } from "./ChatPrompt.tsx";
-import {
-    fetchAgentHistory,
-    fetchAgentStamp,
-    fetchModels,
-    fetchProjects,
-    postAgent,
-} from "./events-client.ts";
+import { fetchModels, fetchProjects, fetchTranscript, postAgent } from "./events-client.ts";
 import "./chat.css";
 import { renderChatMarkdown } from "./markdown.ts";
 import {
@@ -72,13 +63,8 @@ import {
     useLoaded,
 } from "./remote.ts";
 import type { RunAction } from "./SessionsPane.tsx";
-import {
-    emptyTranscript,
-    foldHistory,
-    mergeTranscripts,
-    type Entry,
-    type Transcript,
-} from "./transcript.ts";
+import { emptyChat, needsPage, type ChatState } from "./transcript-sync.ts";
+import type { Entry, Transcript } from "./transcript.ts";
 
 /** The agent's answer as markdown. Memoized: only the message that streams renders again. */
 const Answer = memo(function Answer({ text }: { text: string }) {
@@ -265,69 +251,67 @@ export function TranscriptView({ transcript }: { transcript: Transcript }) {
     );
 }
 
-/**
- * The agent's past turns from the daemon, loaded when the tab opens and again when the agent
- * is resumed. Live events then add to them; `mergeTranscripts` shows each message once.
- */
-interface StampState {
-    stamp: AgentEventsStamp | null;
-    settled: string;
-    /** `base` and `phase` of the poll that read `stamp`. */
-    key: string;
-}
+/** The wait before the chat asks again for a page the daemon did not answer. */
+const PAGE_RETRY_MS = 2000;
+/** How often the status line looks at the clock while a turn runs, for the quiet hint. */
+const QUIET_TICK_MS = 30_000;
 
 /**
- * The stamp of the agent's transcript, asked for every `STAMP_POLL_MS` while the chat shows,
- * and at once when `phase` changes: a stamp read before a turn began says nothing about
- * that turn, so `stamp` is null until a poll of this phase answers. `settled` is the stamp
- * seen on two polls in a row. The interval ends with the component.
+ * Keeps the chat in step with the daemon's transcript. It fetches a page when the chat has
+ * none (a tab that opens, a pi that started again, a socket that reconnected) and when a
+ * live event came ahead of the next number. A chat in step fetches nothing: the numbered
+ * events carry it. One request runs at a time; a failed one is asked again.
  */
-function useStamp(base: string, phase: string): Pick<StampState, "stamp" | "settled"> {
-    const key = `${base}#${phase}`;
-    const [state, setState] = useState<StampState>({ stamp: null, settled: "", key });
+function useTranscriptPages(
+    base: string,
+    chat: ChatState,
+    onPage: (page: AgentTranscriptResponse) => void,
+): void {
+    const needed = needsPage(chat);
+    const since = chat.cursor ?? 0;
+    const [retry, setRetry] = useState(0);
+    // The callback changes with every render of the parent; the request must not restart.
+    const deliver = useRef(onPage);
     useEffect(() => {
+        deliver.current = onPage;
+    });
+    useEffect(() => {
+        if (!needed) {
+            return;
+        }
         const abort = new AbortController();
-        let previous = "";
-        const poll = (): void => {
-            fetchAgentStamp(base, abort.signal).then(
-                (stamp) => {
-                    const current = stampKey(stamp);
-                    const before = previous;
-                    previous = current;
-                    setState((old) => ({
-                        stamp,
-                        settled: settledStamp(old.settled, before, current),
-                        key,
-                    }));
-                },
-                () => undefined,
-            );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const again = (): void => {
+            if (!abort.signal.aborted) {
+                timer = setTimeout(() => setRetry((count) => count + 1), PAGE_RETRY_MS);
+            }
         };
-        poll();
-        const timer = setInterval(poll, STAMP_POLL_MS);
+        fetchTranscript(base, since, abort.signal).then((page) => {
+            if (page === null) {
+                again();
+            } else if (!abort.signal.aborted) {
+                deliver.current(page);
+            }
+        }, again);
         return () => {
-            clearInterval(timer);
             abort.abort();
+            clearTimeout(timer);
         };
-    }, [base, key]);
-    return { stamp: state.key === key ? state.stamp : null, settled: state.settled };
+    }, [base, needed, since, retry]);
 }
 
-function useHistory(base: string, revision: string): Transcript {
-    const [loaded, setLoaded] = useState<{ base: string; transcript: Transcript } | null>(null);
+/** The time now, read again every `QUIET_TICK_MS` while `on`, so a quiet turn shows as one. */
+function useClock(on: boolean): number {
+    const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
-        const abort = new AbortController();
-        fetchAgentHistory(base, abort.signal).then(
-            (events) => {
-                if (events !== null) {
-                    setLoaded({ base, transcript: foldHistory(events) });
-                }
-            },
-            () => undefined,
-        );
-        return () => abort.abort();
-    }, [base, revision]);
-    return loaded?.base === base ? loaded.transcript : emptyTranscript;
+        if (!on) {
+            return;
+        }
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), QUIET_TICK_MS);
+        return () => clearInterval(timer);
+    }, [on]);
+    return now;
 }
 
 /** How near the bottom, in pixels, still counts as "at the newest message". */
@@ -447,11 +431,14 @@ interface Attached {
 export interface AgentChatProps {
     view: SessionView;
     agent: string;
-    transcript: Transcript | undefined;
+    /** The agent's chat from the store; absent before its first event or page. */
+    chat: ChatState | undefined;
+    /** Puts a page of the daemon's transcript into the store. */
+    onPage: (agent: string, page: AgentTranscriptResponse) => void;
 }
 
 /** The chat of one agent (docs/designs/talk-change-ship.md, 5.1 to 5.7). */
-export function AgentChat({ view, agent, transcript: live = emptyTranscript }: AgentChatProps) {
+export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatProps) {
     const [text, setText] = useState("");
     const [attached, setAttached] = useState<Attached[]>([]);
     const [uploading, setUploading] = useState(0);
@@ -473,37 +460,32 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
     const spec = view.summary.session.agents[agent];
     const hosted = view.agents_running.includes(agent);
     const working = hosted && spec?.process === "running";
-    // The history is read again when the agent is resumed (it may have compacted) and at
-    // the start and the end of each turn: a live event that was lost on the way (a daemon
-    // restart, a socket that reconnected) then shows with the turn's end at the latest.
-    const phase = `${hosted ? "hosted" : "stopped"}/${working ? "turn" : "idle"}`;
-    // A turn's end can fail to arrive (pi that does not settle, a lost event). So the
-    // history is also read whenever the transcript moved and then went quiet.
-    const { stamp, settled } = useStamp(base, phase);
-    const history = useHistory(base, `${phase}@${settled}`);
+    // The transcript has one source: the daemon's, a page and then its numbered events.
+    useTranscriptPages(base, chat, (page) => onPage(agent, page));
+    const held = chat.transcript;
     const transcript = useMemo(() => {
-        const merged = mergeTranscripts(history, live);
-        const pending = sent.base === base ? unconfirmedSent(sent.messages, merged.entries) : [];
+        const pending = sent.base === base ? unconfirmedSent(sent.messages, held.entries) : [];
         const echoed = pending.map((message) => ({
             kind: "user" as const,
             text: message.text,
             ts: message.ts,
             ...(message.images === undefined ? {} : { images: message.images }),
         }));
-        return { ...merged, entries: [...merged.entries, ...echoed], running: working };
-    }, [history, live, working, sent, base]);
+        return { ...held, entries: [...held.entries, ...echoed], running: working };
+    }, [held, working, sent, base]);
     // A confirmed or stale sent message leaves the list, so it cannot show twice later.
     useEffect(() => {
         if (sent.base !== base || sent.messages.length === 0) {
             return;
         }
         const now = Date.now();
-        const kept = unconfirmedSent(sent.messages, mergeTranscripts(history, live).entries)
+        const kept = unconfirmedSent(sent.messages, held.entries)
             .filter((message) => now - message.ts < SENT_SHOWN_MS_MAX);
         if (kept.length !== sent.messages.length) {
             setSent({ base, messages: kept });
         }
-    }, [history, live, sent, base]);
+    }, [held, sent, base]);
+    const now = useClock(working);
     const models = useLoaded("models", fetchModels).value ?? [];
     // The agent's skills and prompt templates, for the completion after `/`.
     const context = useLoaded(`${base}#${hosted ? "hosted" : "stopped"}`, (signal) =>
@@ -703,11 +685,8 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
         status = `${who} waits for your answer: ${prompt.title}`;
     }
     // "On it" is what pi reports, and pi can be wrong or stuck in one tool call. After a
-    // few minutes without a write to the transcript the line says so, with the facts.
-    // The agent's last event counts as well: a turn that starts after a long rest has an
-    // old transcript, and the hint must not show on it (dogfood #71).
-    const quiet =
-        working && stamp !== null ? quietMs(Date.now(), stamp.written, stamp.active) : 0;
+    // few minutes without an event from the agent's pi the line says so, with the facts.
+    const quiet = working ? quietMs(now, chat.active) : 0;
     if (quiet >= QUIET_HINT_MS && prompt === null) {
         const tool = runningTool(transcript.entries);
         const what = tool === "" ? "no tool call runs" : `still running: ${tool}`;
@@ -734,7 +713,7 @@ export function AgentChat({ view, agent, transcript: live = emptyTranscript }: A
                     <div
                         className="chat-status"
                         role="status"
-                        data-state={phase}
+                        data-state={`${hosted ? "hosted" : "stopped"}/${working ? "turn" : "idle"}`}
                         data-quiet={quiet >= QUIET_HINT_MS}
                     >
                         {agent === LEAD_NAME ? (

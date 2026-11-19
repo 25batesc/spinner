@@ -1,7 +1,7 @@
 // The chat's pure half (docs/designs/talk-change-ship.md, 5.2 to 5.5): what a tool row says,
 // which entries are drawn, what Enter does in the message box, and the text of a message
 // with its attached images. `AgentChat.tsx` draws them.
-import { PENDING_PROMPT_SEPARATOR, type AgentEventsStamp } from "@spinner/protocol";
+import { PENDING_PROMPT_SEPARATOR } from "@spinner/protocol";
 
 import type { Entry } from "./transcript.ts";
 
@@ -416,36 +416,17 @@ const SENT_CLOCK_SLACK_MS = 5_000;
 /** A sent message the transcript still lacks after this long is dropped from the box. */
 export const SENT_SHOWN_MS_MAX = 10 * 60_000;
 
-/** How often the chat asks the daemon for the transcript's stamp. */
-export const STAMP_POLL_MS = 15_000;
-/** After this long without a write to its transcript, the chat says a working agent is quiet. */
+/** After this long without an event from its pi, the chat says a working agent is quiet. */
 export const QUIET_HINT_MS = 3 * 60_000;
 
-/** One value for a transcript stamp, to compare two reads; "" without a transcript. */
-export function stampKey(stamp: Pick<AgentEventsStamp, "written" | "bytes"> | null): string {
-    return stamp === null || stamp.written === null ? "" : `${stamp.written}/${stamp.bytes}`;
-}
-
 /**
- * The stamp at which the chat reads the history again. A stamp seen on two polls in a row
- * means the transcript went quiet, so one read then holds every message, also one whose
- * live event was lost. While the agent writes, the stamp moves and nothing is read.
+ * How long a turn has shown no sign of life: the time since the agent's last event, which
+ * the daemon stamps (a long answer streams events the whole time). 0 without that time, or
+ * when the clocks disagree.
  */
-export function settledStamp(read: string, previous: string, current: string): string {
-    return current === previous ? current : read;
-}
-
-/**
- * How long a turn has shown no sign of life: the time since the later of the transcript's
- * last write and the agent's last event. A turn that starts after a long rest has an old
- * transcript, and a long answer streams without a write, so the event time counts too.
- * 0 without either time, or when the clocks disagree.
- */
-export function quietMs(now: number, written: string | null, active: string | null): number {
-    const times = [written, active]
-        .map((time) => (time === null ? Number.NaN : Date.parse(time)))
-        .filter((time) => !Number.isNaN(time));
-    return times.length === 0 ? 0 : Math.max(0, now - Math.max(...times));
+export function quietMs(now: number, active: string | null): number {
+    const time = active === null ? Number.NaN : Date.parse(active);
+    return Number.isNaN(time) ? 0 : Math.max(0, now - time);
 }
 
 /** `12 min`, `2 h 14 min`: a quiet time in the status line. */

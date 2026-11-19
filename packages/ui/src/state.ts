@@ -4,6 +4,7 @@
 // A session changes only through `session.created` and `session.updated`, which carry the whole
 // `SessionView`; partial events such as `stack.state` show up in the feed but do not edit it.
 import type {
+    AgentTranscriptResponse,
     CostsEvent,
     Job,
     MissionView,
@@ -14,7 +15,13 @@ import type {
 } from "@spinner/protocol";
 
 import { describeEvent } from "./describe.ts";
-import { emptyTranscript, foldEvent, type Transcript } from "./transcript.ts";
+import {
+    applyLive,
+    applyPage,
+    emptyChat,
+    unsynced,
+    type ChatState,
+} from "./transcript-sync.ts";
 import type { UsageSample } from "./usage.ts";
 import { otherChangeNeeds } from "./changes.ts";
 
@@ -34,8 +41,11 @@ export interface UiState {
     /** Jobs by id, from `job.*` events and the jobs snapshot. */
     jobs: Record<string, Job>;
     feed: FeedLine[];
-    /** What each agent tab shows, folded from `agent.event`, per `<session dir>/<agent>`. */
-    transcripts: Record<string, Transcript>;
+    /**
+     * What each agent's chat shows, per `<session dir>/<agent>`: a page of the daemon's
+     * transcript, then the numbered `agent.event`s after it (`transcript-sync.ts`).
+     */
+    chats: Record<string, ChatState>;
     connection: ConnectionStatus;
     /**
      * Per session, how many events of each kind arrived. A view that loads a route on demand
@@ -87,6 +97,7 @@ export type Action =
     | { kind: "snapshot"; sessions: SessionView[] }
     | { kind: "jobs"; jobs: Job[] }
     | { kind: "event"; event: SpinnerEvent }
+    | { kind: "transcript"; session: string; agent: string; page: AgentTranscriptResponse }
     | { kind: "connection"; status: ConnectionStatus }
     | { kind: "usage"; usage: UsageSample }
     | { kind: "settings"; settings: Settings }
@@ -96,7 +107,7 @@ export const initialState: UiState = {
     sessions: {},
     jobs: {},
     feed: [],
-    transcripts: {},
+    chats: {},
     connection: "connecting",
     revisions: {},
     usage: null,
@@ -162,10 +173,21 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
         case "job.finished":
             return applyJobEvent(state, event);
         case "agent.event": {
+            // The daemon sends the chat's events numbered; one without a number is not ours.
+            if (event.seq === undefined) {
+                return state;
+            }
             const key = transcriptKey(event.session, event.agent);
-            const earlier = state.transcripts[key] ?? emptyTranscript;
-            const folded = foldEvent(earlier, event.event);
-            return { ...state, transcripts: { ...state.transcripts, [key]: folded } };
+            const chat = applyLive(state.chats[key] ?? emptyChat, event.seq, event.event, event.ts);
+            return { ...state, chats: { ...state.chats, [key]: chat } };
+        }
+        case "agent.spawned": {
+            // A new pi numbers its events from 1 again: the chat takes its transcript anew.
+            const key = transcriptKey(event.session, event.agent);
+            const chat = state.chats[key];
+            return chat === undefined
+                ? state
+                : { ...state, chats: { ...state.chats, [key]: unsynced(chat) } };
         }
         case "usage":
             return { ...state, usage: { machine: event.machine, sessions: event.sessions } };
@@ -272,9 +294,28 @@ export function reduce(state: UiState, action: Action): UiState {
                 bumpRevision(applyEvent(state, action.event), action.event),
                 action.event,
             );
+        case "transcript": {
+            const key = transcriptKey(action.session, action.agent);
+            const chat = applyPage(state.chats[key] ?? emptyChat, action.page);
+            return { ...state, chats: { ...state.chats, [key]: chat } };
+        }
         case "connection":
-            return { ...state, connection: action.status };
+            return applyConnection(state, action.status);
     }
+}
+
+/**
+ * A socket that opens again may have missed events while it was closed, and a daemon that
+ * restarted numbers them anew: every chat takes its transcript again when it next shows.
+ */
+function applyConnection(state: UiState, status: ConnectionStatus): UiState {
+    if (status !== "open" || state.connection === "open") {
+        return { ...state, connection: status };
+    }
+    const chats = Object.fromEntries(
+        Object.entries(state.chats).map(([key, chat]) => [key, unsynced(chat)]),
+    );
+    return { ...state, connection: status, chats };
 }
 
 /** The stage the board shows: the tracker's when there is a PR, else the stored one. */

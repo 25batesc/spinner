@@ -151,11 +151,6 @@ export class AgentManager {
         return this.hosted.has(key) || this.starting.has(key);
     }
 
-    /** When the hosted agent's process last sent an event; null when not hosted or none came. */
-    last_event(dir: string, name: string): string | null {
-        return this.hosted.get(key_of(dir, name))?.last_event?.toISOString() ?? null;
-    }
-
     /** True while the agent's process runs a turn, so a steer enters before its next model call. */
     is_busy(dir: string, name: string): boolean {
         return this.hosted.get(key_of(dir, name))?.busy ?? false;

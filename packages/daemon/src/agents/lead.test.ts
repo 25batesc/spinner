@@ -231,7 +231,9 @@ describe("POST /sessions with text", () => {
         const worktree = join(read.summary.path, session.repos["backend"]?.worktree ?? "");
         const branch = await run_ok("git", ["-C", worktree, "branch", "--show-current"]);
         expect(branch.trim()).toBe(head_of(APPROVING));
-        expect(session.agents?.["lead"]).toMatchObject({ process: "idle", repo: "backend" });
+        // The lead is hosted in the adopted repo's worktree; its first turn may still run.
+        expect(session.agents?.["lead"]).toMatchObject({ harness: "rpc", repo: "backend" });
+        expect(session.agents?.["lead"]?.process).not.toBe("exited");
         expect(session.design?.track).toBe("direct");
 
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as {

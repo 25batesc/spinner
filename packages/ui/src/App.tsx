@@ -62,18 +62,19 @@ import { applyPalette, clearPalette, paletteFor } from "./theme.ts";
 import {
     needsHuman, revisionsOf, runningJob, sortedSessions, type UiState,
 } from "./state.ts";
-import type { Transcript } from "./transcript.ts";
+import type { ChatState } from "./transcript-sync.ts";
 import { useLayout } from "./useResizable.ts";
 import { useSpinner } from "./useSpinner.ts";
 
-function transcriptsFor(dir: string | undefined, all: Record<string, Transcript>) {
-    const result: Record<string, Transcript> = {};
+/** The chats of one session, by agent name. */
+function chatsFor(dir: string | undefined, all: Record<string, ChatState>) {
+    const result: Record<string, ChatState> = {};
     if (dir === undefined) {
         return result;
     }
-    for (const [key, events] of Object.entries(all)) {
+    for (const [key, chat] of Object.entries(all)) {
         if (key.startsWith(`${dir}/`)) {
-            result[key.slice(dir.length + 1)] = events;
+            result[key.slice(dir.length + 1)] = chat;
         }
     }
     return result;
@@ -287,7 +288,7 @@ function useAppState(state: UiState, route: PaneRoute | undefined) {
 
 export function App() {
     const route = paneRouteOf(window.location.search);
-    const state = useSpinner();
+    const [state, dispatch] = useSpinner();
     const app = useAppState(state, route);
     const { sessions, selected, view, feed, busy, run, seen } = app;
     const layout = useLayout();
@@ -570,7 +571,12 @@ export function App() {
             view={view}
             busy={busy}
             run={run}
-            transcripts={transcriptsFor(selected, state.transcripts)}
+            chats={chatsFor(selected, state.chats)}
+            onPage={(agent, page) => {
+                if (selected !== undefined) {
+                    dispatch({ kind: "transcript", session: selected, agent, page });
+                }
+            }}
             usage={state.usage}
             revisions={revisionsOf(state, selected)}
             mission={selected === undefined ? undefined : state.missions[selected]}

@@ -79,6 +79,8 @@ describe("spawn_pi", () => {
         await until(() => events.includes("agent_settled"));
         expect(events).toEqual([
             "agent_start",
+            "message_start",
+            "message_end",
             "turn_start",
             "message_start",
             "message_update",
@@ -252,7 +254,8 @@ describe("AgentManager with PiRpcHarness", () => {
         await until(() => events.some((event) => event.type === "agent.settled"));
         const types = events.map((event) => event.type);
         expect(types[0]).toBe("agent.spawned");
-        expect(types.filter((type) => type === "agent.event")).toHaveLength(8);
+        // The user's message (start, end), then the eight events of the answer.
+        expect(types.filter((type) => type === "agent.event")).toHaveLength(10);
         const text = events.find(
             (event) => event.type === "agent.event" && event.event.type === "message_update",
         );

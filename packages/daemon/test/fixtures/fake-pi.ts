@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // A stand-in for `pi --mode rpc` in tests: the same JSONL framing and record shapes as pi's
-// docs/rpc.md and docs/json.md, with no model behind it. A `prompt` answers with a fixed
-// text run. During a run a `prompt` is refused unless it carries `streamingBehavior`, as pi
-// does: `steer` records the text, `followUp` runs it once the run settled. `steer` and
-// `abort` are acknowledged; `get_state` and `get_available_models`
-// return canned data. A `prompt` with `images` echoes `[<n> image(s) of <m> bytes]` after its
+// docs/rpc.md and docs/json.md, with no model behind it. A `prompt` records the user's
+// message and answers with a fixed text run. During a run a `prompt` is refused unless it
+// carries `streamingBehavior`, as pi does: `steer` records the text, `followUp` runs it once
+// the run settled. `steer` and `abort` are acknowledged; `get_state` and
+// `get_available_models` return canned data. A `prompt` with `images` echoes
+// `[<n> image(s) of <m> bytes]` after its
 // text, so a test can see that the images arrived. `set_model` takes the two models
 // `get_available_models` lists and refuses any other with pi's error; `set_thinking_level`
 // takes any level. A `prompt` of `ask confirm`, `ask select`, `ask input` or `ask two` writes
@@ -85,6 +86,7 @@ function ask(kind: string, text: string): boolean {
     }
     running = true;
     out({ type: "agent_start" });
+    said(text);
     dialogs.forEach((dialog, index) => {
         const id = `ui-${kind}-${index + 1}`;
         asked.set(id, text);
@@ -231,11 +233,19 @@ function images_suffix(command: Command): string {
 function run(text: string): void {
     running = true;
     out({ type: "agent_start" });
+    said(text);
     if (text.startsWith("slow")) {
         setTimeout(() => finish(text), 400);
         return;
     }
     finish(text);
+}
+
+/** The user's message as pi records it when a run takes it: a start and an end. */
+function said(text: string): void {
+    const message = { role: "user", content: [{ type: "text", text }], timestamp: Date.now() };
+    out({ type: "message_start", message });
+    out({ type: "message_end", message });
 }
 
 function finish(text: string): void {

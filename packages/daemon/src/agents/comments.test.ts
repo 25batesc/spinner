@@ -107,6 +107,9 @@ function echoes(): string[] {
         if (event.type !== "agent.event" || event.event.type !== "message_end") {
             continue;
         }
+        if (event.event.message.role !== "assistant") {
+            continue;
+        }
         const first = event.event.message.content[0];
         if (first !== undefined && first.type === "text") {
             texts.push(first.text);

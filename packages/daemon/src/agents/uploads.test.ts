@@ -141,9 +141,9 @@ describe("uploads, images and settings through the daemon (rpc harness)", () => 
             if (event.type !== "agent.event" || event.event.type !== "message_end") {
                 return [];
             }
-            const content = event.event.message.content;
+            const { role, content } = event.event.message;
             const first = Array.isArray(content) ? content[0] : undefined;
-            return first?.type === "text" ? [first.text] : [];
+            return role === "assistant" && first?.type === "text" ? [first.text] : [];
         });
     }
 

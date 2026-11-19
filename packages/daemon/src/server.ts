@@ -76,7 +76,7 @@ import { mount_tty_routes, tty_upgrader } from "./agents/routes-tty.js";
 import { mount_operator_routes } from "./agents/routes-operator.js";
 import { mount_comment_routes } from "./agents/routes-comments.js";
 import { OperatorHost } from "./agents/operator.js";
-import { agent_history, agent_history_stamp, agent_history_tail } from "./agents/history.js";
+import { agent_history, agent_history_tail } from "./agents/history.js";
 import { TranscriptLog } from "./agents/transcript-log.js";
 import { AgentManager, FIRST_TURN } from "./agents/manager.js";
 import { ReviewSwarm } from "./agents/swarm.js";
@@ -889,16 +889,6 @@ export function create_app(deps: AppDeps): Hono {
             events: agent_history(summary.path, c.req.param("name")),
         };
         return c.json(body);
-    });
-
-    app.get("/sessions/:dir/agents/:name/events/stamp", (c) => {
-        const summary = find_session(deps.home, c.req.param("dir"));
-        if (summary === null) {
-            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
-        }
-        const name = c.req.param("name");
-        const active = deps.agents.last_event(summary.dir, name);
-        return c.json(agent_history_stamp(summary.path, name, active));
     });
 
     app.get("/sessions/:dir/stack/logs/:service", async (c) => {

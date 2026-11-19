@@ -3,14 +3,12 @@
 import {
     EVENT_TYPES,
     EVENTS_PATH,
-    type AgentEventsResponse,
-    type AgentEventsStamp,
+    type AgentTranscriptResponse,
     type HealthResponse,
     type Job,
     type JobResponse,
     type ModelsResponse,
     type ModelView,
-    type PiEvent,
     type ProjectsResponse,
     type ProjectView,
     type SessionsResponse,
@@ -182,25 +180,17 @@ export async function postAgent(path: string, body: unknown): Promise<void> {
     }
 }
 
-/** The agent's past turns; null when the daemon has none (an agent it never hosted). */
-export async function fetchAgentHistory(
+/**
+ * A page of the agent's transcript as the daemon holds it: the whole of it for `since` 0,
+ * else the events after `since`. Null when the daemon does not know the agent.
+ */
+export async function fetchTranscript(
     path: string,
+    since: number,
     signal: AbortSignal,
-): Promise<PiEvent[] | null> {
-    const response = await fetch(`${path}/events`, { signal });
-    if (!response.ok) {
-        return null;
-    }
-    return ((await response.json()) as AgentEventsResponse).events;
-}
-
-/** When the agent's transcript was last written and its size; null when the daemon is away. */
-export async function fetchAgentStamp(
-    path: string,
-    signal: AbortSignal,
-): Promise<AgentEventsStamp | null> {
-    const response = await fetch(`${path}/events/stamp`, { signal });
-    return response.ok ? ((await response.json()) as AgentEventsStamp) : null;
+): Promise<AgentTranscriptResponse | null> {
+    const response = await fetch(`${path}/transcript?since=${since}`, { signal });
+    return response.ok ? ((await response.json()) as AgentTranscriptResponse) : null;
 }
 
 export interface EventsHandlers {

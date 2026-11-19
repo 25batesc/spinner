@@ -33,10 +33,17 @@ import { needsHuman, type Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
 import { Tabs } from "./Tabs.tsx";
+import type { ChatState } from "./transcript-sync.ts";
 import type { Transcript } from "./transcript.ts";
 import type { UsageSample } from "./usage.ts";
 import { ViewTabs, type ViewTabFold } from "./ViewTabs.tsx";
-import { EGM_NOTICE, tty_path, type MissionView, type SessionView } from "@spinner/protocol";
+import {
+    EGM_NOTICE,
+    tty_path,
+    type AgentTranscriptResponse,
+    type MissionView,
+    type SessionView,
+} from "@spinner/protocol";
 
 import type { RunAction } from "./SessionForms.tsx";
 
@@ -45,8 +52,10 @@ export interface AgentsPaneProps {
     /** True while a job runs on this session; the action buttons wait. */
     busy: boolean;
     run: RunAction;
-    /** Folded `agent.event` stream per agent name for the selected session. */
-    transcripts: Record<string, Transcript>;
+    /** Each agent's chat, by agent name, for the selected session. */
+    chats: Record<string, ChatState>;
+    /** Puts a page of an agent's transcript, fetched by its chat, into the store. */
+    onPage: (agent: string, page: AgentTranscriptResponse) => void;
     /** The last usage sample, for the services view. */
     usage: UsageSample | null;
     revisions: Revisions;
@@ -118,8 +127,14 @@ function surfaceStorage(): SurfaceStorage | null {
     }
 }
 
+/** The transcript of each chat, for the agent rows. */
+function transcriptsOf(chats: Record<string, ChatState>): Record<string, Transcript> {
+    return Object.fromEntries(Object.entries(chats).map(([name, chat]) => [name, chat.transcript]));
+}
+
 export function AgentsPane(props: AgentsPaneProps) {
-    const { view, busy, run, transcripts, usage, revisions, mission, children } = props;
+    const { view, busy, run, chats, onPage, usage, revisions, mission, children } = props;
+    const transcripts = useMemo(() => transcriptsOf(chats), [chats]);
     const { controls, leading, picked, onOpenAgent, onOpenView } = props;
     // A session off the design track has no EGM views; its pick falls back to the default.
     const shown = shownView(view, props.shown);
@@ -367,7 +382,8 @@ export function AgentsPane(props: AgentsPaneProps) {
                                     <AgentChat
                                         view={view}
                                         agent={selected}
-                                        transcript={transcripts[selected]}
+                                        chat={chats[selected]}
+                                        onPage={onPage}
                                     />
                                 )}
                             </>

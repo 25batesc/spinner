@@ -20,10 +20,8 @@ import {
     quietText,
     runningTool,
     sendsOnKey,
-    settledStamp,
     slashMatches,
     slashQuery,
-    stampKey,
     toolSummary,
     toolText,
     windowed,
@@ -33,8 +31,7 @@ import {
 import {
     emptyTranscript,
     foldEvent,
-    foldHistory,
-    mergeTranscripts,
+    foldPage,
     type Entry,
 } from "./transcript.ts";
 
@@ -72,41 +69,59 @@ function tool(name: string, args: unknown): Extract<Entry, { kind: "tool" }> {
 }
 
 describe("the chat's transcript", () => {
-    it("folds a history in one pass: messages, tool calls with their results, the cost", () => {
-        const history = foldHistory([
+    it("folds a page in one pass: messages, tool calls with their results, the cost", () => {
+        const page = foldPage([
             end(user(1, "list the files")),
             end(assistant(2, "Looking.", "call-1")),
             end(result(3, "call-1")),
             end(assistant(4, "One file: a.txt")),
         ]);
-        expect(history.entries.map((entry) => entry.kind)).toEqual([
+        expect(page.entries.map((entry) => entry.kind)).toEqual([
             "user", "assistant", "tool", "assistant",
         ]);
-        expect(history.entries[2]).toMatchObject({ id: "call-1", state: "ok", result: "a.txt" });
-        expect(history.cost).toBe(0.5);
+        expect(page.entries[2]).toMatchObject({ id: "call-1", state: "ok", result: "a.txt" });
+        expect(page.cost).toBe(0.5);
     });
 
-    it("shows a message once when the history and the live fold both hold it", () => {
-        // The tab opened while the tool ran: the history has the call, not its result.
-        const looking = assistant(2, "Looking.", "call-1");
-        const history = foldHistory([end(user(1, "list")), end(looking)]);
-        // The live fold saw the same turn from its start, then the result and the answer.
+    it("gives the same entries from a page as from the live events of the same turn", () => {
+        const call = { toolCallId: "call-1", toolName: "bash" };
+        // Live: every event of the turn, in pi's order.
         const live = [
             start(user(1, "list")), end(user(1, "list")),
             start(assistant(2, "")), end(assistant(2, "Looking.", "call-1")),
-            { type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: {} },
-            { type: "tool_execution_end", toolCallId: "call-1", result: "a.txt", isError: false },
+            { type: "tool_execution_start", ...call, args: { command: "ls" } },
+            { type: "tool_execution_end", ...call, result: "a.txt", isError: false },
+            end(result(3, "call-1")),
             start(assistant(4, "")),
         ].reduce((state, event) => foldEvent(state, event as PiEvent), emptyTranscript);
-        const merged = mergeTranscripts(history, live);
-        expect(merged.entries.map((entry) => entry.kind)).toEqual([
+        // The daemon's page of the same turn: finished messages, then the open one.
+        const page = foldPage([
+            end(user(1, "list")),
+            end(assistant(2, "Looking.", "call-1")),
+            end(result(3, "call-1")),
+            start(assistant(4, "")),
+        ]);
+        expect(page.entries).toEqual(live.entries);
+        expect(page.entries.map((entry) => entry.kind)).toEqual([
             "user", "assistant", "tool", "assistant",
         ]);
-        // The history's running call took the live result; the open answer is the live one.
-        expect(merged.entries[2]).toMatchObject({ state: "ok", result: "a.txt" });
-        expect(merged.entries[3]).toMatchObject({ done: false, ts: 4 });
-        // An empty history adds nothing and loses nothing.
-        expect(mergeTranscripts(emptyTranscript, live).entries).toHaveLength(live.entries.length);
+        expect(page.entries[2]).toMatchObject({ state: "ok", result: "a.txt" });
+        expect(page.entries[3]).toMatchObject({ done: false, ts: 4 });
+    });
+
+    it("shows a tool call once, whichever of its events come", () => {
+        const call = { toolCallId: "call-1", toolName: "bash", args: { command: "ls" } };
+        const asked = end(assistant(2, "Looking.", "call-1"));
+        const started: PiEvent = { type: "tool_execution_start", ...call };
+        const tools = (events: PiEvent[]) =>
+            events.reduce(foldEvent, emptyTranscript).entries.filter((e) => e.kind === "tool");
+        // The message alone (a page), the message then the start (live), the start alone.
+        expect(tools([asked])).toHaveLength(1);
+        expect(tools([start(assistant(2, "")), asked, started])).toHaveLength(1);
+        expect(tools([asked, started, end(result(3, "call-1"))])).toMatchObject([
+            { id: "call-1", state: "ok" },
+        ]);
+        expect(tools([started])).toHaveLength(1);
     });
 
     it("marks an answer that ended in an error, and counts a message's images", () => {
@@ -114,7 +129,7 @@ describe("the chat's transcript", () => {
         const image = { type: "image", data: "", mimeType: "image/png" };
         const content = [{ type: "text", text: "see" }, image];
         const with_image = { role: "user", timestamp: 1, content };
-        const history = foldHistory([end(with_image as PiMessage), end(failed as PiMessage)]);
+        const history = foldPage([end(with_image as PiMessage), end(failed as PiMessage)]);
         expect(history.entries[0]).toMatchObject({ text: "see", images: 1 });
         expect(history.entries[1]).toMatchObject({ error: "overloaded" });
     });
@@ -320,28 +335,14 @@ it("splits an option into a title and a detail, without the lead's own marker", 
     expect(optionParts(long).detail).toBe("");
 });
 
-it("reads the history again once the transcript went quiet, and not while it moves", () => {
-    const a = stampKey({ written: "2026-11-13T14:19:10Z", bytes: 100 });
-    const b = stampKey({ written: "2026-11-13T14:19:18Z", bytes: 180 });
-    expect(stampKey(null)).toBe("");
-    expect(stampKey({ written: null, bytes: 0 })).toBe("");
-    // The transcript moved since the last poll: the agent writes; nothing is read.
-    expect(settledStamp(a, a, b)).toBe(a);
-    // The same stamp twice: the last message is in the file, so the history is read at it.
-    expect(settledStamp(a, b, b)).toBe(b);
-    // Nothing moved since the read: the stamp stays, and nothing is read again.
-    expect(settledStamp(b, b, b)).toBe(b);
-});
-
 it("says how long a working agent has been quiet and which tool call still runs", () => {
     const now = Date.parse("2026-11-13T14:35:00Z");
-    expect(quietMs(now, "2026-11-13T12:21:00Z", null)).toBe(134 * 60_000);
-    expect(quietMs(now, null, null)).toBe(0);
-    expect(quietMs(now, "2026-11-13T14:36:00Z", null)).toBe(0);
-    // A turn that began after a rest of 19 minutes: the transcript is old, but the agent
-    // sent an event 5 seconds ago, so the turn is not quiet (dogfood #71).
-    expect(quietMs(now, "2026-11-13T14:16:00Z", "2026-11-13T14:34:55Z")).toBe(5000);
-    expect(quietMs(now, null, "2026-11-13T14:34:55Z")).toBe(5000);
+    expect(quietMs(now, "2026-11-13T12:21:00Z")).toBe(134 * 60_000);
+    // No event known, or a daemon clock ahead of this one: not quiet.
+    expect(quietMs(now, null)).toBe(0);
+    expect(quietMs(now, "2026-11-13T14:36:00Z")).toBe(0);
+    // The agent sent an event 5 seconds ago, so the turn is not quiet (dogfood #71).
+    expect(quietMs(now, "2026-11-13T14:34:55Z")).toBe(5000);
     expect(quietText(12 * 60_000 + 30_000)).toBe("12 min");
     expect(quietText(134 * 60_000)).toBe("2 h 14 min");
     const call: Entry = {

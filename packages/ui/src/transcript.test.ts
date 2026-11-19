@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 
 import { replyScript } from "../fixture/server.ts";
 import { promptChoices } from "./ChatPrompt.tsx";
-import { emptyTranscript, foldEvent, mergeTranscripts } from "./transcript.ts";
+import { emptyTranscript, foldEvent } from "./transcript.ts";
 
 function play(prompt: string, upTo = Infinity) {
     return replyScript(prompt)
@@ -46,8 +46,6 @@ it("holds the prompt pi waits on until its own end, or until the run settles", (
     expect(foldEvent(waiting, { type: "ui_prompt_end", id: "p1" }).prompt).toBeNull();
     // A settled run drops a prompt that got no end.
     expect(foldEvent(waiting, { type: "agent_settled", aborted: false }).prompt).toBeNull();
-    // The merged transcript carries the live prompt.
-    expect(mergeTranscripts(emptyTranscript, waiting).prompt).toEqual(prompt);
 });
 
 it("shows an extension's notification as a note", () => {

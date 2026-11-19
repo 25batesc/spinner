@@ -10,7 +10,6 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
-    statSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
     AgentCommandResponse,
     AgentEventsResponse,
-    AgentEventsStamp,
+    AgentTranscriptResponse,
     AgentResponse,
     JobResponse,
     JobsResponse,
@@ -361,14 +360,13 @@ describe("agents", () => {
         });
         await until(() => events.some((event) => event.type === "agent.settled"));
         expect(events.some((event) => event.type === "agent.event")).toBe(true);
-        // The stamp's `active` is the time of the agent's last event: a turn that began
-        // after a long rest shows life before its transcript is written (dogfood #71).
-        const before_stamp = Date.now();
-        const alive = await fetch(`${base}/sessions/s001-alpha/agents/backend/events/stamp`);
-        const active = ((await alive.json()) as AgentEventsStamp).active;
+        // The transcript's `active` is the time of the agent's last event (dogfood #71).
+        const before_page = Date.now();
+        const alive = await fetch(`${base}/sessions/s001-alpha/agents/backend/transcript`);
+        const active = ((await alive.json()) as AgentTranscriptResponse).active;
         expect(active).not.toBeNull();
-        expect(Date.parse(active ?? "")).toBeLessThanOrEqual(before_stamp);
-        expect(before_stamp - Date.parse(active ?? "")).toBeLessThan(10_000);
+        expect(Date.parse(active ?? "")).toBeLessThanOrEqual(before_page);
+        expect(before_page - Date.parse(active ?? "")).toBeLessThan(10_000);
         expect((await post("/sessions/s001-alpha/agents/backend/steer", {})).status).toBe(400);
         // The turn is over: the steer starts one, so the message is not left in pi's queue.
         const steered = await post("/sessions/s001-alpha/agents/backend/steer", { text: "go" });
@@ -428,16 +426,6 @@ describe("agents", () => {
         ]);
         const none = await fetch(`${base}/sessions/s001/agents/nobody/events`);
         expect(((await none.json()) as AgentEventsResponse).events).toEqual([]);
-        // The stamp: the transcript's time and size, so a chat learns that it moved.
-        const stamp = await fetch(`${base}/sessions/s001/agents/backend/events/stamp`);
-        const read = (await stamp.json()) as AgentEventsStamp;
-        expect(read.bytes).toBe(statSync(transcript).size);
-        expect(read.written).toBe(statSync(transcript).mtime.toISOString());
-        const absent = await fetch(`${base}/sessions/s001/agents/nobody/events/stamp`);
-        expect(await absent.json()).toEqual({ written: null, bytes: 0, active: null });
-        // The agent was stopped above, so the daemon no longer hosts it.
-        expect(read.active).toBeNull();
-        expect((await fetch(`${base}/sessions/nope/agents/backend/events/stamp`)).status).toBe(404);
 
         const models = (await (await fetch(`${base}/models`)).json()) as ModelsResponse;
         expect(models.models.map((model) => model.id)).toEqual(["claude-x", "gpt-y"]);
@@ -513,9 +501,9 @@ function echoes(events: readonly SpinnerEvent[]): string[] {
         if (event.type !== "agent.event" || event.event.type !== "message_end") {
             continue;
         }
-        const content = event.event.message.content;
+        const { role, content } = event.event.message;
         const first = Array.isArray(content) ? content[0] : undefined;
-        if (first !== undefined && first.type === "text") {
+        if (role === "assistant" && first !== undefined && first.type === "text") {
             texts.push(first.text);
         }
     }

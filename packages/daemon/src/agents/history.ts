@@ -1,12 +1,13 @@
-// `GET /sessions/:dir/agents/:name/events`: an agent's past turns for a tab that loads after
-// the fact. Read from the agent's pi transcript, `agents/<name>/pi/*.jsonl` (format: pi's
-// `docs/session-format.md`; `SessionMessageEntry` is `{ type: "message", message }`), and
-// returned as the `message_end` events the UI already folds, so a reloaded tab renders the
-// same way as a live one. The newest file is the transcript `--session-id <name>` resumes.
+// An agent's past turns, read from its pi transcript, `agents/<name>/pi/*.jsonl` (format:
+// pi's `docs/session-format.md`; `SessionMessageEntry` is `{ type: "message", message }`),
+// as the `message_end` events the UI folds. The newest file is the transcript
+// `--session-id <name>` resumes. `agent_history_tail` seeds the chat's transcript log when an
+// agent's pi starts; `agent_history` is the whole file, for `GET …/agents/:name/events` and
+// the review swarm.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentEventsStamp, PiEvent, PiMessage } from "@spinner/protocol";
+import type { PiEvent, PiMessage } from "@spinner/protocol";
 import { agent_pi_dir } from "./harness.js";
 
 /** Upper bound on transcript entries read; a session past this is compacted by pi anyway. */
@@ -90,23 +91,6 @@ function message_of(entry: unknown): PiMessage | null {
         return null;
     }
     return message as PiMessage;
-}
-
-/**
- * When the agent's transcript was last written and its size; nulls without a transcript.
- * `active` comes from the caller: the manager knows when the process last sent an event.
- */
-export function agent_history_stamp(
-    session_path: string,
-    name: string,
-    active: string | null,
-): AgentEventsStamp {
-    const file = newest_transcript(join(session_path, agent_pi_dir(name)));
-    if (file === null) {
-        return { written: null, bytes: 0, active };
-    }
-    const stat = statSync(file);
-    return { written: stat.mtime.toISOString(), bytes: stat.size, active };
 }
 
 function newest_transcript(dir: string): string | null {

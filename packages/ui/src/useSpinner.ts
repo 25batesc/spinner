@@ -1,6 +1,7 @@
-// React binding for the daemon connection. Returns the reduced state and nothing else.
+// React binding for the daemon connection. Returns the reduced state, and the dispatch for
+// the one thing a view loads into it: a page of an agent's transcript.
 // One snapshot per load (`/sessions`, `/jobs`), then events only.
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, type Dispatch } from "react";
 
 import {
     connectEvents,
@@ -10,9 +11,9 @@ import {
     fetchUsage,
 } from "./events-client.ts";
 import { fetchOperator } from "./operator.ts";
-import { initialState, reduce, type UiState } from "./state.ts";
+import { initialState, reduce, type Action, type UiState } from "./state.ts";
 
-export function useSpinner(): UiState {
+export function useSpinner(): [UiState, Dispatch<Action>] {
     const [state, dispatch] = useReducer(reduce, initialState);
 
     useEffect(() => {
@@ -61,5 +62,5 @@ export function useSpinner(): UiState {
         };
     }, []);
 
-    return state;
+    return [state, dispatch];
 }
