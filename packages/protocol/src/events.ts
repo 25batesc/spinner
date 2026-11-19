@@ -95,11 +95,18 @@ export interface AgentSpawnedEvent extends EventBase {
     pid: number;
 }
 
-/** pi's own JSON event, forwarded untouched. The UI renders it as a pi TUI would. */
+/**
+ * One event of an agent's pi. The events the chat folds carry `seq`: the daemon numbers them
+ * from 1 at each start of the pi, without a gap, and sends only those to its WebSocket
+ * clients, with long texts cut and image bytes left out. A client that sees a gap fetches
+ * `GET …/transcript?since=`. An event without `seq` (`turn_end`, `agent_end`, a tool's partial
+ * output) stays inside the daemon, whole, for the review swarm.
+ */
 export interface AgentEventEvent extends EventBase {
     type: "agent.event";
     agent: string;
     event: PiEvent;
+    seq?: number;
 }
 
 export interface AgentSettledEvent extends EventBase {

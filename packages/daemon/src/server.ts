@@ -24,6 +24,7 @@ import type {
     GithubAccess,
     AgentCommandResponse,
     AgentEventsResponse,
+    AgentTranscriptResponse,
     CostRow,
     CostsResponse,
     AgentNotRunningResponse,
@@ -57,6 +58,7 @@ import {
     EVENTS_CLIENT_PARAM,
     EVENTS_PATH,
     LEAD_NAME,
+    TRANSCRIPT_EVENTS_MAX,
     SETTINGS_DEFAULT,
     STACK_LOGS_LINES_DEFAULT,
     STACK_LOGS_LINES_MAX,
@@ -74,7 +76,8 @@ import { mount_tty_routes, tty_upgrader } from "./agents/routes-tty.js";
 import { mount_operator_routes } from "./agents/routes-operator.js";
 import { mount_comment_routes } from "./agents/routes-comments.js";
 import { OperatorHost } from "./agents/operator.js";
-import { agent_history, agent_history_stamp } from "./agents/history.js";
+import { agent_history, agent_history_stamp, agent_history_tail } from "./agents/history.js";
+import { TranscriptLog } from "./agents/transcript-log.js";
 import { AgentManager, FIRST_TURN } from "./agents/manager.js";
 import { ReviewSwarm } from "./agents/swarm.js";
 import { mount_agent_routes } from "./agents/routes.js";
@@ -860,6 +863,23 @@ export function create_app(deps: AppDeps): Hono {
         return c.json(body);
     });
 
+    // The chat's transcript: the hosted agent's log, or the file's tail for a stopped agent.
+    app.get("/sessions/:dir/agents/:name/transcript", (c) => {
+        const summary = find_session(deps.home, c.req.param("dir"));
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir")}`), 404);
+        }
+        const name = c.req.param("name");
+        if (summary.session.agents?.[name] === undefined) {
+            return c.json(error_body(`agent ${name} is not in ${summary.dir}`), 404);
+        }
+        const since = Number(c.req.query("since") ?? "0");
+        if (!Number.isInteger(since) || since < 0) {
+            return c.json(error_body("`since` must be a non-negative integer"), 400);
+        }
+        return c.json(agent_transcript(deps.agents, summary, name, since));
+    });
+
     app.get("/sessions/:dir/agents/:name/events", (c) => {
         const summary = find_session(deps.home, c.req.param("dir"));
         if (summary === null) {
@@ -1134,6 +1154,26 @@ async function apply_agent_setting(
     await deps.refresh(summary.dir);
     const body: OkResponse = { ok: true };
     return c.json(body);
+}
+
+/**
+ * A stopped agent has no log and no events to come: its page is the newest messages of its
+ * transcript file, read for this request and not kept. `next` is 0, where the log of its
+ * next pi starts.
+ */
+function agent_transcript(
+    agents: AgentManager,
+    summary: SessionSummary,
+    name: string,
+    since: number,
+): AgentTranscriptResponse {
+    const hosted = agents.transcript(summary.dir, name, since);
+    if (hosted !== null) {
+        return hosted;
+    }
+    const log = new TranscriptLog();
+    log.seed(agent_history_tail(summary.path, name, TRANSCRIPT_EVENTS_MAX));
+    return log.page(0, null);
 }
 
 function running_agent(deps: AppDeps, dir: string, name: string): AgentHandle | null {
@@ -1663,6 +1703,9 @@ interface DesktopClients {
  * `desktop` until it closes, so a notification skips the `osascript` banner meanwhile. Every
  * other path is offered to `other` (the tty route) and is a 404 when it declines.
  */
+/** Upper bound on the bytes that wait for one `/events` client to read them. */
+const SOCKET_BUFFER_BYTES_MAX = 32 * 1024 * 1024;
+
 function attach_events_socket(
     server: Server,
     bus: EventBus,
@@ -1686,9 +1729,21 @@ function attach_events_socket(
     });
     sockets.on("connection", (client: WebSocket, request: IncomingMessage) => {
         const unsubscribe = bus.subscribe((event) => {
-            if (client.readyState === client.OPEN) {
-                client.send(JSON.stringify(event));
+            // An agent event without a number is not for the chat (`AgentEventEvent`).
+            if (event.type === "agent.event" && event.seq === undefined) {
+                return;
             }
+            if (client.readyState !== client.OPEN) {
+                return;
+            }
+            if (client.bufferedAmount > SOCKET_BUFFER_BYTES_MAX) {
+                // A client that does not read would grow the daemon's memory without bound.
+                // Closed, it reconnects and takes the transcript again.
+                log(`ws client is ${client.bufferedAmount} bytes behind; closing it`);
+                client.close(1013, "too far behind");
+                return;
+            }
+            client.send(JSON.stringify(event));
         });
         const query = new URL(request.url ?? "/", "http://localhost").searchParams;
         const is_desktop = query.get(EVENTS_CLIENT_PARAM) === EVENTS_CLIENT_DESKTOP;

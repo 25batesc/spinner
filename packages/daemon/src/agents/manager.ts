@@ -15,11 +15,17 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
     AddAgentRequest,
+    AgentTranscriptResponse,
     AgentSpec,
     SessionSummary,
     Settings,
 } from "@spinner/protocol";
-import { PENDING_PROMPT_SEPARATOR, SETTINGS_DEFAULT, role_of_agent } from "@spinner/protocol";
+import {
+    PENDING_PROMPT_SEPARATOR,
+    SETTINGS_DEFAULT,
+    TRANSCRIPT_EVENTS_MAX,
+    role_of_agent,
+} from "@spinner/protocol";
 import type { EventBus } from "../event-bus.js";
 import { egm_spawn } from "../egm/spawn.js";
 import type { SpinnerHome } from "../home.js";
@@ -29,6 +35,8 @@ import { render_agents_file } from "../store/mission-template.js";
 import { read_settings } from "../settings.js";
 import { list_sessions, read_session, write_session } from "../store/session-store.js";
 import { agent_brief_path, type AgentHandle, type AgentHarness } from "./harness.js";
+import { agent_history_tail } from "./history.js";
+import { TranscriptLog } from "./transcript-log.js";
 
 /** What `session.yaml` records for every agent this daemon starts or resumes. */
 const HARNESS = "rpc";
@@ -61,6 +69,8 @@ interface Hosted {
     busy: boolean;
     /** When the process last sent an event; null before the first one. */
     last_event: Date | null;
+    /** The chat transcript: the past messages from pi's file, then every event since. */
+    log: TranscriptLog;
     /** Set by `stop`, so the exit records that the operator ended the process. */
     stopped_by?: "operator" | "daemon";
     unsubscribe: () => void;
@@ -149,6 +159,18 @@ export class AgentManager {
     /** True while the agent's process runs a turn, so a steer enters before its next model call. */
     is_busy(dir: string, name: string): boolean {
         return this.hosted.get(key_of(dir, name))?.busy ?? false;
+    }
+
+    /**
+     * A page of the hosted agent's chat transcript after `since`, or null when the daemon
+     * does not host the agent (the route then reads the transcript file).
+     */
+    transcript(dir: string, name: string, since: number): AgentTranscriptResponse | null {
+        const entry = this.hosted.get(key_of(dir, name));
+        if (entry === undefined) {
+            return null;
+        }
+        return entry.log.page(since, entry.last_event?.toISOString() ?? null);
     }
 
     /** The agent's working directory while it runs, else null. */
@@ -333,9 +355,21 @@ export class AgentManager {
         this.record(summary.dir, request.name, spec);
         const dir = summary.dir;
         const agent = request.name;
+        // Seeded before the first event: pi sends none until it gets a prompt.
+        const log = new TranscriptLog();
+        log.seed(agent_history_tail(summary.path, agent, TRANSCRIPT_EVENTS_MAX));
         const unsubscribe = handle.on_event((event) => {
             const ts = this.now().toISOString();
-            this.bus.publish({ type: "agent.event", ts, session: dir, agent, event });
+            // The chat gets the numbered, bounded form; an event it does not fold stays
+            // whole and unnumbered, for the daemon's own listeners (the review swarm).
+            const chat = log.append(event);
+            this.bus.publish({
+                type: "agent.event",
+                ts,
+                session: dir,
+                agent,
+                ...(chat === null ? { event } : chat),
+            });
             const entry = this.hosted.get(key);
             if (entry !== undefined) {
                 entry.last_event = this.now();
@@ -367,6 +401,7 @@ export class AgentManager {
             handle,
             busy: false,
             last_event: null,
+            log,
             unsubscribe,
         });
         this.bus.publish({

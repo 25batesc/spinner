@@ -3,6 +3,7 @@
 // `docs/session-format.md`; `SessionMessageEntry` is `{ type: "message", message }`), and
 // returned as the `message_end` events the UI already folds, so a reloaded tab renders the
 // same way as a live one. The newest file is the transcript `--session-id <name>` resumes.
+import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentEventsStamp, PiEvent, PiMessage } from "@spinner/protocol";
@@ -41,6 +42,39 @@ export function events_of_transcript(text: string): PiEvent[] {
         }
     }
     return events;
+}
+
+/**
+ * The newest `max` messages of the agent's transcript as `message_end` events, oldest first:
+ * what the chat's log starts from when the agent's pi starts. Read from the end of the file,
+ * so a long transcript costs its last messages and not the whole parse.
+ */
+export function agent_history_tail(session_path: string, name: string, max: number): PiEvent[] {
+    assert.ok(Number.isInteger(max) && max > 0, "the tail bound must be a positive integer");
+    const file = newest_transcript(join(session_path, agent_pi_dir(name)));
+    if (file === null) {
+        return [];
+    }
+    const lines = readFileSync(file, "utf8").split("\n");
+    const events: PiEvent[] = [];
+    for (let index = lines.length - 1; index >= 0 && events.length < max; index -= 1) {
+        const message = message_of_line(lines[index] ?? "");
+        if (message !== null && message.role !== "system") {
+            events.push({ type: "message_end", message });
+        }
+    }
+    return events.reverse();
+}
+
+function message_of_line(line: string): PiMessage | null {
+    if (line.trim().length === 0) {
+        return null;
+    }
+    try {
+        return message_of(JSON.parse(line));
+    } catch {
+        return null;
+    }
 }
 
 function message_of(entry: unknown): PiMessage | null {

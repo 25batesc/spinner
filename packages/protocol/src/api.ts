@@ -5,7 +5,7 @@
 
 import type { SpinnerEvent } from "./events.js";
 import type { PipelineConfig, PrFacts, StageResult } from "./pipeline.js";
-import type { PiEvent } from "./agent-event.js";
+import type { AgentPrompt, PiEvent } from "./agent-event.js";
 import type {
     AgentProcessState,
     ApprovalCheckState,
@@ -284,6 +284,12 @@ export const ROUTES = {
      * `agents.<name>.thinking`. 400 for a level outside `THINKING_LEVELS`; 409 as `model`.
      */
     "POST /sessions/:dir/agents/:name/thinking": "OkResponse",
+    /**
+     * The agent's chat transcript as the daemon holds it. Query: `since` (the `next` of the
+     * page the client folded last; 0 or absent for the whole transcript). The chat's only
+     * source besides the live `agent.event`s. 404 for an agent the session does not list.
+     */
+    "GET /sessions/:dir/agents/:name/transcript": "AgentTranscriptResponse",
     /** The agent's past turns from its pi transcript, for a tab that loads after the fact. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
     /**
@@ -1630,6 +1636,39 @@ export interface AgentEventsStamp {
  * the message on it, so the queued notices show as Spinner's and the rest as the operator's.
  */
 export const PENDING_PROMPT_SEPARATOR = "\n\n---\n\n";
+
+/** Upper bound on the events the daemon holds of one agent's transcript. */
+export const TRANSCRIPT_EVENTS_MAX = 2000;
+/** Upper bound on the bytes of those events as JSON; the oldest go first. */
+export const TRANSCRIPT_BYTES_MAX = 4 * 1024 * 1024;
+/** Upper bound on one text in a held event (a tool result, a file written); the rest is cut. */
+export const TRANSCRIPT_TEXT_CHARS_MAX = 100_000;
+
+/**
+ * `GET …/agents/:name/transcript`. The daemon numbers every event it sends to the chat
+ * (`agent.event.seq`, from 1 at each start of the agent's pi) and holds the ones that make
+ * up the transcript, bounded by the three limits above.
+ */
+export interface AgentTranscriptResponse {
+    /**
+     * True when `events` is the whole transcript the daemon holds: the client replaces what
+     * it has. False when `events` continues the client's transcript after `since`.
+     */
+    reset: boolean;
+    /** The `seq` of the newest event the page accounts for; the next live event is `next + 1`. */
+    next: number;
+    /** Events to fold in order. A finished message is one `message_end`. */
+    events: PiEvent[];
+    /** True while a run is open (`agent_start` without `agent_settled`). */
+    running: boolean;
+    /** The question pi waits on, else null. */
+    prompt: AgentPrompt | null;
+    /**
+     * ISO 8601 time of the last event from the agent's pi; null when the daemon does not
+     * host the agent, or no event came since it started.
+     */
+    active: string | null;
+}
 
 /** The agent's past turns, as the `message_end` events the UI folds, oldest first. */
 export interface AgentEventsResponse {
