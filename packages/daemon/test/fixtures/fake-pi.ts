@@ -5,7 +5,10 @@
 // return canned data. A `prompt` with `images` echoes `[<n> image(s) of <m> bytes]` after its
 // text, so a test can see that the images arrived. `set_model` takes the two models
 // `get_available_models` lists and refuses any other with pi's error; `set_thinking_level`
-// takes any level. It records its argv in FAKE_PI_ARGS_FILE
+// takes any level. A `prompt` of `ask confirm`, `ask select`, `ask input` or `ask two` writes
+// an `extension_ui_request` (two confirms for `two`) and keeps the run open until each
+// `extension_ui_response` arrived; its answer text echoes the responses. `ask widget` writes
+// a `setWidget` and a `notify` and settles at once. It records its argv in FAKE_PI_ARGS_FILE
 // when that is set, so a test can check the flags the daemon passed. Exits when stdin closes.
 // Plain TypeScript that Node 24 runs directly, like the UI's fixture server.
 import { writeFileSync } from "node:fs";
@@ -13,6 +16,10 @@ import { writeFileSync } from "node:fs";
 interface Command {
     id?: string;
     type: string;
+    /** Of an `extension_ui_response`. */
+    value?: string;
+    confirmed?: boolean;
+    cancelled?: boolean;
     message?: string;
     provider?: string;
     modelId?: string;
@@ -47,8 +54,60 @@ let running = false;
  */
 const steers: string[] = [];
 
+/** Dialogs this fake asked and has no answer to yet, with the text of the run they hold. */
+const asked = new Map<string, string>();
+const answers: string[] = [];
+
+const DIALOGS: Record<string, Record<string, unknown>[]> = {
+    confirm: [{ method: "confirm", title: "damage-control: rm", message: "Allow this once?" }],
+    select: [{ method: "select", title: "Pick one", options: ["red", "green"] }],
+    input: [{ method: "input", title: "Name it", placeholder: "a name" }],
+    two: [
+        { method: "confirm", title: "first", message: "one?" },
+        { method: "confirm", title: "second", message: "two?" },
+    ],
+};
+
+/** Starts a run that waits on the dialogs of `kind`; false when `kind` names none. */
+function ask(kind: string, text: string): boolean {
+    if (kind === "widget") {
+        out({ type: "extension_ui_request", id: "w-1", method: "setWidget", widgetKey: "k" });
+        out({ type: "extension_ui_request", id: "n-1", method: "notify", message: "blocked",
+            notifyType: "warning" });
+        return false;
+    }
+    const dialogs = DIALOGS[kind];
+    if (dialogs === undefined) {
+        return false;
+    }
+    running = true;
+    out({ type: "agent_start" });
+    dialogs.forEach((dialog, index) => {
+        const id = `ui-${kind}-${index + 1}`;
+        asked.set(id, text);
+        out({ type: "extension_ui_request", id, ...dialog });
+    });
+    return true;
+}
+
+function answered(command: Command): void {
+    const text = asked.get(command.id ?? "");
+    if (text === undefined) {
+        return;
+    }
+    asked.delete(command.id ?? "");
+    const { id, value, confirmed, cancelled } = command;
+    answers.push(JSON.stringify({ id, value, confirmed, cancelled }));
+    if (asked.size === 0) {
+        finish(`${text} -> ${answers.splice(0).join(" ")}`);
+    }
+}
+
 function handle(command: Command): void {
     switch (command.type) {
+        case "extension_ui_response":
+            answered(command);
+            return;
         case "get_state":
             respond(command, {
                 sessionId: "fake-session",
@@ -87,6 +146,11 @@ function handle(command: Command): void {
                 return;
             }
             respond(command, { disposition: running ? "queued" : "started" });
+            if (command.message?.startsWith("ask ") === true) {
+                if (ask(command.message.slice(4), command.message)) {
+                    return;
+                }
+            }
             run(`${command.message ?? ""}${images_suffix(command)}`);
             return;
         case "steer":

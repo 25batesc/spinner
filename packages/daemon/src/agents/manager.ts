@@ -557,6 +557,7 @@ export class AgentManager {
         // The handle is a class instance; its methods live on the prototype, so each one is
         // forwarded by name rather than spread.
         const notify = handle.notify?.bind(handle);
+        const answer = handle.answer?.bind(handle);
         return {
             pid: handle.pid,
             pi_session_id: handle.pi_session_id,
@@ -567,6 +568,7 @@ export class AgentManager {
             set_model: (model) => handle.set_model(model),
             set_thinking: (level) => handle.set_thinking(level),
             ...(notify === undefined ? {} : { notify }),
+            ...(answer === undefined ? {} : { answer }),
             commands: () => handle.commands(),
             on_event: (listener) => handle.on_event(listener),
             stop: () => handle.stop(),

@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import type { PiEvent } from "@spinner/protocol";
+import type { AgentPrompt, PiEvent, PiNotifyLevel } from "@spinner/protocol";
 
 /** Upper bound on commands waiting for a response. More means the child stopped answering. */
 const PENDING_MAX = 100;
@@ -56,16 +56,39 @@ export interface PiResponse {
 export class PiRefusal extends Error {}
 
 /** Any record pi writes: a response, a session event, or an extension UI record. */
-type PiRecord =
-    | PiResponse
-    | PiEvent
-    | { type: "extension_ui_request"; id: string; method: string };
+type PiRecord = PiResponse | PiEvent | { type: "extension_ui_request" };
+
+/**
+ * What an extension inside pi asked for through `ctx.ui` (pi's `docs/rpc-extension-ui.md`):
+ * a dialog pi blocks on until `answer_ui`, or a notification. `cancel` is a dialog the
+ * daemon cannot show (a `select` without options): it must still be answered, or pi waits
+ * for ever. Widgets, status lines, titles and editor text have no place in the chat and
+ * parse to null.
+ */
+export type PiUiRequest =
+    | { kind: "dialog"; prompt: AgentPrompt; timeout_ms: number | null }
+    | { kind: "notify"; message: string; level: PiNotifyLevel }
+    | { kind: "cancel"; id: string };
+
+/** The requests a listener sees; a `cancel` is answered before any listener runs. */
+export type PiUiShown = Exclude<PiUiRequest, { kind: "cancel" }>;
+
+/** pi's `extension_ui_response`: one of the three bodies, with the request's id. */
+export type PiUiAnswer = { id: string } & (
+    | { confirmed: boolean }
+    | { value: string }
+    | { cancelled: true }
+);
 
 export interface PiProcess {
     pid: number;
     /** Sends one command; resolves with its response, rejects when pi says `success: false`. */
     send(command: Record<string, unknown>): Promise<PiResponse>;
     on_event(listener: (event: PiEvent) => void): () => void;
+    /** Dialogs and notifications from extensions. Without a listener a dialog is cancelled. */
+    on_ui(listener: (request: PiUiShown) => void): () => void;
+    /** Writes the `extension_ui_response` that unblocks a dialog. Not a command: no reply. */
+    answer_ui(answer: PiUiAnswer): void;
     /** Resolves with the exit code (null on a signal) once the child is gone. */
     exited: Promise<number | null>;
     /** Closes stdin for an orderly shutdown, then SIGTERM, then SIGKILL. */
@@ -175,6 +198,7 @@ class PiChild implements PiProcess {
     readonly exited: Promise<number | null>;
     private readonly pending = new Map<string, Pending>();
     private readonly listeners = new Set<(event: PiEvent) => void>();
+    private readonly ui_listeners = new Set<(request: PiUiShown) => void>();
     private next_id = 1;
     private stderr_tail: string[] = [];
     private exit_code: number | null | undefined;
@@ -240,6 +264,22 @@ class PiChild implements PiProcess {
         };
     }
 
+    on_ui(listener: (request: PiUiShown) => void): () => void {
+        this.ui_listeners.add(listener);
+        return () => {
+            this.ui_listeners.delete(listener);
+        };
+    }
+
+    answer_ui(answer: PiUiAnswer): void {
+        if (this.exit_code !== undefined) {
+            return;
+        }
+        const stdin = this.child.stdin;
+        assert.ok(stdin !== null);
+        stdin.write(`${JSON.stringify({ type: "extension_ui_response", ...answer })}\n`);
+    }
+
     async stop(): Promise<number | null> {
         if (this.exit_code !== undefined) {
             return this.exit_code;
@@ -274,14 +314,82 @@ class PiChild implements PiProcess {
             return;
         }
         if (record.type === "extension_ui_request") {
-            // Dialogs cannot be answered without a person; `notify`, `setTitle` and the
-            // widget calls need no answer. The daemon drops them all in v1.
+            this.handle_ui(parse_ui_request(record));
             return;
         }
         for (const listener of this.listeners) {
             listener(record);
         }
     }
+
+    private handle_ui(request: PiUiRequest | null): void {
+        if (request === null) {
+            return;
+        }
+        if (request.kind === "cancel") {
+            this.answer_ui({ id: request.id, cancelled: true });
+            return;
+        }
+        if (request.kind === "dialog" && this.ui_listeners.size === 0) {
+            // Nobody can show it: decline, so pi does not block on a question no one sees.
+            this.answer_ui({ id: request.prompt.id, cancelled: true });
+            return;
+        }
+        for (const listener of this.ui_listeners) {
+            listener(request);
+        }
+    }
+}
+
+const NOTIFY_LEVELS: readonly PiNotifyLevel[] = ["info", "warning", "error"];
+
+/** Upper bound on a select's options and on the text of one dialog field. */
+const UI_OPTIONS_MAX = 50;
+const UI_TEXT_CHARS_MAX = 20_000;
+
+/** The request an `extension_ui_request` record carries; null for one the chat ignores. */
+export function parse_ui_request(record: unknown): PiUiRequest | null {
+    if (typeof record !== "object" || record === null) {
+        return null;
+    }
+    const fields = record as Record<string, unknown>;
+    const id = fields["id"];
+    const method = fields["method"];
+    if (typeof id !== "string" || id === "" || typeof method !== "string") {
+        return null;
+    }
+    const text = (key: string): string | undefined => {
+        const value = fields[key];
+        return typeof value === "string" ? value.slice(0, UI_TEXT_CHARS_MAX) : undefined;
+    };
+    if (method === "notify") {
+        const level = NOTIFY_LEVELS.find((entry) => entry === fields["notifyType"]) ?? "info";
+        const message = text("message") ?? "";
+        return message === "" ? null : { kind: "notify", message, level };
+    }
+    if (method !== "select" && method !== "confirm" && method !== "input" && method !== "editor") {
+        return null;
+    }
+    const prompt: AgentPrompt = { id, kind: method, title: text("title") ?? method };
+    for (const key of ["message", "placeholder", "prefill"] as const) {
+        const value = text(key);
+        if (value !== undefined) {
+            prompt[key] = value;
+        }
+    }
+    if (method === "select") {
+        const options = fields["options"];
+        const listed = Array.isArray(options)
+            ? options.filter((option): option is string => typeof option === "string")
+            : [];
+        if (listed.length === 0 || listed.length > UI_OPTIONS_MAX) {
+            return { kind: "cancel", id };
+        }
+        prompt.options = listed;
+    }
+    const timeout = fields["timeout"];
+    const timeout_ms = typeof timeout === "number" && timeout > 0 ? timeout : null;
+    return { kind: "dialog", prompt, timeout_ms };
 }
 
 /**

@@ -190,14 +190,34 @@ export type PiEvent =
     | { type: "model_select"; model: string }
     | { type: "thinking_level_select"; level: ThinkingLevel }
     /**
-     * pi waits on a blocking prompt an extension opened in its terminal (`ctx.ui.confirm`
-     * and the like: a damage-control rule, a trust question). A tty agent's extension
-     * forwards both, so the chat can show the question and the operator can answer it from
-     * there instead of finding the agent stuck.
+     * Spinner's own, not pi's stream: an extension inside pi asked the operator something
+     * through `ctx.ui` (a damage-control confirm, a select, an input). pi blocks until the
+     * answer; the daemon turns pi's `extension_ui_request` into these two, so the chat shows
+     * the question and `POST …/agents/:name/answer` answers it. One prompt is open at a time;
+     * the daemon queues the rest.
      */
-    | { type: "ui_prompt_start"; reason: "ui_prompt"; kind: PiPromptKind; title?: string }
-    | { type: "ui_prompt_end"; reason: "ui_prompt"; kind: PiPromptKind; title?: string };
+    | { type: "ui_prompt_start"; prompt: AgentPrompt }
+    | { type: "ui_prompt_end"; id: string }
+    /** An extension's `ctx.ui.notify`, for example damage-control's "blocked" line. */
+    | { type: "ui_notify"; message: string; level: PiNotifyLevel };
 
-export type PiPromptKind = "select" | "confirm" | "input" | "editor" | "custom";
+export type PiPromptKind = "select" | "confirm" | "input" | "editor";
+
+export type PiNotifyLevel = "info" | "warning" | "error";
+
+/** One question pi waits on. `id` is pi's request id; the answer must name it. */
+export interface AgentPrompt {
+    id: string;
+    kind: PiPromptKind;
+    title: string;
+    /** The body under the title of a `confirm`. */
+    message?: string;
+    /** The choices of a `select`; never empty for that kind. */
+    options?: string[];
+    /** The hint of an `input`. */
+    placeholder?: string;
+    /** The text an `editor` opens with. */
+    prefill?: string;
+}
 
 export type PiEventType = PiEvent["type"];

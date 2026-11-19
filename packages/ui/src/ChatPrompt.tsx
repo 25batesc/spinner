@@ -1,12 +1,12 @@
-// The prompt pi's terminal waits on, as a card on the message box: a damage-control confirm
-// (`Allow this once?`), a trust question. Without it the chat showed a turn that looked
-// stuck while pi waited in the terminal tab. A confirm is answered from here: `Allow` is
-// Enter and `Deny` is Escape, typed into the pty by the daemon only while the prompt waits.
-// Another kind of prompt (a select, an input) names the terminal tab.
-import { useState } from "react";
+// The question pi waits on, as a card on the message box: a damage-control confirm (`Allow
+// this once?`), a select, an input. An extension inside pi asked it through `ctx.ui`, and pi
+// blocks until the answer; without the card the turn would look stuck. The daemon holds the
+// prompt (`ui_prompt_start`) and `POST …/answer` writes pi's response. The card goes when
+// the daemon reports the prompt's end.
+import { type FormEvent, useState } from "react";
+import type { AgentAnswer, AgentPrompt } from "@spinner/protocol";
 
 import { postAgent } from "./events-client.ts";
-import type { PromptWaiting } from "./transcript.ts";
 
 export function ChatPrompt({
     base,
@@ -15,15 +15,16 @@ export function ChatPrompt({
 }: {
     base: string;
     who: string;
-    prompt: PromptWaiting;
+    prompt: AgentPrompt;
 }) {
-    const [posting, setPosting] = useState<"yes" | "no" | null>(null);
+    const [posting, setPosting] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const answer = (value: "yes" | "no") => {
-        setPosting(value);
+    const [typed, setTyped] = useState(prompt.prefill ?? "");
+    const answer = (label: string, body: AgentAnswer) => {
+        setPosting(label);
         setError(null);
-        // Nothing changes here on success: pi's `ui_prompt_end` removes the card.
-        postAgent(`${base}/answer`, { answer: value }).then(
+        // Nothing changes here on success: the prompt's end removes the card.
+        postAgent(`${base}/answer`, { id: prompt.id, ...body }).then(
             () => setPosting(null),
             (failure: unknown) => {
                 setPosting(null);
@@ -31,56 +32,91 @@ export function ChatPrompt({
             },
         );
     };
-    const confirm = prompt.kind === "confirm";
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        answer("value", { kind: "value", value: typed });
+    };
+    const choices = promptChoices(prompt);
+    const types = prompt.kind === "input" || prompt.kind === "editor";
     return (
-        <section className="chat-gate chat-prompt" aria-label={`${who} waits in the terminal`}>
+        <section className="chat-gate chat-prompt" aria-label={`${who} waits for your answer`}>
             <header className="chat-gate-head">
                 <div className="chat-gate-question">
-                    <span className="chat-gate-label">{who} waits in the terminal</span>
+                    <span className="chat-gate-label">{who} waits for your answer</span>
                     <div className="chat-prompt-title">{prompt.title}</div>
-                    {!confirm && (
-                        <div className="muted">
-                            This {prompt.kind} prompt is answered in the terminal tab.
-                        </div>
+                    {prompt.message !== undefined && (
+                        <div className="chat-prompt-title muted">{prompt.message}</div>
                     )}
                 </div>
             </header>
-            {confirm && (
-                <ol className="chat-gate-options">
-                    <li>
+            <ol className="chat-gate-options">
+                {choices.map((choice, index) => (
+                    <li key={choice.label}>
                         <button
                             type="button"
                             className="chat-gate-option"
                             disabled={posting !== null}
-                            data-posting={posting === "yes"}
-                            onClick={() => answer("yes")}
+                            data-posting={posting === choice.label}
+                            onClick={() => answer(choice.label, choice.answer)}
                         >
-                            <span className="chat-gate-number">1</span>
+                            <span className="chat-gate-number">{index + 1}</span>
                             <span className="chat-gate-text">
-                                <span className="chat-gate-title">Allow this once</span>
+                                <span className="chat-gate-title">{choice.label}</span>
                             </span>
                         </button>
                     </li>
-                    <li>
-                        <button
-                            type="button"
-                            className="chat-gate-option"
-                            disabled={posting !== null}
-                            data-posting={posting === "no"}
-                            onClick={() => answer("no")}
-                        >
-                            <span className="chat-gate-number">2</span>
-                            <span className="chat-gate-text">
-                                <span className="chat-gate-title">Deny</span>
-                                <span className="chat-gate-detail">
-                                    {who} is told you declined and goes on without it.
-                                </span>
-                            </span>
-                        </button>
-                    </li>
-                </ol>
+                ))}
+            </ol>
+            {types && (
+                <form className="chat-gate-other" onSubmit={submit}>
+                    <span className="chat-gate-number" aria-hidden="true">✎</span>
+                    {prompt.kind === "editor" ? (
+                        <textarea
+                            value={typed}
+                            rows={4}
+                            aria-label={prompt.title}
+                            onChange={(event) => setTyped(event.target.value)}
+                        />
+                    ) : (
+                        <input
+                            value={typed}
+                            placeholder={prompt.placeholder ?? ""}
+                            aria-label={prompt.title}
+                            onChange={(event) => setTyped(event.target.value)}
+                        />
+                    )}
+                    <button type="submit" className="chat-gate-skip" disabled={posting !== null}>
+                        Send
+                    </button>
+                </form>
             )}
             {error !== null && <p className="needs-human chat-error">{error}</p>}
         </section>
     );
+}
+
+interface Choice {
+    label: string;
+    answer: AgentAnswer;
+}
+
+/**
+ * The buttons of a prompt: Allow and Deny for a confirm, one per option and Cancel for a
+ * select, and Cancel alone for a prompt the operator types into.
+ */
+export function promptChoices(prompt: AgentPrompt): Choice[] {
+    if (prompt.kind === "confirm") {
+        return [
+            { label: "Allow", answer: { kind: "confirm", confirmed: true } },
+            { label: "Deny", answer: { kind: "confirm", confirmed: false } },
+        ];
+    }
+    const cancel: Choice = { label: "Cancel", answer: { kind: "cancel" } };
+    if (prompt.kind === "select") {
+        const options = (prompt.options ?? []).map(
+            (option): Choice => ({ label: option, answer: { kind: "value", value: option } }),
+        );
+        return [...options, cancel];
+    }
+    return [cancel];
 }

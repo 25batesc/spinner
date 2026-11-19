@@ -160,8 +160,6 @@ export class TtyAgent {
     private exit_code: number | null | undefined;
     /** pi's startup notice waits for a key; the daemon presses it once, nobody else can. */
     private startup_notice_answered = false;
-    /** The blocking prompt pi's terminal waits on (`ui_prompt_start` without its end). */
-    private prompt: { kind: string; title: string | undefined } | null = null;
 
     constructor(
         private readonly pty: IPty,
@@ -169,13 +167,6 @@ export class TtyAgent {
         readonly name: string,
     ) {
         this.pty.onData((data) => this.on_data(Buffer.from(data, "utf8")));
-        this.channel.on_event((event) => {
-            if (event.type === "ui_prompt_start") {
-                this.prompt = { kind: event.kind, title: event.title };
-            } else if (event.type === "ui_prompt_end") {
-                this.prompt = null;
-            }
-        });
         this.exited = new Promise((resolve) => {
             this.pty.onExit(({ exitCode, signal }) => {
                 const code = signal !== undefined && signal !== 0 ? null : exitCode;
@@ -214,23 +205,6 @@ export class TtyAgent {
         return () => {
             this.attachments.delete(client);
         };
-    }
-
-    /** The prompt pi waits on, for the answer route; null when none. */
-    get prompt_waiting(): { kind: string; title: string | undefined } | null {
-        return this.prompt;
-    }
-
-    /**
-     * Answers the waiting prompt: Enter takes the first choice (`Yes` of a confirm), Escape
-     * cancels it. False when no prompt waits, so a key never lands in pi's editor.
-     */
-    answer(answer: "yes" | "no"): boolean {
-        if (this.prompt === null || this.exit_code !== undefined) {
-            return false;
-        }
-        this.pty.write(answer === "yes" ? "\r" : "\x1b");
-        return true;
     }
 
     /** Keystrokes from a client, unchanged. */

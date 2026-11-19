@@ -15,7 +15,14 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { GithubAccess, PiEvent, SessionSummary, ThinkingLevel } from "@spinner/protocol";
+import type {
+    AgentAnswerRequest,
+    AgentPrompt,
+    GithubAccess,
+    PiEvent,
+    SessionSummary,
+    ThinkingLevel,
+} from "@spinner/protocol";
 import {
     EXTENSION_ENV,
     MESSAGE_IMAGES_MAX,
@@ -32,6 +39,8 @@ import {
     spawn_pi,
     type PiProcess,
     type PiSpawnOptions,
+    type PiUiAnswer,
+    type PiUiShown,
 } from "./pi-rpc.js";
 
 export interface AgentSpawnSpec {
@@ -87,6 +96,11 @@ export interface AgentHandle {
     set_model(model: string): Promise<void>;
     /** Sets pi's thinking level; pi clamps it to what the model supports. */
     set_thinking(level: ThinkingLevel): Promise<void>;
+    /**
+     * Answers the prompt pi waits on (`ui_prompt_start`). False when no prompt with that id
+     * is the open one; throws a `PiRefusal` when the answer does not fit the prompt's kind.
+     */
+    answer?(request: AgentAnswerRequest): boolean;
     /** The commands pi loaded, for the Context tab. */
     commands(): Promise<PiCommand[]>;
     on_event(listener: (event: PiEvent) => void): () => void;
@@ -299,9 +313,24 @@ function has_entries(dir: string): boolean {
     return readdirSync(dir).length > 0;
 }
 
+/**
+ * Upper bound on prompts that wait for the operator at once. Parallel tool calls can each
+ * raise a damage-control confirm; more than this is declined, which is the safe answer.
+ */
+export const PROMPTS_WAITING_MAX = 16;
+
+interface WaitingPrompt {
+    prompt: AgentPrompt;
+    /** Fires when pi's own timeout resolved the dialog; null for a dialog without one. */
+    timer: NodeJS.Timeout | null;
+}
+
 class PiHandle implements AgentHandle {
     readonly pid: number;
     readonly exited: Promise<number | null>;
+    private readonly listeners = new Set<(event: PiEvent) => void>();
+    /** Dialogs pi blocks on, oldest first. The chat shows the first; the rest wait. */
+    private readonly waiting: WaitingPrompt[] = [];
 
     constructor(
         private readonly process_: PiProcess,
@@ -309,6 +338,73 @@ class PiHandle implements AgentHandle {
     ) {
         this.pid = process_.pid;
         this.exited = process_.exited;
+        process_.on_event((event) => this.emit(event));
+        process_.on_ui((request) => this.on_ui(request));
+        void process_.exited.then(() => this.drop_waiting());
+    }
+
+    answer(request: AgentAnswerRequest): boolean {
+        const head = this.waiting[0];
+        if (head === undefined || head.prompt.id !== request.id) {
+            return false;
+        }
+        this.process_.answer_ui(ui_answer(head.prompt, request));
+        this.close_prompt(head.prompt.id);
+        return true;
+    }
+
+    private on_ui(request: PiUiShown): void {
+        if (request.kind === "notify") {
+            this.emit({ type: "ui_notify", message: request.message, level: request.level });
+            return;
+        }
+        const { prompt, timeout_ms } = request;
+        if (this.waiting.length >= PROMPTS_WAITING_MAX) {
+            this.process_.answer_ui({ id: prompt.id, cancelled: true });
+            return;
+        }
+        // pi resolves a dialog with a timeout by itself; the card must go at the same time.
+        const timer =
+            timeout_ms === null ? null : setTimeout(() => this.close_prompt(prompt.id), timeout_ms);
+        timer?.unref();
+        this.waiting.push({ prompt, timer });
+        if (this.waiting.length === 1) {
+            this.emit({ type: "ui_prompt_start", prompt });
+        }
+    }
+
+    /** Removes a prompt that was answered or timed out; the next in line opens. */
+    private close_prompt(id: string): void {
+        const index = this.waiting.findIndex((entry) => entry.prompt.id === id);
+        if (index === -1) {
+            return;
+        }
+        const [closed] = this.waiting.splice(index, 1);
+        if (closed?.timer !== null && closed?.timer !== undefined) {
+            clearTimeout(closed.timer);
+        }
+        if (index !== 0) {
+            return;
+        }
+        this.emit({ type: "ui_prompt_end", id });
+        const next = this.waiting[0];
+        if (next !== undefined) {
+            this.emit({ type: "ui_prompt_start", prompt: next.prompt });
+        }
+    }
+
+    private drop_waiting(): void {
+        for (const entry of this.waiting.splice(0)) {
+            if (entry.timer !== null) {
+                clearTimeout(entry.timer);
+            }
+        }
+    }
+
+    private emit(event: PiEvent): void {
+        for (const listener of this.listeners) {
+            listener(event);
+        }
     }
 
     async prompt(text: string, images: readonly string[] = []): Promise<string> {
@@ -366,12 +462,36 @@ class PiHandle implements AgentHandle {
     }
 
     on_event(listener: (event: PiEvent) => void): () => void {
-        return this.process_.on_event(listener);
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
     }
 
     stop(): Promise<number | null> {
         return this.process_.stop();
     }
+}
+
+/** pi's response body for an operator's answer; a `PiRefusal` when the two do not fit. */
+function ui_answer(prompt: AgentPrompt, request: AgentAnswerRequest): PiUiAnswer {
+    const id = prompt.id;
+    if (request.kind === "cancel") {
+        return { id, cancelled: true };
+    }
+    if (request.kind === "confirm") {
+        if (prompt.kind !== "confirm") {
+            throw new PiRefusal(`the ${prompt.kind} prompt takes a value, not a confirmation`);
+        }
+        return { id, confirmed: request.confirmed };
+    }
+    if (prompt.kind === "confirm") {
+        throw new PiRefusal("the confirm prompt takes a confirmation, not a value");
+    }
+    if (prompt.kind === "select" && prompt.options?.includes(request.value) !== true) {
+        throw new PiRefusal(`\`${request.value}\` is not one of the prompt's options`);
+    }
+    return { id, value: request.value };
 }
 
 /**

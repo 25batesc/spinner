@@ -5,6 +5,7 @@ import type {
     AddAgentRequest,
     AdoptRequest,
     AgentMessageRequest,
+    AgentAnswerRequest,
     AgentModelRequest,
     AgentThinkingRequest,
     ExtractRequest,
@@ -338,6 +339,36 @@ export function parse_agent_model(input: unknown): AgentModelRequest | string {
         return "`model` must be provider/id";
     }
     return { model };
+}
+
+/** Upper bound on the text an operator types into an input or an editor prompt. */
+const ANSWER_CHARS_MAX = 100_000;
+
+/** `POST …/agents/:name/answer`: the prompt's id and one of the three answers. */
+export function parse_agent_answer(input: unknown): AgentAnswerRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const id = record.id;
+    if (typeof id !== "string" || id === "") {
+        return "`id` must be the prompt's id";
+    }
+    if (record.kind === "cancel") {
+        return { id, kind: "cancel" };
+    }
+    if (record.kind === "confirm") {
+        return typeof record.confirmed === "boolean"
+            ? { id, kind: "confirm", confirmed: record.confirmed }
+            : "`confirmed` must be true or false";
+    }
+    if (record.kind === "value") {
+        const value = record.value;
+        return typeof value === "string" && value.length <= ANSWER_CHARS_MAX
+            ? { id, kind: "value", value }
+            : `\`value\` must be a string of at most ${ANSWER_CHARS_MAX} characters`;
+    }
+    return "`kind` must be `confirm`, `value` or `cancel`";
 }
 
 /** `POST …/agents/:name/thinking`: `level` is one of `THINKING_LEVELS`. */

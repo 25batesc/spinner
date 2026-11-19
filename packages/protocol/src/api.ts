@@ -259,9 +259,9 @@ export const ROUTES = {
     /** Abort the agent's current run. */
     "POST /sessions/:dir/agents/:name/abort": "AgentCommandResponse",
     /**
-     * Answer the prompt pi's terminal waits on (`ui_prompt_start` without its end): Enter
-     * for `yes`, Escape for `no`, typed into the pty. Body: AgentAnswerRequest. 409 when the
-     * agent is not a tty agent or no prompt waits, so a key never lands in pi's editor.
+     * Answer the prompt pi waits on (`ui_prompt_start` without its end). Body:
+     * AgentAnswerRequest. 409 when no prompt with that id waits; 400 when the answer does not
+     * fit the prompt's kind.
      */
     "POST /sessions/:dir/agents/:name/answer": "AgentCommandResponse",
     /** Stop the agent's process. Its transcript stays and `resume` picks it up. */
@@ -1686,10 +1686,17 @@ export interface AgentEventsRequest {
     events: PiEvent[];
 }
 
-/** `POST …/agents/:name/answer`: `yes` confirms the waiting prompt, `no` declines it. */
-export interface AgentAnswerRequest {
-    answer: "yes" | "no";
-}
+/**
+ * `POST …/agents/:name/answer`. `id` is the prompt's, so a late answer cannot land on the
+ * next prompt. `confirm` answers a confirm; `value` answers a select (one of its options), an
+ * input or an editor; `cancel` dismisses any prompt (pi reads it as "no" or as nothing).
+ */
+export type AgentAnswerRequest = { id: string } & AgentAnswer;
+
+export type AgentAnswer =
+    | { kind: "confirm"; confirmed: boolean }
+    | { kind: "value"; value: string }
+    | { kind: "cancel" };
 
 export interface AgentCommandResponse {
     ok: true;

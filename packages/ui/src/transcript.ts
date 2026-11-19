@@ -1,10 +1,10 @@
 // Folds pi's `agent.event` stream into what the agent tab shows: messages, tool calls, cost.
 // It is a pure function of the events, so a reload that replays them gives the same tab.
 import type {
+    AgentPrompt,
     PiAssistantMessage,
     PiEvent,
     PiMessage,
-    PiPromptKind,
     PiToolResultMessage,
 } from "@spinner/protocol";
 
@@ -46,15 +46,10 @@ export interface Transcript {
     /** Role of the message between `message_start` and `message_end`, else null. */
     open: "user" | "assistant" | null;
     /**
-     * The blocking prompt pi's terminal waits on (`ui_prompt_start` without its end): a
-     * damage-control confirm, a trust question. Absent or null when none waits.
+     * The question pi waits on (`ui_prompt_start` without its end): a damage-control
+     * confirm, a select. Absent or null when none waits.
      */
-    prompt?: PromptWaiting | null;
-}
-
-export interface PromptWaiting {
-    kind: PiPromptKind;
-    title: string;
+    prompt?: AgentPrompt | null;
 }
 
 export const emptyTranscript: Transcript = { entries: [], cost: 0, running: false, open: null };
@@ -220,10 +215,14 @@ export function foldEvent(state: Transcript, event: PiEvent): Transcript {
             next = { ...state, running: false, prompt: null };
             break;
         case "ui_prompt_start":
-            next = { ...state, prompt: { kind: event.kind, title: event.title ?? event.kind } };
+            next = { ...state, prompt: event.prompt };
             break;
         case "ui_prompt_end":
-            next = { ...state, prompt: null };
+            // The end of an older prompt must not close the one that opened after it.
+            next = state.prompt?.id === event.id ? { ...state, prompt: null } : state;
+            break;
+        case "ui_notify":
+            next = { ...state, entries: [...state.entries, { kind: "note", text: event.message }] };
             break;
         case "message_start":
             next = startMessage(state, event.message);

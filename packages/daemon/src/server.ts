@@ -124,6 +124,7 @@ import {
     parse_add_agent,
     parse_adopt,
     parse_agent_message,
+    parse_agent_answer,
     parse_agent_model,
     parse_agent_thinking,
     parse_extract,
@@ -786,6 +787,29 @@ export function create_app(deps: AppDeps): Hono {
         }
         await handle.abort();
         const body: AgentCommandResponse = { ok: true };
+        return c.json(body);
+    });
+
+    // The operator's answer to the prompt pi waits on: a damage-control confirm, a select.
+    app.post("/sessions/:dir/agents/:name/answer", async (c) => {
+        const name = c.req.param("name");
+        const handle = running_agent(deps, c.req.param("dir"), name);
+        if (handle === null) {
+            return c.json(error_body(`agent ${name} is not running`), 404);
+        }
+        const request = parse_agent_answer(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        try {
+            if (handle.answer?.(request) !== true) {
+                return c.json(error_body(`${name} does not wait on prompt ${request.id}`), 409);
+            }
+        } catch (error) {
+            const status = error instanceof PiRefusal ? 400 : 500;
+            return c.json(error_body(describe_error(error)), status);
+        }
+        const body: AgentCommandResponse = { ok: true, disposition: request.kind };
         return c.json(body);
     });
 
