@@ -3,8 +3,8 @@
 // `SPINNER_AGENT`, `SPINNER_DAEMON_URL`, `SPINNER_ROLE` in the environment. It adds the
 // `spinner_session` prompt section on every run, registers the manifest's tools (the
 // `thread_*` ones for the fixer role), guards `edit`/`write` outside the brief's owned globs,
-// and registers `/spinner-reload`, which the daemon sends after a context edit. Under
-// `SPINNER_HARNESS=tty` it also opens the daemon's channel into the interactive pi (`tty.ts`).
+// and registers `/spinner-reload`, which the daemon sends after a context edit. The daemon
+// talks to pi over its rpc mode, not through this extension.
 // Outside a Spinner session (no `SPINNER_SESSION_DIR`) it registers nothing.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -30,22 +30,14 @@ import type {
     ToolResultEvent,
     ToolResultPatch,
 } from "./pi-api.js";
-import { load_session_files, render_operator_section, render_prompt_section } from "./prompt.js";
+import { load_session_files, render_prompt_section } from "./prompt.js";
 import { daemon_client, run_tool, schema_of, type DaemonClient, type Fetch } from "./tools.js";
-import { register_tty, type TtyChannel } from "./tty.js";
 
 export interface SpinnerExtensionOptions {
     env?: NodeJS.ProcessEnv;
     fetch?: Fetch;
-    /** For tests: the tty channel's retry delay and reported pid. */
-    tty?: { retry_delay_ms?: number; pid?: number };
-    /** For tests: the operator tools' wait between job polls. */
+    /** For tests: a tool's wait between polls of a daemon job. */
     job_poll_ms?: number;
-}
-
-export interface Registered extends SpinnerEnv {
-    /** The tty channel, when `SPINNER_HARNESS=tty`. */
-    tty_channel: TtyChannel | null;
 }
 
 /** The factory pi calls. `register` is the testable core; this reads the real environment. */
@@ -53,16 +45,12 @@ export default function spinner_extension(pi: ExtensionAPI): void {
     register(pi, {});
 }
 
-export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Registered | null {
+export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): SpinnerEnv | null {
     const env = read_env(options.env ?? process.env);
     if (env === null) {
         return null;
     }
     const fetch_ = options.fetch ?? fetch;
-    let tty_channel: TtyChannel | null = null;
-    if (env.tty && env.daemon_url.length > 0) {
-        tty_channel = register_tty(pi, { env, fetch: fetch_, ...options.tty });
-    }
     let client: DaemonClient | null = null;
     const client_of = (): DaemonClient => {
         client ??= daemon_client(env, fetch_);
@@ -70,14 +58,6 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
     };
 
     pi.on("before_agent_start", async (event) => {
-        if (env.role === "operator") {
-            const brief = read_or_empty(join(env.session_dir, "BRIEF.md"));
-            event.systemPromptOptions.sections["spinner_session"] = render_operator_section(
-                env,
-                brief,
-            );
-            return;
-        }
         const view = await session_view(env, fetch_);
         const files = load_session_files(env, view);
         event.systemPromptOptions.sections["spinner_session"] = render_prompt_section(env, files);
@@ -110,9 +90,7 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
     pi.on("tool_call", (event, ctx) => {
         if (event.toolName === "bash") {
             const command = String(event.input["command"] ?? "");
-            // The operator agent has no session worktree, so branches are its own business.
-            const branch = env.role === "operator" ? null : refuse_branch_change(command);
-            const sweep = refuse_process_sweep(command) ?? branch;
+            const sweep = refuse_process_sweep(command) ?? refuse_branch_change(command);
             if (sweep !== null) {
                 if (ctx.hasUI) {
                     ctx.ui.notify(sweep, "warning");
@@ -120,17 +98,15 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
                 return { block: true, reason: sweep };
             }
         }
-        const guarded = env.role === "operator" || env.role === "lead";
-        if (guarded && event.toolName === "bash") {
-            // The operator agent and the lead never post to Slack, approve, land, reset or
-            // close (MISSION.md s013 and s014, Contracts); the person does, in the UI or
-            // with `spinner`. GitHub writes are refused too, unless the operator's settings
-            // give the lead full GitHub access (`agents.github: full`).
+        if (env.role === "lead" && event.toolName === "bash") {
+            // The lead never posts to Slack, approves, lands, resets or closes (MISSION.md
+            // s014, Contracts); the operator does, in the UI or with `spinner`. GitHub
+            // writes are refused too, unless the operator's settings give the lead full
+            // GitHub access (`agents.github: full`).
             const command = event.input["command"];
-            const github = env.role === "lead" ? env.github : "guarded";
             const reason = refuse_operator_bash(
                 typeof command === "string" ? command : "",
-                github,
+                env.github,
             );
             if (reason === null) {
                 return undefined;
@@ -172,7 +148,7 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Re
             await ctx.reload();
         },
     });
-    return { ...env, tty_channel };
+    return env;
 }
 
 /** `GET /sessions/:dir` for the hosts; null when the daemon does not answer in time. */

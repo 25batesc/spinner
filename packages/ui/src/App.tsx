@@ -11,8 +11,6 @@ import {
 } from "./ActivityDrawer.tsx";
 import { ComposerPane } from "./Composer.tsx";
 import { isOpen, isStrip, PANES, type PaneName } from "./layout.ts";
-import { operatorHidden, operatorNotice, postOperator } from "./operator.ts";
-import { OperatorPane } from "./OperatorPane.tsx";
 import {
     ActivityBar,
     ContextBar,
@@ -120,8 +118,8 @@ function windowStorage(): Storage | undefined {
 }
 
 /**
- * What the middle pane shows: the selected session, the operator agent, or the composer that
- * `+ New session` or `+ New review` opens (s038).
+ * What the middle pane shows: the selected session, or the composer that `+ New session` or
+ * `+ New review` opens (s038).
  */
 /** How often the plans library is read again while it shows. */
 const PLANS_POLL_MS = 20_000;
@@ -139,7 +137,7 @@ function usePlansTick(active: boolean): number {
     return tick;
 }
 
-type Middle = "agents" | "operator" | "new-session" | "new-review" | "plan" | "project";
+type Middle = "agents" | "new-session" | "new-review" | "plan" | "project";
 
 function isComposer(middle: Middle): boolean {
     return middle === "new-session" || middle === "new-review";
@@ -326,18 +324,6 @@ export function App() {
         setAgentPicked(name);
     };
     const onRound = view?.design === undefined ? undefined : () => openView("history");
-    const notice = operatorNotice(state.operator);
-    // The link's failure lands where a job's does, in the drawer.
-    const operatorBar =
-        notice === null
-            ? undefined
-            : {
-                  notice,
-                  onResume: () =>
-                      void postOperator("start").catch((failure: unknown) =>
-                          app.setActionError(String(failure)),
-                      ),
-              };
     // The themes list follows the settings: a change may name a file written since the load.
     const settingsKey = JSON.stringify(state.settings);
     const themes = useLoaded(`themes#${settingsKey}`, fetchThemes).value ?? null;
@@ -625,12 +611,6 @@ export function App() {
             controls={inRoute ? undefined : []}
         />
     );
-    const operatorPane = (
-        <OperatorPane view={state.operator} controls={inRoute ? undefined : []} />
-    );
-    // The operator tab goes when the agent is off and stopped: back to the session.
-    const operatorOn = middle === "operator" && !operatorHidden(state.operator);
-    const toggleOperator = () => setMiddle(middle === "operator" ? "agents" : "operator");
     const ordinary = ordinarySessions(sessions);
     const reviewRows = sessions.filter(([, row]) => isReview(row));
     const needs = { sessions: needsCount(ordinary, seen), reviews: needsCount(reviewRows, seen) };
@@ -730,9 +710,7 @@ export function App() {
         </Sidebar>
     );
     let middlePane = agentsPane;
-    if (operatorOn) {
-        middlePane = operatorPane;
-    } else if (composer !== null) {
+    if (composer !== null) {
         middlePane = composerPane;
     } else if (middle === "project" && projectName !== undefined) {
         middlePane = (
@@ -812,7 +790,6 @@ export function App() {
             <ContextBar
                 view={view}
                 usage={state.usage}
-                operator={operatorBar}
                 onError={app.setActionError}
                 onNeeds={openCard}
                 onRound={onRound}
@@ -837,9 +814,6 @@ export function App() {
                     popped={sessionsState.popped}
                     onPick={pickRail}
                     needs={needs}
-                    operatorShown={operatorOn}
-                    operatorAvailable={!operatorHidden(state.operator)}
-                    onOperator={toggleOperator}
                 />
                 <div
                     ref={layout.container}

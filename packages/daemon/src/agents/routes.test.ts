@@ -88,7 +88,6 @@ beforeEach(async () => {
     daemon = await start_daemon({
         home,
         port: 0,
-        operator: false,
         log: () => undefined,
         poll_seconds: 0,
         gh,
@@ -262,9 +261,9 @@ function last_echo(agent: string): string {
             continue;
         }
         if (event.event.type === "message_end") {
-            const content = event.event.message.content;
+            const { role, content } = event.event.message;
             const first = Array.isArray(content) ? content[0] : undefined;
-            if (first !== undefined && first.type === "text") {
+            if (role === "assistant" && first !== undefined && first.type === "text") {
                 return first.text;
             }
         }

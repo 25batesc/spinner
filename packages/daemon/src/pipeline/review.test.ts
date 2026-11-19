@@ -120,7 +120,6 @@ async function boot(cap: number): Promise<void> {
     const started = await start_daemon({
         home,
         port: 0,
-        operator: false,
         log: () => undefined,
         poll_seconds: 0,
         gh,
@@ -261,7 +260,7 @@ describe("review helpers", () => {
     });
 });
 
-// Each case boots a daemon and spawns pty pis; under the whole suite that passes 5 s.
+// Each case boots a daemon and spawns pis; under the whole suite that passes 5 s.
 describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
     it("one reviewer per model, brief and skills; a VERDICT is done, an exit fails", async () => {
         await boot(24);

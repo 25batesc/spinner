@@ -224,8 +224,6 @@ html, body, #root { height: 100%; margin: 0; }
     margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block;
     line-height: 18px;
 }
-.context-bar .operator-notice { margin-left: auto; }
-.context-bar .context-needs ~ .operator-notice { margin-left: 0; }
 .context-stack { color: var(--text); }
 /* The session's track, after the needs-you pill; its menu opens under it to the right. */
 .track-menu { position: relative; display: flex; flex: none; }
@@ -633,7 +631,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; flex: none;
     gap: var(--space-2); margin-left: auto;
 }
-.context-bar .context-needs ~ .toolbar, .context-bar .operator-notice ~ .toolbar {
+.context-bar .context-needs ~ .toolbar {
     margin-left: var(--space-2);
 }
 .toolbar-group { display: flex; flex-wrap: nowrap; }
@@ -678,7 +676,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .tabs { display: flex; gap: 2px; }
 .tab { padding: 2px 10px; border: 1px solid var(--border); background: transparent; color: inherit; }
 .tab-selected { border-color: var(--accent); font-weight: 600; }
-/* The small underlined tabs under the agent chips: terminal (or chat) and context. */
+/* The small underlined tabs under the agent chips: chat and context. */
 .tabs-sub { gap: 2px; flex: none; border-bottom: 1px solid var(--line-soft); }
 .tabs-sub .tab {
     height: 28px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent;
@@ -1109,48 +1107,12 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .confirm-actions { display: flex; gap: var(--space-2); padding-top: var(--space-1); }
 .confirm-actions button { height: var(--control-form); padding: 0 14px; }
 .approve-list { list-style: none; padding: 0; margin: 0; }
-/* The agents view hides, not unmounts, while mission or threads show: the terminals keep their
-   sockets and buffers. `contents` keeps its children in the chat column's flex flow. */
+/* The agents view hides, not unmounts, while mission or threads show: the chat keeps what
+   was typed. `contents` keeps its children in the chat column's flex flow. */
 .agents-view { display: contents; }
 .agents-view[hidden] { display: none; }
-/* A tty agent's tab: xterm on the pane's dark background, the status line above it while the
-   socket is not open. The host takes the chat column's remaining height. */
-.agent-terminal {
-    display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 240px; position: relative;
-}
-.agent-terminal[hidden] { display: none; }
-.tty-status { margin: 0; font-size: var(--text-dense); color: var(--muted); }
-/* The agent is stopped: the line and its `resume` button must not read as a footnote. */
-.tty-status.tty-stopped { color: var(--warn); font-size: var(--text-body); }
-.tty-status.tty-stopped button {
-    margin-left: var(--space-2); background: var(--warn-tint); color: var(--warn);
-    border-color: var(--warn); font-weight: 600;
-}
-.terminal-host {
-    flex: 1; min-height: 0; background: var(--terminal-background); padding: var(--space-2);
-    border: 1px solid var(--line-soft); border-radius: var(--radius-box);
-}
-.terminal-host .xterm { height: 100%; }
-/* xterm.css paints the viewport black by default; keep it the theme's background. */
-.terminal-host .xterm-viewport { background-color: var(--terminal-background) !important; }
-/* The gear sits at the bottom of the activity bar, apart from the views; the operator icon
-   takes the first bottom slot, so the gear under it keeps its place in the flow. */
+/* The gear sits at the bottom of the activity bar, apart from the views. */
 .activity-bar .bar-bottom { margin-top: auto; }
-.activity-bar .bar-operator + .bar-bottom { margin-top: 0; }
-/* The operator tab: the stop or resume button, then the waiting line, on one row. */
-.operator-toolbar { font-size: var(--text-dense); flex-wrap: nowrap; }
-.operator-toolbar .operator-waiting {
-    flex: 1; min-width: 0; margin-left: 0; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.operator-waiting::before {
-    content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px;
-    border-radius: 50%; background: var(--warn); vertical-align: 1px;
-}
-.operator-toolbar .error { color: var(--fail); }
-/* The context bar's one control: the resume link after the not-running notice. */
-.operator-notice { white-space: nowrap; }
-.operator-notice .link { margin-left: 0; padding: 0; font: inherit; font-size: 12px; }
 /* The settings view in the side panel: one labelled control per line, swatches under the
    theme select, the invalid custom themes struck through with their missing keys. */
 .settings {

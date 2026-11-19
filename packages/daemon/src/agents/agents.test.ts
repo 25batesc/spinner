@@ -535,7 +535,7 @@ describe("the environment of a spawned agent", () => {
     it("drops another agent's inherited variables and keeps the daemon's settings", async () => {
         // A daemon started inside a pi-subagents child inherits the first three; with them
         // every agent's Spinner extension would stay off. A daemon started from a lead's
-        // shell inherits the rest: the lead's EGM run directory and its tty harness (r3.7).
+        // shell inherits the rest: the lead's EGM run directory (r3.7).
         const inherited = {
             PI_SUBAGENT_CHILD: "1",
             PI_SUBAGENT_PARENT_SESSION: "parent",
@@ -543,7 +543,6 @@ describe("the environment of a spawned agent", () => {
             PI_SUBAGENTS_TEMP_ROOT: "/lead/egm-runs",
             SPINNER_EGM_ROOT: "/lead/egm/src",
             SPINNER_EGM_ARTIFACTS: "/lead/design",
-            SPINNER_HARNESS: "tty",
         };
         const kept = { SPINNER_PI: "/opt/pi", SPINNER_HOME: "/daemon/home" };
         const saved = { ...process.env };

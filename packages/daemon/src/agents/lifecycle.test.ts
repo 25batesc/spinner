@@ -35,7 +35,6 @@ function options(): DaemonOptions {
     return {
         home,
         port: 0,
-        operator: false,
         log: () => undefined,
         poll_seconds: 0,
         notify: async () => undefined,

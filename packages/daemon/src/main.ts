@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Binary entry point: `spinnerd`. Reads `<home>/config.yaml` once (`config.ts`), then the
 // environment on top: SPINNER_HOME, SPINNER_PI, SPINNER_PORT, SPINNER_DEFAULT_MODEL,
-// SPINNER_SLACK_CHANNEL, SPINNER_UI_DIR, SPINNER_POLL_SECONDS, SPINNER_NOTIFY,
-// SPINNER_OPERATOR (`off` keeps the operator agent from starting at boot) and
+// SPINNER_SLACK_CHANNEL, SPINNER_UI_DIR, SPINNER_POLL_SECONDS, SPINNER_NOTIFY and
 // SPINNER_GITHUB_FIXTURE. Writes `<home>/daemon.pid` once it listens, so `spinner daemon
 // status|stop` find it, and refuses to start while another daemon holds that file. Stops on
 // SIGINT or SIGTERM.
@@ -71,9 +70,6 @@ if (ui_dir !== undefined && ui_dir !== "") {
 if (process.env["SPINNER_NOTIFY"] === "off") {
     options.notify = silent_notifier;
 }
-if (process.env["SPINNER_OPERATOR"] === "off") {
-    options.operator = false;
-}
 const github_fixture_dir = process.env["SPINNER_GITHUB_FIXTURE"]; // engine: fake gh for UI/ext runs
 if (github_fixture_dir !== undefined && github_fixture_dir !== "") {
     const fixture = github_fixture(resolve(github_fixture_dir));
@@ -103,7 +99,7 @@ const stop = (signal: string): void => {
 process.once("SIGINT", () => stop("SIGINT"));
 process.once("SIGTERM", () => stop("SIGTERM"));
 
-// The daemon hosts every agent's pty, so a rejected background probe (a `docker ps` killed
+// The daemon hosts every agent's pi, so a rejected background probe (a `docker ps` killed
 // at a shutdown ended the daemon on 2026-11-10) is logged and survived. A failed assertion
 // is a programmer error: the only correct response to that is to stop.
 process.on("unhandledRejection", (reason) => {

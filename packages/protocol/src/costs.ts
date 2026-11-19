@@ -61,9 +61,6 @@ export interface SessionCost extends CostTotals {
     children?: Record<string, AgentCost>;
 }
 
-/** `OperatorView.cost`: the operator agent's transcripts summed. */
-export type OperatorCost = CostTotals;
-
 export type CostGroup = "day" | "week" | "month";
 
 /**

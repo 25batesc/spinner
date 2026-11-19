@@ -47,7 +47,7 @@ export interface DiffManagerOptions {
     /** Directory `find_spec` searches when a session names no project. */
     cwd: string;
     log: Log;
-    /** Sends one notice to every running tty agent of a session; absent means no notices. */
+    /** Sends one notice to every running agent of a session; absent means no notices. */
     notify?: (dir: string, text: string) => Promise<unknown>;
     /** `diffview comments wait --timeout` of the watchers; tests shorten it. */
     wait_timeout?: string;

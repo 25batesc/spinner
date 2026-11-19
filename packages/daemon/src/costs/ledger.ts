@@ -4,7 +4,7 @@
 // writes no cost file. The ledger scans `<home>/sessions/*/agents/*/pi/*.jsonl`, the archive
 // and `<home>/operator/pi/*.jsonl`, keeps one `CostRow` per assistant message, and caches the
 // rows per file by size and mtime, so a refold reads only the files that changed. The views
-// read `session_cost` and `operator_cost`; the `/costs` route reads `rows`. `start_cost_ledger`
+// read `session_cost`; the `/costs` route reads `rows`. `start_cost_ledger`
 // wires the refold to `agent.settled` and a 60 s timer and publishes `costs` when a total moved.
 // Build session 4 (T6, entry 4.6) adds the Goldfish: each session's run files name the child
 // transcripts (`read_runs`), and their rows carry `child` and sum into `SessionCost.children`.
@@ -15,7 +15,6 @@ import type {
     AgentContext,
     AgentCost,
     CostRow,
-    OperatorCost,
     SessionCost,
     SpinnerEvent,
 } from "@spinner/protocol";
@@ -34,7 +33,10 @@ export const CHILD_FILES_MAX = 20_000;
 /** Upper bound on entries one transcript is read for; pi compacts long before this. */
 const ENTRIES_MAX = 200_000;
 
-/** The operator agent's transcripts live here; its rows carry `session: null`. */
+/**
+ * The transcripts of the operator agent, which no longer exists. What it spent stays in the
+ * totals, so its directory is still read; its rows carry `session: null`.
+ */
 const OPERATOR_DIR = "operator";
 const OPERATOR_AGENT = "operator";
 
@@ -91,10 +93,6 @@ export class CostLedger {
     /** The session's cost; `window_of` gives a model's context window for `context`. */
     session_cost(dir: string, window_of: WindowOf = no_window): SessionCost {
         return session_cost_of(this.rows_of(dir), window_of);
-    }
-
-    operator_cost(): OperatorCost {
-        return totals_of(this.rows_of(null));
     }
 
     /**

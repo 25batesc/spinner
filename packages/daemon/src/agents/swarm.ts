@@ -1,4 +1,4 @@
-// The review swarm (MISSION.md s015 Plan item 3, s016 Plan item 2): one tty agent per model
+// The review swarm (MISSION.md s015 Plan item 3, s016 Plan item 2): one agent per model
 // in `settings.review.models` on each target PR, each with the reviewer brief
 // (`store/review-brief.ts`, the operator's `reviewer` role) in the PR repo's worktree and
 // the role's skills through `--skill`, headless on the rpc harness (s016: an interactive

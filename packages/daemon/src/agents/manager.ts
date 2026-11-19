@@ -1,11 +1,11 @@
-// Hosts the pi agents of every session: starts one per agent tab through the harness the
-// config names (`tty` by default, `rpc` for headless runs), keeps the handles (the daemon's
-// only process state), records each agent in `session.yaml` (`agents.<name>`: harness, model,
-// process, pid, started), regenerates the session `AGENTS.md`, and turns pi's events into
-// `agent.spawned`, `agent.event`, `agent.settled` and `agent.exited` on the bus. Every spawn
-// is a `POST` or a CLI call, with one exception since s009: `adopt_all` on daemon start
-// resumes the tty agents the previous daemon hosted, because a pty master dies with its
-// daemon and the operator expects the tab back. The manager also holds the text waiting for
+// Hosts the pi agents of every session: starts one `pi --mode rpc` per agent, keeps the
+// handles (the daemon's only process state), records each agent in `session.yaml`
+// (`agents.<name>`: harness, model, process, pid, started), regenerates the session
+// `AGENTS.md`, holds each agent's chat transcript (`transcript-log.ts`), and turns pi's events
+// into `agent.spawned`, `agent.event`, `agent.settled` and `agent.exited` on the bus. Every
+// spawn is a `POST` or a CLI call, with one exception since s009: `adopt_all` on daemon start
+// resumes the agents the previous daemon hosted, because a pi's pipes die with its daemon
+// and the operator expects the chat back. The manager also holds the text waiting for
 // an agent's next prompt (an inbox message or a mission-change notice for an idle agent,
 // docs/SESSION_PROTOCOL.md "Messages"), which `prompt` prepends. `first_turn` is the go
 // signal `POST /sessions/:dir/agents` sends a new agent (dogfood row 37): the other spawn
@@ -188,7 +188,7 @@ export class AgentManager {
 
     /**
      * Sends `text` as the agent's first prompt and answers pi's disposition. A pi that refuses
-     * it (not ready yet, a tty still attaching) keeps the text for the next prompt and answers
+     * it (not ready yet) keeps the text for the next prompt and answers
      * `queued`, as the lead's paste does; the agent then starts on the operator's first word.
      */
     async first_turn(
@@ -381,12 +381,6 @@ export class AgentManager {
                 }
                 this.record(dir, agent, { process: "idle" });
                 this.bus.publish({ type: "agent.settled", ts, session: dir, agent });
-            }
-            if (event.type === "model_select") {
-                this.record(dir, agent, { model: event.model });
-            }
-            if (event.type === "thinking_level_select") {
-                this.record(dir, agent, { thinking: event.level });
             }
         });
         this.hosted.set(key, {

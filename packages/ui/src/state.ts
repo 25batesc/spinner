@@ -8,7 +8,6 @@ import type {
     CostsEvent,
     Job,
     MissionView,
-    OperatorView,
     SessionView,
     Settings,
     SpinnerEvent,
@@ -57,11 +56,6 @@ export interface UiState {
     /** The operator's settings: `GET /settings` at load, then every `settings` event. */
     settings: Settings | null;
     /**
-     * The operator agent: `GET /operator` at load, then every `operator.updated` event. Null
-     * until the load answers, and from a daemon without the route.
-     */
-    operator: OperatorView | null;
-    /**
      * The running cost figures from the last `costs` event (s013), with a counter so the
      * Usage section reloads its report when the ledger changed. Null until the first event.
      */
@@ -100,8 +94,7 @@ export type Action =
     | { kind: "transcript"; session: string; agent: string; page: AgentTranscriptResponse }
     | { kind: "connection"; status: ConnectionStatus }
     | { kind: "usage"; usage: UsageSample }
-    | { kind: "settings"; settings: Settings }
-    | { kind: "operator"; operator: OperatorView };
+    | { kind: "settings"; settings: Settings };
 
 export const initialState: UiState = {
     sessions: {},
@@ -112,7 +105,6 @@ export const initialState: UiState = {
     revisions: {},
     usage: null,
     settings: null,
-    operator: null,
     costs: null,
     missions: {},
 };
@@ -195,8 +187,6 @@ function applyEvent(state: UiState, event: SpinnerEvent): UiState {
             return applyCosts(state, event);
         case "settings":
             return { ...state, settings: event.settings };
-        case "operator.updated":
-            return { ...state, operator: event.data };
         case "mission.changed":
             if (event.view === undefined) {
                 return state;
@@ -285,8 +275,6 @@ export function reduce(state: UiState, action: Action): UiState {
             return { ...state, usage: action.usage };
         case "settings":
             return { ...state, settings: action.settings };
-        case "operator":
-            return { ...state, operator: action.operator };
         case "jobs":
             return applyJobs(state, action.jobs);
         case "event":
@@ -334,8 +322,8 @@ export function needsHuman(view: SessionView): string | null {
 
 /** Sessions waiting on the operator first, then newest first. Returns `[dir, view]` pairs. */
 /**
- * The session the operator spoke to last first (a prompt, a steer, Enter in its terminal, a
- * design answer); a session he never spoke to sorts by its creation. A session that needs
+ * The session the operator spoke to last first (a prompt, a steer, a design
+ * answer); a session he never spoke to sorts by its creation. A session that needs
  * him keeps its line and the rail badge, not a place at the top (dogfooding, 2026-11-10).
  */
 export function sortedSessions(state: UiState): [string, SessionView][] {

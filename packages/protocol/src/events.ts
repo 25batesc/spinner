@@ -8,7 +8,6 @@ import type {
     Job,
     MachineUsage,
     MissionView,
-    OperatorView,
     ReviewFields,
     SessionUsage,
     SessionView,
@@ -232,17 +231,6 @@ export interface SettingsEvent {
 }
 
 /**
- * The operator agent started, stopped, exited, began or ended a turn, or received a notice.
- * The whole view follows, as `session.updated` carries the session. Not tied to a session.
- */
-export interface OperatorUpdatedEvent {
-    type: "operator.updated";
-    ts: string;
-    session: null;
-    data: OperatorView;
-}
-
-/**
  * The ledger refolded and something changed (s013): the running figures for the Usage page
  * and the cost of each session whose total moved, so a card updates without a view. Not
  * tied to one session, so `session` is null.
@@ -328,7 +316,6 @@ export type SpinnerEvent =
     | MessageDeliveredEvent
     | UsageEvent
     | SettingsEvent
-    | OperatorUpdatedEvent
     | CostsEvent
     | ReviewUpdatedEvent
     | CommentUpdatedEvent
@@ -361,7 +348,6 @@ export const EVENT_TYPES: readonly SpinnerEventType[] = [
     "job.finished",
     "usage",
     "settings",
-    "operator.updated",
     "costs",
     "review.updated",
     "comment.updated",

@@ -222,11 +222,11 @@ export interface HostProcess {
 export type AgentProcessState = "running" | "idle" | "exited";
 
 /**
- * How an agent's pi runs: `tty` is pi's own terminal UI in a pty, rendered by the agent tab
- * over `GET /sessions/:dir/agents/:name/tty`; `rpc` is `pi --mode rpc`, the headless path.
- * `pi` is the value files written before s009 carry; it reads as `rpc`.
+ * How an agent's pi runs. Every agent runs on `rpc` (`pi --mode rpc`) and the daemon writes
+ * nothing else. `tty` and `pi` are values a file from an older daemon carries; the daemon
+ * rewrites them to `rpc` when the agent next starts, on the same transcript.
  */
-export type AgentHarnessName = "tty" | "rpc" | "pi";
+export type AgentHarnessName = "rpc" | "tty" | "pi";
 
 /** pi's thinking levels (pi's `setThinkingLevel`, rpc `set_thinking_level`), lowest first. */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -348,7 +348,7 @@ export interface Session {
     created: string;
     /**
      * When the operator last spoke to an agent of this session (a prompt or steer from the
-     * UI's box, Enter in its terminal, a design answer), ISO 8601. The sidebar sorts by it
+     * UI's box, a design answer), ISO 8601. The sidebar sorts by it
      * and shows "n min ago". Absent until the first.
      */
     last_interaction?: string;

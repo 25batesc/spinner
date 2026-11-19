@@ -48,7 +48,6 @@ async function setup(): Promise<void> {
             SPINNER_PORT: String(port),
             SPINNER_POLL_SECONDS: "0",
             SPINNER_NOTIFY: "off",
-            SPINNER_OPERATOR: "off",
             SPINNER_SESSION_IDS: "home",
             PATH: process.env["PATH"] ?? "",
         },

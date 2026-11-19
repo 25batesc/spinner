@@ -3,8 +3,8 @@
 // `stack show` said only "failed". So, when an `up`, `down` or `reset` job ends, the daemon
 // writes `stack.last_job` (action, state, error, finished, the last `STACK_JOB_TAIL_LINES`
 // log lines) into `session.yaml`, which the view carries and the extension's `stack show`
-// prints. When the job failed and the session has a running tty agent, the daemon also pushes
-// one notice through the extension channel, so the agent reacts without being asked. One
+// prints. When the job failed and the session has a running agent, the daemon also sends
+// it one notice, so the agent reacts without being asked. One
 // notice per failed job, however many agents receive it.
 import assert from "node:assert/strict";
 import type { Job, SpinnerEvent, StackLastJob } from "@spinner/protocol";

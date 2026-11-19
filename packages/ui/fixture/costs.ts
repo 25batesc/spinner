@@ -6,7 +6,7 @@ import type {
     CostGroup,
     CostPeriod,
     CostsResponse,
-    OperatorCost,
+    CostTotals,
     Session,
     SessionCost,
     SessionView,
@@ -80,7 +80,8 @@ export function sessionCost(base: Session): SessionCost {
     };
 }
 
-export const OPERATOR_COST: OperatorCost = { usd: 0.42, tokens_in: 12_300, tokens_out: 3_100 };
+/** What the operator agent of an older Spinner spent; its transcripts still count. */
+export const OPERATOR_COST: CostTotals = { usd: 0.42, tokens_in: 12_300, tokens_out: 3_100 };
 
 /** The `today`, `week` and `month` totals as the `costs` event carries them. */
 export function figuresAt(today: Date): { today: number; week: number; month: number } {

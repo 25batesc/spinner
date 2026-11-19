@@ -170,7 +170,9 @@ describe("CostLedger cache", () => {
         expect(ledger.files()).toHaveLength(3);
         expect(ledger.session_cost("s017-x").usd).toBeCloseTo(0.875, 6);
         expect(ledger.session_cost("s002-old").usd).toBe(2);
-        expect(ledger.operator_cost()).toEqual({ usd: 0.3, tokens_in: 5, tokens_out: 5 });
+        // What the operator agent of an older Spinner spent still counts, with no session.
+        const no_session = ledger.rows().filter((row) => row.session === null);
+        expect(no_session.reduce((sum, row) => sum + row.usd, 0)).toBeCloseTo(0.3, 6);
         expect(ledger.session_cost("s999-none")).toEqual({
             usd: 0,
             tokens_in: 0,
@@ -401,7 +403,6 @@ describe("GET /costs through the daemon", () => {
             observe_interval_ms: 60_000,
             usage_interval_ms: 60_000,
             costs_refold_ms: 60_000,
-            operator: false,
             pi: "/bin/false",
             cwd: root,
         });

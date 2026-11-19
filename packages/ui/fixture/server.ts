@@ -16,9 +16,7 @@ import {
     THEME_SYSTEM,
     validate_palette,
     type Job,
-    OPERATOR_TTY_PATH,
     type JobAction,
-    type OperatorView,
     type PiAssistantMessage,
     type PiEvent,
     type ProjectDetailResponse,
@@ -33,7 +31,7 @@ import {
 } from "@spinner/protocol";
 import { WebSocketServer, type WebSocket } from "ws";
 
-import { costsReport, OPERATOR_COST } from "./costs.ts";
+import { costsReport } from "./costs.ts";
 import { DESIGN_ROUTE, DesignFixture } from "./design.ts";
 import { extract } from "./extract.ts";
 import { handleGoldfish } from "./goldfish.ts";
@@ -45,32 +43,10 @@ import {
 } from "./data.ts";
 import { ReviewFixture } from "./reviews.ts";
 import type { AgentTranscriptResponse, DiffRepoView, DiffView } from "@spinner/protocol";
-import { EchoPty } from "./tty.ts";
 import { WorkspaceFixture, withWorkspace } from "./workspace.ts";
 
 /** An agent's context figure after the fixture's compaction: pi's summary and the brief. */
 export const COMPACTED_PCT = 6;
-
-export const TTY_ROUTE = /^\/sessions\/([^/]+)\/agents\/([^/]+)\/tty$/;
-
-/** The operator agent at the fixture's start: hosted, idle, one notice behind it. */
-export function initialOperator(): OperatorView {
-    return {
-        enabled: true,
-        ready: true,
-        process: "idle",
-        pid: 4242,
-        model: "fixture/default",
-        dir: "/home/fixture/.spinner/operator",
-        waiting_on: "operator",
-        last_notice: {
-            ts: "2026-10-30T22:20:00.000Z",
-            text: "s17-refund-flow: needs_human set: Approve the refund copy in PR #412",
-        },
-        notices_pending: 0,
-        cost: OPERATOR_COST,
-    };
-}
 
 export const STEP_DELAY_MS = 300;
 /** The fixture samples faster than the daemon (5 s), so a driver sees an update soon. */
@@ -198,16 +174,10 @@ class FixtureDaemon {
     history = new Map<string, PiEvent[]>();
     /** The number of the newest agent event per `<dir>/<agent>`, as the daemon counts them. */
     seqs = new Map<string, number>();
-    /** One fake pty per `<dir>/<agent>` that a terminal attached to; it outlives the socket. */
-    ptys = new Map<string, EchoPty>();
     /** How many samples went out; each one moves the numbers a little. */
     ticks = 0;
     /** The operator's settings, as `~/.spinner/settings.yaml` would hold them. */
-    /** The operator agent is on in the fixture, so the `operator` flow has one to drive. */
-    settings: Settings = { ...SETTINGS_DEFAULT, operator: { enabled: true } };
-    /** The operator agent, `GET /operator`; its pty is made on the first attach. */
-    operator: OperatorView = initialOperator();
-    operatorPty: EchoPty | null = null;
+    settings: Settings = { ...SETTINGS_DEFAULT };
     /** `GET /egm`: ready at the pin; `POST /egm/fetch` passes `fetching` and is ready again. */
     egm = egmStatus();
 
@@ -234,60 +204,6 @@ class FixtureDaemon {
                 this.reviews.seedBriefing(item.summary.dir);
             }
         }
-    }
-
-    /** The pty of a running agent, made on the first attach; null when the agent is not running. */
-    pty(dir: string, name: string): EchoPty | null {
-        const current = this.sessions.get(dir);
-        if (current === undefined || !current.agents_running.includes(name)) {
-            return null;
-        }
-        const key = `${dir}/${name}`;
-        const known = this.ptys.get(key);
-        if (known !== undefined) {
-            return known;
-        }
-        const made = new EchoPty(name);
-        this.ptys.set(key, made);
-        return made;
-    }
-
-    /** The operator agent's pty, as `pty()` for an agent: null while it is not running. */
-    operatorTty(): EchoPty | null {
-        if (this.operator.process === "exited") {
-            return null;
-        }
-        this.operatorPty ??= new EchoPty("operator");
-        return this.operatorPty;
-    }
-
-    /**
-     * `POST /operator/start` and `/operator/stop`, as the daemon: the new view answers at
-     * once and `operator.updated` carries it; 409 when the agent is already in that state. A
-     * stop sends the pty's exit frame and closes its clients; a start hosts the agent again
-     * with a fresh pty, so a resumed terminal sees a new banner.
-     */
-    operatorRoute(response: ServerResponse, path: string): boolean {
-        const running = this.operator.process !== "exited";
-        if (path === "/operator/stop" && running) {
-            this.operatorPty?.exit(0);
-            this.operatorPty = null;
-            this.operator = { ...this.operator, process: "exited", pid: null, waiting_on: "start" };
-        } else if (path === "/operator/start" && !running) {
-            this.operator = {
-                ...this.operator, process: "idle", pid: 4243, waiting_on: "operator",
-            };
-        } else if (path === "/operator/stop" || path === "/operator/start") {
-            const state = running ? "already runs" : "does not run";
-            sendJson(response, { error: `the operator agent ${state}` }, 409);
-            return true;
-        } else {
-            return false;
-        }
-        const ts = new Date().toISOString();
-        this.emit({ type: "operator.updated", ts, session: null, data: this.operator });
-        sendJson(response, { operator: this.operator });
-        return true;
     }
 
     /**
@@ -373,12 +289,6 @@ class FixtureDaemon {
         this.settings = body as unknown as Settings;
         const ts = new Date().toISOString();
         this.emit({ type: "settings", ts, session: null, settings: this.settings });
-        // `OperatorView.enabled` reports the setting (s014); the view follows a change.
-        const enabled = this.settings.operator?.enabled ?? false;
-        if (enabled !== this.operator.enabled) {
-            this.operator = { ...this.operator, enabled };
-            this.emit({ type: "operator.updated", ts, session: null, data: this.operator });
-        }
         sendJson(response, this.settingsResponse());
     }
 
@@ -522,7 +432,7 @@ class FixtureDaemon {
             const agents = {
                 ...base.agents,
                 [name]: {
-                    harness: "tty" as const,
+                    harness: "rpc" as const,
                     model: String(body["model"] ?? "fixture/default"),
                     process: "idle" as const,
                 },
@@ -539,10 +449,7 @@ class FixtureDaemon {
             script.forEach((event, index) => setTimeout(() => emit(event), index * STEP_DELAY_MS));
             sendJson(response, { ok: true, disposition: "started" });
         } else if (match[3] === "stop") {
-            // As the daemon: the pty's clients get the exit frame and close 1000, the agent
-            // leaves `agents_running` and its process reads `idle`.
-            this.ptys.get(`${dir}/${name}`)?.exit(0);
-            this.ptys.delete(`${dir}/${name}`);
+            // As the daemon: the agent leaves `agents_running` and its process reads `idle`.
             const base = current.summary.session;
             const spec = base.agents[name];
             const agents = spec === undefined ? base.agents : {
@@ -841,7 +748,7 @@ class FixtureDaemon {
             }
             const lead = text === undefined ? {} : {
                 lead: {
-                    harness: "tty" as const, model: "fixture/default", process: "running" as const,
+                    harness: "rpc" as const, model: "fixture/default", process: "running" as const,
                 },
             };
             const base = session({
@@ -1040,10 +947,6 @@ class FixtureDaemon {
             sendJson(response, { egm: this.egm });
         } else if (method === "POST" && path === "/egm/fetch") {
             this.fetchEgm(response);
-        } else if (method === "GET" && path === "/operator") {
-            sendJson(response, { operator: this.operator });
-        } else if (method === "POST" && this.operatorRoute(response, path)) {
-            return;
         } else if (method === "POST" && (await this.run(request, response, path))) {
             return;
         } else if (method === "DELETE" && this.unverify(response, path)) {
@@ -1068,20 +971,7 @@ export function startFixture(port: number = FIXTURE_PORT) {
     const sockets = new WebSocketServer({ noServer: true });
     server.on("upgrade", (request, socket, head) => {
         const path = (request.url ?? "").split("?")[0] ?? "";
-        const tty = TTY_ROUTE.exec(path);
-        if (tty !== null || path === OPERATOR_TTY_PATH) {
-            const pty = tty === null
-                ? daemon.operatorTty()
-                : daemon.pty(tty[1] ?? "", tty[2] ?? "");
-            if (pty === null) {
-                // As the daemon: a plain 404 before the upgrade when the agent is not running.
-                socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
-                return;
-            }
-            sockets.handleUpgrade(request, socket, head, (ws) => pty.attach(ws));
-            return;
-        }
-        if (request.url !== EVENTS_PATH) {
+        if (path !== EVENTS_PATH) {
             socket.destroy();
             return;
         }
@@ -1094,7 +984,7 @@ export function startFixture(port: number = FIXTURE_PORT) {
     server.on("listening", () => {
         daemon.port = (server.address() as AddressInfo).port;
     });
-    // The daemon rides along for tests that reach past HTTP, for example to drop a pty's clients.
+    // The daemon rides along for tests that reach past HTTP.
     return Object.assign(server, { daemon });
 }
 

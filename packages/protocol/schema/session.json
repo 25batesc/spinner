@@ -38,7 +38,7 @@
                 },
                 "last_interaction": {
                     "type": "string",
-                    "description": "When the operator last spoke to an agent of this session (a prompt or steer from the UI's box, Enter in its terminal, a design answer), ISO 8601. The sidebar sorts by it and shows \"n min ago\". Absent until the first."
+                    "description": "When the operator last spoke to an agent of this session (a prompt or steer from the UI's box, a design answer), ISO 8601. The sidebar sorts by it and shows \"n min ago\". Absent until the first."
                 },
                 "change": {
                     "$ref": "#/definitions/ChangeHead",
@@ -874,11 +874,11 @@
         "AgentHarnessName": {
             "type": "string",
             "enum": [
-                "tty",
                 "rpc",
+                "tty",
                 "pi"
             ],
-            "description": "How an agent's pi runs: `tty` is pi's own terminal UI in a pty, rendered by the agent tab over `GET /sessions/:dir/agents/:name/tty`; `rpc` is `pi --mode rpc`, the headless path. `pi` is the value files written before s009 carry; it reads as `rpc`."
+            "description": "How an agent's pi runs. Every agent runs on `rpc` (`pi --mode rpc`) and the daemon writes nothing else. `tty` and `pi` are values a file from an older daemon carries; the daemon rewrites them to `rpc` when the agent next starts, on the same transcript."
         },
         "ThinkingLevel": {
             "type": "string",

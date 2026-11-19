@@ -7,10 +7,9 @@
 // `stop` then `resume`. The Spinner pi extension (`packages/pi-extension`) goes in through
 // `--extension` with the session directory, the agent name, the daemon URL and the role in
 // the environment (`EXTENSION_ENV`); it adds the mission to the prompt, the tools and
-// `/spinner-reload`, which makes a context edit a reload instead of a restart. `PiTtyHarness`
-// (`tty-harness.ts`) runs the same pi interactively in a pty; `pi_spawn_options` is the
-// builder both share. A lead in an EGM session also gets the EGM skills, the adapters and
-// the run directory (Technical Plan T3 of the EGM design).
+// `/spinner-reload`, which makes a context edit a reload instead of a restart. A lead in an
+// EGM session also gets the EGM skills, the adapters and the run directory (Technical Plan
+// T3 of the EGM design).
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -124,7 +123,7 @@ export interface AgentHarness {
     resume(session: SessionSummary, agent: AgentSpawnSpec): Promise<AgentHandle>;
 }
 
-/** What a pi harness needs to build a spawn. The tty harness takes the same options. */
+/** What the pi harness needs to build a spawn. */
 export interface PiHarnessOptions {
     /** The pi executable, resolved at each spawn so a daemon without pi still serves the rest. */
     pi: () => string;
@@ -184,7 +183,7 @@ export class PiRpcHarness implements AgentHarness {
 }
 
 /**
- * The spawn both harnesses share for a session agent: the brief at `agents/<name>/BRIEF.md`,
+ * The spawn of a session agent: the brief at `agents/<name>/BRIEF.md`,
  * the transcript under `agents/<name>/pi`, the session's `skills/`, and the session directory
  * in the extension's environment. `pi_spawn_plan` does the rest.
  */
@@ -295,11 +294,10 @@ const AGENT_ENV_KEYS: readonly string[] = Object.values(EXTENSION_ENV);
  * daemon started from inside an agent (a scratch daemon, or a test run from an agent's
  * shell) inherits that agent's `SPINNER_*` extension variables and its `PI_SUBAGENT_*` and
  * `PI_SUBAGENTS_*` variables: `PI_SUBAGENT_CHILD=1` turns the Spinner extension off (EGM
- * design, build findings of session 1), a lead's `SPINNER_EGM_ROOT` and
- * `PI_SUBAGENTS_TEMP_ROOT` would give a worker the lead's EGM run directory, and
- * `SPINNER_HARNESS=tty` would put an rpc agent in tty mode (dogfood r3.7). The variables the
- * plan sets itself stay; `SPINNER_HOME`, `SPINNER_PI` and `PI_CODING_AGENT_DIR` are the
- * daemon's own settings and stay.
+ * design, build findings of session 1), and a lead's `SPINNER_EGM_ROOT` and
+ * `PI_SUBAGENTS_TEMP_ROOT` would give a worker the lead's EGM run directory (dogfood
+ * r3.7). The variables the plan sets itself stay; `SPINNER_HOME`, `SPINNER_PI` and
+ * `PI_CODING_AGENT_DIR` are the daemon's own settings and stay.
  */
 function inherited_agent_env(env: Record<string, string>): string[] {
     const unset = Object.keys(process.env).filter(

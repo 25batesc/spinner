@@ -89,7 +89,6 @@ describe("the steer route counts operator steers to the lead (6.20, 6.22)", () =
         const daemon = await start_daemon({
             home,
             port: 0,
-            operator: false,
             log: () => undefined,
             poll_seconds: 0,
             gh: () => Promise.reject(new Error("no gh in tests")),
@@ -123,7 +122,7 @@ describe("the steer route counts operator steers to the lead (6.20, 6.22)", () =
 
             expect((await post(at("lead", "prompt"), operator)).status).toBe(200);
             expect((await post(at("backend", "steer"), operator)).status).toBe(200);
-            // The lead's and the operator agent's `agent_steer` send no `source`.
+            // The lead's `agent_steer` sends no `source`.
             expect((await post(at("lead", "steer"), { text: "go" })).status).toBe(200);
             const refused = await post(at("lead", "steer"), { text: "go", source: "lead" });
             expect(refused.status).toBe(400);

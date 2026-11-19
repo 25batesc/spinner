@@ -31,7 +31,6 @@ beforeEach(async () => {
     daemon = await start_daemon({
         home,
         port: 0,
-        operator: false,
         log: () => undefined,
         poll_seconds: 0,
         notify: async () => undefined,
@@ -75,8 +74,6 @@ describe("settings", () => {
         expect(unknown_key.status).toBe(400);
         const unknown_body = (await unknown_key.json()) as { error: string };
         expect(unknown_body.error).toMatch(/unknown key "colour"/);
-        const bad_harness = await call("PUT", "/settings", { agents: { harness: "pty" } });
-        expect(bad_harness.status).toBe(400);
         const bad_github = await call("PUT", "/settings", {
             theme: "dark",
             agents: { github: "admin" },
@@ -90,17 +87,20 @@ describe("settings", () => {
         expect(not_object.status).toBe(400);
         expect(events.filter((event) => event.type === "settings")).toHaveLength(0);
 
+        // `agents.harness` and `operator` are keys of an older Spinner: a document that
+        // still carries them is accepted, and they are not kept.
         const written = await call("PUT", "/settings", {
             theme: "dark",
             default_model: "anthropic/claude-x",
-            agents: { harness: "rpc", github: "full" },
+            agents: { harness: "tty", github: "full" },
+            operator: { enabled: true },
         });
         expect(written.status).toBe(200);
         const body = (await written.json()) as SettingsResponse;
         expect(body.settings).toEqual({
             theme: "dark",
             default_model: "anthropic/claude-x",
-            agents: { harness: "rpc", github: "full" },
+            agents: { github: "full" },
         });
         expect(parse(readFileSync(body.path, "utf8"))).toEqual(body.settings);
         const published = events.filter((event) => event.type === "settings");

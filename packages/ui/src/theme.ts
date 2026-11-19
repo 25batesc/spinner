@@ -2,10 +2,8 @@
 // variables and the `--terminal-*` block, with the built-in `dark` (or `light` under a light
 // OS scheme) as the stylesheet's defaults. `applyPalette` sets the same variables on the root
 // element for a chosen palette and `clearPalette` removes them, which is `system`. The
-// terminal reads its xterm theme from the variables through `terminalTheme`, and refreshes
-// on the `THEME_EVENT` the two functions dispatch, so every terminal follows a change.
-import type { ITheme } from "@xterm/xterm";
-
+// `--terminal-*` block is the palette's ANSI colours; the mission workspace takes the
+// agents' hues from it.
 import {
     BUILTIN_THEMES,
     PALETTE_COLOR_KEYS,
@@ -17,7 +15,7 @@ import {
     type ThemePalette,
 } from "@spinner/protocol";
 
-/** The terminal block, as xterm names the colours; the variables use dashes. */
+/** The palette's `terminal` block in camel case; the variables use dashes. */
 export const TERMINAL_KEYS = [
     "foreground", "background", "cursor", "black", "red", "green", "yellow", "blue",
     "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow",
@@ -25,9 +23,6 @@ export const TERMINAL_KEYS = [
 ] as const;
 
 export type TerminalKey = (typeof TERMINAL_KEYS)[number];
-
-/** Dispatched on the window after a palette is applied or cleared. */
-export const THEME_EVENT = "spinner-theme";
 
 /** `brightBlack` → `--terminal-bright-black`. */
 export function terminalVariable(key: TerminalKey): string {
@@ -88,7 +83,6 @@ export function applyPalette(
     } else {
         root.dataset["theme"] = name;
     }
-    window.dispatchEvent(new Event(THEME_EVENT));
 }
 
 /** Back to the stylesheet's defaults: `system`. */
@@ -101,23 +95,4 @@ export function clearPalette(root: HTMLElement = document.documentElement): void
     }
     delete root.dataset["scheme"];
     delete root.dataset["theme"];
-    window.dispatchEvent(new Event(THEME_EVENT));
-}
-
-/** The xterm theme from the variables as they compute now. */
-export function terminalTheme(root: HTMLElement = document.documentElement): ITheme {
-    const style = getComputedStyle(root);
-    const theme: Record<string, string> = {};
-    for (const key of TERMINAL_KEYS) {
-        const value = style.getPropertyValue(terminalVariable(key)).trim();
-        if (value !== "") {
-            theme[key] = value;
-        }
-    }
-    // xterm parses hex and rgb() only, no `color-mix`: the selection is the blue at 35 %.
-    const blue = theme["blue"];
-    if (blue !== undefined && /^#[0-9a-f]{6}$/i.test(blue)) {
-        theme["selectionBackground"] = `${blue}59`;
-    }
-    return theme as ITheme;
 }

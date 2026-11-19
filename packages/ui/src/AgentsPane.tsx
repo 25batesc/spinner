@@ -1,17 +1,13 @@
 // The middle pane of a session (docs/designs/session-workspace.md, T5, D15): one row of view
 // tabs in EGM step order, each EGM tab marked with its step's state, and one view at a time:
-// Agents (the gate card, the agent rows, the chat or terminal), Brainstorm, Draft, Review, Files,
+// Agents (the gate card, the agent rows, the chat), Brainstorm, Draft, Review, Files,
 // History, Implement, Threads, Services. The pane fetches the design doc once per reload key
 // and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { agentRows, type RowAction } from "./agent-rows.ts";
-import {
-    agentTabs, loadSurface, saveSurface, showsTerminal, type SurfaceStorage,
-} from "./agent-view.ts";
 import { AddAgent, AgentChat } from "./AgentChat.tsx";
 import { AgentRows } from "./AgentRows.tsx";
-import { AgentTerminal } from "./AgentTerminal.tsx";
 import { postAgent } from "./events-client.ts";
 import { ContextTab } from "./ContextTab.tsx";
 import { compactLabel, designSteps, stepperText } from "./design.ts";
@@ -39,7 +35,6 @@ import type { UsageSample } from "./usage.ts";
 import { ViewTabs, type ViewTabFold } from "./ViewTabs.tsx";
 import {
     EGM_NOTICE,
-    tty_path,
     type AgentTranscriptResponse,
     type MissionView,
     type SessionView,
@@ -84,7 +79,7 @@ export interface AgentsPaneProps {
 }
 
 // The chip's dot rule lives in `agent-view.ts` (pure), so the Implement rail can wrap it
-// (session-workspace.md, D14) without this module's terminals.
+// (session-workspace.md, D14) without this module.
 export { agentState } from "./agent-view.ts";
 
 function agentBase(dir: string, agent: string): string {
@@ -118,14 +113,7 @@ function useDesignDoc(view: SessionView | undefined) {
     });
 }
 
-/** The window's `localStorage`, or null where there is none (a test, a blocked storage). */
-function surfaceStorage(): SurfaceStorage | null {
-    try {
-        return window.localStorage;
-    } catch {
-        return null;
-    }
-}
+const AGENT_TABS = ["chat", "context"] as const;
 
 /** The transcript of each chat, for the agent rows. */
 function transcriptsOf(chats: Record<string, ChatState>): Record<string, Transcript> {
@@ -146,17 +134,8 @@ export function AgentsPane(props: AgentsPaneProps) {
         chat.current?.scrollTo({ top: 0 });
     }, [shown, view?.summary.dir]);
     const setPicked = props.onPicked;
-    // The chat is the default surface; a pick of the terminal is remembered for the window's
-    // origin (docs/designs/talk-change-ship.md, 5.1). `context` is a look, not a preference.
-    const [agentTab, setAgentTabState] = useState<string>(() => loadSurface(surfaceStorage()));
-    const setAgentTab = (tab: string) => {
-        setAgentTabState(tab);
-        if (tab === "chat" || tab === "terminal") {
-            saveSurface(surfaceStorage(), tab);
-        }
-    };
-    // A terminal connects to its agent once its tab was shown, and stays mounted from then.
-    const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+    // An agent shows as its chat; `context` is a look at what it was started with.
+    const [agentTab, setAgentTab] = useState<string>(AGENT_TABS[0]);
     // The `+` chip at the end of the agent row: the add-agent form as the pane's view.
     const [adding, setAdding] = useState(false);
     // The picked Goldfish row (entry 4.16), per session: its transcript replaces the agent's
@@ -171,39 +150,6 @@ export function AgentsPane(props: AgentsPaneProps) {
     const names = session === undefined ? [] : Object.keys(session.agents);
     const selected = picked !== undefined && names.includes(picked) ? picked : names[0];
     const agent = selected === undefined ? undefined : session?.agents[selected];
-    const terminalFor = (name: string) =>
-        showsTerminal(session?.agents[name]?.harness ?? "rpc", window.location.search);
-    // Every tty agent's terminal stays mounted; only the picked one shows. A switch to
-    // another agent, to the Context tab or to another view hides it and keeps its buffer.
-    const agentTabsShown = agentTabs(
-        selected !== undefined && terminalFor(selected),
-        agentTab,
-    );
-    const terminalKey =
-        view === undefined || selected === undefined ? null : `${view.summary.dir}/${selected}`;
-    const terminalShown =
-        shown === "agents" && !adding && !showsFish && agentTabsShown.shown === "terminal";
-    useEffect(() => {
-        if (terminalShown && terminalKey !== null && !opened.has(terminalKey)) {
-            setOpened((old) => new Set([...old, terminalKey]));
-        }
-    }, [terminalShown, terminalKey]);
-    const terminals =
-        view === undefined
-            ? []
-            : names
-                  .filter((name) => terminalFor(name) && opened.has(`${view.summary.dir}/${name}`))
-                  .map((name) => (
-                      <AgentTerminal
-                          key={`${view.summary.dir}/${name}`}
-                          path={tty_path(view.summary.dir, name)}
-                          running={view.agents_running.includes(name)}
-                          onResume={() =>
-                              postAgent(`/sessions/${view.summary.dir}/agents`, { name })
-                          }
-                          visible={terminalShown && name === selected}
-                      />
-                  ));
     const needs = view === undefined ? null : needsHuman(view);
     const reload = view === undefined || design === undefined
         ? ""
@@ -311,8 +257,8 @@ export function AgentsPane(props: AgentsPaneProps) {
                 {view !== undefined && shown === "services" && (
                     <ServiceTable view={view} usage={usage} run={run} />
                 )}
-                {/* Hidden, not unmounted, while another view shows: the terminals keep
-                    their sockets and buffers. */}
+                {/* Hidden, not unmounted, while another view shows: the chat keeps what was
+                    typed and where it was scrolled. */}
                 <div className="agents-view" hidden={shown !== "agents"}>
                     {view !== undefined && (
                         <AgentRows
@@ -368,17 +314,17 @@ export function AgentsPane(props: AgentsPaneProps) {
                             <>
                                 <Tabs
                                     variant="sub"
-                                    labels={agentTabsShown.labels}
-                                    selected={agentTabsShown.shown}
+                                    labels={[...AGENT_TABS]}
+                                    selected={agentTab}
                                     onSelect={setAgentTab}
                                 />
-                                {agentTabsShown.shown === "context" && (
+                                {agentTab === "context" && (
                                     <ContextTab
                                         base={agentBase(view.summary.dir, selected)}
                                         revision={agent.process}
                                     />
                                 )}
-                                {agentTabsShown.shown === "chat" && (
+                                {agentTab !== "context" && (
                                     <AgentChat
                                         view={view}
                                         agent={selected}
@@ -388,7 +334,6 @@ export function AgentsPane(props: AgentsPaneProps) {
                                 )}
                             </>
                         ))}
-                    {terminals}
                 </div>
                 {children}
             </div>

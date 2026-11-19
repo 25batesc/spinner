@@ -257,7 +257,7 @@ describe("registration", () => {
 
     it("registers nothing in a pi-subagents child, even with a full Spinner env", () => {
         const pi = fake_pi();
-        const env = { ...env_for("lead", "http://127.0.0.1:1"), SPINNER_HARNESS: "tty" };
+        const env = env_for("lead", "http://127.0.0.1:1");
         expect(register(pi, { env: { ...env, PI_SUBAGENT_CHILD: "1" } })).toBeNull();
         expect(pi.tools.size).toBe(0);
         expect(pi.commands.size).toBe(0);
@@ -272,7 +272,6 @@ describe("registration", () => {
                 .filter((tool) => tool.roles.includes(role))
                 .map((tool) => tool.name);
         expect([...worker.tools.keys()]).toEqual(names_for("worker"));
-        expect(worker.tools.has("session_new")).toBe(false);
         const fixer = fake_pi();
         register(fixer, { env: env_for("fixer", "") });
         expect([...fixer.tools.keys()]).toEqual(names_for("fixer"));
@@ -292,7 +291,7 @@ describe("registration", () => {
             properties: Record<string, unknown>;
         };
         expect(schema.required).toEqual(["command"]);
-        expect(Object.keys(schema.properties)).toEqual(["command", "service", "lines", "session"]);
+        expect(Object.keys(schema.properties)).toEqual(["command", "service", "lines"]);
         expect(JSON.stringify(schema.properties["command"])).toContain('"show"');
     });
 });

@@ -217,20 +217,6 @@ export function SettingsPane(props: SettingsPaneProps) {
                     </select>
                 </label>
                 <label className="setting">
-                    <span>Harness</span>
-                    <select
-                        aria-label="Harness"
-                        value={settings.agents?.harness ?? "tty"}
-                        onChange={(event) => {
-                            const harness = event.target.value === "rpc" ? "rpc" : "tty";
-                            change({ ...settings, agents: { ...settings.agents, harness } });
-                        }}
-                    >
-                        <option value="tty">tty (pi's terminal in the tab)</option>
-                        <option value="rpc">rpc (headless chat)</option>
-                    </select>
-                </label>
-                <label className="setting">
                     <span>What Remy may do on GitHub</span>
                     <select
                         aria-label="What Remy may do on GitHub"

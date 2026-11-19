@@ -4,19 +4,11 @@
 // `docs/packages.md`). The real declarations are in pi's `dist/core/extensions/types.d.ts`;
 // a field here has the same name and shape as there. A test drives the factory with a fake
 // that satisfies these types.
-import type { ThinkingLevel } from "@spinner/protocol";
 import type { TSchema } from "typebox";
 
 export interface ToolTextContent {
     type: "text";
     text: string;
-}
-
-/** An image in a user message: base64 data, as pi's `ImageContent`. */
-export interface ImageContent {
-    type: "image";
-    data: string;
-    mimeType: string;
 }
 
 export interface ToolResult {
@@ -87,73 +79,10 @@ export interface ToolResultPatch {
     structuredContent?: unknown;
 }
 
-/** The fields of pi's `Model` the extension reads; the object itself goes back to pi. */
-export interface PiModel {
-    provider: string;
-    id: string;
-}
-
 export interface ExtensionContext {
     cwd: string;
-    /** The active model; undefined when pi has none. */
-    model: PiModel | undefined;
-    modelRegistry: { find(provider: string, id: string): PiModel | undefined };
     hasUI: boolean;
     ui: { notify(message: string, level: "info" | "warning" | "error"): void };
-    /** True when the agent is not streaming. */
-    isIdle(): boolean;
-    /** Aborts the current agent run, as Escape does. */
-    abort(): void;
-    /** Starts compaction of the context without waiting for it, as `/compact` does. */
-    compact(): void;
-}
-
-export interface SessionStartEvent {
-    type: "session_start";
-}
-
-export interface SessionShutdownEvent {
-    type: "session_shutdown";
-    reason: "quit" | "reload" | "new" | "resume" | "fork";
-}
-
-/** pi's `model_select`: the operator or an extension switched the model. */
-export interface ModelSelectEvent {
-    type: "model_select";
-    model: PiModel;
-}
-
-/** pi's `thinking_level_select`. */
-export interface ThinkingLevelSelectEvent {
-    type: "thinking_level_select";
-    level: ThinkingLevel;
-}
-
-/** The events the tty channel posts to the daemon; each carries `type` plus pi's fields. */
-export interface LifecycleEvent {
-    type:
-        | "agent_start"
-        | "agent_end"
-        | "agent_settled"
-        | "turn_end"
-        | "tool_execution_start"
-        | "tool_execution_end"
-        | "message_start"
-        | "message_update"
-        | "message_end"
-        | "model_select"
-        | "thinking_level_select";
-    [key: string]: unknown;
-}
-
-export type LifecycleEventName = LifecycleEvent["type"];
-
-/** pi's `SlashCommandInfo`. */
-export interface SlashCommandInfo {
-    name: string;
-    description?: string;
-    source: "extension" | "prompt" | "skill";
-    sourceInfo?: { path?: string };
 }
 
 export interface ExtensionCommandContext extends ExtensionContext {
@@ -168,48 +97,6 @@ export interface RegisteredCommand {
 export interface ExtensionAPI {
     registerTool(tool: ToolDefinition): void;
     registerCommand(name: string, command: RegisteredCommand): void;
-    /**
-     * Sends a user message; it starts a turn, or queues as a steer or follow-up when busy.
-     * The array form carries images with the text.
-     */
-    sendUserMessage(
-        content: string | (ToolTextContent | ImageContent)[],
-        options?: { deliverAs?: "steer" | "followUp" },
-    ): void;
-    /**
-     * Sends a custom message (from an extension, not a person). `triggerTurn` starts a run
-     * when idle; `deliverAs` queues it into a running one.
-     */
-    sendMessage(
-        message: { customType: string; content: string; display: boolean },
-        options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
-    ): void;
-    /** The slash commands pi loaded. */
-    getCommands(): SlashCommandInfo[];
-    /** Switches the session's model; false when pi has no key for its provider. */
-    setModel(model: PiModel): Promise<boolean>;
-    getThinkingLevel(): ThinkingLevel;
-    setThinkingLevel(level: ThinkingLevel): void;
-    on(
-        event: "session_start",
-        handler: (event: SessionStartEvent, ctx: ExtensionContext) => void | Promise<void>,
-    ): unknown;
-    on(
-        event: "session_shutdown",
-        handler: (event: SessionShutdownEvent, ctx: ExtensionContext) => void | Promise<void>,
-    ): unknown;
-    on(
-        event: "model_select",
-        handler: (event: ModelSelectEvent, ctx: ExtensionContext) => void | Promise<void>,
-    ): unknown;
-    on(
-        event: "thinking_level_select",
-        handler: (event: ThinkingLevelSelectEvent, ctx: ExtensionContext) => void | Promise<void>,
-    ): unknown;
-    on(
-        event: LifecycleEventName,
-        handler: (event: LifecycleEvent, ctx: ExtensionContext) => void | Promise<void>,
-    ): unknown;
     on(
         event: "before_agent_start",
         handler: (event: BeforeAgentStartEvent, ctx: ExtensionContext) => void | Promise<void>,

@@ -45,7 +45,6 @@ export type IconName =
     | "close"
     | "minimize"
     | "gear"
-    | "operator"
     | "pull-request"
     | "merge"
     | "plan"
@@ -86,10 +85,6 @@ const GLYPHS: Record<IconName, string> = {
     projects: "M8 2.5l5.5 3-5.5 3-5.5-3zM2.5 8.5l5.5 3 5.5-3M2.5 11l5.5 3 5.5-3",
     // A speech bubble: comment on the preview (s054).
     comment: "M2.5 3.5h11v7.5h-6l-3 2.5V11h-2z",
-    // A headset: the operator agent, the one that talks back.
-    operator:
-        "M3 9V8a5 5 0 0 1 10 0v1M2.5 9h2v4h-2zM11.5 9h2v4h-2z" +
-        "M13.5 13a2 2 0 0 1-2 1.5H9.5",
 };
 
 export function Icon({ name }: { name: IconName }) {
@@ -216,32 +211,14 @@ export interface ActivityBarProps {
     onPick: (view: PanelView["id"]) => void;
     /** The needs-you count of each list view: a badge on its icon when not zero, always. */
     needs: Record<"sessions" | "reviews", number>;
-    /** True while the middle pane shows the operator agent's terminal in place of the session. */
-    operatorShown: boolean;
-    /** False hides the headset: the operator agent is off and not running (s014). */
-    operatorAvailable: boolean;
-    /** Shows the operator tab, or the session again when it is shown. */
-    onOperator: () => void;
 }
 
 /**
  * The rail, always at the far left (s020, round 2: VS Code's activity bar). A click on an icon
- * opens its view in the side panel; a click on the lit icon collapses the panel. The operator
- * icon, above the gear, is not a view: it swaps the middle pane between the session and the
- * operator.
+ * opens its view in the side panel; a click on the lit icon collapses the panel.
  */
 export function ActivityBar(props: ActivityBarProps) {
-    const { shown, popped, onPick, needs, operatorShown, operatorAvailable, onOperator } = props;
-    const operator = !operatorAvailable ? null : (
-        <IconButton
-            key="operator"
-            icon="operator"
-            label={operatorShown ? "Hide operator" : "Show operator"}
-            active={operatorShown}
-            className="bar-bottom bar-operator"
-            onClick={onOperator}
-        />
-    );
+    const { shown, popped, onPick, needs } = props;
     return (
         <nav className="activity-bar" aria-label="Views">
             {PANEL_VIEWS.map((view) => {
@@ -262,9 +239,8 @@ export function ActivityBar(props: ActivityBarProps) {
                         onClick={() => onPick(view.id)}
                     />
                 );
-                // The first bottom view takes the operator icon above it.
                 if (view.bottom === true) {
-                    return [operator, button];
+                    return button;
                 }
                 const count = view.id === "sessions" || view.id === "reviews" ? needs[view.id] : 0;
                 return (
@@ -476,8 +452,6 @@ export interface ContextBarProps {
     view: SessionView | undefined;
     /** The last usage sample: the session's line and the machine line. */
     usage: UsageSample | null;
-    /** The operator agent's notice when it is not running, with the way to start it again. */
-    operator?: { notice: string; onResume: () => void } | undefined;
     /** The session's actions (`SessionToolbar`), after the needs-you pill. */
     toolbar?: ReactNode;
     /** Where a failed track switch goes: the drawer, as a failed job's error does. */
@@ -593,21 +567,6 @@ function TrackChip(props: {
     );
 }
 
-/** `operator agent not running · resume`: the only control the context bar has. */
-function OperatorNotice({ operator }: Pick<ContextBarProps, "operator">) {
-    if (operator === undefined) {
-        return null;
-    }
-    return (
-        <span className="needs-human operator-notice">
-            {operator.notice}{" "}
-            <button type="button" className="link" onClick={operator.onResume}>
-                resume
-            </button>
-        </span>
-    );
-}
-
 /** The machine line: `machine 9.8 / 32 GB · 3 stacks up`, red when free memory is low. */
 function MachineLine({ usage }: { usage: UsageSample | null }) {
     if (usage === null) {
@@ -667,12 +626,11 @@ export function ReviewPills({ facts }: { facts: ReviewFacts }) {
 }
 
 export function ContextBar(props: ContextBarProps) {
-    const { view, usage, operator, toolbar, onError, onNeeds, onRound } = props;
+    const { view, usage, toolbar, onError, onNeeds, onRound } = props;
     if (view === undefined) {
         return (
             <div className="context-bar muted">
                 No session selected. <MachineLine usage={usage} />
-                <OperatorNotice operator={operator} />
                 {toolbar}
             </div>
         );
@@ -703,7 +661,6 @@ export function ContextBar(props: ContextBarProps) {
                         {needs}
                     </span>
                 )}
-                <OperatorNotice operator={operator} />
                 {toolbar}
             </div>
         );
@@ -727,7 +684,6 @@ export function ContextBar(props: ContextBarProps) {
             <MachineLine usage={usage} />
             <SyncBadge view={view} />
             {needs !== null && <NeedsPill needs={needs} onNeeds={onNeeds} />}
-            <OperatorNotice operator={operator} />
             {view.design !== undefined && (
                 <TrackChip dir={view.summary.dir} track={view.design.track} onError={onError} />
             )}

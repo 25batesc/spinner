@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, Server } from "node:http";
 import { homedir } from "node:os";
-import type { Duplex } from "node:stream";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -71,11 +70,7 @@ import type { ActionContext } from "./actions.js";
 import { Deliverer } from "./agents/delivery.js";
 import { fixer_driver } from "./agents/fixer.js";
 import { PiRpcHarness, type AgentHandle } from "./agents/harness.js";
-import { PiTtyHarness } from "./agents/tty-harness.js";
-import { mount_tty_routes, tty_upgrader } from "./agents/routes-tty.js";
-import { mount_operator_routes } from "./agents/routes-operator.js";
 import { mount_comment_routes } from "./agents/routes-comments.js";
-import { OperatorHost } from "./agents/operator.js";
 import { agent_history, agent_history_tail } from "./agents/history.js";
 import { TranscriptLog } from "./agents/transcript-log.js";
 import { AgentManager, FIRST_TURN } from "./agents/manager.js";
@@ -206,10 +201,6 @@ export interface DaemonOptions {
     default_model?: string;
     /** What `GET /health` reports as the build; `main.ts` reads it from the checkout. */
     build?: BuildInfo;
-    /** Start the operator agent at boot when `settings.operator.enabled` allows. Default true. */
-    operator?: boolean;
-    /** For tests: the operator host's notice batch window. */
-    operator_batch_ms?: number;
     /** The diff viewer's executable instead of the fetched checkout's; tests pass a fake. */
     diffview_bin?: string;
     /** The watchers' `diffview comments wait --timeout`; tests shorten it. */
@@ -229,10 +220,6 @@ export interface Daemon {
     bus: EventBus;
     jobs: JobRunner;
     agents: AgentManager;
-    /** The tty harness, so a test can look at an agent's pty. */
-    tty: PiTtyHarness;
-    /** The operator agent's host, so a test can look at its pty and its view. */
-    operator: OperatorHost;
     watcher: SessionWatcher;
     /**
      * The notifier the poller and `land` call: the `notify` event, and the fallback banner
@@ -257,10 +244,6 @@ export interface AppDeps {
     /** The snapshot's name under `<home>/ui`, for `GET /health`; null without a UI. */
     ui_commit: string | null;
     agents: AgentManager;
-    /** The tty harness, for the pty WebSocket and the extension's routes; null without one. */
-    tty?: PiTtyHarness | null;
-    /** The operator agent's host; its routes mount when given. */
-    operator?: OperatorHost;
     /** `GET /usage`; a route test passes a stub. */
     usage?: () => UsageResponse;
     /** `GET /costs`: the ledger's rows; a route test passes a stub. 503 when absent. */
@@ -1046,17 +1029,6 @@ export function create_app(deps: AppDeps): Hono {
         cwd: deps.ctx.cwd,
         ...(deps.ctx.env === undefined ? {} : { env: deps.ctx.env }),
     });
-    if (deps.tty !== undefined && deps.tty !== null) {
-        mount_tty_routes(app, {
-            home: deps.home,
-            agents: deps.agents,
-            tty: deps.tty,
-            ...(deps.operator === undefined ? {} : { operator: deps.operator }),
-        });
-    }
-    if (deps.operator !== undefined) {
-        mount_operator_routes(app, { home: deps.home, operator: deps.operator });
-    }
     mount_ui(app, deps.ui_dir);
     return app;
 }
@@ -1262,7 +1234,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         ...(options.extension === undefined ? {} : { extension: options.extension }),
         ...(options.default_model === undefined ? {} : { default_model: options.default_model }),
     };
-    const tty = new PiTtyHarness(harness_options);
     const agents = new AgentManager(
         home,
         new PiRpcHarness(harness_options),
@@ -1276,16 +1247,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     );
     const writer = new MissionWriter(home, bus);
     const deliverer = new Deliverer(home, agents, writer, bus, { log });
-    const operator = new OperatorHost({
-        home,
-        tty,
-        harness_options,
-        bus,
-        settings: () => read_settings_or_default(home, log),
-        log,
-        ...(options.operator_batch_ms === undefined ? {} : { batch_ms: options.operator_batch_ms }),
-        cost: () => costs?.ledger.operator_cost() ?? { usd: 0, tokens_in: 0, tokens_out: 0 },
-    });
     ctx.fixer = fixer_driver({ home, agents, cwd });
 
     const diff = new DiffManager({
@@ -1465,8 +1426,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         ui_dir: ui === null ? ui_source : ui.dir,
         ui_commit: ui === null ? null : ui.commit,
         agents,
-        tty,
-        operator,
         usage: () => sampler.response(),
         cost_rows: () => costs?.ledger.rows() ?? [],
         models: () => catalog.list(),
@@ -1504,8 +1463,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const address = server.address();
     assert.ok(address !== null && typeof address === "object", "server must have a TCP address");
     bound_port = address.port;
-    const ttys = tty_upgrader({ home, agents, tty, operator, log });
-    const sockets = attach_events_socket(server, bus, desktop, log, ttys.handle);
+    const sockets = attach_events_socket(server, bus, desktop, log);
     poller = start_github_poller(options, poll_options, log);
     syncer = start_worktree_syncer(options, options.writer?.git ?? git_runner, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
@@ -1518,11 +1476,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     }
     await swarm.prime();
     await designs.prime();
-    // The operator agent comes last: a session agent's adoption must not wait on it, and its
-    // first notices (an agent that settled during adoption) are queued, not lost.
-    if (options.operator !== false) {
-        await operator.start_if_enabled();
-    }
 
     return {
         port: bound_port,
@@ -1530,8 +1483,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         bus,
         jobs,
         agents,
-        tty,
-        operator,
         watcher,
         notify,
         close: async () => {
@@ -1539,7 +1490,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             swarm.close();
             await designs.close();
             await diff.close();
-            await operator.close();
             goldfish.close();
             await agents.stop_all();
             poller?.stop();
@@ -1554,7 +1504,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
                 socket.terminate();
             }
             sockets.close();
-            ttys.close();
             await new Promise<void>((resolve, reject) => {
                 server.close((error) => (error ? reject(error) : resolve()));
                 // Keep-alive connections from fetch would hold `close` for their idle timeout.
@@ -1678,39 +1627,33 @@ function listen(app: Hono, hostname: string, port: number): Promise<Server> {
     });
 }
 
-/** The daemon's second WebSocket path: a tty agent's pty. True when `other` took the upgrade. */
-type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => boolean;
-
 /** The count of open `/events` sockets that the desktop app's main process holds. */
 interface DesktopClients {
     count: number;
 }
 
+/** Upper bound on the bytes that wait for one `/events` client to read them. */
+const SOCKET_BUFFER_BYTES_MAX = 32 * 1024 * 1024;
+
 /**
  * Upgrades requests for `EVENTS_PATH` to WebSockets and forwards bus events to each client.
  * Any `Origin` is accepted: the UI dev server and the built UI run on different origins and
  * the daemon only listens on loopback. A socket opened with `?client=desktop` counts in
- * `desktop` until it closes, so a notification skips the `osascript` banner meanwhile. Every
- * other path is offered to `other` (the tty route) and is a 404 when it declines.
+ * `desktop` until it closes, so a notification skips the `osascript` banner meanwhile. Any
+ * other path is a 404.
  */
-/** Upper bound on the bytes that wait for one `/events` client to read them. */
-const SOCKET_BUFFER_BYTES_MAX = 32 * 1024 * 1024;
-
 function attach_events_socket(
     server: Server,
     bus: EventBus,
     desktop: DesktopClients,
     log: (line: string) => void,
-    other: UpgradeHandler,
 ): WebSocketServer {
     const sockets = new WebSocketServer({ noServer: true });
     server.on("upgrade", (request, socket, head) => {
         const path = new URL(request.url ?? "/", "http://localhost").pathname;
         if (path !== EVENTS_PATH) {
-            if (!other(request, socket, head)) {
-                socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-                socket.destroy();
-            }
+            socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+            socket.destroy();
             return;
         }
         sockets.handleUpgrade(request, socket, head, (client) => {

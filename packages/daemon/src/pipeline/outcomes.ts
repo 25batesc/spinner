@@ -2,8 +2,8 @@
 // and the operator's steers to the lead, counted per session across rounds, so `spinner
 // outcomes` can compare the design track with the direct track. The `fix` route counts a
 // round when its job starts; the steer route in `server.ts` counts a steer only when
-// `counts_as_operator_steer` holds, because the lead's and the operator agent's
-// `agent_steer` tools post to the same route without a `source`.
+// `counts_as_operator_steer` holds, because the lead's
+// `agent_steer` tool posts to the same route without a `source`.
 import assert from "node:assert/strict";
 import type {
     AgentMessageRequest,

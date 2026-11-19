@@ -15,8 +15,6 @@ export interface SpinnerEnv {
     agent: string;
     daemon_url: string;
     role: ExtensionRole;
-    /** True under `SPINNER_HARNESS=tty`: pi runs in the daemon's pty and the tty channel opens. */
-    tty: boolean;
     /** `full` when the operator's settings let the lead act on GitHub; else `guarded`. */
     github: "guarded" | "full";
     /** The EGM checkout root of a lead in an EGM session, else null. */
@@ -25,23 +23,9 @@ export interface SpinnerEnv {
     egm_artifacts: string | null;
 }
 
-/**
- * The daemon path of this agent's own routes (`hello`, `commands`, `events`, `tty`): under the
- * session for a session agent, `/operator` for the operator agent (MISSION.md s013).
- */
-export function agent_route_base(env: SpinnerEnv): string {
-    if (env.role === "operator") {
-        return `${env.daemon_url}/operator`;
-    }
-    const dir = encodeURIComponent(env.dir);
-    const agent = encodeURIComponent(env.agent);
-    return `${env.daemon_url}/sessions/${dir}/agents/${agent}`;
-}
-
 export function read_env(env: NodeJS.ProcessEnv): SpinnerEnv | null {
     // A pi-subagents child inherits the lead's environment. It must not register the Spinner
-    // tools, the prompt section or the tty channel: the prompt would carry MISSION.md into a
-    // Goldfish, and a second command long-poll would take the lead's commands.
+    // tools or the prompt section: the prompt would carry MISSION.md into a Goldfish.
     if (env[SUBAGENT_CHILD_ENV] === "1") {
         return null;
     }
@@ -57,11 +41,10 @@ export function read_env(env: NodeJS.ProcessEnv): SpinnerEnv | null {
         : "worker";
     const parts = session_dir.replace(/\/+$/, "").split("/");
     const dir = parts[parts.length - 1] ?? "";
-    const tty = env[EXTENSION_ENV.harness] === "tty";
     const egm_root = non_empty(env[EXTENSION_ENV.egm_root]);
     const egm_artifacts = non_empty(env[EXTENSION_ENV.egm_artifacts]);
     const github = env[EXTENSION_ENV.github] === "full" ? "full" : "guarded";
-    return { session_dir, dir, agent, daemon_url, role, tty, github, egm_root, egm_artifacts };
+    return { session_dir, dir, agent, daemon_url, role, github, egm_root, egm_artifacts };
 }
 
 function non_empty(value: string | undefined): string | null {

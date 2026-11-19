@@ -499,7 +499,7 @@ describe("the lead role", () => {
             const array_form = JSON.stringify([{ ...gate, is_multi_select: false }]);
             const answer = await run(pi, "ask_question", { questions: array_form });
             expect(answer).toBe(
-                "The operator sees this question as buttons in Spinner and in your terminal. " +
+                "The operator sees this question as buttons in Spinner's chat. " +
                     "End your turn now. The answer arrives as your next message.",
             );
             expect(daemon.requests.at(-1)).toEqual({

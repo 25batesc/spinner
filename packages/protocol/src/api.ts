@@ -28,7 +28,7 @@ import type {
 } from "./session.js";
 import type { DiffView } from "./diff.js";
 import type { DesignTrack, DesignView, SeedResult } from "./egm.js";
-import type { OperatorCost, SessionCost } from "./costs.js";
+import type { SessionCost } from "./costs.js";
 import type { DatabaseMode, DatabaseServer, PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
 
@@ -123,7 +123,7 @@ export const ROUTES = {
     /** Render `threads/` from GitHub, then start or steer the fixer agent. Body: FixRequest. */
     "POST /sessions/:dir/fix": "JobResponse",
     /**
-     * Start the review swarm (s015) on each open PR, or the one `pr` names: one tty agent per
+     * Start the review swarm (s015) on each open PR, or the one `pr` names: one agent per
      * model in `settings.review.models`, each with the review brief, bounded by the
      * running-agents cap. Body: ReviewRequest. 409 without an open PR, while a reviewer of
      * the PR still reads, or when the PR's repo has no worktree.
@@ -267,9 +267,9 @@ export const ROUTES = {
     /** Stop the agent's process. Its transcript stays and `resume` picks it up. */
     "POST /sessions/:dir/agents/:name/stop": "AgentCommandResponse",
     /**
-     * Compact the agent's context (dogfood #45): pi's `/compact`, typed into a tty agent
-     * through its extension, or the rpc `compact` command. Writes the `spinner` Log line
-     * `compacted <agent> at NN %` (`at ? %` while the window is unknown). 409 with an
+     * Compact the agent's context (dogfood #45): pi's rpc `compact` command. Writes the
+     * `spinner` Log line `compacted <agent> at NN %` (`at ? %` while the window is
+     * unknown). 409 with an
      * AgentNotRunningResponse when the daemon does not host the agent.
      */
     "POST /sessions/:dir/agents/:name/compact": "AgentCommandResponse",
@@ -292,14 +292,6 @@ export const ROUTES = {
     "GET /sessions/:dir/agents/:name/transcript": "AgentTranscriptResponse",
     /** The agent's past turns, the whole of its pi transcript file. The chat does not use it. */
     "GET /sessions/:dir/agents/:name/events": "AgentEventsResponse",
-    /** A tty agent's extension reports pi's pid and slash commands. Body: AgentHelloRequest. */
-    "POST /sessions/:dir/agents/:name/hello": "AgentCommandResponse",
-    /** Long-poll (30 s) for the next command to a tty agent's extension. Query: ack, disposition */
-    "GET /sessions/:dir/agents/:name/commands": "AgentCommandPollResponse",
-    /** The extension of a tty agent posts pi's lifecycle events. Body: AgentEventsRequest. 202. */
-    "POST /sessions/:dir/agents/:name/events": "AgentCommandResponse",
-    /** WebSocket upgrade to a tty agent's pty; see `TTY_PATH` and `TtyClientMessage`. */
-    "GET /sessions/:dir/agents/:name/tty": "websocket",
     /**
      * Start the diff viewer of one repo, or of every repo. Body: DiffRepoRequest. The job
      * fetches the viewer's sources first when `diff.fetch` is not `ready`, then starts each
@@ -328,24 +320,6 @@ export const ROUTES = {
     "GET /themes": "ThemesResponse",
     /** Overwrite `agents/:name/BRIEF.md`. Body: AgentBriefRequest. Creates the directory. */
     "PUT /sessions/:dir/agents/:name/brief": "AgentBriefResponse",
-    /** The operator agent of this home: process state, pid, model, notices (MISSION.md s013). */
-    "GET /operator": "OperatorResponse",
-    /** Start the operator agent, or resume it on its transcript. 409 while it runs. */
-    "POST /operator/start": "OperatorResponse",
-    /** Stop the operator agent's process. Its transcript stays. 409 when it does not run. */
-    "POST /operator/stop": "OperatorResponse",
-    /** Send a prompt to the operator agent. Body: AgentMessageRequest. 409 when not running. */
-    "POST /operator/prompt": "AgentCommandResponse",
-    /** Queue a steer for the operator agent. Body: AgentMessageRequest. 409 when not running. */
-    "POST /operator/steer": "AgentCommandResponse",
-    /** WebSocket upgrade to the operator agent's pty; the frames of `GET .../agents/:name/tty`. */
-    "GET /operator/tty": "websocket",
-    /** The operator agent's extension reports pid and slash commands. Body: AgentHelloRequest. */
-    "POST /operator/hello": "AgentCommandResponse",
-    /** Long-poll (30 s) for the next command to the operator agent's extension. */
-    "GET /operator/commands": "AgentCommandPollResponse",
-    /** The operator agent's extension posts pi's lifecycle events. Body: AgentEventsRequest. */
-    "POST /operator/events": "AgentCommandResponse",
     /** The models pi can run, for the agent tab's model picker. */
     "GET /models": "ModelsResponse",
     /** Running jobs plus the last finished ones, oldest first, for a page that loads mid-job. */
@@ -425,43 +399,6 @@ export type Route = keyof typeof ROUTES;
 
 /** WebSocket path. Each message is one `SpinnerEvent` as JSON. */
 export const EVENTS_PATH = "/events";
-
-/**
- * The pty WebSocket of a tty agent. Binary frames are the pty's bytes in both directions.
- * Server to client: first one binary frame with the scrollback (0 to `TTY_SCROLLBACK_BYTES`
- * bytes), then one per pty chunk, then one text frame `TtyServerMessage` `exit` and close 1000.
- * Client to server: binary frames are keystrokes; the one text frame is `TtyClientMessage`.
- * Before the upgrade a problem is plain HTTP: 404 when the agent is not running, 409 for an
- * `rpc` agent or when `TTY_ATTACHMENTS_MAX` clients are attached.
- */
-export function tty_path(dir: string, name: string): string {
-    return `/sessions/${encodeURIComponent(dir)}/agents/${encodeURIComponent(name)}/tty`;
-}
-
-/** The operator agent's pty WebSocket: the same frames as `tty_path`, 404 while it is stopped. */
-export const OPERATOR_TTY_PATH = "/operator/tty";
-
-export const TTY_SCROLLBACK_BYTES = 64 * 1024;
-export const TTY_ATTACHMENTS_MAX = 8;
-/** The pty size before any client sent a resize. */
-export const TTY_SIZE_DEFAULT = { cols: 120, rows: 40 } as const;
-/** Upper bound on one `resize` dimension; a frame outside it closes the socket with 1008. */
-export const TTY_DIMENSION_MAX = 1000;
-
-export interface TtyResize {
-    cols: number;
-    rows: number;
-}
-
-/** The only text frame a client sends. */
-export interface TtyClientMessage {
-    resize: TtyResize;
-}
-
-/** The only text frame the daemon sends: the pty child is gone; close 1000 follows. */
-export interface TtyServerMessage {
-    exit: { code: number | null };
-}
 
 export interface HealthResponse {
     ok: true;
@@ -879,7 +816,7 @@ export interface RoundView extends RoundRecord {
     source: "record" | "mission";
 }
 
-/** One reviewer of the swarm, as the chips show it: a tty agent of the session. */
+/** One reviewer of the swarm, as the chips show it: an agent of the session. */
 export interface SwarmMember {
     /** The agent name, `review-<model-slug>`. */
     name: string;
@@ -1504,7 +1441,7 @@ export interface AgentMessageRequest {
     /**
      * PNG files that go with the text as images, at most `MESSAGE_IMAGES_MAX`: paths relative
      * to the session directory, each under `artifacts/` (an upload's or an attachment's
-     * `path`). Session agents only; the operator agent's routes ignore it.
+     * `path`).
      */
     images?: string[];
 }
@@ -1555,44 +1492,6 @@ export interface AgentBriefResponse {
     ok: true;
     /** Absolute path of the brief written. */
     path: string;
-}
-
-/**
- * The operator agent of a home (MISSION.md s013): one tty pi under `<home>/operator/`, no
- * session. `GET /operator` returns it and `operator.updated` carries it on every change.
- */
-export interface OperatorView {
-    /** `settings.operator.enabled`: the daemon starts the agent at boot when true. */
-    enabled: boolean;
-    /** `idle`: pi runs and waits; `running`: a turn is in progress; `exited`: no process. */
-    process: AgentProcessState;
-    /** True once the extension inside pi posted `hello`: a prompt or a notice reaches it. */
-    ready: boolean;
-    pid: number | null;
-    /** `provider/model` the agent runs with, or null for pi's own default. */
-    model: string | null;
-    /** `<home>/operator`: the transcript (`pi/`), `BRIEF.md` and `inbox/`. */
-    dir: string;
-    /** What the agent waits on: a person in its terminal, the model, or `start`. */
-    waiting_on: "operator" | "model" | "start";
-    /** The last notice the daemon delivered to the agent, or null. */
-    last_notice: OperatorNotice | null;
-    /** Notices batched or held (the agent is stopped) and not yet delivered. */
-    notices_pending: number;
-    /** What the operator agent has spent (s013). Optional for fixtures written before s013. */
-    cost?: OperatorCost;
-}
-
-/** One batch of events the daemon turned into a `notify` for the operator agent. */
-export interface OperatorNotice {
-    ts: string;
-    /** One line per event; each starts with the session directory. */
-    text: string;
-}
-
-/** `GET /operator`, `POST /operator/start`, `POST /operator/stop`. */
-export interface OperatorResponse {
-    operator: OperatorView;
 }
 
 export interface AgentResponse {
@@ -1656,54 +1555,12 @@ export interface AgentEventsResponse {
     events: PiEvent[];
 }
 
-/** `POST /sessions/:dir/agents/:name/hello`: from the extension at pi's start and on reload. */
-export interface AgentHelloRequest {
-    pid: number;
-    /** `pi.getCommands()`: the slash commands pi loaded, for the Context tab. */
-    commands: PiCommandInfo[];
-}
-
 /** pi's `SlashCommandInfo`, the fields the Context tab shows. */
 export interface PiCommandInfo {
     name: string;
     description?: string;
     source: "extension" | "prompt" | "skill";
     sourceInfo?: { path?: string };
-}
-
-/**
- * One command the daemon hands a tty agent's extension; `text` is absent for `abort`.
- * `notify` is a message from the daemon itself (a failed stack job), delivered as a custom
- * message that starts or steers a turn, so the agent reacts without being asked.
- * `set_model` carries `model`, `set_thinking` carries `level`; their ack's disposition is
- * `ok`, or pi's error text.
- */
-export interface AgentExtensionCommand {
-    id: string;
-    /** `compact` (dogfood #45) runs pi's compaction; like `abort`, it carries no text. */
-    type: "prompt" | "steer" | "abort" | "notify" | "compact" | "set_model" | "set_thinking";
-    text?: string;
-    /** `provider/id`, on `set_model` only. */
-    model?: string;
-    /** On `set_thinking` only. */
-    level?: ThinkingLevel;
-    /**
-     * Absolute paths of PNG files to attach to a `prompt` or a `steer` (a preview comment's
-     * screenshot, s054). pi turns a path in text into an image only when it is pasted into
-     * its editor, so the extension reads each file and passes it to `sendUserMessage` as an
-     * image. Absent on every other command.
-     */
-    images?: string[];
-}
-
-/** `GET /sessions/:dir/agents/:name/commands`: 200 with one command, or 204 after 30 s. */
-export interface AgentCommandPollResponse {
-    command: AgentExtensionCommand;
-}
-
-/** `POST /sessions/:dir/agents/:name/events`, batched by the extension; body bound 8 MiB. */
-export interface AgentEventsRequest {
-    events: PiEvent[];
 }
 
 /**

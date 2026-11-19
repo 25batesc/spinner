@@ -1,8 +1,10 @@
 // Themes and operator settings (s011, Contracts "settings and themes"). A theme is one
-// `ThemePalette`: the ten UI colours and a terminal block with the 16 ANSI colours,
+// `ThemePalette`: the ten UI colours and a `terminal` block with the 16 ANSI colours,
 // foreground, background and cursor, so the web UI and the desktop app share one
-// definition. The built-ins `light` and `dark` are the JSON files under `themes/`; the
-// operator adds `~/.spinner/themes/<name>.json`. `validate_palette` is the one check both
+// definition. The block keeps its name from the terminal tab it was made for; the mission
+// workspace takes the agents' hues from it. The built-ins `light` and `dark` are the JSON
+// files under `themes/`; the operator adds `~/.spinner/themes/<name>.json`.
+// `validate_palette` is the one check both
 // the daemon (`GET /themes`) and a UI preview run; a file with missing keys is reported with
 // the keys and not listed. `Settings` is `~/.spinner/settings.yaml`, the operator's
 // preferences, distinct from the daemon's `config.yaml`.
@@ -10,7 +12,7 @@ import dark from "./themes/dark.json" with { type: "json" };
 import light from "./themes/light.json" with { type: "json" };
 import rainbow from "./themes/rainbow.json" with { type: "json" };
 
-/** The 16 ANSI colours as xterm.js names them, plus the three the terminal needs. */
+/** The 16 ANSI colours by their usual names, plus foreground, background and cursor. */
 export const TERMINAL_COLOR_KEYS = [
     "foreground",
     "background",
@@ -148,7 +150,6 @@ export interface Settings {
     /** `provider/model` for an agent tab that names none. */
     default_model?: string;
     agents?: {
-        harness?: "tty" | "rpc";
         /**
          * What a session's lead may do on GitHub from its shell. `guarded` (the default): the
          * extension refuses `git push`, `gh pr create|merge|review|close|comment` and a
@@ -158,7 +159,7 @@ export interface Settings {
         github?: GithubAccess;
     };
     /**
-     * The review swarm (s015): one tty agent per model, each with the review brief. Absent
+     * The review swarm (s015): one agent per model, each with the review brief. Absent
      * means `REVIEW_MODELS_DEFAULT`, `REVIEW_N_DEFAULT` and the operator's review skill.
      */
     review?: {
@@ -171,13 +172,6 @@ export interface Settings {
          * is `~/.pi/agent/skills/review-pr` when it exists; none otherwise.
          */
         skill?: string;
-    };
-    /** The operator agent (MISSION.md s013). Absent means off since s014, the default model. */
-    operator?: {
-        /** The daemon starts the operator agent at boot. Default false (s014). */
-        enabled?: boolean;
-        /** `provider/model`; else `default_model`, else the daemon's default. */
-        model?: string;
     };
 }
 

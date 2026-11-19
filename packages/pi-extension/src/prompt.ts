@@ -360,28 +360,6 @@ function egm_lines(root: string, artifacts: string, designs_dir: string | null):
     ];
 }
 
-/**
- * The operator agent's section (MISSION.md s013): who it is, its directory, the tools, and
- * its brief from `<home>/operator/BRIEF.md`. The sessions come from the tools, not the prompt,
- * so a long-lived transcript does not carry a stale list.
- */
-export function render_operator_section(env: SpinnerEnv, brief: string): string {
-    const lines = [
-        "You are the operator agent of this Spinner home (role operator). You have no session",
-        `of your own. Your directory is ${env.session_dir}; your cwd is the home.`,
-        "Create and run sessions through the tools `session_new`, `session_adopt`,",
-        "`session_attach`, `session_list`, `session_show`, `mission_write`, `brief_write`,",
-        "`agent_add`, `agent_steer`, `inbox_send`, `stack` and `pr`. Every tool but the first",
-        "four takes the session directory `session_list` shows. Do not edit a session's files",
-        "with `edit` or `write`; the daemon writes them for you.",
-        "A message that starts with a session directory is a notice from the daemon.",
-    ];
-    if (brief.length > 0) {
-        lines.push("", "## Your brief (operator/BRIEF.md)", "", brief.trim());
-    }
-    return lines.join("\n");
-}
-
 /** The lines under `## <heading>` up to the next `## `. */
 export function section_body(text: string, heading: string): string {
     const lines = text.split("\n");

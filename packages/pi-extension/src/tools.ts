@@ -43,7 +43,7 @@ import type {
 import type { SpinnerEnv } from "./env.js";
 import { read_mission } from "./prompt.js";
 import { run_comment_tool } from "./tools-comments.js";
-import { run_operator_tool, wait_job } from "./tools-operator.js";
+import { run_agent_tool, wait_job } from "./tools-agents.js";
 
 /** Time the daemon gets to answer one tool call. */
 export const REQUEST_TIMEOUT_MS = 15_000;
@@ -183,7 +183,7 @@ async function stack_up(client: DaemonClient, session: string, poll_ms?: number)
 
 /**
  * Runs one tool: the manifest's route with the model's arguments. Returns the model's text.
- * A session agent's tools act on its own session; the operator agent names one in `session`.
+ * An agent's tools act on its own session.
  */
 export async function run_tool(
     spec: ExtensionToolSpec,
@@ -199,17 +199,9 @@ export async function run_tool(
         return read_mission(env.session_dir, section, lines);
     }
     assert.ok(client !== null, `${spec.name} needs the daemon`);
-    const operator_deps = { client, ...(poll_ms === undefined ? {} : { poll_ms }) };
-    if (spec.roles.every((role) => role === "operator")) {
-        return run_operator_tool(spec.name, args, operator_deps);
-    }
-    const dir = env.role === "operator" ? text("session").trim() : env.dir;
-    if (dir.length === 0) {
-        throw new Error("`session` must name a session directory; run session_list");
-    }
+    const dir = env.dir;
     if (spec.name === "agent_add" || spec.name === "agent_steer") {
-        // Shared with the operator role (s014): the lead acts on its own session.
-        return run_operator_tool(spec.name, { ...args, session: dir }, operator_deps);
+        return run_agent_tool(spec.name, args, dir, client);
     }
     const session = `/sessions/${encodeURIComponent(dir)}`;
     // The routes take a repo key; models write `backend#100` as often as `backend`.
@@ -454,7 +446,7 @@ export async function run_tool(
             const gate = parse_gate(text("questions"));
             await client.send<OkResponse>("PUT", `${session}/design/gate`, gate);
             return (
-                "The operator sees this question as buttons in Spinner and in your terminal. " +
+                "The operator sees this question as buttons in Spinner's chat. " +
                 "End your turn now. The answer arrives as your next message."
             );
         }

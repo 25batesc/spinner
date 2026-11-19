@@ -3,8 +3,8 @@
 // a package dependency: the first `POST /sessions/:dir/diff/start` clones it and its comment
 // library at pinned commits under `<home>/diffview/src/` and runs `npm install` there (the
 // pins live in the daemon, `src/diff/pins.ts`). Until that fetch succeeds
-// `SessionView.diff.available` is false. The operator's comments reach the session's tty
-// agents as `notify` commands, and the agents answer with the `diff_comments` and
+// `SessionView.diff.available` is false. The operator's comments reach the session's
+// agents as notices, and the agents answer with the `diff_comments` and
 // `diff_reply` tools, which the daemon runs as `diffview comments ...` in the agent's worktree.
 
 /**

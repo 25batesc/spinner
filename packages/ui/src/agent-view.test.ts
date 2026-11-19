@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { initialSessions } from "../fixture/data.ts";
 import {
-    agentLabel, agentTabs, contextLabel, contextTitle, contextTone, fullestContext, loadSurface,
-    saveSurface, showsTerminal,
+    agentLabel, contextLabel, contextTitle, contextTone, fullestContext,
 } from "./agent-view.ts";
 
 function context(pct: number, window = 1_000_000): AgentContext {
@@ -61,47 +60,6 @@ describe("fullestContext", () => {
         const uncosted = { ...refund };
         delete uncosted.cost;
         expect(fullestContext(uncosted)).toBeNull();
-    });
-});
-
-describe("showsTerminal", () => {
-    it("shows the terminal for a tty agent and the chat for an rpc agent", () => {
-        expect(showsTerminal("tty", "")).toBe(true);
-        expect(showsTerminal("rpc", "")).toBe(false);
-    });
-
-    it("reads the pre-s009 harness name `pi` as tty: resume spawns the default harness", () => {
-        expect(showsTerminal("pi", "?session=s1")).toBe(true);
-    });
-
-    it("forces the chat with ?chat=1", () => {
-        expect(showsTerminal("tty", "?chat=1")).toBe(false);
-        expect(showsTerminal("tty", "?pane=agents&chat=1")).toBe(false);
-        expect(showsTerminal("tty", "?chat=0")).toBe(true);
-    });
-});
-
-describe("the agent's surface", () => {
-    it("opens on the chat, and remembers a pick of the terminal", () => {
-        const store = new Map<string, string>();
-        const storage = {
-            getItem: (key: string) => store.get(key) ?? null,
-            setItem: (key: string, value: string) => void store.set(key, value),
-        };
-        expect(loadSurface(storage)).toBe("chat");
-        saveSurface(storage, "terminal");
-        expect(loadSurface(storage)).toBe("terminal");
-        expect(loadSurface(null)).toBe("chat");
-    });
-
-    it("offers the terminal only to an agent that has one", () => {
-        expect(agentTabs(true, "terminal")).toEqual({
-            labels: ["chat", "terminal", "context"], shown: "terminal",
-        });
-        // An rpc agent has no terminal: a remembered `terminal` shows its chat.
-        const none = agentTabs(false, "terminal");
-        expect(none).toEqual({ labels: ["chat", "context"], shown: "chat" });
-        expect(agentTabs(true, "context").shown).toBe("context");
     });
 });
 

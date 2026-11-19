@@ -32,9 +32,13 @@ const THEMES_MAX = 200;
 /** Upper bound on one theme file; a palette is a few hundred bytes. */
 const THEME_FILE_BYTES_MAX = 256 * 1024;
 
+/**
+ * `agents.harness` and `operator` are accepted and ignored: the terminal harness and the
+ * operator agent are gone, and a settings file that still names them must load. They are
+ * not kept, so the next write of the file drops them.
+ */
 const SETTINGS_KEYS = ["theme", "default_model", "agents", "operator", "review"];
 const AGENTS_KEYS = ["harness", "github"];
-const OPERATOR_KEYS = ["enabled", "model"];
 const REVIEW_KEYS = ["models", "n", "skill"];
 
 /** Upper bound on `review.n`; more reviews than this is a mistake, not a preference. */
@@ -118,47 +122,13 @@ export function validate_settings(input: unknown, home: SpinnerHome): Settings |
                 return `unknown key "agents.${key}" (known: ${AGENTS_KEYS.join(", ")})`;
             }
         }
-        const harness = block["harness"];
         settings.agents = {};
-        if (harness !== undefined) {
-            if (harness !== "tty" && harness !== "rpc") {
-                return "`agents.harness` must be one of tty, rpc";
-            }
-            settings.agents.harness = harness;
-        }
         const github = block["github"];
         if (github !== undefined) {
             if (github !== "guarded" && github !== "full") {
                 return "`agents.github` must be one of guarded, full";
             }
             settings.agents.github = github;
-        }
-    }
-    const operator = record["operator"];
-    if (operator !== undefined) {
-        if (typeof operator !== "object" || operator === null || Array.isArray(operator)) {
-            return "`operator` must be a mapping";
-        }
-        const block = operator as Record<string, unknown>;
-        for (const key of Object.keys(block)) {
-            if (!OPERATOR_KEYS.includes(key)) {
-                return `unknown key "operator.${key}" (known: ${OPERATOR_KEYS.join(", ")})`;
-            }
-        }
-        settings.operator = {};
-        const enabled = block["enabled"];
-        if (enabled !== undefined) {
-            if (typeof enabled !== "boolean") {
-                return "`operator.enabled` must be a boolean";
-            }
-            settings.operator.enabled = enabled;
-        }
-        const model = block["model"];
-        if (model !== undefined) {
-            if (typeof model !== "string" || model.length === 0) {
-                return "`operator.model` must be a non-empty string when given";
-            }
-            settings.operator.model = model;
         }
     }
     const review = record["review"];

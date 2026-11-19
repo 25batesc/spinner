@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { ROUTES } from "./api.js";
 import {
+    EXTENSION_ROLES,
     EXTENSION_ENV,
     EXTENSION_MANIFEST,
     EXTENSION_TOOLS,
@@ -82,27 +83,14 @@ describe("extension manifest", () => {
         ]);
     });
 
-    it("gives the operator role its session tools, stack and pr, and nothing session-bound", () => {
-        const operator_tools = EXTENSION_MANIFEST.tools
-            .filter((tool) => tool.roles.includes("operator"))
-            .map((tool) => tool.name);
-        expect(operator_tools).toEqual([
-            "stack",
-            "pr",
-            "session_new",
-            "session_adopt",
-            "session_attach",
-            "session_list",
-            "session_show",
-            "mission_write",
-            "brief_write",
-            "agent_add",
-            "agent_steer",
-            "inbox_send",
-        ]);
+    it("gives every tool a role, and none to a role that no longer exists", () => {
         for (const tool of EXTENSION_MANIFEST.tools) {
             expect(tool.roles.length).toBeGreaterThan(0);
+            for (const role of tool.roles) {
+                expect(EXTENSION_ROLES).toContain(role);
+            }
         }
+        expect(EXTENSION_ROLES).toEqual(["worker", "fixer", "lead"]);
     });
 
     it("gives the lead the mission, thread, review and comment tools, agent_add, adopt", () => {

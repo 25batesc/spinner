@@ -1,6 +1,6 @@
 // One watcher per running viewer: it parks `diffview comments wait --after <cursor>` in the
 // repo's worktree, and when the CLI returns with threads that wait on the agent it sends one
-// `notify` per new thread to the session's tty agents, at most `DIFF_NOTICES_PER_SECOND_MAX`
+// `notify` per new thread to the session's agents, at most `DIFF_NOTICES_PER_SECOND_MAX`
 // per second per session. Each round also runs `list --json`, so `session.yaml` holds the
 // unresolved threads of both sides: the view counts them, and the stage derivation turns the
 // ones waiting on the operator into `needs_human`. The wait is short (`wait_timeout`) so a
