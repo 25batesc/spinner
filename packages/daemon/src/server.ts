@@ -201,8 +201,6 @@ export interface DaemonOptions {
     extension?: string | null;
     /** `provider/model` for an agent that names none; pi's own default when absent. */
     default_model?: string;
-    /** `config.yaml` `agents.harness`: `tty` (the default) or `rpc`. */
-    agents_harness?: "tty" | "rpc";
     /** What `GET /health` reports as the build; `main.ts` reads it from the checkout. */
     build?: BuildInfo;
     /** Start the operator agent at boot when `settings.operator.enabled` allows. Default true. */
@@ -1237,7 +1235,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     const tty = new PiTtyHarness(harness_options);
     const agents = new AgentManager(
         home,
-        { default: options.agents_harness ?? "tty", tty, rpc: new PiRpcHarness(harness_options) },
+        new PiRpcHarness(harness_options),
         bus,
         {
             log,
@@ -1482,7 +1480,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     syncer = start_worktree_syncer(options, options.writer?.git ?? git_runner, log);
     log(`spinnerd listening on http://${host}:${bound_port}, home ${home.root}`);
     for (const resumed of await agents.adopt_all()) {
-        log(`adopt: resumed tty agent ${resumed} on its transcript`);
+        log(`adopt: resumed agent ${resumed} on its transcript`);
     }
     // The approved design of an older session becomes a plan of the library (4.4).
     for (const id of import_designs(home, new Date())) {

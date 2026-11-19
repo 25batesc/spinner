@@ -212,7 +212,7 @@ describe("AgentManager with PiRpcHarness", () => {
         bus.subscribe((event) => events.push(event));
         const manager = new AgentManager(
             home,
-            { default: "rpc", rpc: new PiRpcHarness({ pi: () => FAKE_PI }) },
+            new PiRpcHarness({ pi: () => FAKE_PI }),
             bus,
         );
 
@@ -267,7 +267,9 @@ describe("AgentManager with PiRpcHarness", () => {
             process: "idle",
             pid: handle.pid,
         });
-        expect(await handle.steer("more")).toBe("queued");
+        // The turn is over: a steer that arrives now starts one instead of waiting in pi's
+        // queue for a turn nobody starts.
+        expect(await handle.steer("more")).toBe("started");
         await handle.abort();
 
         await manager.stop(summary.dir, "backend");
@@ -277,6 +279,7 @@ describe("AgentManager with PiRpcHarness", () => {
         expect(after.agents["backend"]).toEqual({
             harness: "rpc",
             model: "anthropic/claude-x",
+            thinking: "off",
             process: "exited",
             ended: { code: 0, by: "operator", at: expect.any(String) },
         });
@@ -301,7 +304,7 @@ describe("AgentManager with PiRpcHarness", () => {
         const now = () => new Date("2026-11-04T10:00:00Z");
         const manager = new AgentManager(
             home,
-            { default: "rpc", rpc: new PiRpcHarness({ pi: () => FAKE_PI }) },
+            new PiRpcHarness({ pi: () => FAKE_PI }),
             bus,
             { now },
         );
@@ -321,29 +324,41 @@ describe("AgentManager with PiRpcHarness", () => {
         await resumed.exited;
     });
 
-    it("notify_all steers a handle without notify only with steer_fallback (6.4)", async () => {
+    it("notify_all starts a turn of an idle agent and enters the turn of a busy one", async () => {
         const summary = create_session(home, { title: "Notice" });
         mkdirSync(join(summary.path, "agents", "backend"), { recursive: true });
         writeFileSync(join(summary.path, "agents", "backend", "BRIEF.md"), "# backend\n");
-        // The rpc harness: its handle has `steer` and no `notify`.
+        const bus = new EventBus();
+        const said: string[] = [];
+        let settled = 0;
+        bus.subscribe((event) => {
+            if (event.type === "agent.settled") {
+                settled += 1;
+            }
+            if (event.type === "agent.event" && event.event.type === "message_end") {
+                said.push(JSON.stringify(event.event.message.content));
+            }
+        });
         const harness = new PiRpcHarness({ pi: () => FAKE_PI, extension: null });
-        const manager = new AgentManager(home, { default: "rpc", rpc: harness }, new EventBus());
+        const manager = new AgentManager(home, harness, bus);
         const handle = await manager.add(summary, { name: "backend" });
-        expect(handle.notify).toBeUndefined();
-        const steered: string[] = [];
-        const steer = handle.steer;
-        handle.steer = async (text) => {
-            steered.push(text);
-            return steer(text);
-        };
-        expect(await manager.notify_all(summary.dir, "no options")).toEqual([]);
-        const off = { steer_fallback: false };
-        expect(await manager.notify_all(summary.dir, "off", off)).toEqual([]);
-        expect(steered).toEqual([]);
-        const on = { steer_fallback: true };
-        expect(await manager.notify_all(summary.dir, "the doc changed", on)).toEqual(["backend"]);
-        expect(steered).toEqual(["the doc changed"]);
-        expect(await manager.notify_all("other-session", "x", on)).toEqual([]);
+
+        // Idle: the notice starts a turn, alone. A text that waits for the operator's next
+        // prompt does not ride on it.
+        manager.queue_for_next_prompt(summary.dir, "backend", "a queued note");
+        expect(await manager.notify_all(summary.dir, "the stack job failed")).toEqual(["backend"]);
+        await until(() => settled === 1);
+        expect(said.at(-1)).toContain('"echo: the stack job failed"');
+        expect(manager.pending_for(summary.dir, "backend")).toEqual(["a queued note"]);
+
+        // Busy: the notice enters the running turn; the fake lists what it was steered with.
+        expect(await handle.steer("slow work")).toBe("started");
+        expect(await manager.notify_all(summary.dir, "the doc changed")).toEqual(["backend"]);
+        await until(() => settled === 2);
+        await handle.steer("steers?");
+        await until(() => settled === 3);
+        expect(said.at(-1)).toContain(String.raw`steers: [\"the doc changed\"]`);
+        expect(await manager.notify_all("other-session", "x")).toEqual([]);
         await manager.stop_all();
     });
 
@@ -354,7 +369,7 @@ describe("AgentManager with PiRpcHarness", () => {
         const args_file = join(home.root, "args.json");
         process.env["FAKE_PI_ARGS_FILE"] = args_file;
         const harness = new PiRpcHarness({ pi: () => FAKE_PI, extension: null });
-        const manager = new AgentManager(home, { default: "rpc", rpc: harness }, new EventBus());
+        const manager = new AgentManager(home, harness, new EventBus());
         await manager.add(summary, { name: "fixer" });
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
         expect(spawned.argv).toContain("--append-system-prompt");
@@ -364,23 +379,19 @@ describe("AgentManager with PiRpcHarness", () => {
         delete process.env["FAKE_PI_ARGS_FILE"];
     });
 
-    it("applies settings.yaml: default_model and harness come before config.yaml", async () => {
+    it("applies settings.yaml: default_model comes before config.yaml", async () => {
         const summary = create_session(home, { title: "Settings" });
         mkdirSync(join(summary.path, "agents", "backend"), { recursive: true });
         writeFileSync(join(summary.path, "agents", "backend", "BRIEF.md"), "# backend\n");
         writeFileSync(
             join(home.root, "settings.yaml"),
-            "theme: system\ndefault_model: openai/gpt-s\nagents:\n  harness: rpc\n",
+            "theme: system\ndefault_model: openai/gpt-s\nagents:\n  harness: tty\n",
         );
         const args_file = join(home.root, "args.json");
         process.env["FAKE_PI_ARGS_FILE"] = args_file;
-        // Both names map to the fake harness; `session.yaml` records which name was chosen.
+        // An `agents.harness` an old settings file still carries chooses nothing.
         const harness = new PiRpcHarness({ pi: () => FAKE_PI, default_model: "x/config" });
-        const manager = new AgentManager(
-            home,
-            { default: "tty", tty: harness, rpc: harness },
-            new EventBus(),
-        );
+        const manager = new AgentManager(home, harness, new EventBus());
         await manager.add(summary, { name: "backend" });
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
         expect(spawned.argv).toContain("gpt-s");
@@ -474,7 +485,7 @@ describe("the EGM spawn of a lead", () => {
             const harness = new PiRpcHarness({ pi: () => FAKE_PI });
             const manager = new AgentManager(
                 home,
-                { default: "rpc", rpc: harness },
+                harness,
                 new EventBus(),
             );
             await manager.add(summary, { name: "lead", brief: "# lead" });
@@ -540,7 +551,7 @@ describe("the environment of a spawned agent", () => {
             const summary = create_session(home, { title: "Child" });
             const harness = new PiRpcHarness({ pi: () => FAKE_PI });
             const bus = new EventBus();
-            const manager = new AgentManager(home, { default: "rpc", rpc: harness }, bus);
+            const manager = new AgentManager(home, harness, bus);
             await manager.add(summary, { name: "backend", brief: "# backend" });
             const spawned = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;
             for (const key of Object.keys(inherited)) {

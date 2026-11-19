@@ -118,7 +118,6 @@ describe("uploads, images and settings through the daemon (rpc harness)", () => 
             ui_dir: null,
             observe_interval_ms: 60_000,
             pi: FAKE_PI,
-            agents_harness: "rpc",
             extension: null,
         });
         events = [];

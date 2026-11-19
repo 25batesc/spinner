@@ -15,7 +15,6 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
     AddAgentRequest,
-    AgentHarnessName,
     AgentSpec,
     SessionSummary,
     Settings,
@@ -31,12 +30,8 @@ import { read_settings } from "../settings.js";
 import { list_sessions, read_session, write_session } from "../store/session-store.js";
 import { agent_brief_path, type AgentHandle, type AgentHarness } from "./harness.js";
 
-/** The harnesses the daemon can start and the one `config.yaml` `agents.harness` names. */
-export interface AgentHarnesses {
-    default: "tty" | "rpc";
-    tty?: AgentHarness;
-    rpc?: AgentHarness;
-}
+/** What `session.yaml` records for every agent this daemon starts or resumes. */
+const HARNESS = "rpc";
 
 /** Time a leftover pi from the previous daemon gets after SIGTERM before SIGKILL. */
 const ADOPT_STOP_GRACE_MS = 5_000;
@@ -55,11 +50,6 @@ export interface AgentManagerOptions {
 export interface AddAgentExtra {
     /** Skill directories pi loads with `--skill` (s015, the review skill). */
     skills?: string[];
-    /**
-     * The harness for this agent, over the settings (s016): a review's reviewers and lead
-     * run headless on `rpc`, so no startup screen eats their first message.
-     */
-    harness?: "tty" | "rpc";
 }
 
 interface Hosted {
@@ -110,11 +100,10 @@ export class AgentManager {
 
     constructor(
         private readonly home: SpinnerHome,
-        private readonly harnesses: AgentHarnesses,
+        private readonly harness: AgentHarness,
         private readonly bus: EventBus,
         options: AgentManagerOptions = {},
     ) {
-        assert.ok(harnesses[harnesses.default] !== undefined, `no ${harnesses.default} harness`);
         this.now = options.now ?? (() => new Date());
         this.log = options.log ?? (() => undefined);
         this.running_max = options.running_max ?? AGENTS_RUNNING_MAX;
@@ -129,11 +118,6 @@ export class AgentManager {
     /** True when `add` would refuse: the cap is reached (s015, the swarm queues behind it). */
     get at_cap(): boolean {
         return this.hosted.size >= this.running_max;
-    }
-
-    /** The harness name every `add` uses, from `config.yaml`. */
-    get default_harness(): "tty" | "rpc" {
-        return this.harnesses.default;
     }
 
     /** Names of the agents whose process this daemon hosts, for `SessionView.agents_running`. */
@@ -208,11 +192,10 @@ export class AgentManager {
     }
 
     /**
-     * A one-line notice from the daemon to one agent (the track change, dogfood #44), by the
-     * rule the review swarm uses for its verdict notice: a tty agent takes `notify`; an rpc
-     * agent gets a steer while it runs and a prompt while idle; a prompt that loses that race
-     * goes as a steer. A stopped agent, or a failed delivery, queues the text for its next
-     * prompt. Answers the disposition, or `queued`.
+     * A one-line notice from the daemon to one agent (the track change, dogfood #44; the
+     * swarm's verdict notice): it starts a turn or enters the running one. A stopped agent, or
+     * a failed delivery, queues the text for its next prompt. Answers the disposition, or
+     * `queued`.
      */
     async deliver_notice(dir: string, name: string, text: string): Promise<string> {
         assert.ok(text.trim().length > 0, "a notice must not be empty");
@@ -222,13 +205,7 @@ export class AgentManager {
             return "queued";
         }
         try {
-            if (handle.notify !== undefined) {
-                return await handle.notify(text);
-            }
-            if (this.is_busy(dir, name)) {
-                return await handle.steer(text);
-            }
-            return await handle.prompt(text).catch(() => handle.steer(text));
+            return await handle.notify(text);
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             this.log(`${dir}/${name}: notice not delivered (${reason}); queued for the next`);
@@ -238,10 +215,10 @@ export class AgentManager {
     }
 
     /**
-     * A message from the operator with images (a preview comment, s054): a prompt while the
-     * agent is idle, a steer while it runs, and a steer when the prompt loses that race. A
-     * stopped agent, or a failed delivery, keeps the text for its next prompt (the text names
-     * the image's path; the image itself is not kept) and answers `stopped` or `queued`.
+     * A message from the operator with images (a preview comment, s054): it starts a turn or
+     * enters the running one. A stopped agent, or a failed delivery, keeps the text for its
+     * next prompt (the text names the image's path; the image itself is not kept) and answers
+     * `stopped` or `queued`.
      */
     async deliver_message(
         dir: string,
@@ -256,10 +233,11 @@ export class AgentManager {
             return "stopped";
         }
         try {
+            // A running turn takes this text alone; an idle agent takes the queued texts too.
             if (this.is_busy(dir, name)) {
                 return await handle.steer(text, images);
             }
-            return await handle.prompt(text, images).catch(() => handle.steer(text, images));
+            return await handle.prompt(text, images);
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             this.log(`${dir}/${name}: message not delivered (${reason}); queued for the next`);
@@ -318,20 +296,11 @@ export class AgentManager {
         const listed_model = listed?.model === "default" ? undefined : listed?.model;
         // The operator's `settings.yaml` sits between the request and `config.yaml`: the
         // request's model, else the one this agent ran with, else `settings.default_model`,
-        // else the harness's `config.yaml` default. The harness the same way: a resume keeps
-        // the one the agent ran on, so a headless reviewer does not come back as a tty agent
-        // (dogfood #59c). A settings file that does not parse is logged, not fatal here.
+        // else the harness's `config.yaml` default. A settings file that does not parse is
+        // logged, not fatal here.
         const settings = this.read_settings();
         const model = request.model ?? listed_model ?? settings.default_model;
         this.write_agents_file(summary);
-        const listed_harness = listed === undefined ? undefined : harness_of(listed.harness);
-        const harness_name =
-            extra.harness ??
-            listed_harness ??
-            settings.agents?.harness ??
-            this.harnesses.default;
-        const harness = this.harnesses[harness_name];
-        assert.ok(harness !== undefined, `no ${harness_name} harness`);
         const skills = extra.skills ?? listed?.skills;
         // EGM paths are computed on every spawn, not recorded, so a resume after a fetch
         // picks them up.
@@ -339,7 +308,7 @@ export class AgentManager {
             role_of_agent(request.name) === "lead"
                 ? egm_spawn(this.home, summary, process.env)
                 : null;
-        const spawned = await harness.spawn(summary, {
+        const spawned = await this.harness.spawn(summary, {
             name: request.name,
             model,
             cwd,
@@ -348,9 +317,13 @@ export class AgentManager {
         });
         const handle = this.with_pending(key, spawned);
         const started = process_start_time(handle.pid);
+        // Every agent runs on `pi --mode rpc`. A record from before that (`tty`, `pi`) is
+        // rewritten here: the resume reopened the same transcript by its session id.
+        const { model: pi_model, thinking } = spawned.started_with ?? {};
         const spec: AgentSpec = {
-            harness: harness_name,
-            model: model ?? "default",
+            harness: HARNESS,
+            model: pi_model ?? model ?? "default",
+            ...(thinking === undefined ? {} : { thinking }),
             process: "idle",
             pid: handle.pid,
             ...(started === null ? {} : { started }),
@@ -408,32 +381,18 @@ export class AgentManager {
     }
 
     /**
-     * Pushes a daemon notice (a failed stack job) to every running agent of `dir` whose
-     * harness can take one. With `steer_fallback` (the design-change notice, 6.4), a handle
-     * without `notify` gets the text as a steer, so the rpc harness is reached too. Returns the
-     * names reached; a failed delivery is logged, not thrown.
+     * Pushes a daemon notice (a failed stack job, a changed design doc) to every running
+     * agent of `dir`. Returns the names reached; a failed delivery is logged, not thrown.
      */
-    async notify_all(
-        dir: string,
-        text: string,
-        options: { steer_fallback: boolean } = { steer_fallback: false },
-    ): Promise<string[]> {
+    async notify_all(dir: string, text: string): Promise<string[]> {
         assert.ok(text.length > 0, "a notice must not be empty");
         const reached: string[] = [];
         for (const entry of this.hosted.values()) {
             if (entry.dir !== dir) {
                 continue;
             }
-            const handle = entry.handle;
-            if (handle.notify === undefined && !options.steer_fallback) {
-                continue;
-            }
             try {
-                if (handle.notify === undefined) {
-                    await handle.steer(text);
-                } else {
-                    await handle.notify(text);
-                }
+                await entry.handle.notify(text);
                 reached.push(entry.name);
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
@@ -490,12 +449,12 @@ export class AgentManager {
     }
 
     /**
-     * On daemon start: every `tty` agent `session.yaml` lists as `running` or `idle` was hosted
-     * by the previous daemon. Its pty master died with that daemon, so the pi behind it is
-     * stopped when its identity (pid and start time) is still live, then the agent is resumed
-     * on the same transcript. Returns the names resumed, as `dir/name`. An `rpc` agent is
-     * marked `exited`: its stdin pipe is gone and the operator resumes it from the tab. So is a
-     * reviewer whose swarm record is `done` or `failed`: its work is over (dogfood #59c).
+     * On daemon start: every agent `session.yaml` lists as `running` or `idle` was hosted by
+     * the previous daemon. Its pipes died with that daemon, so the pi behind it is stopped
+     * when its identity (pid and start time) is still live, then the agent is resumed on the
+     * same transcript, whatever harness the record names. Returns the names resumed, as
+     * `dir/name`. A reviewer whose swarm record is `done` or `failed` is marked `exited`: its
+     * work is over (dogfood #59c).
      */
     async adopt_all(): Promise<string[]> {
         const resumed: string[] = [];
@@ -507,11 +466,7 @@ export class AgentManager {
                 await this.stop_leftover(name, spec);
                 const swarm_state = summary.session.review?.swarm[name]?.state;
                 const finished = swarm_state === "done" || swarm_state === "failed";
-                if (
-                    finished ||
-                    harness_of(spec.harness) !== "tty" ||
-                    this.harnesses.tty === undefined
-                ) {
+                if (finished) {
                     this.record(summary.dir, name, { process: "exited" }, true);
                     continue;
                 }
@@ -556,7 +511,6 @@ export class AgentManager {
     private with_pending(key: string, handle: AgentHandle): AgentHandle {
         // The handle is a class instance; its methods live on the prototype, so each one is
         // forwarded by name rather than spread.
-        const notify = handle.notify?.bind(handle);
         const answer = handle.answer?.bind(handle);
         return {
             pid: handle.pid,
@@ -567,7 +521,7 @@ export class AgentManager {
             compact: () => handle.compact(),
             set_model: (model) => handle.set_model(model),
             set_thinking: (level) => handle.set_thinking(level),
-            ...(notify === undefined ? {} : { notify }),
+            notify: (text) => handle.notify(text),
             ...(answer === undefined ? {} : { answer }),
             commands: () => handle.commands(),
             on_event: (listener) => handle.on_event(listener),
@@ -638,7 +592,7 @@ export class AgentManager {
         const session = read.summary.session;
         session.agents ??= {};
         const fresh: AgentSpec = {
-            harness: this.harnesses.default,
+            harness: HARNESS,
             model: "default",
             process: "idle",
         };
@@ -707,11 +661,6 @@ export function agent_cwd(summary: SessionSummary, repo: string | undefined): st
         throw new Error(`session ${summary.session.id} has no worktree for repo "${repo}"`);
     }
     return join(summary.path, entry.worktree);
-}
-
-/** `pi`, the value files before s009 carry, is the RPC harness. */
-export function harness_of(name: AgentHarnessName): "tty" | "rpc" {
-    return name === "tty" ? "tty" : "rpc";
 }
 
 function key_of(dir: string, name: string): string {

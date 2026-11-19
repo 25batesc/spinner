@@ -251,7 +251,7 @@ export class DesignTracker {
         const text =
             `The design doc changed in ${sections}; the approval is invalidated. ` +
             "Your code writes stay locked until the operator re-approves.";
-        await this.deps.agents.notify_all(dir, text, { steer_fallback: true });
+        await this.deps.agents.notify_all(dir, text);
     }
 
     /**

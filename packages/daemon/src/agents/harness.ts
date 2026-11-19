@@ -28,6 +28,7 @@ import {
     MESSAGE_IMAGES_MAX,
     SUBAGENTS_TEMP_ROOT_ENV,
     SUBAGENT_EXTRA_AGENT_DIRS_ENV,
+    is_thinking_level,
     role_of_agent,
     split_model,
     type ExtensionRole,
@@ -70,12 +71,16 @@ export interface AgentHandle {
     /** pi's session id for the transcript, for the UI and for resume. */
     pi_session_id: string;
     /**
-     * Sends a prompt; resolves with pi's disposition (`started`, `queued`, `handled`).
-     * `images` are absolute paths of PNG files that go with the text as images (a preview
-     * comment's screenshot, s054).
+     * Sends a message; resolves with pi's disposition: `started` when it began a turn,
+     * `queued` when a turn runs (the message then enters after the current tool calls, before
+     * the next model call), `handled` for an extension command. `images` are absolute paths
+     * of PNG files that go with the text as images (a preview comment's screenshot, s054).
      */
     prompt(text: string, images?: readonly string[]): Promise<string>;
-    /** Queues a steer; it enters after the current turn and its tool calls. */
+    /**
+     * The same delivery as `prompt`. The caller means "into the running turn"; a turn that
+     * ended a moment ago must not swallow the message, so an idle pi starts a turn with it.
+     */
     steer(text: string, images?: readonly string[]): Promise<string>;
     abort(): Promise<void>;
     /**
@@ -84,11 +89,11 @@ export interface AgentHandle {
      */
     compact(): Promise<string>;
     /**
-     * A message from the daemon itself (a failed stack job), not from a person: delivered as
-     * a custom message that starts a turn, or steers the running one. Only the tty harness
-     * has it; the RPC path has no custom-message command.
+     * A message from the daemon itself (a failed stack job), not from a person: it starts a
+     * turn, or enters the running one, and never carries the texts queued for the operator's
+     * next prompt.
      */
-    notify?(text: string): Promise<string>;
+    notify(text: string): Promise<string>;
     /**
      * Switches pi to `provider/id` for the turns to come. Rejects with a `PiRefusal` carrying
      * pi's error when pi does not know the model or has no key for its provider.
@@ -101,6 +106,12 @@ export interface AgentHandle {
      * is the open one; throws a `PiRefusal` when the answer does not fit the prompt's kind.
      */
     answer?(request: AgentAnswerRequest): boolean;
+    /**
+     * The model (`provider/id`) and the thinking level pi started with, when it said so. A
+     * resumed transcript restores both, and `session.yaml` must show what pi runs, not what
+     * the spawn asked for.
+     */
+    started_with?: { model?: string; thinking?: ThinkingLevel };
     /** The commands pi loaded, for the Context tab. */
     commands(): Promise<PiCommand[]>;
     on_event(listener: (event: PiEvent) => void): () => void;
@@ -328,6 +339,7 @@ interface WaitingPrompt {
 class PiHandle implements AgentHandle {
     readonly pid: number;
     readonly exited: Promise<number | null>;
+    readonly started_with: { model?: string; thinking?: ThinkingLevel };
     private readonly listeners = new Set<(event: PiEvent) => void>();
     /** Dialogs pi blocks on, oldest first. The chat shows the first; the rest wait. */
     private readonly waiting: WaitingPrompt[] = [];
@@ -338,6 +350,7 @@ class PiHandle implements AgentHandle {
     ) {
         this.pid = process_.pid;
         this.exited = process_.exited;
+        this.started_with = settings_of_state(process_.state);
         process_.on_event((event) => this.emit(event));
         process_.on_ui((request) => this.on_ui(request));
         void process_.exited.then(() => this.drop_waiting());
@@ -407,24 +420,29 @@ class PiHandle implements AgentHandle {
         }
     }
 
+    /**
+     * One command for every message: pi's `prompt` with `streamingBehavior: "steer"`. An idle
+     * pi starts a turn; a busy one queues the text as a steer. Without the field pi refuses a
+     * prompt during a turn, and its own `steer` command only queues, so a steer that arrives
+     * just after the turn ended would wait for a turn nobody starts. Both were lost messages.
+     */
     async prompt(text: string, images: readonly string[] = []): Promise<string> {
-        assert.ok(text.length > 0, "a prompt must not be empty");
+        assert.ok(text.length > 0, "a message must not be empty");
         const response = await this.process_.send({
             type: "prompt",
             message: text,
+            streamingBehavior: "steer",
             ...rpc_images(images),
         });
         return disposition_of(response.data);
     }
 
-    async steer(text: string, images: readonly string[] = []): Promise<string> {
-        assert.ok(text.length > 0, "a steer must not be empty");
-        const response = await this.process_.send({
-            type: "steer",
-            message: text,
-            ...rpc_images(images),
-        });
-        return disposition_of(response.data);
+    steer(text: string, images: readonly string[] = []): Promise<string> {
+        return this.prompt(text, images);
+    }
+
+    notify(text: string): Promise<string> {
+        return this.prompt(text);
     }
 
     async abort(): Promise<void> {
@@ -471,6 +489,25 @@ class PiHandle implements AgentHandle {
     stop(): Promise<number | null> {
         return this.process_.stop();
     }
+}
+
+/** The model and the thinking level in a `get_state` answer; each absent when pi names none. */
+export function settings_of_state(state: unknown): { model?: string; thinking?: ThinkingLevel } {
+    if (typeof state !== "object" || state === null) {
+        return {};
+    }
+    const { model, thinkingLevel } = state as { model?: unknown; thinkingLevel?: unknown };
+    const settings: { model?: string; thinking?: ThinkingLevel } = {};
+    if (typeof model === "object" && model !== null) {
+        const { provider, id } = model as { provider?: unknown; id?: unknown };
+        if (typeof provider === "string" && typeof id === "string") {
+            settings.model = `${provider}/${id}`;
+        }
+    }
+    if (is_thinking_level(thinkingLevel)) {
+        settings.thinking = thinkingLevel;
+    }
+    return settings;
 }
 
 /** pi's response body for an operator's answer; a `PiRefusal` when the two do not fit. */

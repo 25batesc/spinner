@@ -72,7 +72,7 @@ beforeEach(async () => {
     write_session(summary);
     bus = new EventBus();
     const rpc = new PiRpcHarness({ pi: () => "pi-is-not-started-here", extension: null });
-    const agents = new AgentManager(home, { default: "rpc", rpc }, bus);
+    const agents = new AgentManager(home, rpc, bus);
     refreshed = [];
     tracker = new DesignTracker({
         home,

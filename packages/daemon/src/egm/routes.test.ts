@@ -83,18 +83,12 @@ let ledger: CostLedger;
 class RecordingAgents extends AgentManager {
     running_lead = true;
     sent: string[] = [];
-    /** The texts of `notify_all` with the steer fallback: the design-change notice (6.6). */
+    /** The texts of `notify_all`: the design-change notice (6.6). */
     notices: string[] = [];
 
-    override async notify_all(
-        dir: string,
-        text: string,
-        options: { steer_fallback: boolean } = { steer_fallback: false },
-    ): Promise<string[]> {
-        if (options.steer_fallback) {
-            this.notices.push(text);
-        }
-        return super.notify_all(dir, text, options);
+    override async notify_all(dir: string, text: string): Promise<string[]> {
+        this.notices.push(text);
+        return super.notify_all(dir, text);
     }
 
     /** The agents `add` was asked to resume, as `dir/name`. */
@@ -124,7 +118,11 @@ class RecordingAgents extends AgentManager {
             pi_session_id: "lead",
             prompt: record,
             steer: record,
+            notify: record,
             abort: async () => undefined,
+            compact: async () => "started",
+            set_model: async () => undefined,
+            set_thinking: async () => undefined,
             commands: async () => [],
             on_event: () => () => undefined,
             exited: new Promise(() => undefined),

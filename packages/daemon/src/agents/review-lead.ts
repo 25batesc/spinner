@@ -46,12 +46,7 @@ export async function start_review_lead(
         writeFileSync(brief_file, render_review_lead_brief(input));
     }
     try {
-        // Headless (s016): no pty, so no startup screen eats the first message.
-        const handle = await deps.agents.add(
-            summary,
-            { name: LEAD_NAME, repo: key },
-            { harness: "rpc" },
-        );
+        const handle = await deps.agents.add(summary, { name: LEAD_NAME, repo: key });
         log(`${LEAD_NAME} started (pid ${handle.pid}) in the ${key} worktree`);
         const message = review_lead_kickoff(input, pr.head);
         try {

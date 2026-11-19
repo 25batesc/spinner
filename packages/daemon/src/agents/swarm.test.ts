@@ -45,6 +45,10 @@ class FakeHandle implements AgentHandle {
         return Promise.resolve("queued");
     }
 
+    notify(): Promise<string> {
+        return Promise.resolve("started");
+    }
+
     abort(): Promise<void> {
         return Promise.resolve();
     }
@@ -164,7 +168,7 @@ afterEach(() => {
 describe("one pi per agent (dogfood #59b)", () => {
     it("add refuses a second start of an agent whose pi is still spawning", async () => {
         const harness = new FakeHarness();
-        const agents = new AgentManager(home, { default: "rpc", rpc: harness }, new EventBus());
+        const agents = new AgentManager(home, harness, new EventBus());
         const summary = pr_session("Twice");
 
         const results = await Promise.allSettled([
@@ -185,7 +189,7 @@ describe("one pi per agent (dogfood #59b)", () => {
     it("prime leaves a reviewer that adopt_all resumed reading; its verdict lands", async () => {
         const harness = new FakeHarness();
         const bus = new EventBus();
-        const agents = new AgentManager(home, { default: "tty", tty: harness }, bus);
+        const agents = new AgentManager(home, harness, bus);
         const swarm = new ReviewSwarm({
             home,
             agents,
@@ -194,8 +198,9 @@ describe("one pi per agent (dogfood #59b)", () => {
             log: () => undefined,
             skill_default: join(home.root, "no-skill"),
         });
-        // What the previous daemon left: the reviewer listed as a running tty agent while its
-        // swarm record says `queued`, the state s059 and s060 were in at the restart.
+        // What the previous daemon left: the reviewer listed as a running agent (recorded on
+        // the tty harness of that time) while its swarm record says `queued`, the state s059
+        // and s060 were in at the restart.
         const summary = pr_session("Restarted");
         summary.session.agents = {
             [REVIEWER]: { harness: "tty", model: "default", process: "idle" },
@@ -227,33 +232,34 @@ describe("one pi per agent (dogfood #59b)", () => {
     });
 });
 
-describe("a resume keeps its harness (dogfood #59c)", () => {
-    it("adopt_all skips a finished reviewer; a resume runs on the recorded harness", async () => {
-        const tty = new FakeHarness();
-        const rpc = new FakeHarness();
-        const agents = new AgentManager(home, { default: "tty", tty, rpc }, new EventBus());
-        // A reviewer the tab once resumed as tty, now `done`; a tty worker; an rpc lead and a
-        // file from before s009 whose `pi` reads as `rpc`.
+describe("a restart resumes every hosted agent on rpc (dogfood #59c)", () => {
+    it("adopt_all skips a finished reviewer and moves an old tty or pi record to rpc", async () => {
+        const harness = new FakeHarness();
+        const agents = new AgentManager(home, harness, new EventBus());
+        // A reviewer that is `done`; a worker and a lead the previous daemon hosted, recorded
+        // on the tty harness and on rpc; a file from before s009 (`pi`) that had exited.
         const summary = pr_session("Resumed");
         summary.session.agents = {
             [REVIEWER]: { harness: "tty", model: MODEL, process: "idle", repo: "backend" },
             backend: { harness: "tty", model: "default", process: "idle" },
-            lead: { harness: "rpc", model: "default", process: "exited", repo: "backend" },
+            lead: { harness: "rpc", model: "default", process: "running", repo: "backend" },
             old: { harness: "pi", model: "default", process: "exited" },
         };
         const record = { model: MODEL, pr: "backend", state: "done" as const };
         summary.session.review = { swarm: { [REVIEWER]: record } };
         write_session(summary);
 
-        expect(await agents.adopt_all()).toEqual([`${summary.dir}/backend`]);
+        const hosted = [`${summary.dir}/backend`, `${summary.dir}/lead`];
+        expect(await agents.adopt_all()).toEqual(hosted);
         expect(session_of(summary.dir).session.agents[REVIEWER]?.process).toBe("exited");
+        expect(session_of(summary.dir).session.agents["old"]?.process).toBe("exited");
 
-        await agents.add(summary, { name: "lead" });
+        // An exited agent comes back when the operator resumes it, on rpc as well.
         await agents.add(summary, { name: "old" });
-        expect(tty.spawned).toEqual([`${summary.dir}/backend`]);
-        expect(rpc.spawned).toEqual([`${summary.dir}/lead`, `${summary.dir}/old`]);
+        expect(harness.spawned).toEqual([...hosted, `${summary.dir}/old`]);
         const listed = session_of(summary.dir).session.agents;
-        expect(listed["lead"]?.harness).toBe("rpc");
+        expect(listed["backend"]).toMatchObject({ harness: "rpc", process: "idle" });
+        expect(listed["lead"]).toMatchObject({ harness: "rpc", process: "idle" });
         expect(listed["old"]?.harness).toBe("rpc");
         await agents.stop_all();
     });

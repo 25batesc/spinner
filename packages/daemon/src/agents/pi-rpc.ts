@@ -82,6 +82,8 @@ export type PiUiAnswer = { id: string } & (
 
 export interface PiProcess {
     pid: number;
+    /** The `data` of the `get_state` that proved the child started: pi's model and level. */
+    state: unknown;
     /** Sends one command; resolves with its response, rejects when pi says `success: false`. */
     send(command: Record<string, unknown>): Promise<PiResponse>;
     on_event(listener: (event: PiEvent) => void): () => void;
@@ -184,7 +186,7 @@ export async function spawn_pi(options: PiSpawnOptions): Promise<PiProcess> {
     const process_ = new PiChild(child, options.on_stderr ?? (() => undefined));
     // The first command doubles as the startup check: a pi that fails to start closes
     // stdout without answering, and `send` rejects with its stderr.
-    await process_.send({ type: "get_state" });
+    process_.state = (await process_.send({ type: "get_state" })).data;
     return process_;
 }
 
@@ -195,6 +197,7 @@ interface Pending {
 
 class PiChild implements PiProcess {
     readonly pid: number;
+    state: unknown = undefined;
     readonly exited: Promise<number | null>;
     private readonly pending = new Map<string, Pending>();
     private readonly listeners = new Set<(event: PiEvent) => void>();

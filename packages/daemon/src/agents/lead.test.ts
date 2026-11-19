@@ -43,7 +43,7 @@ import { create_session, read_session } from "../store/session-store.js";
 import { start_lead_session, with_install_note } from "./lead.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const FAKE_PI = resolve(here, "..", "..", "test", "fixtures", "fake-pi-tty.ts");
+const FAKE_PI = resolve(here, "..", "..", "test", "fixtures", "fake-pi.ts");
 const FIXTURES = resolve(here, "..", "..", "test", "fixtures", "github");
 const APPROVING = join(FIXTURES, "pr-approving.json");
 const FIXING = join(FIXTURES, "pr-fixing.json");
@@ -267,10 +267,15 @@ describe("POST /sessions with text", () => {
         expect(mission).toContain(`- ${PR_URL}`);
 
         // The paste, the adopted PR and the mentioned one reached pi as the first prompt.
-        await until(() =>
-            (daemon.tty.lookup(dir, "lead")?.scrollback_text() ?? "").includes("> Land the refund"),
-        );
-        const shown = daemon.tty.lookup(dir, "lead")?.scrollback_text() ?? "";
+        // The fake pi echoes its prompt in the answer.
+        const echoed = (): string =>
+            events
+                .flatMap((event) => (event.type === "agent.event" ? [event.event] : []))
+                .flatMap((event) => (event.type === "message_end" ? [event.message] : []))
+                .map((message) => JSON.stringify(message.content))
+                .join("\n");
+        await until(() => echoed().includes("echo: Land the refund"));
+        const shown = echoed();
         expect(shown).toContain(`Adopted: ${PR_URL} (backend, worktree worktrees/backend)`);
         expect(shown).toContain("Mentioned: https://github.com/acme/backend/pull/4825");
     });
@@ -460,7 +465,8 @@ describe("the EGM step of a lead start", () => {
                 { text: "Add a flag", ...(track === undefined ? {} : { track }) },
                 (line) => lines.push(line),
             );
-            expect(started.session.agents?.["lead"]?.process).toBe("idle");
+            // The lead is hosted; its first turn may run already.
+            expect(started.session.agents?.["lead"]?.process).not.toBe("exited");
             last = started.session;
         } finally {
             await tracker.close();

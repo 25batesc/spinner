@@ -96,7 +96,6 @@ beforeEach(async () => {
         // start, and the developer's machine has pi on PATH.
         pi: join(root, "no-pi"),
         observe_interval_ms: 60_000,
-        agents_harness: "rpc",
         extension: null,
         cwd: root,
         clone_url: () => origin,

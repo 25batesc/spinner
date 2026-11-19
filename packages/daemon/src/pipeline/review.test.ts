@@ -1,5 +1,5 @@
 // Goal: the `review` step as the swarm (MISSION.md s015 Plan item 3, s016 Plan item 2).
-// `POST /sessions/:dir/review` starts one tty agent per model of `settings.review` in the PR
+// `POST /sessions/:dir/review` starts one agent per model of `settings.review` in the PR
 // repo's worktree, each with the reviewer brief (the `reviewer` role) and the role's skills
 // through `--skill`; a reviewer whose settled turn carries a `VERDICT:` line is `done`: its
 // text is saved as `artifacts/reviews/<model-slug>.md` and its pi stops; one that exits
@@ -8,10 +8,9 @@
 // start on an exit; the same swarm runs on an ordinary session so its chips show; the view
 // and `review.updated` carry the swarm; the route refuses a session without an open PR, a
 // PR without a worktree, a reviewer still reading, and a bad body; `PUT /settings` validates
-// `review`; the reviewers run headless on the rpc harness (s016), so `/tty` refuses them with
-// 409 and a `failed` chip carries its reason. Method: a daemon on a temporary home with a
+// `review`; a `failed` chip carries its reason. Method: a daemon on a temporary home with a
 // fake `gh`, a local origin repository the review session clones, and the fake pi
-// (`test/fixtures/fake-pi-tty.ts`, which is the rpc fake under `--mode rpc`), which echoes
+// (`test/fixtures/fake-pi.ts`), which echoes
 // each prompt as its assistant text, so a prompt whose second line is `VERDICT: CLEAR` is the
 // reviewer's verdict and a prompt of `exit` is an exit without one.
 import { execFileSync } from "node:child_process";
@@ -28,7 +27,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
 import { parse } from "yaml";
 import type {
     Job,
@@ -52,7 +50,7 @@ import { create_reviews } from "./reviews.js";
 import { apply_pr_facts } from "./tracker.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const FAKE_PI = resolve(here, "..", "..", "test", "fixtures", "fake-pi-tty.ts");
+const FAKE_PI = resolve(here, "..", "..", "test", "fixtures", "fake-pi.ts");
 const FIXTURE = resolve(here, "..", "..", "test", "fixtures", "github", "pr-approving.json");
 const FIXTURE_HEAD = "c46867ff747b5d774b3073ead5ebc54c939bdfb4";
 const PR_URL = "https://github.com/acme/backend/pull/4812";
@@ -300,15 +298,6 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         expect(spawned.argv.slice(0, 2)).toEqual(["--mode", "rpc"]);
         expect(spawned.cwd).toContain(join("worktrees", "backend"));
         expect(session_yaml(summary.dir).agents[NAME_A]?.harness).toBe("rpc");
-        // Headless: no terminal to attach to.
-        const refused = await new Promise<number>((resolve_) => {
-            const socket = new WebSocket(
-                `${base.replace("http", "ws")}/sessions/${summary.dir}/agents/${NAME_A}/tty`,
-            );
-            socket.once("unexpected-response", (_req, res) => resolve_(res.statusCode ?? 0));
-            socket.once("open", () => resolve_(101));
-        });
-        expect(refused).toBe(409);
         expect(session_yaml(summary.dir).agents[NAME_A]?.skills).toEqual([
             conventions,
             principles,
@@ -445,13 +434,17 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         expect(added.status, await added.clone().text()).toBe(201);
         await prompt(summary.dir, NAME_A, "Read it.\nVERDICT: CLEAR");
         await until(() => swarm_state(summary.dir, NAME_A) === "done", "done");
-        await until(
-            () =>
-                (daemon?.tty.lookup(summary.dir, "lead")?.scrollback_text() ?? "").includes(
-                    "notice: Spinner: every reviewer of acme/backend#4812",
-                ),
-            "the lead's notice",
-        );
+        const heard = (): boolean =>
+            events.some(
+                (event) =>
+                    event.type === "agent.event" &&
+                    event.agent === "lead" &&
+                    event.event.type === "message_end" &&
+                    JSON.stringify(event.event.message.content).includes(
+                        "echo: Spinner: every reviewer of acme/backend#4812",
+                    ),
+            );
+        await until(heard, "the lead's notice");
         expect(existsSync(join(summary.path, verdict_file(MODEL_A)))).toBe(true);
     });
 

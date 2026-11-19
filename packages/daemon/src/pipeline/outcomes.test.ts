@@ -97,7 +97,6 @@ describe("the steer route counts operator steers to the lead (6.20, 6.22)", () =
             ui_dir: null,
             observe_interval_ms: 60_000,
             pi,
-            agents_harness: "rpc",
         });
         try {
             const base = `http://127.0.0.1:${daemon.port}`;

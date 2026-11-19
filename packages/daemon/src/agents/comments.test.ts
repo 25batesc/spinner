@@ -63,7 +63,6 @@ beforeEach(async () => {
         ui_dir: null,
         observe_interval_ms: 60_000,
         pi: FAKE_PI,
-        agents_harness: "rpc",
     });
     base = `http://127.0.0.1:${daemon.port}`;
     summary = create_session(home, { title: "Alpha" });

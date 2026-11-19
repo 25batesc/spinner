@@ -42,7 +42,7 @@ import {
     verdicts_notice,
 } from "../store/review-brief.js";
 import { list_sessions, read_session, write_session } from "../store/session-store.js";
-import { agent_brief_path, type AgentHandle } from "./harness.js";
+import { agent_brief_path } from "./harness.js";
 import { agent_history } from "./history.js";
 import type { AgentManager } from "./manager.js";
 
@@ -293,7 +293,7 @@ export class ReviewSwarm {
             const handle = await this.deps.agents.add(
                 read.summary,
                 { name: entry.name, model: entry.model, repo: entry.target.key },
-                { harness: "rpc", ...(skills.length === 0 ? {} : { skills }) },
+                skills.length === 0 ? {} : { skills },
             );
             this.last_text.delete(key_of(entry.dir, entry.name));
             this.record(entry.dir, entry.name, "reading");
@@ -420,7 +420,7 @@ export class ReviewSwarm {
             return;
         }
         try {
-            const disposition = await this.deliver_to_lead(dir, lead, text);
+            const disposition = await lead.notify(text);
             this.log(`verdicts of ${dir} landed; ${LEAD_NAME} notified (${disposition})`);
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
@@ -429,24 +429,6 @@ export class ReviewSwarm {
         }
     }
 
-    /**
-     * The notice to a running lead. A tty lead takes `notify`. A headless (rpc) lead has no
-     * custom message: it gets a prompt when idle and a steer while it runs (the rpc `prompt`
-     * refuses a busy pi); a prompt that loses that race is sent again as a steer.
-     */
-    private async deliver_to_lead(dir: string, lead: AgentHandle, text: string): Promise<string> {
-        if (lead.notify !== undefined) {
-            return lead.notify(text);
-        }
-        if (this.deps.agents.is_busy(dir, LEAD_NAME)) {
-            return lead.steer(text);
-        }
-        try {
-            return await lead.prompt(text);
-        } catch {
-            return lead.steer(text);
-        }
-    }
 
     private swarm_record(dir: string, agent: string): SwarmRecord | null {
         if (!agent.startsWith(REVIEW_AGENT_PREFIX)) {

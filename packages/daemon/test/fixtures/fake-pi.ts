@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // A stand-in for `pi --mode rpc` in tests: the same JSONL framing and record shapes as pi's
 // docs/rpc.md and docs/json.md, with no model behind it. A `prompt` answers with a fixed
-// text run; `steer` and `abort` are acknowledged; `get_state` and `get_available_models`
+// text run. During a run a `prompt` is refused unless it carries `streamingBehavior`, as pi
+// does: `steer` records the text, `followUp` runs it once the run settled. `steer` and
+// `abort` are acknowledged; `get_state` and `get_available_models`
 // return canned data. A `prompt` with `images` echoes `[<n> image(s) of <m> bytes]` after its
 // text, so a test can see that the images arrived. `set_model` takes the two models
 // `get_available_models` lists and refuses any other with pi's error; `set_thinking_level`
@@ -21,6 +23,7 @@ interface Command {
     confirmed?: boolean;
     cancelled?: boolean;
     message?: string;
+    streamingBehavior?: "steer" | "followUp";
     provider?: string;
     modelId?: string;
     images?: { type: string; data: string; mimeType: string }[];
@@ -145,7 +148,11 @@ function handle(command: Command): void {
                 respond(command, { disposition: "handled" });
                 return;
             }
-            respond(command, { disposition: running ? "queued" : "started" });
+            if (running) {
+                queue(command);
+                return;
+            }
+            respond(command, { disposition: "started" });
             if (command.message?.startsWith("ask ") === true) {
                 if (ask(command.message.slice(4), command.message)) {
                     return;
@@ -191,6 +198,20 @@ function handle(command: Command): void {
         default:
             refuse(command, "unknown");
     }
+}
+
+/** Texts that wait for the run to settle (`streamingBehavior: "followUp"`). */
+const follow_ups: string[] = [];
+
+/** A `prompt` during a run: queued by its `streamingBehavior`, refused without one. */
+function queue(command: Command): void {
+    if (command.streamingBehavior === undefined) {
+        refuse(command, "Agent is already processing. Specify streamingBehavior.");
+        return;
+    }
+    const text = `${command.message ?? ""}${images_suffix(command)}`;
+    (command.streamingBehavior === "steer" ? steers : follow_ups).push(text);
+    respond(command, { disposition: "queued" });
 }
 
 /** ` [n image(s) of m bytes]` when the command carries images, else nothing. */
@@ -240,6 +261,10 @@ function finish(text: string): void {
     out({ type: "agent_end", messages: [message], willRetry: false });
     out({ type: "agent_settled", aborted: false });
     running = false;
+    const next = follow_ups.shift();
+    if (next !== undefined) {
+        run(next);
+    }
 }
 
 let buffer = "";

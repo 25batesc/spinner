@@ -60,7 +60,6 @@ function test_options(ui_dir: string | null = null): DaemonOptions {
         ui_dir,
         observe_interval_ms: 60_000,
         pi: FAKE_PI,
-        agents_harness: "rpc",
     };
 }
 
@@ -371,11 +370,13 @@ describe("agents", () => {
         expect(Date.parse(active ?? "")).toBeLessThanOrEqual(before_stamp);
         expect(before_stamp - Date.parse(active ?? "")).toBeLessThan(10_000);
         expect((await post("/sessions/s001-alpha/agents/backend/steer", {})).status).toBe(400);
+        // The turn is over: the steer starts one, so the message is not left in pi's queue.
         const steered = await post("/sessions/s001-alpha/agents/backend/steer", { text: "go" });
         expect((await steered.json()) as AgentCommandResponse).toEqual({
             ok: true,
-            disposition: "queued",
+            disposition: "started",
         });
+        await until(() => !daemon.agents.is_busy(summary.dir, "backend"));
         // Dogfood #45: compact reaches pi (the fake records it with the steers), answers at
         // once, and logs the figure; the fake transcript has no usage, so it reads `?`.
         const compacted = await post("/sessions/s001-alpha/agents/backend/compact");

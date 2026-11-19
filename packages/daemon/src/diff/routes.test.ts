@@ -31,7 +31,6 @@ beforeEach(async () => {
         notify: async () => undefined,
         ui_dir: null,
         observe_interval_ms: 60_000,
-        agents_harness: "rpc",
         diffview_bin: FAKE,
     });
     base = `http://127.0.0.1:${daemon.port}`;
