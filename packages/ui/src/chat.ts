@@ -82,6 +82,14 @@ export interface BoxKey {
     isComposing: boolean;
 }
 
+/**
+ * True when a drag carries files (a screenshot, a document) and not only text or a link:
+ * the chat then takes the drop anywhere on it. `types` is the drag's `dataTransfer.types`.
+ */
+export function dragsFiles(types: readonly string[]): boolean {
+    return types.includes("Files");
+}
+
 /** Enter sends; Shift+Enter makes a new line; Enter inside an input method does neither. */
 export function sendsOnKey(event: BoxKey): boolean {
     return event.key === "Enter" && !event.shiftKey && !event.isComposing;

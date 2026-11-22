@@ -9,6 +9,7 @@ import { RESOLVE_NEEDS } from "./design.ts";
 
 import {
     boxRows,
+    dragsFiles,
     chatBlocks,
     durationText,
     isSpinnerNotice,
@@ -333,6 +334,14 @@ it("splits an option into a title and a detail, without the lead's own marker", 
     // A first clause too long for a title: the whole option is one line.
     const long = `${"word ".repeat(20)}: detail`;
     expect(optionParts(long).detail).toBe("");
+});
+
+it("takes a drag of files anywhere on the chat, and leaves a drag of text alone", () => {
+    expect(dragsFiles(["Files"])).toBe(true);
+    // A screenshot's drag names its file type too.
+    expect(dragsFiles(["Files", "image/png"])).toBe(true);
+    expect(dragsFiles(["text/plain", "text/uri-list"])).toBe(false);
+    expect(dragsFiles([])).toBe(false);
 });
 
 it("says how long a working agent has been quiet and which tool call still runs", () => {

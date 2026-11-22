@@ -28,6 +28,7 @@ import {
     TOOL_RESULT_SHOWN,
     boxRows,
     chatBlocks,
+    dragsFiles,
     imagesLabel,
     splitPendingNotices,
     messageWithFiles,
@@ -653,7 +654,24 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
             attach(files);
         }
     };
-    const onDrop = (event: DragEvent<HTMLFormElement>) => {
+    // A file dragged over any part of the chat is taken: the message box is a small target
+    // under a tall transcript. A drag of text or of a link keeps the browser's own handling.
+    const [dropping, setDropping] = useState(false);
+    const onDragOver = (event: DragEvent<HTMLDivElement>) => {
+        if (dragsFiles(event.dataTransfer.types)) {
+            event.preventDefault();
+            setDropping(true);
+        }
+    };
+    const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
+        // The drag also "leaves" each child it crosses; only the way out of the chat counts.
+        const next = event.relatedTarget;
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
+            setDropping(false);
+        }
+    };
+    const onDrop = (event: DragEvent<HTMLDivElement>) => {
+        setDropping(false);
         if (event.dataTransfer.files.length > 0) {
             event.preventDefault();
             attach([...event.dataTransfer.files]);
@@ -706,7 +724,14 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
     const thinking = spec?.thinking ?? "";
     const stops = working && text.trim() === "" && attached.length === 0;
     return (
-        <div className="agent-chat" data-working={working}>
+        <div
+            className="agent-chat"
+            data-working={working}
+            data-dropping={dropping}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+        >
             <div className="chat-scroll" ref={scroller} onScroll={onScroll}>
                 <div className="chat-column">
                     <TranscriptView transcript={transcript} />
@@ -770,8 +795,6 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
                         event.preventDefault();
                         send();
                     }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={onDrop}
                 >
                     {(attached.length > 0 || uploading > 0) && (
                         <div className="chat-attached">

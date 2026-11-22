@@ -126,6 +126,10 @@
     background: var(--surface);
 }
 .chat-box:focus-within { border-color: var(--accent); }
+/* A file is dragged over the chat: the box shows where it will land. */
+.agent-chat[data-dropping="true"] .chat-box {
+    border-color: var(--accent); border-style: dashed; background: var(--accent-tint);
+}
 .chat-input {
     width: 100%; min-width: 0; resize: none; font: inherit; font-size: 14px; line-height: 1.5;
     padding: var(--space-1) 0; max-height: 280px; border: 0; background: none; color: var(--text);
