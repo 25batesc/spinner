@@ -178,10 +178,17 @@ export async function spawn_pi(options: PiSpawnOptions): Promise<PiProcess> {
         throw new Error(`pi binary ${options.pi} does not exist`);
     }
     const args = pi_args(options);
+    // `detached` gives pi its own session, as its pty did: no controlling terminal and a
+    // process group of its own. Without it pi and every tool it runs shared the daemon's
+    // group and terminal, and one of them touching that terminal (an editor, a pager, a
+    // password prompt), or a Ctrl-Z there, stopped the daemon and every agent at once
+    // (2026-11-23: the whole group sat in state `T` for two hours). It also makes pi the
+    // group leader `stop_leftover` looks for when a pi outlived its daemon.
     const child = spawn(options.pi, args, {
         cwd: options.cwd,
         env: child_env(options),
         stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
     });
     const process_ = new PiChild(child, options.on_stderr ?? (() => undefined));
     // The first command doubles as the startup check: a pi that fails to start closes

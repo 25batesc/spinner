@@ -3,6 +3,7 @@
 // agent.spawned, agent.event, agent.settled and agent.exited, and a stopped agent resumes
 // with the same transcript id. Method: a fake pi (test/fixtures/fake-pi.mjs) that speaks the
 // RPC protocol without a model, a temporary home, and a recording bus.
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -74,6 +75,12 @@ describe("spawn_pi", () => {
         });
         const events: string[] = [];
         pi.on_event((event) => events.push(event.type));
+        // pi leads a process group of its own, in its own session: what it or its tools do
+        // with a terminal cannot stop the daemon's group, and a Ctrl-Z there does not reach it.
+        const group_of = (pid: number): number =>
+            Number(execFileSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" }));
+        expect(group_of(pi.pid)).toBe(pi.pid);
+        expect(group_of(pi.pid)).not.toBe(group_of(process.pid));
         const response = await pi.send({ type: "prompt", message: "hi" });
         expect(response.data).toEqual({ disposition: "started" });
         await until(() => events.includes("agent_settled"));
