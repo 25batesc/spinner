@@ -30,6 +30,8 @@ import {
     chatBlocks,
     dragsFiles,
     imagesLabel,
+    noticeOf,
+    SPINNER_SENDER,
     splitPendingNotices,
     messageWithFiles,
     modelLabel,
@@ -158,10 +160,17 @@ function WorkGroup({ block }: { block: WorkBlock }) {
     );
 }
 
-/** A message Spinner sent to the agent: one muted line; a click opens the whole text. */
+/**
+ * A message the agent got from Spinner or from another agent: one muted line that names the
+ * sender; a click opens the whole text. It is not the operator's, so it is not a bubble.
+ */
 function SpinnerNotice({ text }: { text: string }) {
     const [open, setOpen] = useState(false);
-    const first = text.trim().split("\n")[0] ?? "";
+    const notice = noticeOf(text);
+    const from = notice === null || notice.from === SPINNER_SENDER
+        ? SPINNER_SENDER
+        : agentLabel(notice.from);
+    const line = notice?.line ?? (text.trim().split("\n")[0] ?? "");
     return (
         <li className="chat-notice">
             <button
@@ -169,10 +178,10 @@ function SpinnerNotice({ text }: { text: string }) {
                 className="chat-work-head"
                 aria-expanded={open}
                 onClick={() => setOpen(!open)}
-                title="Sent to the agent by Spinner"
+                title={`Sent to the agent by ${from}`}
             >
                 <span className="chat-fold" data-open={open}>›</span>
-                <span className="chat-work-label">Spinner: {first}</span>
+                <span className="chat-work-label">{from}: {line}</span>
             </button>
             {open && <div className="chat-notice-text">{text.trim()}</div>}
         </li>

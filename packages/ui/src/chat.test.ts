@@ -13,6 +13,7 @@ import {
     chatBlocks,
     durationText,
     isSpinnerNotice,
+    noticeOf,
     splitPendingNotices,
     unconfirmedSent,
     messageWithFiles,
@@ -264,6 +265,27 @@ it("tells Spinner's own messages to an agent from the operator's", () => {
     expect(isSpinnerNotice('Implement the plan "Exports": /p/exports.md')).toBe(true);
     expect(isSpinnerNotice("please fix the MISSION.md changed by me")).toBe(false);
     expect(isSpinnerNotice("fix the test")).toBe(false);
+});
+
+it("names who sent a message that is not the operator's, and its one line", () => {
+    const report =
+        "Message from bot (inbox/154824-bot-lead.md): #107 follow-up: staged\n\nStaged in d2.";
+    expect(noticeOf(report)).toEqual({ from: "bot", line: "#107 follow-up: staged" });
+    expect(isSpinnerNotice(report)).toBe(true);
+    // A worker's report is one muted line, not the operator's bubble; nothing of it is theirs.
+    expect(splitPendingNotices(report)).toEqual({ notice: report, operator: null });
+    // Queued before the operator's words, it splits from them as Spinner's notices do.
+    const queued = `${report}\n\n---\n\nis it done`;
+    expect(splitPendingNotices(queued)).toEqual({ notice: report, operator: "is it done" });
+    const change = "MISSION.md changed by bot: Plan (+1).\nPlan:\n  - [x] 107.";
+    expect(noticeOf(change)).toEqual({
+        from: "Spinner",
+        line: "MISSION.md changed by bot: Plan (+1).",
+    });
+    // The operator's own inbox message is theirs, and so is a mention of the words.
+    expect(noticeOf("Message from operator (inbox/120000-operator-lead.md): go\n\nnow")).toBeNull();
+    expect(noticeOf("what does Message from bot (inbox/x.md): mean?")).toBeNull();
+    expect(noticeOf("fix the test")).toBeNull();
 });
 
 it("keeps a sent message until the transcript holds it", () => {

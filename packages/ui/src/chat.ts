@@ -360,15 +360,48 @@ const SPINNER_STARTS = [
     "Preview comment",
 ];
 
-/** True for a user message that Spinner wrote, not the operator. */
-export function isSpinnerNotice(text: string): boolean {
+/**
+ * The first line of an inbox message as the daemon delivers it to an agent:
+ * `Message from bot (inbox/154824-bot-lead.md): the subject`.
+ */
+const INBOX_MESSAGE = /^Message from (\S+) \(inbox\/[^)]*\): ?(.*)$/;
+
+/** The name an inbox message carries when the operator wrote it. */
+const OPERATOR_SENDER = "operator";
+
+/** The sender `noticeOf` names for a message Spinner itself wrote. */
+export const SPINNER_SENDER = "Spinner";
+
+/**
+ * Who wrote a user message that is not the operator's, and its one line for the chat:
+ * Spinner (a mission change, the autopilot), or another agent through the inbox. Null for
+ * the operator's own words, an inbox message from the operator included. pi records all of
+ * them as the user's; shown as the operator's bubbles, a worker's reports to the lead filled
+ * the operator's chat with text that was not theirs and not for them (s039).
+ */
+export function noticeOf(text: string): { from: string; line: string } | null {
     const start = text.trimStart();
-    return SPINNER_STARTS.some((prefix) => start.startsWith(prefix));
+    const first = start.split("\n")[0] ?? "";
+    const inbox = INBOX_MESSAGE.exec(first);
+    if (inbox !== null) {
+        const from = inbox[1] ?? "";
+        return from === OPERATOR_SENDER ? null : { from, line: inbox[2] ?? "" };
+    }
+    if (SPINNER_STARTS.some((prefix) => start.startsWith(prefix))) {
+        return { from: SPINNER_SENDER, line: first };
+    }
+    return null;
+}
+
+/** True for a user message that Spinner or another agent wrote, not the operator. */
+export function isSpinnerNotice(text: string): boolean {
+    return noticeOf(text) !== null;
 }
 
 /**
- * A user message as its parts: the notices Spinner queued for the agent's next prompt, and
- * the operator's own words after `PENDING_PROMPT_SEPARATOR`. The daemon joins them into one
+ * A user message as its parts: the notices queued for the agent's next prompt (Spinner's, or
+ * another agent's inbox message), and the operator's own words after
+ * `PENDING_PROMPT_SEPARATOR`. The daemon joins them into one
  * prompt when a notice could not be steered in while the agent ran; shown whole, the message
  * read as one notice and the operator's words were lost (s039). A message that starts with
  * a notice and has no separator is one notice; one that starts with the operator's words is
