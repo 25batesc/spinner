@@ -917,6 +917,7 @@ class FixtureDaemon {
                 events: this.history.get(key) ?? [],
                 running: false,
                 prompt: null,
+                compacting: false,
                 active: new Date(Date.now() - 14 * 60_000).toISOString(),
             };
             sendJson(response, page);

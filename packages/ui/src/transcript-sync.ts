@@ -66,15 +66,20 @@ export function applyLive(chat: ChatState, seq: number, event: PiEvent, ts: stri
 
 /**
  * A page from the daemon: the whole transcript, or the events after the cursor. The run
- * state and the open prompt are the page's. The waiting events the page does not hold are
- * folded after it, while they follow without a gap.
+ * state, the open prompt and whether pi compacts are the page's. The waiting events the
+ * page does not hold are folded after it, while they follow without a gap.
  */
 export function applyPage(chat: ChatState, page: AgentTranscriptResponse): ChatState {
     const whole = page.reset || chat.cursor === null;
     const folded = whole
         ? foldPage(page.events)
         : page.events.reduce(foldEvent, chat.transcript);
-    let transcript: Transcript = { ...folded, running: page.running, prompt: page.prompt };
+    let transcript: Transcript = {
+        ...folded,
+        running: page.running,
+        prompt: page.prompt,
+        compacting: page.compacting,
+    };
     let cursor = page.next;
     const waiting: NumberedEvent[] = [];
     for (const entry of chat.waiting) {

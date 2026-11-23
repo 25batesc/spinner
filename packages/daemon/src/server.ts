@@ -759,7 +759,8 @@ export function create_app(deps: AppDeps): Hono {
                 const body: AgentCommandResponse = { ok: true, disposition };
                 return c.json(body);
             } catch (error) {
-                return c.json(error_body(describe_error(error)), 500);
+                const status = error instanceof PiRefusal ? 400 : 500;
+                return c.json(error_body(describe_error(error)), status);
             }
         });
     }
@@ -1063,7 +1064,8 @@ async function compact_agent(c: Context, deps: AppDeps): Promise<Response> {
     try {
         disposition = await handle.compact();
     } catch (error) {
-        return c.json(error_body(describe_error(error)), 500);
+        // pi refused (nothing to compact, already compacted): no Log line for it.
+        return c.json(error_body(describe_error(error)), error instanceof PiRefusal ? 400 : 500);
     }
     await deps.writer?.write(summary.dir, {
         section: "log",

@@ -399,6 +399,11 @@ function useClock(on: boolean): number {
     return now;
 }
 
+/** A failure as the chat shows it: the message alone, without the `Error:` of its type. */
+function failureText(failure: unknown): string {
+    return failure instanceof Error ? failure.message : String(failure);
+}
+
 /** How near the bottom, in pixels, still counts as "at the newest message". */
 const STICK_PX = 48;
 
@@ -641,7 +646,7 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
     const post = (action: string, body: unknown) =>
         postAgent(`${base}/${action}`, body).then(
             () => setError(null),
-            (failure: unknown) => setError(String(failure)),
+            (failure: unknown) => setError(failureText(failure)),
         );
     const send = () => {
         const images = attached.filter((file) => file.image).map((file) => file.path);
@@ -666,9 +671,13 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
         postAgent(`${base}/${working ? "steer" : "prompt"}`, body).then(
             () => setError(null),
             (failure: unknown) => {
-                // Not sent: the echo goes, so the box does not show a message the agent lacks.
+                // Not sent: the echo goes, so the chat does not show a message the agent
+                // lacks. The words go back into the box when nothing was typed since: what
+                // the operator wrote is never lost to a refusal (a compaction ate one).
                 setSent((old) => ({ base, messages: old.messages.filter((m) => m !== echo) }));
-                setError(String(failure));
+                setText((typed) => (typed === "" ? text : typed));
+                setAttached((files) => (files.length === 0 ? attached : files));
+                setError(failureText(failure));
             },
         );
     };
@@ -785,6 +794,11 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
     const prompt = transcript.prompt ?? null;
     if (prompt !== null) {
         status = `${who} waits for your answer: ${prompt.title}`;
+    }
+    // pi takes no message while it compacts; the daemon holds one and sends it afterwards.
+    const compacting = hosted && transcript.compacting === true;
+    if (compacting) {
+        status = `${who} is compacting its context. A message you send now waits for it.`;
     }
     // "On it" is what pi reports, and pi can be wrong or stuck in one tool call. After a
     // few minutes without an event from the agent's pi the line says so, with the facts.
@@ -1124,7 +1138,7 @@ export function AddAgent({ view, run, onDone, onCancel }: AddAgentProps) {
                 setError(null);
                 onDone(name);
             },
-            (failure: unknown) => setError(String(failure)),
+            (failure: unknown) => setError(failureText(failure)),
         );
     };
 

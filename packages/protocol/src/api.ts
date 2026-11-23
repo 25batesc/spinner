@@ -1544,6 +1544,11 @@ export interface AgentTranscriptResponse {
     /** The question pi waits on, else null. */
     prompt: AgentPrompt | null;
     /**
+     * True while pi compacts the agent's context (`compaction_start` without its end). pi
+     * takes no prompt meanwhile; the daemon holds a message and sends it when this ends.
+     */
+    compacting: boolean;
+    /**
      * ISO 8601 time of the last event from the agent's pi; null when the daemon does not
      * host the agent, or no event came since it started.
      */

@@ -5,7 +5,8 @@ import { expect, it } from "vitest";
 
 import { replyScript } from "../fixture/server.ts";
 import { promptChoices } from "./ChatPrompt.tsx";
-import { emptyTranscript, foldEvent } from "./transcript.ts";
+import { postFailure } from "./events-client.ts";
+import { compactionNote, emptyTranscript, foldEvent, foldPage } from "./transcript.ts";
 
 function play(prompt: string, upTo = Infinity) {
     return replyScript(prompt)
@@ -52,6 +53,32 @@ it("shows an extension's notification as a note", () => {
     const note: PiEvent = { type: "ui_notify", message: "blocked", level: "warning" };
     const noted = foldEvent(play("fix it"), note);
     expect(noted.entries.at(-1)).toEqual({ kind: "note", text: "blocked" });
+});
+
+it("says what a compaction did, or why it did not happen", () => {
+    const end = { type: "compaction_end" as const, reason: "manual" as const, willRetry: false };
+    const result = { tokensBefore: 9000, estimatedTokensAfter: 1200 };
+    const done = { ...end, aborted: false, result };
+    expect(compactionNote(done)).toBe("Context compacted: 9k to about 1.2k tokens.");
+    const failed = { ...end, aborted: false, errorMessage: "Compaction failed: Already compacted" };
+    expect(compactionNote(failed)).toBe(
+        "Compaction failed: Already compacted. The context is as it was.",
+    );
+    expect(compactionNote({ ...end, aborted: true })).toMatch(/stopped/);
+    expect(compactionNote({ ...end, aborted: false })).toBe("Context compacted.");
+    // The start sets the state the status line reads; the end clears it.
+    const started = foldEvent(play("fix it"), { type: "compaction_start", reason: "manual" });
+    expect(started.compacting).toBe(true);
+    expect(foldEvent(started, done).compacting).toBe(false);
+    // A page that holds the end shows the same note as the live event did.
+    expect(foldPage([done]).entries).toEqual(foldEvent(emptyTranscript, done).entries);
+});
+
+it("shows the daemon's own sentence for a refused request", () => {
+    const error = "Cannot submit a prompt while compaction is in progress.";
+    const body = JSON.stringify({ error });
+    expect(postFailure("/sessions/s1/agents/lead/prompt", 400, body)).toBe(error);
+    expect(postFailure("/x", 502, "Bad Gateway")).toBe("POST /x failed (502): Bad Gateway");
 });
 
 it("offers the buttons a prompt's kind takes", () => {

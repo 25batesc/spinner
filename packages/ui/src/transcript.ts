@@ -8,6 +8,8 @@ import type {
     PiToolResultMessage,
 } from "@spinner/protocol";
 
+import { formatTokens } from "./costs.ts";
+
 /**
  * The fold keeps this many entries. The daemon holds at most `TRANSCRIPT_EVENTS_MAX` events,
  * and one assistant message is an entry per tool call besides its own.
@@ -51,6 +53,8 @@ export interface Transcript {
      * confirm, a select. Absent or null when none waits.
      */
     prompt?: AgentPrompt | null;
+    /** True while pi compacts the agent's context; a message sent then is held, not lost. */
+    compacting?: boolean;
 }
 
 export const emptyTranscript: Transcript = { entries: [], cost: 0, running: false, open: null };
@@ -210,6 +214,25 @@ function toolEnd(
     );
 }
 
+type CompactionEnd = Extract<PiEvent, { type: "compaction_end" }>;
+
+/** What a finished compaction says in the chat: the figures, or why it did not happen. */
+export function compactionNote(event: CompactionEnd): string {
+    if (event.aborted) {
+        return "The compaction was stopped. The context is as it was.";
+    }
+    if (event.errorMessage !== undefined) {
+        return `${event.errorMessage.replace(/\.$/, "")}. The context is as it was.`;
+    }
+    const figures = event.result as { tokensBefore?: unknown; estimatedTokensAfter?: unknown };
+    const before = figures?.tokensBefore;
+    const after = figures?.estimatedTokensAfter;
+    if (typeof before !== "number" || typeof after !== "number") {
+        return "Context compacted.";
+    }
+    return `Context compacted: ${formatTokens(before)} to about ${formatTokens(after)} tokens.`;
+}
+
 export function foldEvent(state: Transcript, event: PiEvent): Transcript {
     let next = state;
     switch (event.type) {
@@ -229,6 +252,16 @@ export function foldEvent(state: Transcript, event: PiEvent): Transcript {
             break;
         case "ui_notify":
             next = { ...state, entries: [...state.entries, { kind: "note", text: event.message }] };
+            break;
+        case "compaction_start":
+            next = { ...state, compacting: true };
+            break;
+        case "compaction_end":
+            next = {
+                ...state,
+                compacting: false,
+                entries: [...state.entries, { kind: "note", text: compactionNote(event) }],
+            };
             break;
         case "message_start":
             next = startMessage(state, event.message);
@@ -273,6 +306,10 @@ export function foldPage(events: readonly PiEvent[]): Transcript {
         const event = events[index];
         if (event?.type === "ui_notify") {
             entries.push({ kind: "note", text: event.message });
+            continue;
+        }
+        if (event?.type === "compaction_end") {
+            entries.push({ kind: "note", text: compactionNote(event) });
             continue;
         }
         if (event?.type !== "message_end") {

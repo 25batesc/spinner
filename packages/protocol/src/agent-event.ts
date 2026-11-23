@@ -153,7 +153,11 @@ export type PiEvent =
     | {
           type: "compaction_end";
           reason: PiCompactionReason;
-          result: unknown;
+          /**
+           * pi's result when the compaction succeeded, else absent. The chat gets the two
+           * token figures only; the summary text stays in pi's transcript.
+           */
+          result?: unknown;
           aborted: boolean;
           willRetry: boolean;
           errorMessage?: string;

@@ -9,8 +9,8 @@
 // start and end go when its result message arrives. Deltas of one text block are joined
 // while the message is open, so a long answer cannot push the user's message out. A page is
 // the whole of what is held, or the events after `since` when nothing between was dropped.
-// The run state and the open prompt travel with the page, not as held events, so the caps
-// cannot lose them.
+// The run state, the open prompt and whether pi compacts travel with the page, not as held
+// events, so the caps cannot lose them.
 import assert from "node:assert/strict";
 import type {
     AgentPrompt,
@@ -47,6 +47,7 @@ export class TranscriptLog {
     private floor = 0;
     private running = false;
     private prompt: AgentPrompt | null = null;
+    private compacting = false;
 
     /** The past messages (`message_end` events from pi's transcript file), before any event. */
     seed(events: readonly PiEvent[]): void {
@@ -89,6 +90,14 @@ export class TranscriptLog {
                     this.prompt = null;
                 }
                 break;
+            case "compaction_start":
+                this.compacting = true;
+                break;
+            case "compaction_end":
+                // Held: the chat's note of what the compaction did belongs to the history.
+                this.compacting = false;
+                this.hold(seq, chat);
+                break;
             case "message_update":
                 this.hold_update(seq, chat);
                 break;
@@ -119,6 +128,7 @@ export class TranscriptLog {
             events: entries.map((entry) => entry.event),
             running: this.running,
             prompt: this.prompt,
+            compacting: this.compacting,
             active,
         };
     }
@@ -216,7 +226,10 @@ export function chat_event(event: PiEvent): PiEvent | null {
         case "ui_prompt_start":
         case "ui_prompt_end":
         case "ui_notify":
+        case "compaction_start":
             return event;
+        case "compaction_end":
+            return { ...event, result: compaction_figures(event.result) };
         case "message_update": {
             const kind = event.assistantMessageEvent.type;
             return kind === "text_delta" || kind === "thinking_delta" ? event : null;
@@ -243,6 +256,15 @@ export function chat_event(event: PiEvent): PiEvent | null {
         default:
             return null;
     }
+}
+
+/** The two token figures of pi's compaction result; undefined for a compaction without one. */
+function compaction_figures(result: unknown): unknown {
+    if (typeof result !== "object" || result === null) {
+        return undefined;
+    }
+    const { tokensBefore, estimatedTokensAfter } = result as Record<string, unknown>;
+    return { tokensBefore, estimatedTokensAfter };
 }
 
 /** `event`, or `stub()` when it is over `EVENT_BYTES_MAX` after its texts were cut. */

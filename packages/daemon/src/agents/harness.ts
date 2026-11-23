@@ -328,6 +328,23 @@ function has_entries(dir: string): boolean {
  */
 export const PROMPTS_WAITING_MAX = 16;
 
+/**
+ * Upper bound on messages held while pi compacts. pi takes no prompt during a compaction; a
+ * message sent then is kept and delivered when the compaction ends.
+ */
+export const MESSAGES_HELD_MAX = 20;
+
+/** Time pi gets to refuse a `compact` (nothing to compact) before the route answers. */
+const COMPACT_REFUSAL_WAIT_MS = 1500;
+
+/** pi's refusal of a prompt during a compaction, as its text reads. */
+const COMPACTING_REFUSAL = /compaction is in progress/i;
+
+interface HeldMessage {
+    text: string;
+    images: readonly string[];
+}
+
 interface WaitingPrompt {
     prompt: AgentPrompt;
     /** Fires when pi's own timeout resolved the dialog; null for a dialog without one. */
@@ -341,6 +358,10 @@ class PiHandle implements AgentHandle {
     private readonly listeners = new Set<(event: PiEvent) => void>();
     /** Dialogs pi blocks on, oldest first. The chat shows the first; the rest wait. */
     private readonly waiting: WaitingPrompt[] = [];
+    /** True between pi's `compaction_start` and `compaction_end`. */
+    private compacting = false;
+    /** Messages that arrived during a compaction, oldest first. */
+    private readonly held: HeldMessage[] = [];
 
     constructor(
         private readonly process_: PiProcess,
@@ -349,7 +370,7 @@ class PiHandle implements AgentHandle {
         this.pid = process_.pid;
         this.exited = process_.exited;
         this.started_with = settings_of_state(process_.state);
-        process_.on_event((event) => this.emit(event));
+        process_.on_event((event) => this.on_pi_event(event));
         process_.on_ui((request) => this.on_ui(request));
         void process_.exited.then(() => this.drop_waiting());
     }
@@ -426,13 +447,67 @@ class PiHandle implements AgentHandle {
      */
     async prompt(text: string, images: readonly string[] = []): Promise<string> {
         assert.ok(text.length > 0, "a message must not be empty");
+        if (this.compacting) {
+            return this.hold({ text, images });
+        }
+        try {
+            return await this.send_message({ text, images });
+        } catch (error) {
+            // The compaction began after the check above: pi's start event is read before
+            // its refusal, so the flag is set by now. Anything else is a real refusal.
+            const racing = error instanceof PiRefusal && COMPACTING_REFUSAL.test(error.message);
+            if (racing && this.compacting) {
+                return this.hold({ text, images });
+            }
+            throw error;
+        }
+    }
+
+    private async send_message(message: HeldMessage): Promise<string> {
         const response = await this.process_.send({
             type: "prompt",
-            message: text,
+            message: message.text,
             streamingBehavior: "steer",
-            ...rpc_images(images),
+            ...rpc_images(message.images),
         });
         return disposition_of(response.data);
+    }
+
+    /** Keeps a message that came during a compaction; `held` tells the route what happened. */
+    private hold(message: HeldMessage): string {
+        if (this.held.length >= MESSAGES_HELD_MAX) {
+            throw new PiRefusal(
+                `${MESSAGES_HELD_MAX} messages wait for the compaction to end; ` +
+                    "send this one after it",
+            );
+        }
+        this.held.push(message);
+        return "held";
+    }
+
+    private on_pi_event(event: PiEvent): void {
+        if (event.type === "compaction_start") {
+            this.compacting = true;
+        }
+        this.emit(event);
+        if (event.type === "compaction_end") {
+            this.compacting = false;
+            void this.deliver_held();
+        }
+    }
+
+    /** Sends what was held, in order. One that pi now refuses is said in the chat, not lost. */
+    private async deliver_held(): Promise<void> {
+        const messages = this.held.splice(0);
+        for (const message of messages) {
+            try {
+                await this.send_message(message);
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                const text = `A message held during the compaction was not delivered (${reason}): `;
+                this.emit({ type: "ui_notify", message: `${text}${message.text}`, level: "error" });
+            }
+        }
     }
 
     steer(text: string, images: readonly string[] = []): Promise<string> {
@@ -447,11 +522,25 @@ class PiHandle implements AgentHandle {
         await this.process_.send({ type: "abort" });
     }
 
-    compact(): Promise<string> {
-        // pi's rpc answers `compact` only when the summary is written, a model call later; the
-        // route must not wait for it. A failure shows in the transcript, not here.
-        void this.process_.send({ type: "compact" }).catch(() => undefined);
-        return Promise.resolve("started");
+    /**
+     * pi's rpc answers `compact` only when the summary is written, a model call later; the
+     * route must not wait for that. But pi refuses at once when there is nothing to compact,
+     * and a route that said `started` then left the operator waiting for nothing. So the
+     * refusal gets a moment to arrive; a failure after it shows as pi's `compaction_end`.
+     */
+    async compact(): Promise<string> {
+        const sent = this.process_.send({ type: "compact" }).then(
+            () => null,
+            (error: unknown) => error,
+        );
+        const wait = new Promise<null>((resolve_) => {
+            setTimeout(() => resolve_(null), COMPACT_REFUSAL_WAIT_MS).unref();
+        });
+        const refused = await Promise.race([sent, wait]);
+        if (refused instanceof PiRefusal) {
+            throw refused;
+        }
+        return "started";
     }
 
     async set_model(model: string): Promise<void> {

@@ -11,7 +11,10 @@
 // takes any level. A `prompt` of `ask confirm`, `ask select`, `ask input` or `ask two` writes
 // an `extension_ui_request` (two confirms for `two`) and keeps the run open until each
 // `extension_ui_response` arrived; its answer text echoes the responses. `ask widget` writes
-// a `setWidget` and a `notify` and settles at once. It records its argv in FAKE_PI_ARGS_FILE
+// a `setWidget` and a `notify` and settles at once. `compact` is refused before the first
+// run ("Nothing to compact"); after one it takes 300 ms between `compaction_start` and
+// `compaction_end`, and a `prompt` in that time is refused as pi refuses it. It records its
+// argv in FAKE_PI_ARGS_FILE
 // when that is set, so a test can check the flags the daemon passed. Exits when stdin closes.
 // Plain TypeScript that Node 24 runs directly, like the UI's fixture server.
 import { writeFileSync } from "node:fs";
@@ -52,6 +55,10 @@ const refuse = (command: Command, error: string): void =>
     out({ id: command.id, type: "response", command: command.type, success: false, error });
 
 let running = false;
+/** True between `compaction_start` and `compaction_end`. */
+let compacting = false;
+/** Runs finished; a compaction needs one, as pi needs something to summarise. */
+let runs = 0;
 /**
  * Steers received, and `(compact)` for each compact; a `prompt` of `steers?` echoes them, so a
  * test can see what arrived.
@@ -135,6 +142,14 @@ function handle(command: Command): void {
             });
             return;
         case "prompt":
+            if (compacting) {
+                refuse(
+                    command,
+                    "Cannot submit a prompt while compaction is in progress. " +
+                        "Wait for compaction to finish and retry.",
+                );
+                return;
+            }
             if (command.message === "fail") {
                 refuse(command, "no");
                 return;
@@ -193,10 +208,28 @@ function handle(command: Command): void {
         case "set_thinking_level":
             respond(command, undefined);
             return;
-        case "compact":
+        case "compact": {
+            if (runs === 0) {
+                out({ type: "compaction_start", reason: "manual" });
+                const errorMessage = "Compaction failed: Nothing to compact (session too small)";
+                out({ type: "compaction_end", reason: "manual", aborted: false, willRetry: false,
+                    errorMessage });
+                refuse(command, "Nothing to compact (session too small)");
+                return;
+            }
             steers.push("(compact)");
-            respond(command, { summary: "compacted", firstKeptEntryId: "x", tokensBefore: 1 });
+            compacting = true;
+            out({ type: "compaction_start", reason: "manual" });
+            const result = { summary: "compacted", firstKeptEntryId: "x", tokensBefore: 9000,
+                estimatedTokensAfter: 1200 };
+            setTimeout(() => {
+                compacting = false;
+                out({ type: "compaction_end", reason: "manual", result, aborted: false,
+                    willRetry: false });
+                respond(command, result);
+            }, 300);
             return;
+        }
         default:
             refuse(command, "unknown");
     }
@@ -271,6 +304,7 @@ function finish(text: string): void {
     out({ type: "agent_end", messages: [message], willRetry: false });
     out({ type: "agent_settled", aborted: false });
     running = false;
+    runs += 1;
     const next = follow_ups.shift();
     if (next !== undefined) {
         run(next);

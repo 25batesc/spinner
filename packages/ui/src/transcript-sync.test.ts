@@ -24,7 +24,7 @@ function user(text: string, timestamp: number): PiEvent {
 }
 
 function page(next: number, events: PiEvent[], reset = true): AgentTranscriptResponse {
-    return { reset, next, events, running: false, prompt: null, active: null };
+    return { reset, next, events, running: false, prompt: null, compacting: false, active: null };
 }
 
 function texts(chat: ChatState): string[] {
@@ -68,7 +68,7 @@ it("keeps an event that came ahead, asks for a page, and folds it after the page
     expect(needsPage(short)).toBe(true);
 });
 
-it("takes the run state and the open prompt from the page", () => {
+it("takes the run state, the open prompt and the compaction from the page", () => {
     const prompt = { id: "p", kind: "confirm" as const, title: "rm?" };
     const active = "2026-11-19T09:59:00.000Z";
     const waiting = applyPage(emptyChat, {
@@ -77,12 +77,23 @@ it("takes the run state and the open prompt from the page", () => {
         events: [user("go", 1)],
         running: true,
         prompt,
+        compacting: true,
         active,
     });
-    expect(waiting.transcript).toMatchObject({ running: true, prompt });
+    expect(waiting.transcript).toMatchObject({ running: true, prompt, compacting: true });
     expect(waiting.active).toBe(active);
     const ended = applyLive(waiting, 10, { type: "ui_prompt_end", id: "p" }, TS);
     expect(ended.transcript.prompt).toBeNull();
+    // The compaction's end clears the state and leaves a note of what it did.
+    const result = { tokensBefore: 412_000, estimatedTokensAfter: 38_400 };
+    const done = applyLive(ended, 11, {
+        type: "compaction_end", reason: "manual", result, aborted: false, willRetry: false,
+    }, TS);
+    expect(done.transcript.compacting).toBe(false);
+    expect(done.transcript.entries.at(-1)).toEqual({
+        kind: "note",
+        text: "Context compacted: 412k to about 38.4k tokens.",
+    });
 });
 
 it("replaces the transcript with a whole page, and starts over when too far behind", () => {

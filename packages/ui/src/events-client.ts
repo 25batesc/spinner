@@ -176,8 +176,25 @@ export async function postAgent(path: string, body: unknown): Promise<void> {
         body: JSON.stringify(body),
     });
     if (!response.ok) {
-        throw new Error(`POST ${path} failed (${response.status}): ${await response.text()}`);
+        throw new Error(postFailure(path, response.status, await response.text()));
     }
+}
+
+/**
+ * What a refused `POST` says to the operator: the daemon's own sentence when the body is its
+ * `{ error }`, else the route, the status and the body. The route and the JSON around a
+ * sentence the daemon wrote for a person only hid it.
+ */
+export function postFailure(path: string, status: number, body: string): string {
+    try {
+        const parsed = JSON.parse(body) as { error?: unknown };
+        if (typeof parsed.error === "string" && parsed.error !== "") {
+            return parsed.error;
+        }
+    } catch {
+        // Not JSON: the raw body below.
+    }
+    return `POST ${path} failed (${status}): ${body}`;
 }
 
 /**
