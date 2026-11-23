@@ -1,7 +1,9 @@
 // Delivers what agents write to each other (docs/SESSION_PROTOCOL.md, "Messages" and
-// "Change propagation"). An `inbox/` file for a running agent becomes a steer; for an idle or
-// stopped agent it waits for its next prompt in the manager; for `operator` it becomes a Log
-// line and an `inbox.message` event. A change to `MISSION.md` or to an agent's `NOTES.md`
+// "Change propagation"). An `inbox/` file for a running agent becomes a steer; for an idle
+// agent it starts a turn, so a worker's hand-off reaches the lead when it is written and not
+// when the operator next types (s039: up to 13 hours later); for a stopped agent it waits
+// for its next prompt in the manager; for `operator` it becomes a Log line and an
+// `inbox.message` event. A change to `MISSION.md` or to an agent's `NOTES.md`
 // becomes one debounced notice per other agent, at most one per 30 s per agent, that carries
 // the new lines. A Plan, Contract, Goal, Done when or Open question change steers a busy
 // agent; a Log line or a Roster row waits for the agent's next prompt, so the news does not
@@ -25,6 +27,14 @@ export const STEER_INTERVAL_MS = 30_000;
 
 /** A write through the mission route within this window is the author of the file change. */
 const ATTRIBUTION_WINDOW_MS = 2_000;
+
+/**
+ * Upper bound on the turns inbox messages start in one idle agent per window. Two agents
+ * that answer each other would otherwise wake each other without end, each turn a model
+ * call. Past the bound a message waits for the agent's next prompt, as before.
+ */
+export const INBOX_WAKES_MAX = 6;
+export const INBOX_WAKE_WINDOW_MS = 10 * 60_000;
 
 /** Upper bound on change lines waiting in one agent's debounce. */
 const NOTICES_MAX = 200;
@@ -50,6 +60,8 @@ export class Deliverer {
     private readonly debounces = new Map<string, Debounce>();
     /** `<dir>/<file>` already delivered: the route delivers at once, the watcher sees it later. */
     private readonly delivered = new Set<string>();
+    /** Per `<dir>/<agent>`: when inbox messages started a turn, within the window. */
+    private readonly wakes = new Map<string, number[]>();
     private readonly now: () => Date;
     private readonly log: (line: string) => void;
 
@@ -114,9 +126,56 @@ export class Deliverer {
                 ? this.agent_names(summary).filter((name) => name !== message.from)
                 : [message.to];
         for (const agent of recipients) {
-            const how = await this.send(dir, agent, text);
+            const how = await this.send_message(dir, agent, text);
             this.published(dir, file, agent, how);
         }
+    }
+
+    /**
+     * An inbox message to one agent. A hosted agent gets it now: into its running turn, or
+     * as a turn of its own when it is idle. A stopped agent, an idle one past the wake
+     * bound, or a failed delivery keeps it for the next prompt.
+     */
+    private async send_message(dir: string, agent: string, text: string): Promise<DeliveryKind> {
+        const handle = this.agents.get(dir, agent);
+        if (handle === null) {
+            this.agents.queue_for_next_prompt(dir, agent, text);
+            return "prompt";
+        }
+        const busy = this.agents.is_busy(dir, agent);
+        if (!busy && !this.may_wake(dir, agent)) {
+            const minutes = INBOX_WAKE_WINDOW_MS / 60_000;
+            this.log(
+                `inbox ${dir}: ${agent} was woken ${INBOX_WAKES_MAX} times in ${minutes} min; ` +
+                    "this message waits for its next prompt",
+            );
+            this.agents.queue_for_next_prompt(dir, agent, text);
+            return "prompt";
+        }
+        try {
+            await handle.notify(text);
+            return busy ? "steer" : "turn";
+        } catch (error) {
+            this.log(`message to ${agent} failed, queued for its next prompt: ${String(error)}`);
+            this.agents.queue_for_next_prompt(dir, agent, text);
+            return "prompt";
+        }
+    }
+
+    /** True, and counted, when an inbox message may start a turn in the idle `agent` now. */
+    private may_wake(dir: string, agent: string): boolean {
+        const key = `${dir}/${agent}`;
+        const now = this.now().getTime();
+        const recent = (this.wakes.get(key) ?? []).filter(
+            (time) => now - time < INBOX_WAKE_WINDOW_MS,
+        );
+        assert.ok(recent.length <= INBOX_WAKES_MAX, "the wake bound was passed");
+        if (recent.length === INBOX_WAKES_MAX) {
+            this.wakes.set(key, recent);
+            return false;
+        }
+        this.wakes.set(key, [...recent, now]);
+        return true;
     }
 
     /**
@@ -248,7 +307,7 @@ export class Deliverer {
         dir: string,
         agent: string,
         text: string,
-        urgent = true,
+        urgent: boolean,
     ): Promise<DeliveryKind> {
         const handle = this.agents.get(dir, agent);
         if (urgent && handle !== null && this.agents.is_busy(dir, agent)) {

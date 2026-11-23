@@ -407,7 +407,7 @@ The long form of the Roster row, for the UI and for the operator: the current ta
 
 Delivery:
 
-- With the daemon: a new file addressed to a running agent becomes a **steer** message to that pi session (it enters after the agent's current turn and tool calls, so it never interrupts an edit mid-flight). Messages to an idle agent are prepended to its next prompt. Messages to `operator` show up in the UI and are also appended to the Log.
+- With the daemon: a new file addressed to a running agent becomes a **steer** message to that pi session (it enters after the agent's current turn and tool calls, so it never interrupts an edit mid-flight). A message to an idle agent starts a turn of its own, so a hand-off is read when it is written. At most 6 messages per 10 minutes start a turn in one idle agent; past that, and for a stopped agent, the message is prepended to the agent's next prompt. Messages to `operator` show up in the UI and are also appended to the Log.
 - By hand: the operator pastes the message into the target agent's terminal. Tolerable for two agents, which is why the daemon's first job is this.
 
 Agents prefer the Log for status and messages for questions and hand-offs ("contract posted, you are unblocked"). Nothing important lives only in a message; decisions go to *Contracts*.

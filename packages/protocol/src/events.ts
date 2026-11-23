@@ -166,7 +166,9 @@ export interface InboxMessageEvent extends EventBase {
 export type DeliveryKind =
     /** Sent as a pi steer to a running agent. */
     | "steer"
-    /** Prepended to the next prompt of an idle agent. */
+    /** Sent to an idle agent as a message of its own, which starts a turn. */
+    | "turn"
+    /** Kept for the agent's next prompt: the agent is stopped, or the news can wait. */
     | "prompt"
     /** Appended to the Log and shown in the UI: the recipient is `operator`. */
     | "log";

@@ -38,6 +38,7 @@ import {
     render_notice,
 } from "../watch/mission-diff.js";
 import { fixer_prompt, plan_fixer_work, render_fixer_brief } from "./fixer.js";
+import { INBOX_WAKES_MAX } from "./delivery.js";
 import { parse_inbox_file_name } from "./inbox.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -112,9 +113,9 @@ function last_echo(agent: string): string {
             continue;
         }
         if (event.event.type === "message_end") {
-            const content = event.event.message.content;
+            const { role, content } = event.event.message;
             const first = Array.isArray(content) ? content[0] : undefined;
-            if (first !== undefined && first.type === "text") {
+            if (role === "assistant" && first !== undefined && first.type === "text") {
                 return first.text;
             }
         }
@@ -212,8 +213,9 @@ describe("POST /sessions/:dir/inbox", () => {
         await until(() => last_echo("beta").startsWith("echo: steers:"));
         expect(last_echo("beta")).toContain(`Message from alpha (inbox/${file}): contract posted`);
 
-        // alpha is idle: the message waits for its next prompt. The watcher must not deliver
-        // the same file a second time.
+        // alpha is idle: the message starts a turn of its own, so alpha reads it now and not
+        // when the operator next types. The watcher must not deliver the file a second time.
+        await until(() => !daemon.agents.is_busy(summary.dir, "alpha"));
         const idle = await call("POST", `/sessions/${summary.dir}/inbox`, {
             from: "beta",
             to: "all",
@@ -223,9 +225,10 @@ describe("POST /sessions/:dir/inbox", () => {
         const idle_file = ((await idle.json()) as { file: string }).file;
         expect(idle_file).toMatch(/^\d{6}-beta-all\.md$/);
         expect(delivered().filter((event) => event.file === idle_file)).toEqual([
-            expect.objectContaining({ agent: "alpha", how: "prompt" }),
+            expect.objectContaining({ agent: "alpha", how: "turn" }),
         ]);
-        expect(daemon.agents.pending_for(summary.dir, "alpha")).toHaveLength(1);
+        expect(daemon.agents.pending_for(summary.dir, "alpha")).toEqual([]);
+        await until(() => last_echo("alpha").includes(`(inbox/${idle_file}): done`));
         await new Promise((resolve_) => setTimeout(resolve_, 300));
         expect(delivered().filter((event) => event.file === idle_file)).toHaveLength(1);
 
@@ -247,11 +250,45 @@ describe("POST /sessions/:dir/inbox", () => {
     it("delivers a file the operator writes by hand", async () => {
         const summary = create_session(home, { title: "Hand" });
         expect((await add_agent(summary.path, "alpha")).status).toBe(201);
-        writeFileSync(join(summary.path, "inbox", "120000-operator-alpha.md"), "go\n\nstart now\n");
-        await until(() => delivered().some((event) => event.file === "120000-operator-alpha.md"));
-        const queued = daemon.agents.pending_for(summary.dir, "alpha")[0];
-        expect(queued).toContain("Message from operator");
+        await until(() => !daemon.agents.is_busy(summary.dir, "alpha"));
+        const file = "120000-operator-alpha.md";
+        writeFileSync(join(summary.path, "inbox", file), "go\n\nstart now\n");
+        await until(() => delivered().some((event) => event.file === file));
+        await until(() => last_echo("alpha").includes("Message from operator"));
+        expect(daemon.agents.pending_for(summary.dir, "alpha")).toEqual([]);
     });
+
+    it("wakes an idle agent up to the bound; a stopped agent's message waits", async () => {
+        const summary = create_session(home, { title: "Bound" });
+        expect((await add_agent(summary.path, "alpha")).status).toBe(201);
+        const send = async (to: string, subject: string): Promise<string> => {
+            await until(() => !daemon.agents.is_busy(summary.dir, "alpha"));
+            const body = { from: "beta", to, subject, text: "x" };
+            const sent = await call("POST", `/sessions/${summary.dir}/inbox`, body);
+            const { file } = (await sent.json()) as { file: string };
+            return delivered().find((event) => event.file === file)?.how ?? "";
+        };
+        // Two agents that answer each other must not wake each other without end.
+        const how: string[] = [];
+        for (let count = 0; count < INBOX_WAKES_MAX + 2; count += 1) {
+            how.push(await send("alpha", `report ${count}`));
+            // The file name carries the second: two messages in one second would collide.
+            await new Promise((resolve_) => setTimeout(resolve_, 1000));
+        }
+        expect(how).toEqual([
+            ...Array.from({ length: INBOX_WAKES_MAX }, () => "turn"),
+            "prompt",
+            "prompt",
+        ]);
+        expect(daemon.agents.pending_for(summary.dir, "alpha")).toHaveLength(2);
+
+        // A stopped agent is not started by another agent's message: it waits for a prompt.
+        expect((await add_agent(summary.path, "gamma")).status).toBe(201);
+        await call("POST", `/sessions/${summary.dir}/agents/gamma/stop`, {});
+        await until(() => !daemon.agents.running(summary.dir).includes("gamma"));
+        expect(await send("gamma", "for later")).toBe("prompt");
+        expect(daemon.agents.pending_for(summary.dir, "gamma")).toHaveLength(1);
+    }, 30_000);
 });
 
 describe("GET|PUT /sessions/:dir/agents/:name/context", () => {
