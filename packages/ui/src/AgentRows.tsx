@@ -22,8 +22,6 @@ export interface AgentRowsProps {
     /** The key of the selected row, or null while none is (the add form shows). */
     selected: string | null;
     adding: boolean;
-    /** The Goldfish cap line (`capLine`), or null. */
-    cap: string | null;
     onPick: (target: RowTarget) => void;
     onAdd: () => void;
     /** Posts the action to its agent route; the promise settles with the daemon's answer. */
@@ -135,7 +133,7 @@ function Row(props: {
  * pick in the list focuses that agent and closes the list; `+ add agent` is its last line.
  */
 export function AgentRows(props: AgentRowsProps) {
-    const { groups, selected, adding, cap, onPick, onAdd, onAction } = props;
+    const { groups, selected, adding, onPick, onAdd, onAction } = props;
     const [listed, setListed] = useState(false);
     const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
     const toggle = (id: string) =>
@@ -223,7 +221,6 @@ export function AgentRows(props: AgentRowsProps) {
                                 </ul>
                             </section>
                         ))}
-                        {cap !== null && <p className="muted ar-cap">{cap}</p>}
                         <button
                             type="button"
                             className={adding ? "ar-add ar-add-on" : "ar-add"}

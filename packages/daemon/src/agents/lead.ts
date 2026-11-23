@@ -5,16 +5,9 @@
 // PRs. Every step is one job log line, so the UI's job panel tells the story. A session
 // created with a `title` alone still takes the old path (`actions.attach_new_session`).
 import assert from "node:assert/strict";
-import type {
-    DesignTrack,
-    NewSessionRequest,
-    SessionSummary,
-    StackSpec,
-} from "@spinner/protocol";
-import { DESIGN_DEFAULT_TRACK } from "@spinner/protocol";
+import type { NewSessionRequest, SessionSummary, StackSpec } from "@spinner/protocol";
 import * as actions from "../actions.js";
 import type { ActionContext } from "../actions.js";
-import type { DesignTracker } from "../egm/design.js";
 import { type EgmFetcher, egm_fetched } from "../egm/fetch.js";
 import { EGM_PIN } from "../egm/pins.js";
 import type { SpinnerHome } from "../home.js";
@@ -22,8 +15,7 @@ import { adopt_into_session } from "../pipeline/adopt.js";
 import { extract_prs } from "../pipeline/extract.js";
 import { attach_project, INSTALL_FAILED, type Log } from "../stack/runner.js";
 import { load_spec } from "../stack/spec.js";
-import type { MissionWriter } from "../store/mission-writer.js";
-import { read_session, write_session } from "../store/session-store.js";
+import { read_session } from "../store/session-store.js";
 import type { AgentManager } from "./manager.js";
 
 export const LEAD_NAME = "lead";
@@ -37,15 +29,9 @@ export interface LeadStartDeps {
     agents: AgentManager;
     /**
      * The daemon's EGM fetcher. Optional, because route tests call `create_app` without
-     * one; without it the lead starts with no EGM step and no EGM log line.
+     * one; without it the lead starts without the EGM skills and no EGM log line.
      */
     egm?: EgmFetcher;
-    /**
-     * The design tracker and the mission writer (EGM, 2.23). Optional like `egm`; with all
-     * three the session gets a `design` block and a track, else none.
-     */
-    design?: DesignTracker;
-    writer?: MissionWriter;
 }
 
 /** The job half of `new` with `text`: attach, adopt, start the lead, send the first message. */
@@ -89,7 +75,6 @@ export async function start_lead_session(
     if (deps.egm !== undefined) {
         await prepare_egm(deps.home, deps.egm, log);
     }
-    current = await choose_track(deps, current, adopt.length, request.track, log);
     log(`starting ${LEAD_NAME}${repo === undefined ? "" : ` in the ${repo} worktree`}`);
     const handle = await deps.agents.add(current, {
         name: LEAD_NAME,
@@ -112,9 +97,8 @@ export async function start_lead_session(
 }
 
 /**
- * Fetches EGM before the lead's spawn when pi-subagents is installed and EGM is not fetched
- * yet. A failure is logged and the lead starts without EGM (docs/designs/egm-adoption.md,
- * 1.17).
+ * Fetches the EGM skills before the lead's spawn when pi-subagents is installed and they are
+ * not fetched yet. A failure is logged and the lead starts without them.
  */
 async function prepare_egm(home: SpinnerHome, egm: EgmFetcher, log: Log): Promise<void> {
     if (!egm.status().subagents) {
@@ -130,50 +114,6 @@ async function prepare_egm(home: SpinnerHome, egm: EgmFetcher, log: Log): Promis
         return;
     }
     log(`EGM unavailable: ${egm.status().error ?? "the fetch failed"}; the lead starts without it`);
-}
-
-/**
- * The track of a new paste session: what the request asks for, else `DESIGN_DEFAULT_TRACK`
- * (`direct`, the fast path). `design` holds only when EGM is ready with pi-subagents and
- * nothing was adopted (D12), else `direct`. Without the fetcher, the tracker and the writer,
- * no `design` block: the session behaves as one from before the EGM design.
- */
-async function choose_track(
-    deps: LeadStartDeps,
-    summary: SessionSummary,
-    adopted: number,
-    requested: DesignTrack | undefined,
-    log: Log,
-): Promise<SessionSummary> {
-    if (deps.egm === undefined || deps.design === undefined || deps.writer === undefined) {
-        return summary;
-    }
-    if (summary.session.kind === "plan") {
-        // A planning session is on the design track with or without EGM: the lead writes
-        // the plan from the talk, and the guard keeps its writes to the plan's directory.
-        const read = read_session(deps.home, summary.dir);
-        assert.ok(read.ok, "a planning session must read back before its track write");
-        read.summary.session.design = { ...(read.summary.session.design ?? {}), track: "design" };
-        write_session(read.summary);
-        log("track: design (a planning session)");
-        await deps.design.refresh(summary.dir);
-        const planned = read_session(deps.home, summary.dir);
-        assert.ok(planned.ok, "a planning session must read back after its track write");
-        return planned.summary;
-    }
-    const status = deps.egm.status();
-    const ready = status.state === "ready" && status.subagents;
-    const wanted = requested ?? DESIGN_DEFAULT_TRACK;
-    const track = wanted === "design" && ready && adopted === 0 ? "design" : "direct";
-    if (wanted === "design" && track === "direct") {
-        log("track: design was asked for, but EGM is not ready or a PR was adopted");
-    }
-    await actions.set_design_track(deps.ctx, deps.writer, summary, track, status);
-    log(`track: ${track}`);
-    await deps.design.refresh(summary.dir);
-    const fresh = read_session(deps.home, summary.dir);
-    assert.ok(fresh.ok, "a session must read back after its track write");
-    return fresh.summary;
 }
 
 /** The fallback title gives way to the first adopted PR's title, when one was adopted. */

@@ -55,7 +55,6 @@ import {
     type WorkItem,
 } from "./chat.ts";
 import { agentLabel } from "./agent-view.ts";
-import { ChatGate, chatQuestion } from "./ChatGate.tsx";
 import { ChatPrompt } from "./ChatPrompt.tsx";
 import { Icon } from "./PaneHead.tsx";
 import { fetchModels, fetchProjects, fetchTranscript, postAgent } from "./events-client.ts";
@@ -294,8 +293,8 @@ function BlockView({ block, who }: { block: ChatBlock; who: string }) {
 
 /**
  * The message list: each turn as the operator's message, the agent's work folded, and its
- * answer. It draws the newest blocks; `show earlier` adds the rest (5.2). The Goldfish
- * transcript (entry 4.15) shows it read-only.
+ * answer. It draws the newest blocks; `show earlier` adds the rest (5.2). A subagent's
+ * transcript shows it read-only.
  */
 export function TranscriptView({
     transcript,
@@ -778,16 +777,11 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
         }
     };
 
-    // The lead's open question is part of its chat: the last block of the conversation.
-    const asked = agent === LEAD_NAME ? chatQuestion(view) : null;
     // The lead is Remy to the operator; another agent keeps its own name.
     const who = agentLabel(agent);
     let status = `${who} is resting. Send a message to wake ${who} up.`;
     if (hosted) {
         status = working ? `${who} is on it` : `${who} is ready when you are`;
-    }
-    if (asked !== null && !working) {
-        status = `${who} has a question for you`;
     }
     // pi waits on a prompt in its terminal (a damage-control confirm): the turn is not stuck,
     // it waits for the operator, and the card on the box answers it.
@@ -812,8 +806,6 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
     let placeholder = `Ask ${who} to build features, fix bugs, or work on your code`;
     if (working) {
         placeholder = `Tell ${who} something now (it interrupts the turn)`;
-    } else if (asked !== null) {
-        placeholder = `Or reply to ${who} directly…`;
     } else if (!hosted) {
         placeholder = `Send a message to wake ${who} up`;
     }
@@ -863,7 +855,6 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
                     </button>
                 )}
                 {error !== null && <p className="needs-human chat-error">{error}</p>}
-                {asked !== null && <ChatGate key={asked.key} dir={dir} asked={asked} />}
                 {prompt !== null && <ChatPrompt base={base} who={who} prompt={prompt} />}
                 {matches.length > 0 && (
                     <ul className="chat-slash" role="listbox" aria-label="Skills and commands">

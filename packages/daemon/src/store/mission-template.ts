@@ -1,5 +1,6 @@
 // The MISSION.md a new session starts with. It follows the template in
 // docs/SESSION_PROTOCOL.md, section "MISSION.md", with the operator-owned sections empty.
+import { EGM_ARTIFACT_DIR } from "@spinner/protocol";
 
 export interface MissionTemplateInput {
     id: string;
@@ -98,10 +99,10 @@ export function render_agents_file(input: AgentsFileInput): string {
                   "",
                   "## EGM",
                   "",
-                  `EGM artifact directory: ${input.path}/design`,
+                  `EGM artifact directory: ${input.path}/${EGM_ARTIFACT_DIR}`,
                   "",
-                  "EGM skills write their briefs, drafts and reports there. " +
-                      "The design doc itself goes into the repo.",
+                  "An EGM skill writes its brief, draft, design doc and reports there. " +
+                      "Run a skill only when the operator asks for it.",
               ]
             : [];
     return [

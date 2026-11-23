@@ -1,5 +1,11 @@
 # Session workspace: one row of phases, one board, one spec
 
+> **Removed on 2026-11-23.** Spinner no longer runs EGM as a lifecycle: the design track, the
+> stages, the gates, the approval, the Plan seed and the tabs of this document are gone. EGM
+> is a set of skills a lead runs when the operator asks, and their files are session files
+> under `<session>/egm/` (`docs/SESSION_PROTOCOL.md`, *Decisions*, 2026-11-23). This
+> document is kept as the record of what was built.
+
 *   **Author:** lead (s046), from the s043 concepts brief (`design/concepts_brief.md`, six Goldfish reports)
 *   **Status:** Approved
 *   **Version:** 2 (version 2 applies the 4 Blockers and the 17 Majors of `design/consolidated_review_report.md`; `design/goldfish_review_report.md` records the Blockers, the Log of s046 records the Majors)

@@ -28,9 +28,9 @@ export const EXTENSION_ENV = {
     role: "SPINNER_ROLE",
     /** `full` when `settings.agents.github` is `full`: the lead's GitHub guard is off. */
     github: "SPINNER_GITHUB",
-    /** The EGM checkout root (`<home>/egm/src`); set only on a lead of an EGM session. */
+    /** The EGM checkout root (`<home>/egm/src`); set only on a lead that has the EGM skills. */
     egm_root: "SPINNER_EGM_ROOT",
-    /** The EGM artifact directory (`<session>/design`); set only on a lead of an EGM session. */
+    /** Where the EGM skills write (`<session>/egm`); set only on a lead that has them. */
     egm_artifacts: "SPINNER_EGM_ARTIFACTS",
 } as const;
 
@@ -85,8 +85,6 @@ export const EXTENSION_TOOLS = [
     "adopt",
     "review_briefing",
     "review_draft",
-    "design_doc",
-    "ask_question",
     "comments_list",
     "comment_reply",
     "comment_suggest_resolve",
@@ -251,13 +249,6 @@ export interface ExtensionToolArgs {
      * and returns every fault instead of writing. The operator posts; the lead never does.
      */
     review_draft: { event: string; body: string; comments: string };
-    /** The lead names the design doc it wrote, by its absolute path (EGM, build session 2). */
-    design_doc: { path: string };
-    /**
-     * The lead asks one EGM gate (build session 3, T8): `questions` is the JSON text of EGM's
-     * gate payload, `[{ question, options, is_multi_select }]` or `{ questions: [...] }`.
-     */
-    ask_question: { questions: string };
     /**
      * The operator's comments on previews (s054) and on session files: the open ones by
      * default, each with its place and its messages; `all` adds the resolved ones.
@@ -671,8 +662,9 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 "The Plan: add an item (text, owner, entry), tick or untick one the moment it is " +
                 "done, edit its text, assign an owner, or reorder by ids. Ids never change. A " +
                 "worker only ticks and unticks, and only its own items or unowned ones. An " +
-                "item seeded from the design doc carries its entry as a `[2.3]` token at the " +
-                "start of its line; edit keeps it unless the new text starts with a token.",
+                "item can carry a `[2.3]` token at the start of its line, which links it to " +
+                "an entry of a plan document; edit keeps it unless the new text starts with " +
+                "a token.",
             parameters: {
                 command: { type: "string", description: "What to do", enum: MISSION_ITEM_COMMANDS },
                 text: { type: "string", description: "For add and edit: the item text" },
@@ -741,38 +733,6 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
             required: ["event", "body", "comments"],
             roles: LEAD,
             route: "PUT /sessions/:dir/review/draft",
-        },
-        {
-            name: "design_doc",
-            description:
-                "Name the design doc you just wrote, by its absolute path. Call it once the " +
-                "draft's final file is written in the designs directory. Spinner tracks, " +
-                "reviews and approves this file.",
-            parameters: {
-                path: { type: "string", description: "The absolute path of the design doc" },
-            },
-            required: ["path"],
-            roles: LEAD,
-            route: "PUT /sessions/:dir/design/doc",
-        },
-        {
-            name: "ask_question",
-            description:
-                "Ask the operator one single-select question. Pass EGM's gate payload as JSON " +
-                'text: [{"question": "...", "options": ["...", "..."], "is_multi_select": ' +
-                "false}]. Exactly one question with 2 to 6 options. Spinner shows the options " +
-                "as buttons. End your turn after this call.",
-            parameters: {
-                questions: {
-                    type: "string",
-                    description:
-                        "JSON array text of exactly one { question, options, is_multi_select } " +
-                        "object",
-                },
-            },
-            required: ["questions"],
-            roles: LEAD,
-            route: "PUT /sessions/:dir/design/gate",
         },
         {
             name: "comments_list",

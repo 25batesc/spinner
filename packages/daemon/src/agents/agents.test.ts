@@ -505,10 +505,10 @@ describe("the EGM spawn of a lead", () => {
             expect(lead.env).toMatchObject({
                 PI_SUBAGENTS_TEMP_ROOT: join(summary.path, "egm-runs"),
                 SPINNER_EGM_ROOT: egm_source_dir(home),
-                SPINNER_EGM_ARTIFACTS: join(summary.path, "design"),
+                SPINNER_EGM_ARTIFACTS: join(summary.path, "egm"),
             });
             const agents_file = readFileSync(join(summary.path, "AGENTS.md"), "utf8");
-            expect(agents_file).toContain(`EGM artifact directory: ${summary.path}/design`);
+            expect(agents_file).toContain(`EGM artifact directory: ${summary.path}/egm`);
 
             await manager.add(summary, { name: "backend", brief: "# backend" });
             const worker = JSON.parse(readFileSync(args_file, "utf8")) as Spawned;

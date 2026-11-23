@@ -41,17 +41,7 @@ export function facts_from_session(
         diff_waiting: (session.diff?.threads ?? []).filter((t) => t.waiting_on === "human"),
         comments_waiting: session.comments?.waiting ?? [],
         review_draft: session.review?.draft === true,
-        ...design_facts(session),
     };
-}
-
-/** The design facts (2.16): only for the `design` track, once the tracker derived a stage. */
-function design_facts(session: Session): Pick<PipelineFacts, "design"> {
-    const design = session.design;
-    if (design?.track !== "design" || design.stage === undefined) {
-        return {};
-    }
-    return { design: { stage: design.stage, needs: design.needs ?? null } };
 }
 
 /**

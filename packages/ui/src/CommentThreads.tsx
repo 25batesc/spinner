@@ -1,13 +1,14 @@
-// Preview comment threads (s054): one thread with its place, its screenshot, its messages and
-// the operator's reply and resolve; the strip of open comments above a preview; and the
-// section of the Threads tab. The daemon moves the state; every view reloads on
-// `comment.updated` through the `comments` revision.
+// Comment threads (s054): one thread with its place, its screenshot or its quoted passage,
+// its messages and the operator's reply and resolve; and the strip of open comments above a
+// preview. The Files view lists the threads on a file and every thread of the session. The
+// daemon moves the state; every view reloads on `comment.updated` through the `comments`
+// revision.
 import { useState } from "react";
 
 import { comment_where, type Comment } from "@spinner/protocol";
 
 import { attachmentUrl, openCommentsOn, waitingLabel } from "./preview-comment.ts";
-import { commentAction, fetchComments, useLoaded } from "./remote.ts";
+import { commentAction } from "./remote.ts";
 
 export interface CommentThreadProps {
     dir: string;
@@ -90,30 +91,6 @@ export function CommentThread({ dir, comment, onShow, place }: CommentThreadProp
             )}
             {error !== null && <p className="needs-human">{error}</p>}
         </li>
-    );
-}
-
-/** The Threads tab's section: every preview comment, open ones first. */
-export function CommentsSection({ dir, revision }: { dir: string; revision: number }) {
-    const loaded = useLoaded(`${dir}#${revision}`, (signal) => fetchComments(dir, signal));
-    const comments = loaded.value?.comments ?? [];
-    const open = comments.filter((comment) => comment.state !== "resolved");
-    const resolved = comments.filter((comment) => comment.state === "resolved");
-    return (
-        <section className="pr-threads" aria-label="Preview comments">
-            <h3>Preview comments</h3>
-            {loaded.error !== null && <p className="needs-human">{loaded.error}</p>}
-            <ul className="thread-list">
-                {[...open, ...resolved].map((comment) => (
-                    <CommentThread key={comment.id} dir={dir} comment={comment} />
-                ))}
-                {comments.length === 0 && (
-                    <li className="muted">
-                        No preview comments. Use the comment button in a preview&apos;s bar.
-                    </li>
-                )}
-            </ul>
-        </section>
     );
 }
 

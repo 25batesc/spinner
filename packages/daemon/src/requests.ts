@@ -1,7 +1,6 @@
 // Parsers for the JSON bodies of the POST routes. Each returns the typed request or one
 // sentence that names the first problem, which the route sends back as a 400.
 import type {
-    PlanImplementRequest,
     AddAgentRequest,
     AdoptRequest,
     AgentMessageRequest,
@@ -70,42 +69,6 @@ export function parse_new_session(input: unknown): NewSessionRequest | string {
         request.project = project;
     } else if (project !== undefined) {
         return "`project` must be a non-empty string when given";
-    }
-    const track = record["track"];
-    if (track !== undefined) {
-        if (track !== "design" && track !== "direct") {
-            return "`track` must be one of design, direct when given";
-        }
-        request.track = track;
-    }
-    if (record["plan"] !== undefined) {
-        if (typeof record["plan"] !== "boolean") {
-            return "`plan` must be a boolean when given";
-        }
-        request.plan = record["plan"];
-    }
-    return request;
-}
-
-/** `POST /plans/:id/implement`: the session that implements the plan, or a new one. */
-export function parse_plan_implement(input: unknown): PlanImplementRequest | string {
-    if (input === undefined || input === null) {
-        return {};
-    }
-    const record = as_record(input);
-    if (typeof record === "string") {
-        return record;
-    }
-    const request: PlanImplementRequest = {};
-    for (const key of ["session", "project"] as const) {
-        const value = record[key];
-        if (value === undefined) {
-            continue;
-        }
-        if (typeof value !== "string" || value.length === 0) {
-            return `\`${key}\` must be a non-empty string when given`;
-        }
-        request[key] = value;
     }
     return request;
 }

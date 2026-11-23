@@ -6,10 +6,7 @@
 // narrow window every button moves into the menu, so the bar keeps its title and pills.
 import { useEffect, useState } from "react";
 
-import type { SessionView } from "@spinner/protocol";
-
 import { ARCHIVE_QUESTION } from "./CardArchive.tsx";
-import { DesignActions } from "./DesignActions.tsx";
 import { IconButton } from "./PaneHead.tsx";
 import type { RunAction } from "./SessionForms.tsx";
 import { useMenu } from "./useMenu.ts";
@@ -19,14 +16,6 @@ export interface SessionToolbarProps {
     /** True while a job runs on this session; the buttons wait. */
     busy: boolean;
     run: RunAction;
-    /**
-     * The selected session. With a `design` block the design group (entry 3.20) renders left
-     * of the stack group. The whole view, not only `design`, because the dialogs prefill
-     * absolute paths from the session's path and worktrees.
-     */
-    view?: SessionView | undefined;
-    /** Where a refused design run goes: the drawer, as a failed job's error does. */
-    onError?: ((message: string) => void) | undefined;
     /** The confirmed `archive`: the caller runs `close` and moves the selection. */
     onArchive: (dir: string) => void;
 }
@@ -58,7 +47,7 @@ export function useCompact(): boolean {
 }
 
 export function SessionToolbar(props: SessionToolbarProps) {
-    const { dir, busy, run, view } = props;
+    const { dir, busy, run } = props;
     const compact = useCompact();
     // The `archive` item asks once inside the menu; a closed menu forgets the question.
     const [asking, setAsking] = useState(false);
@@ -83,9 +72,6 @@ export function SessionToolbar(props: SessionToolbarProps) {
             {button("up", "run local")}
             {button("down", "stop local")}
         </span>
-    );
-    const design = view?.design === undefined ? null : (
-        <DesignActions view={view} inMenu={compact} onError={props.onError ?? (() => undefined)} />
     );
     const archive = () => {
         menu.close();
@@ -126,8 +112,6 @@ export function SessionToolbar(props: SessionToolbarProps) {
             role="toolbar"
             aria-label="Session actions"
         >
-            {!compact && design}
-            {!compact && design !== null && <span className="toolbar-sep" />}
             {!compact && stack}
             {!compact && <span className="toolbar-sep" />}
             <span className="toolbar-group toolbar-menu" ref={menu.ref}>
@@ -140,7 +124,6 @@ export function SessionToolbar(props: SessionToolbarProps) {
                 {menu.open && (
                     // The stack and end buttons close the menu themselves.
                     <div className="menu" role="menu" aria-label="Session actions">
-                        {compact && design}
                         {compact && stack}
                         {end}
                     </div>

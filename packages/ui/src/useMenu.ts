@@ -1,7 +1,7 @@
 // One rule for every toolbar menu (dogfood row 8, round 4 item r4.3): a menu opens and closes on
 // its button, and it also closes on a pointer press outside its container and on Escape. The
-// EGM ▾ menu (DesignActions.tsx), the ⋯ menu (SessionToolbar.tsx) and the Track menu
-// (PaneHead.tsx) share it, so one menu never stays open while the operator works elsewhere.
+// ⋯ menu (SessionToolbar.tsx) and the menus of the context bar (PaneHead.tsx) share it, so
+// one menu never stays open while the operator works elsewhere.
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 /** The part of a DOM event the close rule reads; a plain object in the tests. */

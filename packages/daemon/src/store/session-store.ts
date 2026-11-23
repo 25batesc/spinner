@@ -81,6 +81,12 @@ export function read_session(home: SpinnerHome, dir: string): ReadResult {
     if (shape !== null) {
         return { ok: false, error: `${file}: ${shape}` };
     }
+    // A planning session of the plans library (removed on 2026-11-23) reads as an ordinary
+    // session: it has a lead, a mission and files like any other.
+    const record = parsed as Record<string, unknown>;
+    if (record["kind"] === "plan") {
+        delete record["kind"];
+    }
     return { ok: true, summary: { dir, path, session: parsed as Session } };
 }
 

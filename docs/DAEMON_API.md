@@ -56,6 +56,12 @@ WebSockets below.
 | `POST /sessions/:dir/comments/:id/reply` | `CommentReplyRequest` | `CommentResponse` | The operator's reply goes to the agent; an agent's reply (`author`) waits on the operator. 409 on a resolved comment or past `COMMENT_MESSAGES_MAX` (100). |
 | `POST /sessions/:dir/comments/:id/suggest-resolve` | `CommentReplyRequest` | `CommentResponse` | The agent's suggestion; state `suggested`. 400 with `author: operator`. |
 | `POST /sessions/:dir/comments/:id/resolve` | | `CommentResponse` | The operator resolves. A resolved comment answers unchanged. |
+| `GET /sessions/:dir/files` | | `SessionFilesResponse` | The tree of the session directory; below. |
+| `GET /sessions/:dir/files/text?path=` | | `SessionFileResponse` | A text file. 400 for a path the tree does not list, 404 when absent, 413 past 2 MiB, 415 for a binary file. |
+| `PUT /sessions/:dir/files/text` | `SessionFileSaveRequest` | `SessionFileResponse` | The operator's edit. 409 when the file changed since `mtime`, and for `session.yaml` and `MISSION.md`. |
+| `GET /sessions/:dir/files/raw?path=` | | bytes | An image inline; any other file as a download. |
+| `POST /sessions/:dir/files/reveal` | `SessionFileActionRequest` | `OkResponse` | Shows the file, or the session directory for `""`, in the file manager. |
+| `POST /sessions/:dir/files/download` | `SessionFileActionRequest` | `SessionFileDownloadResponse` | 201. Copies the file to the operator's Downloads folder; never overwrites. |
 | `GET /sessions/:dir/post` | | `PostResponse` | The composed Slack message. |
 | `POST /sessions/:dir/post` | `PostRequest` | `JobResponse` | `confirm: true` or 400. |
 | `GET /sessions/:dir/approve` | | `ApproveResponse` | Head, diff stat and open threads per PR. |
@@ -76,23 +82,9 @@ WebSockets below.
 | `POST /sessions/:dir/agents/:name/model` | `AgentModelRequest` | `OkResponse` | `{ "model": "provider/id" }`. 200 once pi took the model; then `agents.<name>.model` holds it and `session.updated` follows. 400 with pi's error when pi does not know the model or has no key for it, or when `model` is not `provider/id`; 404 for an unknown session or agent; 409 with `AgentNotRunningResponse` when it is not running. A tty agent gets `set_model` through its extension, an rpc agent pi's `set_model`. |
 | `POST /sessions/:dir/agents/:name/thinking` | `AgentThinkingRequest` | `OkResponse` | `{ "level": ThinkingLevel }`, one of `THINKING_LEVELS` (`off minimal low medium high xhigh max`), else 400. Records `agents.<name>.thinking`; the other answers as `model`. pi clamps the level to the model; a tty agent's extension then reports the clamped one. |
 | `GET /sessions/:dir/agents/:name/events` | | `AgentEventsResponse` | The past turns, for a tab that loads late. |
-| `GET /sessions/:dir/agents/:name/events/stamp` | | `AgentEventsStamp` | When the transcript was last written, its size, and `active`: when the agent's pi last sent an event. |
 | `GET /sessions/:dir/agents/:name/context` | | `ContextResponse` | The context chain and the loaded commands. |
 | `PUT /sessions/:dir/agents/:name/context` | `ContextFileRequest` | `ContextFileResponse` | Writes one file of the chain. |
-| `POST /sessions/:dir/agents/:name/hello` | `AgentHelloRequest` | `AgentCommandResponse` | Extension only; below. |
-| `GET /sessions/:dir/agents/:name/commands` | | `AgentCommandPollResponse` | Extension only; the long-poll below. |
-| `POST /sessions/:dir/agents/:name/events` | `AgentEventsRequest` | `AgentCommandResponse` | Extension only; 202. |
-| `GET /sessions/:dir/agents/:name/tty` | | WebSocket | Below. |
 | `PUT /sessions/:dir/agents/:name/brief` | `AgentBriefRequest` | `AgentBriefResponse` | Writes `agents/:name/BRIEF.md`, whole file, over an existing one. |
-| `GET /operator` | | `OperatorResponse` | The operator agent; below. |
-| `POST /operator/start` | | `OperatorResponse` | Starts or resumes the operator agent. 409 while it runs, 500 when pi fails to start. |
-| `POST /operator/stop` | | `OperatorResponse` | 409 when it does not run. |
-| `POST /operator/prompt` | `AgentMessageRequest` | `AgentCommandResponse` | 409 when it does not run. |
-| `POST /operator/steer` | `AgentMessageRequest` | `AgentCommandResponse` | 409 when it does not run. |
-| `POST /operator/hello` | `AgentHelloRequest` | `AgentCommandResponse` | Extension only. |
-| `GET /operator/commands` | | `AgentCommandPollResponse` | Extension only; the long-poll. |
-| `POST /operator/events` | `AgentEventsRequest` | `AgentCommandResponse` | Extension only; 202. |
-| `GET /operator/tty` | | WebSocket | The operator agent's pty; the frames of the tty WebSocket below. 404 while stopped. |
 | `POST /sessions/:dir/diff/start` | `DiffRepoRequest` | `JobResponse` | The job fetches the viewer on first use, then starts one viewer per repo (`repo` names one). 404 for an unknown repo. |
 | `POST /sessions/:dir/diff/stop` | `DiffRepoRequest` | `SessionResponse` | Stops one viewer or every viewer; synchronous. |
 | `POST /sessions/:dir/agents/:name/diff/comments` | `DiffCommentsRequest` | `DiffCommentsResponse` | Runs `diffview comments` in the agent's worktree. 404 for an agent without a repo, 409 before the fetch. |
@@ -107,21 +99,8 @@ WebSockets below.
 | `GET /jobs/:id` | | `JobResponse` | 404 when the daemon never ran it. |
 | `GET /egm` | | `EgmResponse` | The EGM fetch state and the pin; below. |
 | `POST /egm/fetch` | | `JobResponse` | The `egm` job: fetches EGM again at the pin and regenerates the adapter; below. |
-| `PUT /sessions/:dir/design/track` | `DesignTrackRequest` | `SessionResponse` | Sets `design.track`; below. 400 for an unknown track, 409 once a repo has commits or for `design` when EGM is not available. |
-| `PUT /sessions/:dir/design/doc` | `DesignDocRequest` | `SessionResponse` | The lead's `design_doc` tool; below. 400 with the reason, 409 off the design track or for the approved doc while its approval stands. |
-| `PUT /sessions/:dir/design/gate` | `DesignGateRequest` | `OkResponse` | The lead's `ask_question` tool writes `design.gate`; below. 400 with the first fault. |
-| `POST /sessions/:dir/design/answer` | `DesignAnswerRequest` | `AgentCommandResponse` | Clears the gate and prompts the lead with the text; below. 400 for an empty or long text, 409 when the lead is not running. |
-| `POST /sessions/:dir/design/run` | `DesignRunRequest` | `AgentCommandResponse` | Starts an EGM skill in the lead with the arguments the daemon composes; below. 400 for a bad body, 409 with the reason. |
 | `GET /sessions/:dir/rounds/:round/log` | | `text/markdown` | The Log of an earlier round from `## Previous rounds`. 400 unless `:round` is an integer from 1 to 200, 404 for a round without one. |
-| `GET /sessions/:dir/egm/goldfish/:run/:step/events` | | `AgentEventsResponse` | The transcript events of one Goldfish step; below. 404 for an unknown run or step, or a transcript outside `<session>/agents/`. |
-| `GET /sessions/:dir/design/files` | | `DesignFilesResponse` | The files of `<session>/design/` and the archived review runs; below. |
-| `GET /sessions/:dir/design/files/:name` | | `text/markdown` | One file of `<session>/design/`. 400 for a bad name, 404 when absent. |
-| `GET /sessions/:dir/design/reviews/:run/:name` | | `text/markdown` | One report of an archived review run. 400 for a bad run id or name, 404 when absent. |
-| `GET /sessions/:dir/design/doc` | | `text/markdown` | The design doc from the worktree of `design.repo`. 404 before `design_doc` and when the file is missing. |
-| `POST /sessions/:dir/design/approve` | `DesignApproveRequest` | `DesignApproveResponse` | Approves the design doc, seeds the Plan from its entries and, with `build`, prompts the lead to build; below. 400 for a bad body, 409 with a `DesignApproveRefusal`. |
-| `DELETE /sessions/:dir/design/approve` | | `SessionResponse` | Removes the approval and `approved.md`. `design.approvals` keeps its history. |
-| `GET /sessions/:dir/design/approved` | | `text/markdown` | The doc as approved, `<session>/design/approved.md`. 404 before an approval. |
-| `GET /sessions/:dir/design/changes` | | `DesignChangesResponse` | The `## ` sections changed since the approval; an empty list without a change. |
+| `GET /sessions/:dir/egm/goldfish/:run/:step/events` | | `AgentEventsResponse` | The transcript events of one subagent step of the lead; below. 404 for an unknown run or step, or a transcript outside `<session>/agents/`. |
 
 ## Events WebSocket
 
@@ -139,102 +118,6 @@ is 1 or more, it sends the event only, and the app posts the banner under Spinne
 click on it opens the session in the app. With `SPINNER_NOTIFY=off`, the daemon sends no
 `notify` event and shows no banner. The `notify` event is not the operator agent's `notify`
 command ("The operator agent" below).
-
-## tty WebSocket
-
-`GET /sessions/:dir/agents/:name/tty` upgrades to a WebSocket on the agent's pseudo-terminal.
-`tty_path(dir, name)` in the protocol package builds the path. Only an agent on the `tty`
-harness has one.
-
-Before the upgrade, a problem is plain HTTP:
-
-| Status | Reason |
-|---|---|
-| 404 | No session `:dir`, no agent `:name`, or the agent is not running. |
-| 409 | The agent runs on the `rpc` harness, or `TTY_ATTACHMENTS_MAX` (8) clients hold the pty. |
-
-After the upgrade:
-
-| Direction | Frame | Meaning |
-|---|---|---|
-| daemon → client | binary, first | The scrollback: 0 to `TTY_SCROLLBACK_BYTES` (65536) raw pty bytes. It can start mid-escape. |
-| daemon → client | binary | One chunk of pty output. |
-| daemon → client | text `{"exit":{"code":n}}` | pi exited; `code` is null on a signal. Close 1000 follows. |
-| client → daemon | binary | Keystrokes, written to the pty unchanged. Bound 1 MiB per frame (close 1009 beyond). |
-| client → daemon | text `{"resize":{"cols":n,"rows":n}}` | Resize the pty. Both in 1 to `TTY_DIMENSION_MAX` (1000). Any other text frame closes with 1008. |
-
-One pty serves every attachment. The pty's size is the last resize from any client; before
-the first resize it is `TTY_SIZE_DEFAULT` (120×40). `POST .../stop` sends the `exit` frame
-to every client, then closes each with 1000.
-
-The daemon never writes to the pty on the operator's behalf. A `prompt` or a `steer` goes
-through the extension (next section), so pi's transcript records a message, not keystrokes.
-
-## Extension routes (tty harness)
-
-The Spinner pi extension runs inside pi. Under `SPINNER_HARNESS=tty` it is the daemon's only
-channel into the interactive pi, over three routes. Each answers 404 while the daemon does
-not host the agent (for example during a daemon restart); the extension retries after 1 s.
-
-### `POST /sessions/:dir/agents/:name/hello`
-
-Body `AgentHelloRequest`: `{ "pid": n, "commands": SlashCommandInfo[] }`. The extension
-posts it at `session_start`, so once at pi's start and again after `/spinner-reload`.
-`commands` is `pi.getCommands()`; the Context tab shows it. Answer: 200 `{ "ok": true }`.
-
-### `GET /sessions/:dir/agents/:name/commands`
-
-The long-poll. The daemon holds the request up to 30 s, then answers:
-
-- 200 `{ "command": { "id": "c-1", "type": "prompt" | "steer" | "abort" | "notify", "text": "..." } }`,
-  one command per response; `text` is absent for `abort`. `set_model` carries `model`
-  instead of `text`, `set_thinking` carries `level`.
-- 204 when no command arrived in time. The extension reopens the poll at once.
-
-Query `ack=<id>&disposition=<text>` on a poll acknowledges the command the extension just
-acted on. The `POST .../prompt` or `POST .../steer` that queued the command resolves with
-that disposition: `started` when pi was idle, `queued` when a turn was running. Without an
-ack in 30 s the route answers 504. The extension acts as follows:
-
-| Command | pi call | Disposition |
-|---|---|---|
-| `prompt`, pi idle | `pi.sendUserMessage(text)` | `started` |
-| `prompt`, pi busy | `pi.sendUserMessage(text, { deliverAs: "followUp" })` | `queued` |
-| `steer` | `pi.sendUserMessage(text, { deliverAs: "steer" })` | `started` or `queued` |
-| `abort` | `ctx.abort()` | `aborted` |
-| `notify`, pi idle | `pi.sendMessage({ customType: "spinner_notice", content, display: true }, { triggerTurn: true })` | `started` |
-| `notify`, pi busy | `pi.sendMessage(..., { deliverAs: "steer" })` | `queued` |
-| `set_model` with `model` | `pi.setModel(ctx.modelRegistry.find(provider, id))` | `ok`, or the reason: `pi does not know the model <m>`, `pi has no API key for <provider>`, or pi's error |
-| `set_thinking` with `level` | `pi.setThinkingLevel(level)` | `ok` |
-
-`POST .../model` and `POST .../thinking` queue `set_model` and `set_thinking`; an ack other
-than `ok` is pi's refusal, and the route answers 400 with that text.
-
-A `prompt` or a `steer` can carry `images`: absolute paths of PNG files (a preview comment's
-screenshot, below). pi turns a path in text into an image only when it is pasted into its
-editor. So the extension reads each file and calls `pi.sendUserMessage` with a content array:
-the text, then one `{ type: "image", data, mimeType: "image/png" }` per file. It skips a
-file it cannot read; the text still names the path. The `rpc` harness sends the same images
-in the `images` field of pi's `prompt` and `steer` commands.
-
-### `POST /sessions/:dir/agents/:name/events`
-
-Body `AgentEventsRequest`: `{ "events": PiEvent[] }`, bound 8 MiB. The extension posts
-`agent_start`, `agent_end`, `agent_settled`, `turn_end`, `tool_execution_start` and
-`tool_execution_end`, each with the fields pi hands the extension, batched. For the chat it
-also posts `message_start` and `message_end` with the message (image bytes left out), and
-`message_update` with its text or thinking delta alone; deltas that wait join into one. The daemon's
-fold is the one the RPC harness uses: `agent.event` on the bus per event, `process: running`
-on `agent_start`, `agent.settled` and `process: idle` on `agent_settled`. Answer: 202.
-
-Two events are Spinner's own, so that `session.yaml` follows pi's model and thinking level
-however they change: `{ "type": "model_select", "model": "provider/id" }` and
-`{ "type": "thinking_level_select", "level": ThinkingLevel }`. The extension posts both right
-after each `hello` (from `ctx.model` and `pi.getThinkingLevel()`), so a fresh or a resumed
-pi's record is right, and again on pi's `model_select` and `thinking_level_select`, which
-fire when the operator changes either in pi's terminal (`/model`, `Ctrl+P`, the thinking
-key) or when `set_model` and `set_thinking` apply. The daemon writes `agents.<name>.model`
-and `agents.<name>.thinking` from them. `hello` itself is unchanged.
 
 ## Stack jobs: `stack.last_job` and the notice to the agent
 
@@ -292,199 +175,33 @@ bound and answers `{ code, stdout, stderr }`; the CLI's exit code is in the body
 status. The worker role's `diff_comments` (`list`, `show`) and `diff_reply` (`reply`,
 `suggest-resolve`) tools call this route. `spinner doctor` reports the fetch.
 
-## EGM
+## EGM skills and the lead's subagents
 
-Spinner runs Google's Elephant-Goldfish Model (EGM, Apache-2.0) from a pinned copy under
-`<home>/egm/` ([ARCHITECTURE.md](ARCHITECTURE.md#egm-elephant-goldfish-model)).
-`GET /egm` answers `{ egm: EgmStatus }`:
+Spinner fetches Google's Elephant-Goldfish Model (EGM, Apache-2.0) at a pinned commit into
+`<home>/egm/` and gives its skills to each lead ([ARCHITECTURE.md](ARCHITECTURE.md#egm-skills)).
+The skills are tools the operator asks for: `/skill:egm-brainstorm`, `egm-draft`,
+`egm-review`, `egm-review-loop`, `egm-resolve`, `egm-drift-report`. Nothing in a session
+needs one. A skill writes its files to `<session>/egm/`, where the Files view shows them.
 
-| Field | Meaning |
-|---|---|
-| `state` | `absent` before the first fetch, `fetching` while the fetch runs, `ready` when the marker matches the pin, the adapter version and every required file, `failed` after a failed fetch. |
-| `pinned_sha` | The commit the daemon pins. |
-| `fetched_sha`, `fetched_at`, `adapter_version` | From `<home>/egm/fetched.json`; null without the marker. |
-| `error` | The last fetch error, else null. |
-| `source`, `license`, `notice` | The EGM source URL, `Apache-2.0` and the credit line. |
-| `subagents` | True when the operator's pi settings list pi-subagents. Without it, leads start without EGM. |
+Until 2026-11-23 the daemon also ran EGM as a lifecycle: a design track, stages, gates, an
+approval and tabs for each step, and a plans library. All of that is removed, with its routes
+(`…/design/*`, `/plans*`) and the `design_doc` and `ask_question` tools. A `session.yaml`
+from before keeps its `design` and `outcomes` blocks; nothing reads them. `kind: plan` reads
+as an ordinary session.
 
-`POST /egm/fetch` takes no body and answers 202 with a job of action `egm` and `session: null`.
-The job deletes the marker and fetches again: a shallow clone of the pin, a check of the
-required files, the adapter under `<home>/egm/pi/agents`, then the marker. The bound is
-5 minutes. The job fails with the fetch error. A lead start fetches EGM the same way when
-pi-subagents is installed and EGM is not fetched. A failure there is one job log line, and
-the lead starts without EGM.
+`GET /egm` answers `{ egm: EgmStatus }`: `state` (`absent`, `fetching`, `ready`, `failed`),
+the pinned and the fetched commit, the time of the fetch, `error`, and `subagents` (whether
+the operator's pi settings list pi-subagents). `POST /egm/fetch` starts the job `egm`, which
+clones the pin again and regenerates the adapter. `spinner doctor` reports the same facts.
 
-### The design track and the design doc
-
-`PUT /sessions/:dir/design/track` takes `{ track: "design" | "direct" }`.
-It creates the `design` block when it is absent and answers with the session's view.
-It answers 409 with `the build has started; the track is fixed` when a track is set and a repo has commits.
-It answers 409 with `EGM is not available: <reason>` for `design` when EGM is not `ready` or pi-subagents is not installed.
-On `design` it writes the Goal pointer and the one *Done when* item as author `spinner`.
-When a session that has a track gets another one, the route writes the `spinner` Log line `track: <new> (was <old>)` and sends the lead one line about the new track (dogfood #44).
-A tty lead gets the line as a notice; an rpc lead gets a steer while it runs and a prompt while it is idle; a stopped lead gets it with its next prompt.
-The first track of a new session, and the same track again, write no line and send nothing.
-
-`PUT /sessions/:dir/design/doc` takes `{ path }`, the absolute path of the doc.
-The designs directory is `spinner.yaml` `designs.dir` (default `docs/designs`) in the worktree of `designs.repo` (default the first repo).
-The route answers 400 with the first refusal of these checks, in order:
-
-1.  The path is absolute.
-2.  The file is a `.md` file directly in the designs directory.
-3.  The name is not `SITEMAP.md` or `README.md`.
-4.  The file exists and is at most 1 MB.
-5.  The file has both a `## Overview` and a `## Detailed Implementation Plan` heading.
-6.  The file does not exist on `origin/<base>`, unless it is the session's current `design.doc`. The `git` call has a 10-second bound.
-
-It answers 409 off the design track.
-It answers 409 for the approved doc itself, while its approval stands and no edit invalidated it.
-Another doc named while an approval stands starts a new design.
-The daemon then clears the approval, keeps its record in `design.approvals`, and writes one Log line.
-On success it records `design.doc` and `design.repo`, points the Goal at the doc, and watches the doc file.
-
-`SessionView.design` (a `DesignView`) carries the track, the stage (null on the direct track), the files of `<session>/design/`, the current run's report flags, the doc and whether it is missing, the doc's repo (`repo`), the absolute designs directory (`designs_dir`), the approvals and the gate.
-`SessionView.round` is `session.round`, else the `-r<n>` suffix of the branch, else 1.
-`SessionView.rounds` lists the earlier rounds, oldest first, from `session.yaml` `rounds` (`source: "record"`) and from `## Previous rounds` (`source: "mission"`).
-
-### Gates and skill runs
-
-`PUT /sessions/:dir/design/gate` takes `{ question, options }`, the lead's `ask_question` payload after the extension checked it.
-It answers 400 with the first fault: an empty question, a question over 2000 characters, fewer than 2 or more than 6 options, or an empty option or one over 300 characters.
-It writes `design.gate` with the time, replaces any open gate, and answers `{ ok: true }`.
-The design's `needs` and the session's `needs_human` become `answer Remy: <first 80 characters of the question>`.
-
-`POST /sessions/:dir/design/answer` takes `{ text }`, at most 4000 characters.
-It answers 409 with `the lead is not running; resume it from its tab` when the lead has no process; the gate then stays.
-Otherwise it clears the gate, prompts the lead with the text, and answers with the prompt's disposition.
-The resolve card uses the same route with `Auto accept`, `Continue` or `Interactive breakdown`.
-A prompt or a steer to the lead through the agents routes also clears the gate, and so does the lead's next `agent_start`.
-
-`POST /sessions/:dir/design/run` takes `{ skill, args?, preset? }`.
-`skill` is one of the 7 EGM skills. `preset` goes only with `egm-review` and is one of `interactive`, `uninterrupted`, `feature_spec` and `implementation`. `args` is at most 4000 characters.
-The route checks, in order: 400 for a bad body, 409 when the lead is not running, then the 409s of the table.
-It prompts the lead with `/skill:<skill>`, a space and the composed arguments:
-
-| Skill | Arguments | 409 |
-| --- | --- | --- |
-| `egm-brainstorm` | `args`, the operator's concept text, when given | |
-| `egm-draft` | `Context File: <session>/design/concepts_brief.md. Target directory: <designs dir>.`, then `args` when given | no worktree of the designs repo |
-| `egm-review` with `preset` | `<absolute doc path> Step: <preset> GoldfishContext: none` | `no design doc yet` |
-| `egm-review` without `preset`, `egm-review-loop`, `egm-resolve` | `args`, else the absolute doc path | `no design doc yet` when neither is set |
-| `egm-drift-report` | `args`, else the designs dir, then `Landed rounds: r1 web#41, r3 web#57.` from the merged PRs of `SessionView.rounds` | a repo has `changed: true` |
-| `egm-bootstrap` | `path: ` and `args`, else the designs repo's worktree root | no worktree of the designs repo |
-
-The composed text is at most 4000 characters, else 400.
-For `egm-review` and `egm-review-loop` the route first archives the current review run into `<session>/design/reviews/<id>/` and records `design.review_run` with the next free id ([SESSION_PROTOCOL.md](SESSION_PROTOCOL.md#review-runs)). It answers 409 when 99 runs are archived.
-Every run clears an open gate.
-After the 400 checks, the route answers 409 with `<n> Goldfish are running across sessions (cap 12); start this skill when they finish` while 12 or more Goldfish run across all watched sessions.
-
-### Goldfish
-
-`DesignView.goldfish` lists the lead's Goldfish of the newest 200 runs, newest run first.
-The daemon reads the files that pi-subagents writes:
-
-1.  An async run writes `<session>/egm-runs/async-subagent-runs/<runId>/status.json`. A fan-out is one `workflow` run whose steps each name a child run with its own directory. The child run stands for the step, so each Goldfish shows once.
-2.  A foreground run writes only `agents/lead/pi/subagent-artifacts/<runId>_<agent>_<step>_*`. Its step runs until its `meta.json` exists, and reads `stopped` if the lead's turn ends first.
-
-Each `GoldfishView` has the run id, the step index, the agent, the chip `state`, the model and the tokens.
-`persona` is the agent name without `egm-`. `usd` comes from `SessionCost.children`.
-The view also has the start and last-activity times, `design_step` and `transcript`.
-
-| Step status | Chip state |
-| --- | --- |
-| `queued`, `pending` | `queued` |
-| `running` | `running` |
-| `complete`, `completed` | `done` |
-| `failed`, `rejected` | `failed` |
-| `stopped`, `paused` | `stopped` |
-| any other word | `running` while the run's state is `running`, else `failed` |
-
-`design_step` comes from `<session>/egm-runs/runs.json`, which records the design stage of each run at its first sight (at most 1,000 runs).
-`cost_by_stage` sums the Goldfish `usd` per design step. The lead's own cost is not split.
-`goldfish_live` counts the `running` Goldfish across all sessions.
-
-The watcher polls a session every 2 s while its lead is busy, while one of its Goldfish runs, and for 30 s after the lead's `agent.settled`. The lead's `agent_start` and its `subagent` tool calls start the poll. A change publishes `session.updated`.
-
-`GET /sessions/:dir/egm/goldfish/:run/:step/events` answers `{ events }` from the step's transcript, in the shape of `GET …/agents/:name/events`.
-
-### The design workspace
-
-`GET /sessions/:dir/design/files` answers `{ files, review_runs }`.
-`files` lists the `.md` files of `<session>/design/` without dotfiles, newest first, as `DesignView.files` does.
-`review_runs` lists the `r<n>` directories of `<session>/design/reviews/`, highest number first.
-
-`GET /sessions/:dir/design/files/:name` and `GET /sessions/:dir/design/reviews/:run/:name` answer the file as `text/markdown`.
-`:name` must match `DESIGN_FILE_NAME_PATTERN` (`^[A-Za-z0-9_.-]{1,100}\.md$`) and must not start with `.`. `:run` must match `^r\d{1,2}$`. Else the route answers 400.
-An absent file is 404.
-
-`GET /sessions/:dir/design/doc` answers the doc at `<worktree of design.repo>/<design.doc>` as `text/markdown`.
-It answers 404 before `design_doc` and when the file is missing.
-The daemon does not parse report findings.
-
-The UI reads these routes from the views of its agents pane: Brainstorm (the brief and the gate line), Draft (the doc), Review (the reports and the approve button), Files and History ([designs/session-workspace.md](designs/session-workspace.md), T5).
-A session on the design track shows those views beside Agents, Implement, Threads and Services; a direct-track session and a session without a `design` block show Agents, Implement, Files, History, Threads and Services and open on Implement.
-The pane fetches the doc once per change of `design.files` or `design.doc` and hands the text to the Draft and Implement views; a `mission.changed` never refetches it.
-
-### Approval and the build
-
-`POST /sessions/:dir/design/approve` takes `{ build, blockers_confirmed? }` ([designs/egm-adoption.md](designs/egm-adoption.md), T10).
-It does these steps in order:
-
-1.  It refuses with 409 off the design track, without `design.doc`, at stage `resolving`, and with an open gate.
-2.  It counts the blockers that the newest report of the current run lists. The newest report is `goldfish_review_report.md`, else `consolidated_review_report.md`, else `implementation_readiness_report.md`. When the count N is above 0 and `blockers_confirmed` is not N, it refuses with 409.
-3.  It refuses with 409 when the doc is missing from the worktree, and when `build` is true while the lead is not running.
-4.  It scans the doc's plan (below) and runs the seed's checks against the current Plan. It refuses with 409 when the doc has duplicate entry ids (`the plan has duplicate entry ids: 2.3`), an entry whose title is empty (`entries without a title: 2.5`), or no entries (`no plan entries found under an Implementation Plan heading`). It also refuses a doc past the scan's bounds, and a Plan that would hold more than 500 items once every entry without an item is added. No write happens before these checks.
-5.  It rewrites the doc's `*   **Status:**` line to `Approved`. A doc without that line is not changed.
-6.  It hashes the doc (normalized) and copies the text to `<session>/design/approved.md`.
-7.  It writes `design.approved` with the path, repo, hash, time, N and round, appends the same record to `design.approvals`, and clears `design.changed_after_approval`.
-8.  It seeds the Plan through the mission writer: one `- [ ] <id>. [<entry>] <title>` line per entry that has no item, owner none, after the existing items. Every Plan line is rewritten in canonical form on the way. An item whose entry's title changed counts `stale`; an item whose entry left the doc counts `orphaned`. Both stay in place, and no token is rewritten. One `mission.changed` is published with the whole view.
-9.  It appends the Log lines `design approved: <path> (<sha12>, <N> listed blockers)` and `plan seeded from <path> (<sha12>): <added> added, <kept> kept, <n> stale[: ids], <m> orphaned[: ids]` as author `spinner`.
-10. With `build`, it prompts the lead with the build message.
-
-The response is a `DesignApproveResponse`: the `SessionResponse` plus `seed: SeedResult`, `{ doc_path, sha12, added, kept, stale[], orphaned[] }`.
-A 409 body is a `DesignApproveRefusal`: `{ error, blockers }`. `blockers` is N for the refusal of step 2 and null for the others.
-The blocker count reads only `##` to `####` headings outside code fences.
-Severity mode counts the headings with `Severity: Blocker` or `Severity: High`.
-When it finds none, section mode applies. A blocker section starts at a level-2 or level-3 heading with `🔴` or `Blockers` and ends at the next heading of that level or higher.
-Section mode counts the headings one level below the section heading.
-The count does not know which blockers a resolve pass fixed, so the UI calls them "listed".
-
-The build message names the absolute doc path and the first 12 characters of the hash.
-It says the Plan holds one item per entry, with the seed's counts.
-It names the `[n.n]` token and the `entry` argument of `mission_plan add` for a split.
-It tells the lead to assign owners and to tick each item when its entry is done.
-It names two worker conventions. A worker's Roster `Doing` cell names `#<id>`, so the item reads `doing`. An entry a worker cannot build as written goes under Open questions with the entry id.
-
-The scan of the doc's plan is `scan` in `@spinner/protocol` (`plan-entries.ts`), shared with the UI ([designs/session-workspace.md](designs/session-workspace.md), T2).
-The plan section starts at a `## ` heading whose text ends with `Implementation Plan` and ends at the next `## ` heading.
-A phase is a `#### Build session N[: title]` heading; an entry is a `#### n.` or `##### n.n` heading.
-An entry's title is the heading text after three strips: every `**[…]**` tag, one trailing parenthetical, and surrounding whitespace. The backticks stay.
-Headings inside code fences do not count. The scan reads at most 100 000 lines, 50 phases and 500 entries.
-
-The design tracker hashes the doc on every change.
-When an approval exists and the hash differs, it sets `design.changed_after_approval`, and the guard locks the lead's code writes again.
-Once per new hash, it sends every running agent of the session the text "The design doc changed in <sections>; the approval is invalidated. Your code writes stay locked until the operator re-approves."
-An agent without `notify` (the rpc harness) gets the text as a steer.
-The daemon keeps the notified hash in memory, so a daemon restart sends the notice once more.
-
-`GET /sessions/:dir/design/changes` answers `{ changes }`.
-Each change is `{ heading, approved, current }` for one `## ` section of `approved.md` and the doc that differs by heading or body. A side without the section is null.
-Text above the first `## ` heading is not compared, so the status line never counts.
-`DELETE /sessions/:dir/design/approve` removes `design.approved`, `design.changed_after_approval` and `approved.md`. The lead's code writes are then locked until the next approval.
-
-### PR body and outcome counters
-
-With an approved design, `create PR` writes the PR body from the doc in the designs repo's worktree.
-The body holds the `## Overview` body, the `## Goals` section, the doc path and the session id.
-The Slack post is each PR's title with its link under it, then the reviewer's mention when one is set; the doc and the Goal stay out of it, because the PR body names the doc.
-The PR reviewers' brief names the approved doc and asks them to name each place where the code differs from it.
-
-`session.yaml` `outcomes` holds two counters: `fix_rounds` and `operator_steers`.
-A `fix` job adds 1 to `fix_rounds` when it starts.
-A steer through `POST /sessions/:dir/agents/lead/steer` adds 1 to `operator_steers` only when the body has `source: "operator"`. The UI's message box sets it; the extension tools do not.
-`source` with any other value answers 400.
-A text typed in the lead's terminal does not pass through the route, so the counter is a lower bound.
-`spinner outcomes` compares the counters per PR between the design and the direct track.
+The Goldfish of a skill run as pi-subagents children of the lead, as any other subagent the
+lead starts. The daemon reads the status files pi-subagents writes under
+`<session>/egm-runs/` and lists the steps in `SessionView.subagents`: one `GoldfishView` per
+step with `run`, `step`, `agent`, `persona` (set for an `egm-*` agent), `state`, `model`,
+`tokens`, `usd`, `started`, `last_activity` and `transcript`. The Agents view shows them as
+rows under `Subagents`. `GET /sessions/:dir/egm/goldfish/:run/:step/events` answers the
+transcript events of one step, or 404 for an unknown run or step, or a file outside
+`<session>/agents/`.
 
 ## Stack logs
 
@@ -666,15 +383,6 @@ A Plan item is `doing` when it is unticked and its owner's Roster `Doing` names 
 `item id`. An owner whose `Doing` is active (not `—`, empty or `done`) and names no item is
 `doing` on its lowest unticked item.
 
-The UI's Implement view renders this view as a phase-first list ([designs/session-workspace.md](designs/session-workspace.md), T6):
-it scans the design doc with the same `scan` the seed uses and groups the Plan by the number
-before the dot of each item's `entry` (`[2.3]` goes under `#### Build session 2`); an item
-without an entry, or whose entry is not in the doc, goes under `Other`; an item whose entry
-has another title in the doc shows a `stale` badge. The Draft view marks each entry heading
-`done`, `doing`, `partial` or `none` from the states of the items linked to it. On the design
-track with a named doc the goal block shows the first paragraph of the doc's `## Overview`,
-read-only; otherwise it shows the Goal section, editable.
-
 The `item` mode of `PUT /sessions/:dir/mission/section` edits one item of `plan` or
 `done_when`: `item: { command, id?, text?, owner?, entry?, order? }`. `add` appends `- [ ] N.
 text (owner)` to the Plan (N is `max + 1`; the owner defaults to the author) or `- [ ] text`
@@ -806,42 +514,6 @@ The verdict files under `artifacts/reviews/` move to `artifacts/reviews-cancelle
 The answer is `ReviewCancelResponse { ok, stopped, archived }`, and one Log line by `operator` names what stopped.
 `ReviewFields.cancelled` is true while the review is `idle` after a cancel; the next start, draft, drop, approve or post clears it.
 
-## The operator agent
-
-One per home, outside every session ([ARCHITECTURE.md](ARCHITECTURE.md#the-operator-agent-packagesdaemonsrcagentsoperatorts)).
-`GET /operator` answers `OperatorResponse { operator: OperatorView }`:
-
-| Field | Meaning |
-|---|---|
-| `enabled` | `settings.operator.enabled`. |
-| `process` | `idle` (pi runs and waits), `running` (a turn is in progress), `exited` (no process). |
-| `ready` | True once the extension inside pi posted `hello`; a prompt or a notice reaches it. |
-| `pid`, `model` | The process and its `provider/model`; null when stopped or on pi's default. |
-| `dir` | `<home>/operator`: the transcript (`pi/`), `BRIEF.md`, `process.json`. |
-| `waiting_on` | `operator` when idle, `model` while a turn runs, `start` when stopped. |
-| `last_notice` | The last `{ ts, text }` the daemon delivered, or null. |
-| `notices_pending` | Lines batched or held (the agent is stopped) and not yet delivered. |
-
-The bus event `operator.updated { type, ts, session: null, data: OperatorView }` follows every
-change. A change is a start, a stop, an exit, `hello`, a turn's start or end, or a delivered
-notice. The agent's own routes (`/operator/start|stop|prompt|steer|tty`) and the extension's
-(`/operator/hello|commands|events`) take the same bodies and frames as a session agent's.
-
-A notice is one `notify` command through the extension channel. The daemon batches the events
-of one second into one notice, one line per event. Each line is `<session dir>: <fact>`. The
-facts are:
-
-| Event | Line |
-|---|---|
-| `session.updated` where `needs_human` goes from null to text | `needs a human: <text>` |
-| `agent.settled` | `agent <name> settled` |
-| `agent.exited` | `agent <name> exited (code N)` |
-| `job.finished` with `ok: false` | `job <action> failed: <error>` |
-| `inbox.message` to `operator` | `message from <agent> (inbox/<file>): <subject>` |
-
-The queue holds 100 lines. Past that the oldest go, and the notice ends with `(N older notices
-dropped)`. Lines wait while the agent is stopped and go out on the next start.
-
 ## Themes
 
 A theme is one `ThemePalette`. The UI colours are `bg`, `surface`, `border`, `text`, `muted`,
@@ -920,6 +592,44 @@ The agent tools ("What the pi extension provides" in SESSION_PROTOCOL.md) call t
 routes. `comments_list` prints the open comments, or every comment with `all: yes`, with
 the screenshot's absolute path for the `read` tool. `comment_reply` and
 `comment_suggest_resolve` post with the agent's name as `author`.
+
+## Session files
+
+The Files view of a session shows its directory as a tree, the way mdview shows a folder
+(`packages/protocol/src/files.ts`). The operator reads a file, comments on a passage for an
+agent, edits it, shows it in the file manager and copies it to his Downloads folder.
+
+`GET /sessions/:dir/files` answers `SessionFilesResponse { root, entries, truncated }`. Each
+entry is `{ path, kind: file | dir, bytes, mtime }`, sorted by `path`, with `/` between the
+parts and relative to the session directory. The walk lists at most 3,000 entries, 8 levels
+deep, and does not follow a symbolic link. Never listed and never served: `worktrees/`,
+`egm-runs/`, `log/`, `diff/`, an agent's `agents/<name>/pi/`, a name that starts with a dot,
+`node_modules` and `__pycache__`.
+
+Every route takes a `path` the tree lists. A path that is absolute, climbs with `..`, is not
+listed, or leaves the session directory through a link is a 400; a path with nothing there
+is a 404.
+
+| Route | Answer |
+|---|---|
+| `GET …/files/text?path=` | `SessionFileResponse { path, absolute, text, bytes, mtime, editable }`. 413 past 2 MiB, 415 for a file with a NUL byte in its first 8 KiB. |
+| `PUT …/files/text` | Body `{ path, text, mtime }`; `mtime` is the one the read gave. 409 and nothing written when the file changed since, so an agent's edit is not lost. 409 for `session.yaml` and `MISSION.md`, which Spinner writes. The write is a temporary file and a rename. |
+| `GET …/files/raw?path=` | The bytes. `png`, `jpg`, `gif` and `webp` answer inline; any other file is `application/octet-stream` with `content-disposition: attachment`, so a file an agent wrote never runs as a page of the daemon's origin. |
+| `POST …/files/reveal` | Body `{ path }`; `""` is the session directory. `open -R` on macOS; elsewhere the file's directory opens. |
+| `POST …/files/download` | Body `{ path }`. 201 with `{ saved }`, the copy's path in `~/Downloads`. A taken name gets ` (1)`, ` (2)`, …; nothing is overwritten. |
+
+A comment on a file is a comment thread as a preview's (`POST /sessions/:dir/comments`), with
+the anchor `{ kind: "doc", path, quote, heading }`: the text the operator selected (`""` for
+the whole file) and the nearest heading above it. The daemon checks `path` as above and
+fills `line`, the 1-based line of the file where the quote starts, when it finds the quote's
+first words in the source. The agent gets `Doc comment c<n> from operator on <path> ·
+<heading>:` with the file's absolute path, the line, the heading and the selected text, and
+answers with `comment_reply` and `comment_suggest_resolve`. A doc comment that waits on the
+operator reads `answer doc comment c<n> on <path> · <heading>` in `needs_human`.
+
+The UI reads the tree again every 3 s while the Files view shows. An open file follows its
+file, except while the operator edits it, writes a comment or holds a selection, and for a
+file over 200 KB; a chip then offers the reload.
 
 ## Agent records in `session.yaml`
 
@@ -1024,51 +734,39 @@ The database is kept across a switch. `ChangeView.verified` is true when the ope
 
 `change start` gives the branch a number when a repository already has the name, locally or on the remote. The stack jobs write only the `stack` field of `session.yaml`, into the file as it is at that moment.
 
-## Plans
+### Groups of changes
 
-The design is `docs/designs/talk-change-ship.md`, step 4. A plan is a document: what to build, in which steps. It lives in the plans library, `<home>/plans/<id>/`, outside every session. The directory holds the document and `plan.json`, the record: `id`, `title`, `created`, `updated`, `project`, `doc` (the file's name), `origin` (the session it was written in) and `implementations` (the sessions that implement it, each with the time and the first 12 digits of the document's hash).
+A change can be in a group: `ChangeHead.group` names an entry of `session.groups`, each
+`{ id: "g<n>", name, purpose, hold? }`. The lead groups the changes that belong together
+with the `change` tool (`group`, with a name and a one-line purpose); the operator renames a
+group and edits its purpose in the PR view. A change started `on` a grouped change joins its
+group. A group left without a change is dropped. `:group` in a route is an id or a name.
 
-| Route | Body | Answer | What it does |
-|---|---|---|---|
-| `GET /plans` | none | `PlansResponse` | Every plan, newest first. |
-| `POST /plans` | `NewPlanRequest` | `JobResponse` | Starts a planning session. |
-| `GET /plans/:id/doc` | none | markdown text | The plan's document. 404 without one. |
-| `POST /plans/:id/implement` | `PlanImplementRequest`, optional | `JobResponse` | Attaches the plan to a session. |
+| Route | Body | Does |
+|---|---|---|
+| `PUT /sessions/:dir/changes/:id/group` | `{ group: name \| null, purpose? }` | Puts the change in the group, made when new; `null` takes it out. |
+| `PUT /sessions/:dir/groups/:group` | `{ name?, purpose? }` | Renames the group or changes its purpose. 409 for a name another group has. |
+| `PUT /sessions/:dir/groups/:group/hold` | `{ reason, by }` | Puts the group on hold. |
+| `DELETE /sessions/:dir/groups/:group/hold` | | Ends the hold. |
 
-A planning session is a session with `kind: plan`. `POST /plans` is `POST /sessions` with `plan: true`. The session is on the design track, with EGM installed or not. Its designs directory is `<home>/plans/<session dir>/`, and `design.repo` is `plans`. The guard lets the lead write there and in the session directory, and refuses a write in a worktree. The lead writes the document from the talk and names it with `design_doc`. The document has `## Overview` and `## Detailed Implementation Plan`, with one `#### <n>.<m> <title>` heading per step. The EGM skills are the buttons of the session's views; none is required.
-
-A `PlanView` adds `status`, `entries`, `done`, `session` (the planning session while it lives) and `sessions` (each implementing session with `live`, `title`, `done` and `entries`). The statuses are `draft` (no steps yet), `drafted`, `reviewed` (the planning session has a consolidated review report), `implementing` and `done`. An entry counts as done when every Plan item linked to it is ticked.
-
-`POST /plans/:id/implement` takes `{ session?, project? }`. It answers 404 for an unknown plan and 409 for a plan without a document, for a document the seed refuses, and for a review or planning session. With `session`, the job attaches the plan to that session and tells its lead. Without it, the job makes a session with the plan's title and the given project (else the plan's), attaches the plan, and starts the lead with the plan as its first message. To attach a plan is to do these steps:
-
-1. Copy the document to `<session>/design/approved.md`.
-2. Record it in `session.yaml`: `design.doc` (`<plan id>/<file>`), `design.repo: plans`, `design.approved`. The track stays `direct`.
-3. Seed the MISSION.md Plan: one item per step, linked by the `[n.n]` token.
-4. Write two Log lines and add the session to the plan's `implementations`.
-
-The lead is told to build the steps in order, one change per step or group of steps, and to tick each item when its step is done.
-
-At start the daemon imports every session, live or archived, that has `design/approved.md` and no plan of its own. The copy becomes the plan's document (`plan.md`), and the session is its first implementation.
-
-Two sessions with one title no longer share a branch: the second gets `feat/<slug>-<id>`.
-
-In the UI, the sidebar has a `Plans` view. A row with a live planning session opens the session under a bar with `Implement`. A row without one opens the plan's page: the bar and the document. The composer's `Make a plan (no code)` box posts to `/plans`.
+Each answers `SessionResponse`; 404 for an unknown change or group. While a group holds, the
+autopilot sends the lead nothing about its pull requests, and the lead's prompt lists the
+change with `ON HOLD: <reason>`. The PR view shows each group as a headline with its name,
+purpose and one status: `on hold`, else the status of its most pressing change (`needs you`,
+`CI failing`, `answering review`, `pending CI`, `draft`, `needs peer review`, `in merge
+queue`, `ready to merge`).
 
 ## The chat
 
-The design is `docs/designs/talk-change-ship.md`, step 5, part A. The chat is the default surface of every agent; `terminal` and `context` are tabs beside it. A terminal connects to its agent once its tab was shown.
-
-The chat reads the agent's past turns from `GET /sessions/:dir/agents/:name/events` when its tab opens, when the agent is resumed, and at the start and the end of each turn. Live `agent.event` records add to them. A message both sources hold shows once: a message is matched by its timestamp, a tool call by its id.
-
-The end of a turn can fail to arrive, for example when pi does not settle or an event is lost.
-So the chat also asks for `GET …/events/stamp` every 15 seconds.
-When the stamp is the same on two polls in a row and differs from the last read, the chat reads the history again.
-A turn is quiet when 3 minutes pass with no write to the transcript and no event from the agent's pi.
-The stamp's `active` holds the time of the last event, streaming included.
-The chat asks for the stamp at once when a turn starts or ends, and ignores a stamp read before that.
-So a turn that starts after a long rest is not quiet.
-When a turn is quiet, the status line says so.
-It gives the time, names the tool call that still runs, and points at `stop`.
+The chat is the surface of every agent; `context` is a tab beside it. Each session agent is
+one `pi --mode rpc` process that the daemon hosts, and the daemon holds the transcript.
+`GET /sessions/:dir/agents/:name/transcript?since=<seq>` answers
+`AgentTranscriptResponse { reset, next, events, running, prompt, compacting, active }`: the
+numbered events after `since`, or the newest 2,000 with `reset: true` when `since` is absent
+or too old. The `/events` socket sends each new event with its `seq`; a page that sees a gap
+reads the route again. A prompt pi waits on (a guard's confirm, a select, an input) is
+`prompt`; `POST …/agents/:name/answer` with `AgentAnswerRequest` answers it, 409 for a wrong
+id and 400 for a wrong kind.
 
 `POST /sessions/:dir/agents/:name/prompt` and `.../steer` resume a listed agent that is stopped when the body has `source: "operator"`, then send the text as a prompt. Without that mark a stopped agent is still a 409.
 

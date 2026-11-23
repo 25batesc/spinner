@@ -41,7 +41,14 @@ import {
     with_flagged,
     write_pr_threads,
 } from "./threads.js";
-import { apply_pr_facts, refresh_session, session_prs, type Transition } from "./tracker.js";
+import { derive_stage } from "./derive-stage.js";
+import {
+    apply_pr_facts,
+    facts_from_session,
+    refresh_session,
+    session_prs,
+    type Transition,
+} from "./tracker.js";
 import { autopilot_step, autopilot_text, baseline_autopilot } from "./autopilot.js";
 import { hold_of_current } from "./groups.js";
 import { current_change, has_change, open_change_ids } from "./changes.js";
@@ -430,4 +437,31 @@ export function start_poller(
 
 function is_open(state: PrFacts["state"]): boolean {
     return state === "open" || state === "draft";
+}
+
+/**
+ * A session from before 2026-11-23 can carry a `needs_human` that the removed design tracker
+ * wrote (`review the design`, `answer Remy: …`). No pipeline writer runs for a session
+ * without a pull request, so nothing else would clear it: each such session's stage and
+ * `needs_human` are derived once at start from the facts the pipeline has.
+ */
+export function rederive_design_sessions(
+    home: SpinnerHome,
+    cwd: string,
+    log: (line: string) => void,
+): void {
+    for (const summary of list_sessions(home).sessions) {
+        const session = summary.session;
+        if (session.design === undefined) {
+            continue;
+        }
+        const config = config_for(session, home, cwd, log);
+        const result = derive_stage(facts_from_session(session, config, new Date()));
+        if (result.stage !== session.stage || result.needs_human !== session.needs_human) {
+            session.stage = result.stage;
+            session.needs_human = result.needs_human;
+            write_session(summary);
+            log(`${summary.dir}: stage and needs_human derived again without the design track`);
+        }
+    }
 }

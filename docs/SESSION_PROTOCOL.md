@@ -170,26 +170,12 @@ comments:                     # absent while no preview comment waits on the ope
 in the pipeline needs the operator, the oldest one becomes `needs_human`:
 `answer preview comment c1 on admin /refunds · RefundQueue`.
 
-### The `design` block and `rounds`
+### Changes, groups and `rounds`
 
-Two optional blocks record the EGM design stage and the earlier rounds ([designs/egm-adoption.md](designs/egm-adoption.md), Technical Plan T7, T12 and T14). `version` stays 1. A session without a `design` block is a session from before the EGM design. The UI and the CLI show it as before.
+Optional blocks record the changes of the session, their groups and the earlier rounds.
+`version` stays 1.
 
 ```yaml
-design:
-  track: design            # design | direct; set at the start and by the track chip
-  stage: drafting          # derived by the daemon's design tracker
-  needs: null              # the design stage's needs_human text, or null
-  waiting: false           # derived: the lead settled on a question
-  doc: docs/designs/csv-export.md   # repo-relative; absent until the lead calls design_doc
-  repo: web                # repo key of the doc
-  review_run: { id: r2, preset: uninterrupted, started: 2026-11-04T10:02:00+01:00 }  # the review the app started
-  gate: { question: "...", options: ["...", "..."], asked: 2026-11-04T10:12:00+01:00 } # the lead's open gate
-  approved: { path: docs/designs/csv-export.md, repo: web, sha256: 9f2c..., at: 2026-11-04T11:40:00+01:00, blockers: 0, round: 1 }
-  approvals: [ ... ]       # every approval, oldest first, at most 100
-  changed_after_approval: false
-outcomes:                  # absent before EGM build session 6
-  fix_rounds: 1
-  operator_steers: 3
 change:                    # the current change; absent in a file from before 2026-11-12 (reads as c1)
   id: c2
   title: Fix the export button
@@ -203,7 +189,7 @@ changes:                   # every other change, open or finished, at most 200
     stage: peer-review
     needs_human: null
     started: 2026-11-04T09:30:00+01:00
-rounds:                    # appended by reset since the EGM design, at most 200
+rounds:                    # appended by reset, at most 200
   - round: 1
     branch: feat/csv-export
     prs: [{ repo: web, number: 41, url: "https://github.com/acme/web/pull/41", state: merged, merged_at: 2026-11-05T16:02:00+01:00 }]
@@ -211,85 +197,26 @@ rounds:                    # appended by reset since the EGM design, at most 200
     ended: 2026-11-05T17:10:00+01:00
 ```
 
-| Field | Meaning |
-|---|---|
-| `design.track` | `design` runs EGM up to an approved doc before the build. `direct` builds at once. The track is fixed once a repo has commits. A new paste session gets `design` when EGM is ready and pi-subagents is installed, else `direct`. A paste with adopted PRs gets `direct`. |
-| `design.stage`, `design.needs`, `design.waiting` | Derived from the files in `<session>/design/` and the doc; see the stage table below. Nobody sets them by hand. |
-| `design.doc`, `design.repo` | The design doc, named by the lead's `design_doc` tool. |
-| `design.gate` | The one open gate: the question that the lead asked through `ask_question`, its options, and the time. See "Gates" below. |
-| `design.review_run` | The review run that `POST …/design/run` started: the id `r<n>`, the preset (null for `egm-review-loop`) and the start time. |
-| `design.approved`, `design.approvals` | The current approval and every approval, each with the normalized SHA-256 of the doc. |
-| `design.changed_after_approval` | True when the doc's hash no longer matches the approval: the approval is invalidated and the operator re-approves. |
-| `outcomes` | `fix_rounds`: one per `fix` job. `operator_steers`: one per steer that the operator sent to the lead from the UI's message box. Both count across rounds. |
-| `rounds` | One record per finished round. `merged_at` is the PR's `last_activity` when it merged, else null. Rounds before the EGM design are read from `## Previous rounds` in `MISSION.md`. |
+`groups` lists the groups of changes: `{ id: g1, name, purpose, hold?: { by, reason, at } }`.
+A change names its group by id (`group: g1`); a group without a change is dropped.
+`rounds` has one record per finished round. `merged_at` is the PR's `last_activity` when it
+merged, else null.
 
-The design stage comes from these rules; the first match wins.
-"The current review run" is the report files directly in `<session>/design/`.
+A file written before 2026-11-23 can also hold a `design` block (the track, the stage, the
+gate and the approvals of the EGM lifecycle), an `outcomes` block (its counters) and
+`kind: plan` (a planning session of the plans library). All three are removed
+(*Decisions*, 2026-11-23). The daemon leaves `design` and `outcomes` in the file and reads
+neither; `kind: plan` reads as an ordinary session.
 
-| # | Stage | Fact |
-|---|---|---|
-| 1 | `approved` | `design.approved.sha256` equals the normalized hash of the doc now. |
-| 2 | `resolving` | `goldfish_review_report.md` exists, and none of its first 10 non-empty lines reads `Status: resolved` once the Markdown emphasis is removed. |
-| 3 | `design-ready` | `design.doc` is set, and `consolidated_review_report.md` or `implementation_readiness_report.md` exists, or `intermediate_zoom_out_report.md` exists while the review run's preset is `feature_spec` or no run is recorded. |
-| 4 | `design-review` | `design.doc` is set, and at least one review report exists. |
-| 5 | `drafted` | `design.doc` is set. |
-| 6 | `drafting` | `design_draft.md` exists. |
-| 7 | `brainstorm` | `concepts_brief.md` exists. |
-| 8 | `intake` | none of the above. |
+### Session files and comments
 
-The normalized hash is the SHA-256 of the doc after two steps: the `*   **Status:**` line is removed, and `\r\n` becomes `\n`.
-On the design track, the design's `needs` becomes the session's `needs_human` before approval. At `approved` it fills `needs_human` only when the pipeline has none. A review draft still wins.
-The design tracker writes `<session>/design/.state.json` (`{ track, stage, approved, designs_dir }`) on both tracks for the extension.
-
-#### Gates
-
-A gate is one EGM question with fixed options ([designs/egm-adoption.md](designs/egm-adoption.md), Technical Plan T8).
-The lead asks it with `ask_question`, and the daemon keeps it in `design.gate`, one slot per session.
-An open gate is line 1 of the design's `needs`: `answer Remy: <first 80 characters of the question>`. It applies at every stage, `approved` included.
-A gate clears on the first of these:
-
-1.  `POST /sessions/:dir/design/answer { text }`, the UI's gate card. It clears the gate and prompts the lead with the text.
-2.  `POST /sessions/:dir/design/run`, a skill started from the app.
-3.  A prompt or a steer to the lead through `POST /sessions/:dir/agents/lead/prompt|steer`.
-4.  The lead's `agent_start` event with a time after `design.gate.asked`. This covers an answer typed in the lead's terminal.
-
-The resolve gate has no store. `egm-resolve` Step 4 asks in chat and calls no tool.
-At stage `resolving`, when the lead has settled, `needs` is `resolve the review findings`. The UI then shows a resolve card whose buttons send `Auto accept`, `Continue` or `Interactive breakdown` through `…/design/answer`.
-The stage stays `resolving` until `egm-resolve` Step 5 writes `Status: resolved` at the top of the report.
-A question that the lead asks in plain chat sets `design.waiting` when the lead settles: its last text ends with `?`, no gate is open, and the stage is not `approved`. The next `agent_start` clears it.
-
-#### Review runs
-
-`POST …/design/run` with `egm-review` or `egm-review-loop` first archives the current run.
-The report files directly in `<session>/design/` move into `<session>/design/reviews/<id>/`. The id is `design.review_run.id` when a run is recorded, else one past the highest archived id.
-The new run gets the next free id and is recorded in `design.review_run`. A new run never takes the id of an archived one.
-Ids go up to `r99`. Past it the route answers 409 and asks the operator to move `reviews/` aside by hand.
-A review typed in the lead's terminal does not archive; EGM then overwrites the reports with the same names.
-
-#### Approval and the build
-
-The operator approves the design with one click, `approve and build` ([DAEMON_API.md](DAEMON_API.md#approval-and-the-build)).
-The approval pins the doc's normalized hash and copies the doc to `<session>/design/approved.md`.
-When the newest review report lists N blockers, the approval needs the confirmation "approve with N listed blockers", and the record keeps N.
-The approval also seeds the Plan (`docs/designs/session-workspace.md`, T2 and T4).
-The daemon scans the doc's Detailed Implementation Plan and adds one Plan item per entry, owner none, linked by the `[n.n]` token at the start of the line.
-The seed's checks run before anything is written.
-A doc with duplicate entry ids, an entry without a title, no entries, or more entries than the Plan can hold is refused with 409, and nothing is recorded.
-A second approval adds only the entries that have no item and keeps every tick.
-It reports an item as `stale` (its entry's title changed) or `orphaned` (its entry left the doc) without rewriting a token.
-The lead re-points such an item with `mission_plan edit` and a new token.
-The Log gets two `spinner` lines: the approval and the seed with its counts.
-With the build, the lead gets a message that says the Plan holds one item per entry.
-The message names the token and the `entry` argument of `mission_plan add` for a split, and tells the lead to assign owners and to tick each item when its entry is done.
-The message also names two worker conventions.
-A worker's Roster *Doing* cell names `#<id>`, so the item reads doing.
-An entry a worker cannot build as written goes under *Open questions* with the entry id.
-
-Before the first approval, a design-track lead can write only the design doc (the designs directory) and the session's own files.
-The extension's guard refuses its other `edit` and `write` calls. Workers and direct-track leads are not affected.
-An edit to the doc after approval invalidates the approval: `changed_after_approval` becomes true, and the guard locks the lead's code writes again.
-Every running agent of the session gets one notice per new doc hash that names the changed sections.
-The operator re-approves with the changed sections shown, or removes the approval.
+Everything an agent writes for the operator is a file of the session directory: a plan, a
+report, a spec under `artifacts/`, and the files of an EGM skill under `egm/`. The Files
+view shows the directory as a tree (DAEMON_API.md, "Session files"). The operator comments
+on a passage; the comment goes to an agent as `Doc comment c<n>` with the file, the line and
+the selected text, and the agent answers with `comment_reply` and `comment_suggest_resolve`.
+`comments.waiting` holds a doc comment that waits on the operator with `kind: doc`; its
+`needs_human` reads `answer doc comment c1 on egm/design.md · Overview`.
 
 ## `MISSION.md`
 
@@ -339,9 +266,6 @@ and updates the order. (One paragraph. Operator-owned.)
 ```
 
 ### Editing rules
-
-On the design track the design doc is the spec. The mission writer refuses a write to *Goal* or *Done when* from every author except `spinner`, with `this session's spec is the design doc (<doc or "not named yet">)`. When the track becomes `design`, Spinner writes a Goal that points at the doc and one *Done when* item. When the lead names its doc, the Goal names it. On the direct track the lead writes both as before.
-
 These rules are what make a shared file safe with several writers. They are enforced socially in the bootstrap phase and by the `mission` tool once the daemon exists.
 
 | Section | Who writes | How |
@@ -650,3 +574,6 @@ The protocol freezes at each milestone exit. A change needs a dated entry here b
 - 2026-11-12 The fast path is the default way of working (`docs/designs/talk-change-ship.md`). A new session is on the `direct` track: the lead builds, verifies, opens the pull request and keeps it ready, with no gate. EGM is a tool the operator picks (`Plan first`, the track chip). This replaces D1 of the EGM adoption. The operator's answers: one workspace per session; the agent opens pull requests, pushes fixes and answers bots and people, while merge, Slack posts and approvals stay his click; plans live in Spinner's library; the Agents view design waits for steps 2 and 5.
 - 2026-11-12 A session holds several changes (`docs/designs/talk-change-ship.md`, step 2). A change is one branch and its pull request per repo. The top-level `branch`, `repos.*.pr`, `pipeline`, `stage` and `needs_human` of `session.yaml` describe the current change; `change` names it and `changes` holds the others. The version stays 1 and no file migrates. The lead starts and switches changes with the `change` tool; no agent makes a branch with git. `reset` stays for one release.
 - 2026-11-12 Plans are documents in a library (`docs/designs/talk-change-ship.md`, step 4). `<home>/plans/<id>/` holds a plan's document and `plan.json`. A planning session has `kind: plan`: its lead writes the plan there and changes no code. `Implement` attaches a plan to a code session: the copy under `design/approved.md`, `design.repo: plans`, the seeded Plan. The session stays on the `direct` track.
+- 2026-11-23 EGM is a set of skills, not a lifecycle. The operator found the lifecycle too slow and too costly, and it grew the scope of every project. Removed: the `design` and `direct` tracks, the derived design stages and `design.needs`, the gates and the `ask_question` tool, the review-run archive, the approval and the Plan seed, the `design_doc` tool, the guard's design-only scope, the mission writer's refusal of Goal and Done when, the outcome counters and `spinner outcomes`, the plans library with `kind: plan` and `Implement`, and the Brainstorm, Draft, Review, Implement, History and Threads views. Kept: the fetch of EGM at its pin, the adapter, the skills on every lead (run only when the operator asks), and the rows of the lead's subagents. A skill writes to `<session>/egm/`; older sessions keep their `design/` directory. There is one way of working: build, verify, open the pull request, keep it ready. A session's middle pane has three views: Agents, Files, Services.
+- 2026-11-23 Session files. The Files view shows the session directory as a tree; the operator reads, edits, reveals and downloads a file and comments on a passage for an agent. `CommentAnchor` gains `{ kind: doc, path, quote, heading, line }`; a doc comment is a thread like a preview comment. The daemon serves only what the tree lists: never a worktree, a run directory, a log or a pi transcript, and `session.yaml` and `MISSION.md` are read-only from the page.
+- 2026-11-23 Groups of changes. `session.groups` and `ChangeHead.group`: a name, a purpose and an optional hold. The lead groups the changes; the operator renames a group; either puts a group on hold with a reason. While a group holds, the autopilot sends the lead nothing about its pull requests.

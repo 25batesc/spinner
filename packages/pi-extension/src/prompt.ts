@@ -11,8 +11,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
     ASSISTANT_NAME,
-    DESIGN_STATE_FILE,
-    EGM_ARTIFACT_DIR,
     SESSION_VERSION,
     type SessionView,
 } from "@spinner/protocol";
@@ -48,15 +46,6 @@ export interface SessionFiles {
         /** The reason the change's group is on hold, or null. */
         hold: string | null;
     }[];
-    /**
-     * `designs_dir` of `<session>/design/.state.json` while its `track` is `design`, else null
-     * (3.6). The tracker writes that file; the extension reads JSON, not `session.yaml`.
-     */
-    designs_dir: string | null;
-    /** `track` of the same file: `design` or `direct`; null when the file is absent. */
-    track: string | null;
-    /** `kind:` of `session.yaml`: `plan` for a planning session; null for an ordinary one. */
-    kind: string | null;
 }
 
 /** The states of a change the prompt leaves out, unless the change is the current one. */
@@ -109,9 +98,6 @@ export function load_session_files(env: SpinnerEnv, view: SessionView | null): S
                     hold: group?.hold?.reason ?? null,
                 };
             }),
-        designs_dir: design_designs_dir(env.session_dir),
-        track: design_track(env.session_dir),
-        kind: /^kind:\s*"?([a-z]+)"?\s*$/m.exec(yaml)?.[1] ?? null,
     };
 }
 
@@ -165,13 +151,9 @@ export function render_prompt_section(env: SpinnerEnv, files: SessionFiles): str
             "and `agent_steer` run the other agents; `adopt` brings a pull request in.",
         );
         lines.push(...github_lines(env.github));
-        if (files.kind === "plan") {
-            lines.push(...plan_lines(files.designs_dir));
-        }
-        if (env.egm_root !== null && files.track === "design") {
-            lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? "", files.designs_dir));
-        } else if (files.kind !== "plan") {
-            lines.push(...fast_path_lines(env.egm_root));
+        lines.push(...work_lines());
+        if (env.egm_root !== null) {
+            lines.push(...egm_lines(env.egm_root, env.egm_artifacts ?? ""));
         }
     }
     if (env.role === "lead") {
@@ -262,58 +244,17 @@ function bounded(text: string): string {
     );
 }
 
-/** `track` of the tracker's `.state.json`; null when the file is absent or unreadable. */
-function design_track(session_dir: string): string | null {
-    const text = read_or_empty(join(session_dir, EGM_ARTIFACT_DIR, DESIGN_STATE_FILE));
-    if (text.length === 0) {
-        return null;
-    }
-    try {
-        const state: unknown = JSON.parse(text);
-        const track = (state as { track?: unknown } | null)?.track;
-        return typeof track === "string" ? track : null;
-    } catch {
-        return null;
-    }
-}
-
 /**
- * The designs directory of a design-track session, from the tracker's `.state.json`. Null when
- * the file is absent or unreadable, when its `track` is not `design`, or when the session has
- * no worktree of the designs repo (`designs_dir: null`).
+ * How the lead works: build the change, verify it, open the pull request, keep it ready.
+ * There is one way of working, with no gate and no plan to approve (2026-11-12, and since
+ * 2026-11-23 the only one).
  */
-function design_designs_dir(session_dir: string): string | null {
-    const text = read_or_empty(join(session_dir, EGM_ARTIFACT_DIR, DESIGN_STATE_FILE));
-    if (text.length === 0) {
-        return null;
-    }
-    let state: unknown;
-    try {
-        state = JSON.parse(text);
-    } catch {
-        return null;
-    }
-    if (typeof state !== "object" || state === null) {
-        return null;
-    }
-    const { track, designs_dir } = state as { track?: unknown; designs_dir?: unknown };
-    if (track !== "design") {
-        return null;
-    }
-    return typeof designs_dir === "string" && designs_dir.length > 0 ? designs_dir : null;
-}
-
-/**
- * The lead's lines off the design track: the fast path is the way of working, and EGM is a
- * tool the operator picks (2026-11-12). With EGM installed, where it is, in case he runs a
- * skill from the menu.
- */
-function fast_path_lines(egm_root: string | null): string[] {
-    const lines = [
-        "Track: direct, the fast path. Build the change, verify it yourself, open the pull",
-        "request with `pr` `open`, and keep it ready: Spinner sends you failed checks and new",
-        "review comments; fix them and answer the threads without waiting for the operator.",
-        "Decide open points yourself and log the assumption; do not ask for a plan approval.",
+function work_lines(): string[] {
+    return [
+        "Build the change, verify it yourself, open the pull request with `pr` `open`, and",
+        "keep it ready: Spinner sends you failed checks and new review comments; fix them and",
+        "answer the threads without waiting for the operator. Decide open points yourself and",
+        "log the assumption; do not ask for a plan approval.",
         "One request is one change: one branch, one pull request. A new request that does not",
         "belong to an open pull request is a new change: `change` `start` with a title, then",
         "build, then `pr` `open` with a `body`. A follow-up to an open pull request is a",
@@ -324,57 +265,27 @@ function fast_path_lines(egm_root: string | null): string[] {
         "work needs one (a new repo, an app to run and show), make the project yourself:",
         "`project` `help`, then `create` and `attach`, then `stack` `up`.",
     ];
-    if (egm_root !== null) {
-        lines.push(
-            "EGM planning is installed but off: only the operator turns it on (the track chip).",
-            `If he starts an EGM skill, read ${egm_root}/docs/harnesses.md first.`,
-        );
-    }
-    return lines;
 }
 
-/** The lead's lines in a planning session (docs/designs/talk-change-ship.md, 4.2). */
-function plan_lines(designs_dir: string | null): string[] {
-    const where =
-        designs_dir === null
-            ? "The plan's directory is not known yet; ask the operator to reload the session."
-            : `The plan's directory: ${designs_dir}. Write the plan file directly in it.`;
+/**
+ * The EGM skills, for a lead that has them: tools the operator asks for, not a stage of the
+ * session. The lines say where the skills write and how the Goldfish run in pi, which EGM's
+ * own files do not know.
+ */
+function egm_lines(root: string, artifacts: string): string[] {
     return [
-        "This is a planning session: its product is a plan document, not code. Do not change",
-        "code, do not make a branch, do not open a pull request.",
-        where,
-        "The file has `## Overview` and `## Detailed Implementation Plan`, with one",
-        "`#### <n>.<m> <title>` heading per step. Name it with `design_doc` (absolute path).",
-        "The operator presses `Implement` to hand the plan to a code session.",
-    ];
-}
-
-/** The lead's EGM lines (docs/designs/egm-adoption.md, 1.23, 3.6). */
-function egm_lines(root: string, artifacts: string, designs_dir: string | null): string[] {
-    const design_lines =
-        designs_dir === null
-            ? []
-            : [
-                  `Designs directory: ${designs_dir}. ` +
-                      "Save the design doc there, as an absolute path.",
-                  "When the draft's final file is written there, " +
-                      "call design_doc with its absolute path.",
-              ];
-    return [
-        "EGM (Elephant-Goldfish Model, Apache-2.0) is loaded. You are the Elephant.",
-        `EGM plugin root: ${root}. EGM artifact directory: ${artifacts}.`,
-        `You run in pi, not Codex or Claude Code: read ${root}/docs/harnesses.md once.`,
-        "EGM skills are /skill:egm-<name>. The subagent tool is `subagent` (pi-subagents).",
-        "The Goldfish are registered as egm-zoom-out, egm-design, egm-comprehension,",
-        "egm-structural, egm-style, egm-implementation-readiness and egm-codebase-details.",
-        "In this harness a Goldfish cannot spawn subagents: egm-synthesizer has no subagent",
-        "tool. So use direct dispatch: launch each Goldfish yourself.",
-        'Launch them with context "fresh" and the default async launch. Each result arrives',
-        "as a completion message. Wait for every Goldfish of a stage, with bg_wait if needed,",
-        "before you consolidate.",
-        ...design_lines,
-        "For an EGM gate with options, call ask_question with the gate's JSON payload, " +
-            "then end your turn.",
+        "The EGM skills are installed as tools: /skill:egm-brainstorm, egm-draft, egm-review,",
+        "egm-review-loop, egm-resolve, egm-drift-report. Run one only when the operator asks",
+        "for it; never propose one. Nothing in a session needs one.",
+        `EGM plugin root: ${root}. EGM artifact directory: ${artifacts}. A skill writes every`,
+        "file there, the design doc too, unless the operator names another place.",
+        `You run in pi, not Codex or Claude Code: read ${root}/docs/harnesses.md once, before`,
+        "the first skill. The Goldfish are pi-subagents agents (the `subagent` tool):",
+        "egm-zoom-out, egm-design, egm-comprehension, egm-structural, egm-style,",
+        "egm-implementation-readiness and egm-codebase-details. A Goldfish cannot spawn",
+        "subagents here, so launch each one yourself, with context \"fresh\" and the default",
+        "async launch. Wait for every Goldfish of a stage, with bg_wait if needed, before you",
+        "consolidate. Ask a skill's gate in your reply, with its options, and end your turn.",
     ];
 }
 

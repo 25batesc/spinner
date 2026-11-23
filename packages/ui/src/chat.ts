@@ -423,8 +423,10 @@ export function withDictation(text: string, spoken: string): string {
 
 /**
  * The starts of the messages Spinner itself sends to an agent as a user message: a mission
- * change, the autopilot, a plan to implement, a design notice, a preview comment. pi records
- * them as the user's; the chat shows them as Spinner's notes, not as the operator's words.
+ * change, the autopilot, a comment on a preview or a file. pi records them as the user's;
+ * the chat shows them as Spinner's notes, not as the operator's words. The plan and design
+ * notices are from before 2026-11-23: Spinner sends none now, and an older transcript still
+ * holds them.
  */
 const SPINNER_STARTS = [
     "MISSION.md changed by",
@@ -436,6 +438,7 @@ const SPINNER_STARTS = [
     "The design doc changed",
     "A preview comment",
     "Preview comment",
+    "Doc comment",
 ];
 
 /**

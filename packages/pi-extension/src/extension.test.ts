@@ -386,10 +386,10 @@ describe("prompt section", () => {
         }
     });
 
-    it("gives the EGM lines to a lead with SPINNER_EGM_ROOT, not to a worker", async () => {
+    it("names the EGM skills as tools to a lead that has them, not to a worker", async () => {
         const egm = {
             SPINNER_EGM_ROOT: "/home/egm/src",
-            SPINNER_EGM_ARTIFACTS: `${session_dir}/design`,
+            SPINNER_EGM_ARTIFACTS: `${session_dir}/egm`,
         };
         const section_for = async (env: NodeJS.ProcessEnv): Promise<string> => {
             const pi = fake_pi();
@@ -401,46 +401,30 @@ describe("prompt section", () => {
             await pi.handlers.get("before_agent_start")?.[0]?.(event as never, {} as never);
             return event.systemPromptOptions.sections["spinner_session"] ?? "";
         };
-        // Off the design track (no state file yet, or `direct`): the fast path, EGM named as
-        // a tool the operator turns on, and none of the Elephant's lines.
-        const fast = await section_for({ ...env_for("lead", ""), ...egm });
-        expect(fast).toContain("Track: direct, the fast path.");
-        expect(fast).toContain("open the pull\nrequest with `pr` `open`");
-        expect(fast).toContain("EGM planning is installed but off");
-        expect(fast).not.toContain("You are the Elephant");
-        const state = join(session_dir, "design", ".state.json");
-        mkdirSync(join(session_dir, "design"), { recursive: true });
-        writeFileSync(state, JSON.stringify({ track: "design", designs_dir: null }));
         const lead = await section_for({ ...env_for("lead", ""), ...egm });
-        expect(lead).not.toContain("the fast path");
-        expect(lead).toContain("EGM (Elephant-Goldfish Model, Apache-2.0) is loaded.");
+        // One way of working, with or without the skills.
+        expect(lead).toContain("open the pull request with `pr` `open`");
+        expect(lead).toContain("The EGM skills are installed as tools: /skill:egm-brainstorm");
+        expect(lead).toContain("Run one only when the operator asks\nfor it; never propose one.");
         expect(lead).toContain(
-            `EGM plugin root: /home/egm/src. EGM artifact directory: ${session_dir}/design.`,
+            `EGM plugin root: /home/egm/src. EGM artifact directory: ${session_dir}/egm.`,
         );
-        expect(lead).toContain("read /home/egm/src/docs/harnesses.md once.");
-        expect(lead).toContain("So use direct dispatch: launch each Goldfish yourself.");
-        const gate_line =
-            "For an EGM gate with options, call ask_question with the gate's JSON payload, " +
-            "then end your turn.";
-        expect(lead).toContain(gate_line);
-        // Without a designs directory the two designs-directory lines stay out (3.6).
-        expect(lead).not.toContain("Designs directory:");
-        const designs = "/w/web/docs/designs";
-        writeFileSync(state, JSON.stringify({ track: "direct", designs_dir: designs }));
-        expect(await section_for({ ...env_for("lead", ""), ...egm })).not.toContain("Designs");
-        writeFileSync(state, JSON.stringify({ track: "design", designs_dir: designs }));
-        const design = await section_for({ ...env_for("lead", ""), ...egm });
-        expect(design).toContain(
-            `Designs directory: ${designs}. Save the design doc there, as an absolute path.\n` +
-                "When the draft's final file is written there, call design_doc with its " +
-                `absolute path.\n${gate_line}`,
-        );
+        expect(lead).toContain("read /home/egm/src/docs/harnesses.md once");
+        expect(lead).toContain("launch each one yourself");
+        // Nothing of the lifecycle: no track, no tool for a gate or a design doc.
+        for (const gone of ["Track:", "the Elephant", "ask_question", "design_doc", "Designs"]) {
+            expect([gone, lead.includes(gone)]).toEqual([gone, false]);
+        }
+        // A state file of the removed tracker changes nothing.
+        mkdirSync(join(session_dir, "design"), { recursive: true });
+        const state = { track: "design", designs_dir: "/w/web/docs/designs" };
+        writeFileSync(join(session_dir, "design", ".state.json"), JSON.stringify(state));
+        expect(await section_for({ ...env_for("lead", ""), ...egm })).toBe(lead);
         const worker = await section_for({ ...env_for("worker", ""), ...egm });
         expect(worker).not.toContain("EGM");
-        rmSync(state);
         const plain = await section_for(env_for("lead", ""));
         expect(plain).toContain("You are the lead");
-        expect(plain).toContain("Track: direct, the fast path.");
+        expect(plain).toContain("open the pull request with `pr` `open`");
         expect(plain).not.toContain("EGM");
     });
 
@@ -740,52 +724,6 @@ describe("edit guard", () => {
             `${MISSION}- 10:05 alpha: touching web/src/page.tsx to add the refund link\n`,
         );
         expect(call("edit", "web/src/page.tsx")).toBeUndefined();
-    });
-
-    it("keeps a design-track lead to the design doc until approval (6.13, 6.14)", () => {
-        const designs = join(session_dir, "worktrees", "web", "docs", "designs");
-        const state_file = join(session_dir, "design", ".state.json");
-        mkdirSync(join(session_dir, "design"), { recursive: true });
-        const write_state = (state: unknown): void =>
-            writeFileSync(state_file, `${JSON.stringify(state)}\n`);
-        const call_as = (agent: string, role: string) => {
-            const pi = fake_pi();
-            const env = { ...env_for(role, ""), SPINNER_AGENT: agent };
-            register(pi, { env });
-            const handler = pi.handlers.get("tool_call")?.[0];
-            const cwd = join(session_dir, "worktrees", "web");
-            return (path: string): ToolCallResult | undefined => {
-                const event: ToolCallEvent = { toolName: "write", input: { path } };
-                const ctx = { cwd, hasUI: false, ui: { notify: () => undefined } };
-                return handler?.(event as never, ctx as never) as ToolCallResult | undefined;
-            };
-        };
-        const lead = call_as("lead", "lead");
-        const design = { track: "design", stage: "drafted", designs_dir: designs };
-        write_state({ ...design, approved: false });
-        const blocked = lead("src/a.ts");
-        expect(blocked).toMatchObject({ block: true });
-        expect(blocked?.reason).toContain("Under EGM's design-only scope");
-        expect(lead("docs/designs/x.md")).toBeUndefined();
-        expect(lead(join(session_dir, "design", "notes.md"))).toBeUndefined();
-        expect(lead(join(session_dir, "MISSION.md"))).toBeUndefined();
-
-        write_state({ ...design, stage: "approved", approved: true });
-        expect(lead("src/a.ts")).toBeUndefined();
-        write_state({ ...design, approved: false });
-        expect(lead("src/a.ts")).toMatchObject({ block: true });
-
-        // A worker is not affected; it falls through to its own globs (`alpha` owns api/**).
-        expect(call_as("alpha", "worker")("api/a.ts")).toBeUndefined();
-        // A stale state: the tracker rewrites `.state.json` at a switch to direct.
-        write_state({ track: "direct", stage: null, approved: false, designs_dir: designs });
-        expect(lead("src/a.ts")).toBeUndefined();
-        // Without a designs worktree only the session's files stay writable.
-        write_state({ ...design, approved: false, designs_dir: null });
-        expect(lead("docs/designs/x.md")).toMatchObject({ block: true });
-        // An absent or invalid state does not lock anything.
-        writeFileSync(state_file, "{not json");
-        expect(lead("src/a.ts")).toBeUndefined();
     });
 
     it("parses globs from the brief and matches them", () => {

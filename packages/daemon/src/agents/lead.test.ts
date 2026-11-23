@@ -29,9 +29,7 @@ import type {
     SpinnerEvent,
 } from "@spinner/protocol";
 import type { Session } from "@spinner/protocol";
-import { DESIGN_DEFAULT_TRACK, EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES } from "@spinner/protocol";
-import { DesignTracker } from "../egm/design.js";
-import { MissionWriter } from "../store/mission-writer.js";
+import { EGM_ADAPTER_VERSION, EGM_REQUIRED_FILES } from "@spinner/protocol";
 import { EgmFetcher, egm_source_dir, marker_path } from "../egm/fetch.js";
 import type { Runner } from "../git/pinned-clone.js";
 import { EGM_PIN } from "../egm/pins.js";
@@ -215,8 +213,6 @@ describe("POST /sessions with text", () => {
         expect(done.log.join("\n")).toContain("adopted acme/backend#4812 as backend");
         expect(done.log.join("\n")).toContain("starting lead in the backend worktree");
         expect(done.log.join("\n")).toContain("first message delivered");
-        // A session with adopted PRs gets the direct track (D12, 2.23).
-        expect(done.log).toContain("track: direct");
 
         const read = read_session(home, dir);
         expect(read.ok).toBe(true);
@@ -233,7 +229,8 @@ describe("POST /sessions with text", () => {
         // The lead is hosted in the adopted repo's worktree; its first turn may still run.
         expect(session.agents?.["lead"]).toMatchObject({ harness: "rpc", repo: "backend" });
         expect(session.agents?.["lead"]?.process).not.toBe("exited");
-        expect(session.design?.track).toBe("direct");
+        // No lifecycle: the session has no track and no design state.
+        expect(session.design).toBeUndefined();
 
         const spawned = JSON.parse(readFileSync(args_file, "utf8")) as {
             cwd: string;
@@ -247,22 +244,22 @@ describe("POST /sessions with text", () => {
         expect(brief).toContain("session_title");
         expect(brief).toContain("Do not post to Slack, approve, land, reset or close");
         expect(brief).toContain("GitHub (push, pull requests, comments, reviews)");
-        // The fast path comes first (talk-change-ship.md, 1.2): no gate, no plan to approve.
-        expect(brief).toContain("## How you work: the fast path (track `direct`, the default)");
+        // One way of working (talk-change-ship.md, 1.2): no gate, no plan to approve.
+        expect(brief).toContain("## How you work\n");
         expect(brief).toContain("1. Start now.");
         expect(brief).toContain("2. Decide, do not ask.");
         expect(brief).toContain("7. Open the pull request with the `pr` tool (`open`)");
         expect(brief).toContain("8. Keep it ready.");
         expect(brief).not.toContain("propose a track");
-        // EGM is one section, for the design track only, and the lead never starts it.
-        expect(brief).toContain(
-            "## Planning first: EGM (track `design`, only when the operator picks it)",
-        );
-        expect(brief).toContain("Never propose it, never start it");
-        expect(brief).toContain("1. The operator starts each EGM skill. You never start one on");
-        expect(brief).toContain("2. Ask each EGM gate that has options with `ask_question`");
-        expect(brief).toContain("write only the design doc and the session's files.");
-        expect(brief.indexOf("## How you work")).toBeLessThan(brief.indexOf("## Planning first"));
+        // The EGM skills are tools the operator asks for; nothing in the brief is a stage.
+        expect(brief).toContain("## Documents and the EGM skills");
+        expect(brief).toContain("Run one only when the operator asks");
+        expect(brief).toContain("Never propose one and never start one on your own.");
+        expect(brief).toContain("`egm/` in the session directory.");
+        expect(brief).toContain("A comment reaches you as");
+        for (const gone of ["ask_question", "design_doc", "a track", "approves the design"]) {
+            expect([gone, brief.includes(gone)]).toEqual([gone, false]);
+        }
         // A turn another agent or Spinner started ends with a short brief for the operator.
         expect(brief).toContain("## Turns the operator did not start");
         expect(brief).toContain("3. End the turn with a brief for the operator, three lines");
@@ -438,44 +435,23 @@ describe("the EGM step of a lead start", () => {
 
     let last: Session | null = null;
 
-    /** Starts a lead; with `design`, the tracker and the writer join the deps (2.23). */
-    async function start(
-        egm: EgmFetcher | undefined,
-        design = false,
-        track?: "design" | "direct",
-    ): Promise<string[]> {
+    /** Starts a lead with the fetcher, or without one. */
+    async function start(egm: EgmFetcher | undefined): Promise<string[]> {
         const summary = create_session(home, { title: "Egm lead", lead: true });
         const lines: string[] = [];
-        const writer = new MissionWriter(home, daemon.bus);
-        const tracker = new DesignTracker({
-            home,
-            cwd: root,
-            agents: daemon.agents,
-            bus: daemon.bus,
-            writer,
-            refresh: async () => undefined,
-            log: () => undefined,
-        });
         const deps = {
             home,
             ctx: { home, cwd: root, gh },
             agents: daemon.agents,
             ...(egm === undefined ? {} : { egm }),
-            ...(design ? { design: tracker, writer } : {}),
         };
-        try {
-            const started = await start_lead_session(
-                deps,
-                summary,
-                { text: "Add a flag", ...(track === undefined ? {} : { track }) },
-                (line) => lines.push(line),
-            );
-            // The lead is hosted; its first turn may run already.
-            expect(started.session.agents?.["lead"]?.process).not.toBe("exited");
-            last = started.session;
-        } finally {
-            await tracker.close();
-        }
+        const request = { text: "Add a flag" };
+        const started = await start_lead_session(deps, summary, request, (line) =>
+            lines.push(line),
+        );
+        // The lead is hosted; its first turn may run already.
+        expect(started.session.agents?.["lead"]?.process).not.toBe("exited");
+        last = started.session;
         await daemon.agents.stop(summary.dir, "lead");
         return lines;
     }
@@ -512,31 +488,7 @@ describe("the EGM step of a lead start", () => {
         expect(lines.filter((line) => line.includes("EGM"))).toEqual([]);
     });
 
-    it("gives a new session the direct track, the fast path, with EGM ready", async () => {
-        expect(DESIGN_DEFAULT_TRACK).toBe("direct");
-        fetched_home();
-        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true);
-        expect(lines).toContain("track: direct");
-        expect(last?.design?.track).toBe("direct");
-    });
-
-    it("gives the design track when the request asks for it and EGM is ready", async () => {
-        fetched_home();
-        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true, "design");
-        expect(lines).toContain("track: design");
-        expect(last?.design?.track).toBe("design");
-    });
-
-    it("gives a failed fetch the direct track, and says so when design was asked", async () => {
-        const lines = await start(new EgmFetcher(home, pi_env(true), failing), true, "design");
-        expect(lines).toContain(
-            "track: design was asked for, but EGM is not ready or a PR was adopted",
-        );
-        expect(lines).toContain("track: direct");
-        expect(last?.design?.track).toBe("direct");
-    });
-
-    it("writes no design block without the tracker in the deps", async () => {
+    it("gives the session no track and no design state, with EGM ready", async () => {
         fetched_home();
         const lines = await start(new EgmFetcher(home, pi_env(true), failing));
         expect(lines.some((line) => line.startsWith("track:"))).toBe(false);

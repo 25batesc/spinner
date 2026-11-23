@@ -1,7 +1,7 @@
-// What a lead of an EGM session gets at spawn (docs/designs/egm-adoption.md, T3): the skills
-// directory, the adapter directory, the run directory and the artifact directory. EGM is on
-// for a lead when EGM is fetched, the session is an ordinary one (not a review), and the
-// operator's pi settings list pi-subagents.
+// What a lead gets at spawn so that it can run the EGM skills: the skills directory, the
+// adapter directory, the run directory and the artifact directory. A lead has them when EGM
+// is fetched, the session is an ordinary one (not a review), and the operator's pi settings
+// list pi-subagents.
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +23,7 @@ export interface EgmSpawn {
     agents_dir: string;
     /** `<session>/egm-runs`, `PI_SUBAGENTS_TEMP_ROOT`. */
     runs_dir: string;
-    /** `<session>/design`. */
+    /** `<session>/egm`: where the skills write. */
     artifacts_dir: string;
 }
 
@@ -77,8 +77,9 @@ function names_subagents(source: string | null): boolean {
 }
 
 /**
- * The EGM paths for a lead's spawn, or null when EGM is off for this session. Creates the
- * artifact and run directories.
+ * The EGM paths for a lead's spawn, or null when the lead does not get the skills. Creates
+ * the run directory. The artifact directory appears when a skill first writes to it, so a
+ * session that never runs one shows no empty `egm/` in its files.
  */
 export function egm_spawn(
     home: SpinnerHome,
@@ -96,7 +97,6 @@ export function egm_spawn(
     }
     const artifacts_dir = join(summary.path, EGM_ARTIFACT_DIR);
     const runs_dir = join(summary.path, EGM_RUNS_DIR);
-    mkdirSync(artifacts_dir, { recursive: true });
     mkdirSync(runs_dir, { recursive: true });
     const root = egm_source_dir(home);
     return {

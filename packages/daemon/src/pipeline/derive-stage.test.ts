@@ -272,43 +272,12 @@ describe("derive_stage: several PRs", () => {
     });
 });
 
-describe("derive_stage: the design stage (2.17, Technical Plan T7)", () => {
-    const planned = (design: NonNullable<PipelineFacts["design"]>): PipelineFacts =>
-        facts({ has_commits: false, design }, []);
-
-    it("before approval, the design's needs wins and the stage stays the pipeline's", () => {
-        const result = derive_stage(planned({ stage: "drafted", needs: "review the design" }));
-        expect(result).toEqual({
-            stage: "planned",
-            needs_human: "review the design",
-            stale: false,
-        });
-        // It also wins over the pipeline's own action.
-        const verifying = facts({ design: { stage: "design-ready", needs: "approve the design" } });
-        expect(derive_stage(verifying)).toMatchObject({
-            stage: "verifying",
-            needs_human: "approve the design",
-        });
-    });
-
-    it("before approval, null design needs keeps the pipeline's text", () => {
-        expect(derive_stage(planned({ stage: "intake", needs: null })).needs_human).toBeNull();
-        const verifying = facts({ design: { stage: "drafting", needs: null } });
-        expect(derive_stage(verifying).needs_human).toBe("verify locally (backend#412)");
-    });
-
-    it("at approved, the design's needs fills only a null needs_human", () => {
-        const gate = { stage: "approved" as const, needs: "answer Remy: Which store?" };
-        expect(derive_stage(planned(gate)).needs_human).toBe("answer Remy: Which store?");
-        const verifying = derive_stage(facts({ design: gate }));
-        expect(verifying.needs_human).toBe("verify locally (backend#412)");
-    });
-
-    it("a review draft still wins over the design's needs", () => {
-        const both = facts(
-            { has_commits: false, review_draft: true, design: { stage: "drafted", needs: "x" } },
-            [],
-        );
-        expect(derive_stage(both).needs_human).toBe(REVIEW_DRAFT_NEEDS_HUMAN);
+describe("derive_stage: a review draft waiting on the operator", () => {
+    it("is the next action, before the pipeline's own and before a comment", () => {
+        const waiting = [{ id: "c2", where: "admin /refunds · RefundRow" }];
+        const draft = facts({ review_draft: true, comments_waiting: waiting });
+        expect(derive_stage(draft).needs_human).toBe(REVIEW_DRAFT_NEEDS_HUMAN);
+        const none = facts({ has_commits: false, review_draft: true }, []);
+        expect(derive_stage(none).needs_human).toBe(REVIEW_DRAFT_NEEDS_HUMAN);
     });
 });

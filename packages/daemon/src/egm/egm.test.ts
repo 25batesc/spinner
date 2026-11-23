@@ -292,7 +292,7 @@ describe("egm_spawn", () => {
         expect(egm_spawn(home, make_session(home), bare)).toBeNull();
     });
 
-    it("creates the artifact and run directories otherwise", () => {
+    it("names the skill paths otherwise, and creates only the run directory", () => {
         const home = make_home();
         write_checkout(egm_source_dir(home));
         write_marker(home, EGM_PIN.sha, EGM_ADAPTER_VERSION);
@@ -303,9 +303,10 @@ describe("egm_spawn", () => {
             skills_dir: join(egm_source_dir(home), "skills"),
             agents_dir: egm_adapter_dir(home),
             runs_dir: join(summary.path, "egm-runs"),
-            artifacts_dir: join(summary.path, "design"),
+            artifacts_dir: join(summary.path, "egm"),
         });
-        expect(existsSync(join(summary.path, "design"))).toBe(true);
+        // A session that never runs a skill shows no empty `egm/` among its files.
+        expect(existsSync(join(summary.path, "egm"))).toBe(false);
         expect(existsSync(join(summary.path, "egm-runs"))).toBe(true);
     });
 });

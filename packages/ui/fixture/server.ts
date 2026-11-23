@@ -32,18 +32,17 @@ import {
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { costsReport } from "./costs.ts";
-import { DESIGN_ROUTE, DesignFixture } from "./design.ts";
+import { FILES_ROUTE, FilesFixture } from "./files.ts";
 import { extract } from "./extract.ts";
 import { handleGoldfish } from "./goldfish.ts";
 import { PipelineFixture } from "./pipeline.ts";
 import {
-    FIXTURE_PORT, designView, diffRepoStopped, diffViewerUrl, egmStatus, initialDesignSessions,
+    FIXTURE_PORT, diffRepoStopped, diffViewerUrl, egmStatus, initialWorkSessions,
     initialProjects, initialReviews, initialSessions, machineUsage, PROJECT_EXAMPLE_TEXT, PROJECTS,
     fixtureProject, pr, session, stackView, view, withContext, type FixtureProject,
 } from "./data.ts";
 import { ReviewFixture } from "./reviews.ts";
 import type { AgentTranscriptResponse, DiffRepoView, DiffView } from "@spinner/protocol";
-import { WorkspaceFixture, withWorkspace } from "./workspace.ts";
 
 /** An agent's context figure after the fixture's compaction: pi's summary and the brief. */
 export const COMPACTED_PCT = 6;
@@ -184,10 +183,8 @@ class FixtureDaemon {
     pipeline = new PipelineFixture(this);
     /** The review routes (s015, s016): `POST /reviews`, the swarm, the lead's draft routes. */
     reviews = new ReviewFixture(this);
-    /** The design routes (entry 3.24): the gate, the answer, the skill runs. */
-    design = new DesignFixture(this);
-    /** The design workspace's reads (entries 5.12, 5.14): files, reports, doc, round Logs. */
-    workspace = new WorkspaceFixture(this);
+    /** The Files view's routes: the tree, a file, a save, and the comment threads. */
+    files = new FilesFixture(this);
     /** The keys each fake viewer page received, per repo (`DIFF_VIEWER_ROUTE`). */
     diffKeys = new Map<string, string[]>();
     /** The projects by name, for the Projects view's routes. */
@@ -196,9 +193,8 @@ class FixtureDaemon {
     port = FIXTURE_PORT;
 
     constructor() {
-        const seeds = [...initialSessions(), ...initialDesignSessions(), ...initialReviews()];
-        for (const seed of seeds) {
-            const item = withWorkspace(seed);
+        const seeds = [...initialSessions(), ...initialWorkSessions(), ...initialReviews()];
+        for (const item of seeds) {
             this.sessions.set(item.summary.dir, item);
             if (item.review !== undefined && "briefing" in item.review) {
                 this.reviews.seedBriefing(item.summary.dir);
@@ -290,11 +286,6 @@ class FixtureDaemon {
         const ts = new Date().toISOString();
         this.emit({ type: "settings", ts, session: null, settings: this.settings });
         sendJson(response, this.settingsResponse());
-    }
-
-    /** The design doc of a session, for the approve route's seed (entry 2.29). */
-    doc(dir: string): string {
-        return this.workspace.doc(dir);
     }
 
     mission(dir: string): string {
@@ -570,42 +561,6 @@ class FixtureDaemon {
         return this.accepted(response, job);
     }
 
-    /**
-     * `PUT /sessions/:dir/design/track` (entry 2.37), as the daemon: 400 for an unknown track,
-     * 409 once a repo has commits, 409 for `design` while EGM is not ready with pi-subagents;
-     * else the updated view answers and `session.updated` follows. A switch to `design` starts
-     * at `intake`; a switch to `direct` keeps the files with a null stage.
-     */
-    designTrack(response: ServerResponse, dir: string, body: Record<string, unknown>): void {
-        const current = this.sessions.get(dir);
-        const track = body["track"];
-        if (current === undefined) {
-            sendJson(response, { error: `no session ${dir}` }, 404);
-            return;
-        }
-        if (track !== "design" && track !== "direct") {
-            sendJson(response, { error: `unknown track ${String(track)}` }, 400);
-            return;
-        }
-        const repos = Object.values(current.summary.session.repos);
-        if (current.design !== undefined && repos.some((repo) => repo.changed)) {
-            sendJson(response, { error: "the build has started; the track is fixed" }, 409);
-            return;
-        }
-        if (track === "design" && (this.egm.state !== "ready" || !this.egm.subagents)) {
-            const reason = this.egm.subagents ? this.egm.state : "pi-subagents is not installed";
-            sendJson(response, { error: `EGM is not available: ${reason}` }, 409);
-            return;
-        }
-        const known = current.design ?? designView(null);
-        const design = track === "design"
-            ? { ...known, track: "design" as const, stage: known.stage ?? "intake" }
-            : { ...known, track: "direct" as const, stage: null };
-        const next = { ...current, design };
-        this.update(next);
-        sendJson(response, { session: next });
-    }
-
     accepted(response: ServerResponse, job: Job): true {
         sendJson(response, { job }, 202);
         return true;
@@ -862,23 +817,15 @@ class FixtureDaemon {
     async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const [path = "/", search = ""] = (request.url ?? "/").split("?");
         const method = request.method ?? "GET";
-        const track = /^\/sessions\/([^/]+)\/design\/track$/.exec(path);
-        if (method === "PUT" && track !== null) {
-            this.designTrack(response, track[1] ?? "", await readBody(request));
-            return;
-        }
-        if (DESIGN_ROUTE.test(path)) {
+        if (FILES_ROUTE.test(path)) {
             const body = method === "PUT" || method === "POST" ? await readBody(request) : {};
-            if (this.design.handle(method, path, body, response)) {
+            if (this.files.handle(method, path, search, body, response)) {
                 return;
             }
         }
         const fish = /^\/sessions\/([^/]+)\/egm\//.exec(path)?.[1];
-        const goldfish = this.sessions.get(fish ?? "")?.design?.goldfish;
-        if (fish !== undefined && handleGoldfish(method, path, goldfish, response)) {
-            return;
-        }
-        if (this.workspace.handle(method, path, response)) {
+        const subagents = this.sessions.get(fish ?? "")?.subagents;
+        if (fish !== undefined && handleGoldfish(method, path, subagents, response)) {
             return;
         }
         if (await this.reviewRoute(request, response, method, path)) {

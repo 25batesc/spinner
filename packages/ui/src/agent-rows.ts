@@ -20,7 +20,7 @@ export type RowRole = "lead" | "worker" | "fixer" | "reviewer" | "goldfish";
 export type RowAction = "interrupt" | "compact" | "stop" | "resume";
 export type RowGroupId = "session" | "reviewers" | "goldfish";
 
-/** What a click on the row opens below the list: an agent's tabs or a Goldfish transcript. */
+/** What a click on the row opens below the list: an agent's tabs or a subagent's chat. */
 export type RowTarget =
     | { kind: "agent"; name: string }
     | { kind: "fish"; run: string; step: number };
@@ -31,7 +31,7 @@ export interface AgentRow {
     target: RowTarget;
     name: string;
     role: RowRole;
-    /** The role as the row prints it; a Goldfish adds its design step. */
+    /** The role as the row prints it. */
     roleLabel: string;
     state: RowState;
     /** The running tool call, else the Roster's `doing`, else `—`. */
@@ -186,8 +186,9 @@ function runStart(steps: readonly GoldfishView[]): number {
 }
 
 /**
- * The Goldfish oldest run first, each run's steps by index. The daemon lists the newest run
- * first; a new run here goes to the end, so the rows above it stay where they were.
+ * The lead's subagents, oldest run first, each run's steps by index. The daemon lists the
+ * newest run first; a new run here goes to the end, so the rows above it stay where they
+ * were.
  */
 function fishOrder(goldfish: readonly GoldfishView[]): GoldfishView[] {
     const runs = new Map<string, GoldfishView[]>();
@@ -205,10 +206,10 @@ function fishRow(fish: GoldfishView): AgentRow {
         target: { kind: "fish", run: fish.run, step: fish.step },
         name: chipLabel(fish),
         role: "goldfish",
-        roleLabel: fish.design_step === null ? "goldfish" : `goldfish · ${fish.design_step}`,
+        roleLabel: "subagent",
         state: fishState(fish.state),
         doing: NONE,
-        doingTitle: "A Goldfish reports its last activity time only, not its action",
+        doingTitle: "A subagent reports its last activity time only, not its action",
         model: fish.model === null ? NONE : shortModel(fish.model),
         modelTitle: fish.model ?? "model unknown",
         context: null,
@@ -229,7 +230,7 @@ function group(id: RowGroupId, label: string, rows: AgentRow[]): RowGroup {
 /**
  * The groups of the Agents view, empty ones left out: the session agents (the lead, the
  * workers, the fixer, each in `session.yaml` order), the reviewers (the swarm's order, then
- * any other `review-*` agent) and the Goldfish.
+ * any other `review-*` agent) and the lead's subagents.
  */
 export function agentRows(
     view: SessionView,
@@ -259,11 +260,11 @@ export function agentRows(
                 !swarm.some((member) => member.name === name))
             .map(([name, spec]) => row(name, spec, "reviewer", hostedState(spec, hosted(name)))),
     ];
-    const fish = fishOrder(view.design?.goldfish ?? []).map(fishRow);
+    const fish = fishOrder(view.subagents ?? []).map(fishRow);
     return [
         group("session", "Session agents", session),
         group("reviewers", "Reviewers", reviewers),
-        group("goldfish", "Goldfish", fish),
+        group("goldfish", "Subagents", fish),
     ].filter((item) => item.rows.length + item.finished.length > 0);
 }
 

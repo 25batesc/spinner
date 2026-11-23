@@ -379,30 +379,6 @@ describe("POST /sessions/:dir/review", { timeout: 30_000 }, () => {
         expect(daemon?.agents.running(summary.dir)).toEqual([NAME_B]);
     });
 
-    it("names the approved design doc in each reviewer's brief (D11, 6.12)", async () => {
-        await boot(24);
-        const created = ordinary_session();
-        const approved = {
-            path: "docs/designs/refunds.md",
-            repo: "backend",
-            sha256: "ab",
-            at: "2026-11-03T00:00:00Z",
-            blockers: 0,
-            round: 1,
-        };
-        const design = { track: "design" as const, doc: approved.path, repo: "backend", approved };
-        write_session({ ...created, session: { ...created.session, design } });
-        const one = { theme: "system", review: { models: [MODEL_A] } };
-        expect((await call("PUT", "/settings", one)).status).toBe(200);
-        await start_review(created.dir, { pr: "backend" });
-        const brief = readFileSync(join(created.path, "agents", NAME_A, "BRIEF.md"), "utf8");
-        const doc = join(created.path, "worktrees", "backend", "docs", "designs", "refunds.md");
-        expect(brief).toContain(
-            `The approved design doc is \`${doc}\`. Read it. Name each place where the code ` +
-                "differs from it.",
-        );
-    });
-
     it("leaves the design line out without an approved doc (6.12)", async () => {
         await boot(24);
         const summary = ordinary_session();

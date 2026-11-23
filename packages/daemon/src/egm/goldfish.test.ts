@@ -1,28 +1,27 @@
-// Goal: the Goldfish watcher reads pi-subagents' files as docs/designs/egm-adoption.md, entry
-// 4.5, says: a documented `status.json` parses, missing step fields get their defaults, each
-// status word maps to its chip state, `read_runs` keeps the newest 200 runs, each run's design
-// step is written once, `live_count` sums two sessions, and the poll timer stops after the
-// settle window. Also the two shapes pi-subagents 0.84.0 writes beyond the entry: a workflow
-// run whose steps are their own child runs shows each Goldfish once, and a foreground run
-// (only `subagent-artifacts/`) shows as running, done, or stopped once the lead's turn ended.
+// Goal: the watcher of the lead's subagents reads pi-subagents' files: a documented
+// `status.json` parses, missing step fields get their defaults, each status word maps to its
+// row state, `read_runs` keeps the newest 200 runs, the steps list as rows with their cost,
+// and the poll timer stops after the settle window. Also the two shapes pi-subagents 0.84.0
+// writes: a workflow run whose steps are their own child runs shows each step once, and a
+// foreground run (only `subagent-artifacts/`) shows as running, done, or stopped once the
+// lead's turn ended.
 // Method: real files in a scratch home made by `create_session`; the lead's busy flag is a
 // stub `is_busy`, the clock is a fake `now`, and the timer is driven by `tick` calls.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { DesignStage, SessionSummary } from "@spinner/protocol";
+import type { SessionSummary } from "@spinner/protocol";
 import { GOLDFISH_RUNS_MAX, GOLDFISH_SETTLE_POLL_MS } from "@spinner/protocol";
 import { EventBus } from "../event-bus.js";
 import { resolve_home, type SpinnerHome } from "../home.js";
-import { create_session, write_session } from "../store/session-store.js";
+import { create_session } from "../store/session-store.js";
 import {
-    attribute_runs,
     chip_state,
     child_key,
     GoldfishWatcher,
     parse_status,
-    read_attributions,
+    subagent_views,
     read_runs,
     session_runs,
 } from "./goldfish.js";
@@ -58,11 +57,8 @@ function write_run(session: string, run: string, json: unknown, mtime_s = 1000):
     utimesSync(dir, mtime_s, mtime_s);
 }
 
-function session_with(stage: DesignStage): SessionSummary {
-    const summary = create_session(home, { title: `CSV ${stage}` });
-    summary.session.design = { track: "design", stage };
-    write_session(summary);
-    return summary;
+function session_with(title: string): SessionSummary {
+    return create_session(home, { title: `CSV ${title}` });
 }
 
 describe("parse_status", () => {
@@ -219,28 +215,6 @@ describe("read_runs", () => {
     });
 });
 
-describe("step attribution", () => {
-    it("writes each run's design step once, at its first sight", () => {
-        const summary = session_with("brainstorm");
-        write_run(summary.path, "r-1", status("r-1", "running", [{ agent: "egm-design" }]));
-        expect(attribute_runs(summary.path, session_runs(summary.path, true), "brainstorm")).toBe(
-            true,
-        );
-        write_run(summary.path, "r-2", status("r-2", "running", [{ agent: "egm-style" }]));
-        // The stage moved on: r-1 keeps brainstorm, r-2 gets review.
-        expect(attribute_runs(summary.path, session_runs(summary.path, true), "review")).toBe(true);
-        expect(attribute_runs(summary.path, session_runs(summary.path, true), "review")).toBe(
-            false,
-        );
-        expect(read_attributions(summary.path)).toEqual({ "r-1": "brainstorm", "r-2": "review" });
-        const file = join(summary.path, "egm-runs", "runs.json");
-        expect(Object.keys(JSON.parse(readFileSync(file, "utf8")) as object)).toEqual([
-            "r-1",
-            "r-2",
-        ]);
-    });
-});
-
 describe("GoldfishWatcher", () => {
     function watcher_with(
         busy: Set<string>,
@@ -259,9 +233,9 @@ describe("GoldfishWatcher", () => {
         });
     }
 
-    it("counts the running Goldfish of two sessions and attributes their runs", async () => {
+    it("reports a change once per session, and lists the steps as rows", async () => {
         const a = session_with("brainstorm");
-        const b = session_with("design-review");
+        const b = session_with("review");
         write_run(
             a.path,
             "a-1",
@@ -278,13 +252,22 @@ describe("GoldfishWatcher", () => {
         watcher.wake(b.dir);
         await watcher.tick(a.dir);
         await watcher.tick(b.dir);
-        expect(watcher.live_count()).toBe(2);
-        expect(read_attributions(a.path)).toEqual({ "a-1": "brainstorm" });
-        expect(read_attributions(b.path)).toEqual({ "b-1": "review" });
         // The first tick of each session saw a change; the repeated ticks saw none.
+        await watcher.tick(a.dir);
         expect(changes.sort()).toEqual([a.dir, b.dir]);
         watcher.close();
-        expect(watcher.live_count()).toBe(0);
+        expect(watcher.watching(a.dir)).toBe(false);
+        // The agents table: one row per step, priced from the ledger's rows by `run/step`.
+        const rows = subagent_views(b.path, true, { "b-1/0": { usd: 0.25 } });
+        expect(rows.map((row) => [row.agent, row.persona, row.state, row.usd])).toEqual([
+            ["egm-style", "style", "running", 0.25],
+            ["egm-critic", "critic", "queued", 0],
+        ]);
+        // A step that is not an EGM persona is a subagent like any other.
+        const done = [{ agent: "scout", status: "complete" }];
+        write_run(a.path, "a-2", status("a-2", "complete", done));
+        const scout = subagent_views(a.path, false, {}).find((row) => row.run === "a-2");
+        expect(scout).toMatchObject({ agent: "scout", persona: null, state: "done" });
     });
 
     it("stops the timer: lead idle, nothing running, settle window over", async () => {

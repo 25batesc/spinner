@@ -45,8 +45,7 @@
                     "additionalProperties": {}
                 },
                 "designs": {
-                    "$ref": "#/definitions/StackDesigns",
-                    "description": "Where the session's design doc lives (docs/designs/egm-adoption.md, D3). `repo` is a key of `repos` and defaults to the first repo; `dir` is relative to that repo and defaults to `docs/designs`."
+                    "description": "Where a design doc went while Spinner ran EGM as a lifecycle (removed on 2026-11-23, `egm.ts`). A `spinner.yaml` written before that can carry the block; nothing reads it."
                 }
             },
             "required": [
@@ -353,19 +352,6 @@
                 }
             },
             "additionalProperties": false
-        },
-        "StackDesigns": {
-            "type": "object",
-            "properties": {
-                "repo": {
-                    "type": "string"
-                },
-                "dir": {
-                    "type": "string"
-                }
-            },
-            "additionalProperties": false,
-            "description": "The `designs:` block of `spinner.yaml`."
         }
     },
     "$id": "https://spinner.dev/schema/stack-spec.json",

@@ -1,14 +1,12 @@
 // `spinner pr <session>`: for each repo whose branch has commits ahead of its base, push the
 // branch and open one PR as the operator (`gh` login), with a body built from the mission's
-// Goal, Done when and Log, or from the approved design doc's Overview and Goals. PR numbers
-// go into `session.yaml` and the Log; the stage is re-derived at once, so the board shows
-// bot-review without waiting for a poll. Every push and every `gh pr create` goes through
-// `github_write`, which checks the allow-list first.
+// Goal, Done when and Log. PR numbers go into `session.yaml` and the Log; the stage is
+// re-derived at once, so the board shows bot-review without waiting for a poll. Every push
+// and every `gh pr create` goes through `github_write`, which checks the allow-list first.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PipelineConfig, PrRequest, Session, SessionSummary } from "@spinner/protocol";
-import { approved_doc_of, pr_body_from_design } from "../egm/pr-body.js";
 import type { SpinnerHome } from "../home.js";
 import { SESSION_SPEC } from "../stack/runner.js";
 import { load_spec } from "../stack/spec.js";
@@ -158,12 +156,10 @@ async function commits_ahead(writer: GithubWriter, cwd: string, base: string): P
 
 /**
  * Writes `artifacts/pr-<repo>.md` and returns its path. The body is the one given (the
- * lead's description of the change, 2.4); without one it comes from the approved
- * design doc in the designs repo's worktree (6.9), else from the mission. A doc that is
- * missing from the worktree falls back to the mission, so the PR never opens without a body.
+ * lead's description of the change, 2.4); without one it comes from the mission, so the PR
+ * never opens without a body.
  */
 function write_pr_body(summary: SessionSummary, repo: string, given: string | undefined): string {
-    const doc = approved_doc_of(summary);
     const change = current_change(summary.session);
     let body: string;
     if (given !== undefined && given.trim().length > 0) {
@@ -172,9 +168,6 @@ function write_pr_body(summary: SessionSummary, repo: string, given: string | un
         // The mission's Goal is the first change's; a later change without a description
         // says only what it is.
         body = `${change.title}\n\n_Opened by Spinner from session ${summary.session.id}._\n`;
-    } else if (doc !== null && existsSync(doc.absolute)) {
-        const text = readFileSync(doc.absolute, "utf8");
-        body = pr_body_from_design(text, doc.path, summary.session.id);
     } else {
         const mission_path = join(summary.path, "MISSION.md");
         const mission = existsSync(mission_path) ? readFileSync(mission_path, "utf8") : "";

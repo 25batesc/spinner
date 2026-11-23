@@ -2,10 +2,7 @@
 // reopens sees them, and check each message shows once; then the tool row's summary, the
 // window of drawn entries, the keys of the message box and the text with attached images.
 import { describe, expect, it } from "vitest";
-import type { PiEvent, PiMessage, SessionView } from "@spinner/protocol";
-
-import { chatQuestion, optionParts } from "./ChatGate.tsx";
-import { RESOLVE_NEEDS } from "./design.ts";
+import type { PiEvent, PiMessage } from "@spinner/protocol";
 
 import {
     boxRows,
@@ -415,46 +412,6 @@ it("splits the notices the daemon queued before the operator's words", () => {
     expect(splitPendingNotices(own)).toEqual({ notice: null, operator: own });
     const alone = "Spinner autopilot: your pull request needs you.";
     expect(splitPendingNotices(alone)).toEqual({ notice: alone, operator: null });
-});
-
-it("shows the lead's open question as the last block of its chat", () => {
-    const gate = { question: "Which shape?", options: ["(a) one", "(b) two"], asked: "t1" };
-    const view = (design: object | undefined, needs: string | null): SessionView =>
-        ({
-            board: null,
-            summary: { session: { needs_human: needs } },
-            ...(design === undefined ? {} : { design }),
-        }) as unknown as SessionView;
-    expect(chatQuestion(view({ gate, stage: "drafting" }, null))).toEqual({
-        key: "t1", label: "Remy asks", question: "Which shape?", options: ["(a) one", "(b) two"],
-    });
-    const resolve = chatQuestion(view({ gate: null, stage: "resolving" }, RESOLVE_NEEDS));
-    expect(resolve?.key).toBe("resolve");
-    expect(resolve?.options).toHaveLength(3);
-    expect(chatQuestion(view({ gate: null, stage: "drafting" }, null))).toBeNull();
-    expect(chatQuestion(view(undefined, null))).toBeNull();
-});
-
-it("splits an option into a title and a detail, without the lead's own marker", () => {
-    expect(optionParts("(a) Recommended: DIY only when N is within the top of the row")).toEqual({
-        title: "Recommended",
-        detail: "DIY only when N is within the top of the row",
-    });
-    expect(optionParts("Streamed CSV from the list page")).toEqual({
-        title: "Streamed CSV from the list page",
-        detail: "",
-    });
-    expect(optionParts("2. Background job - a file is built, then linked by mail")).toEqual({
-        title: "Background job",
-        detail: "a file is built, then linked by mail",
-    });
-    expect(optionParts("Build a deliverable. Doc, deck or report")).toEqual({
-        title: "Build a deliverable",
-        detail: "Doc, deck or report",
-    });
-    // A first clause too long for a title: the whole option is one line.
-    const long = `${"word ".repeat(20)}: detail`;
-    expect(optionParts(long).detail).toBe("");
 });
 
 it("takes a drag of files anywhere on the chat, and leaves a drag of text alone", () => {

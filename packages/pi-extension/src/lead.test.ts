@@ -125,16 +125,6 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 answer(200, { ok: true, disposition: "queued" });
             } else if (path === `/sessions/${DIR}`) {
                 answer(200, { session: { stack: { services: [] } } });
-            } else if (path === `/sessions/${DIR}/design/doc`) {
-                const doc = (body as { path: string }).path;
-                if (doc.endsWith("brief.md")) {
-                    const lacks = "this file lacks ## Overview, ## Detailed Implementation Plan";
-                    answer(400, { error: `a design doc has ... headings; ${lacks}` });
-                } else {
-                    answer(200, { session: { summary: { session: { title: "x" } } } });
-                }
-            } else if (path === `/sessions/${DIR}/design/gate`) {
-                answer(200, { ok: true });
             } else if (path === `/sessions/${DIR}/review/briefing`) {
                 answer(200, { ok: true });
             } else if (path === `/sessions/${DIR}/review/draft`) {
@@ -203,7 +193,9 @@ describe("the lead role", () => {
         // The lead keeps its own pull request ready (talk-change-ship.md, 1.4).
         expect(names).toContain("thread_reply");
         expect(names).toContain("thread_resolve");
-        expect(names).toContain("design_doc");
+        // The EGM lifecycle is gone, and its tools with it.
+        expect(names).not.toContain("design_doc");
+        expect(names).not.toContain("ask_question");
         const handler = pi.handlers.get("before_agent_start")?.[0];
         const event: BeforeAgentStartEvent = { systemPromptOptions: { sections: {} } };
         await handler?.(event as never, {} as never);
@@ -527,77 +519,9 @@ describe("the lead role", () => {
             await expect(
                 run(pi, "review_draft", { event: "COMMENT", body: "x", comments: "not json" }),
             ).rejects.toThrow(/JSON array/);
-            // The design doc (EGM, build session 2, 2.7).
-            const doc = "/w/web/docs/designs/csv-export.md";
-            expect(await run(pi, "design_doc", { path: doc })).toBe(
-                `Spinner tracks ${doc} as the design doc.`,
-            );
-            expect(daemon.requests.at(-1)).toEqual({
-                method: "PUT",
-                path: `/sessions/${DIR}/design/doc`,
-                body: { path: doc },
-            });
-            await expect(
-                run(pi, "design_doc", { path: "/w/web/docs/designs/brief.md" }),
-            ).rejects.toThrow(/400: a design doc has .* this file lacks ## Overview/);
         } finally {
             daemon.close();
         }
-    });
-
-    it("sends one EGM gate from ask_question and refuses the rest (3.4, 3.5)", async () => {
-        const daemon = await fake_daemon();
-        try {
-            const pi = fake_pi();
-            register(pi, { env: env_for(daemon.url) });
-            const gate = {
-                question: "Anchored feature hypothesis: CSV export. Proceed?",
-                options: ["Review with Goldfishes", "Clarify additional constraints in chat"],
-            };
-            const array_form = JSON.stringify([{ ...gate, is_multi_select: false }]);
-            const answer = await run(pi, "ask_question", { questions: array_form });
-            expect(answer).toBe(
-                "The operator sees this question as buttons in Spinner's chat. " +
-                    "End your turn now. The answer arrives as your next message.",
-            );
-            expect(daemon.requests.at(-1)).toEqual({
-                method: "PUT",
-                path: `/sessions/${DIR}/design/gate`,
-                body: gate,
-            });
-            // EGM's examples show the object form; `is_multi_select` may be absent.
-            await run(pi, "ask_question", { questions: JSON.stringify({ questions: [gate] }) });
-            expect(daemon.requests.at(-1)?.body).toEqual(gate);
-            const sent = daemon.requests.length;
-            const seven = ["1", "2", "3", "4", "5", "6", "7"];
-            const refusals: [string, RegExp][] = [
-                ["not json", /must be JSON text/],
-                [JSON.stringify([]), /exactly one question/],
-                [JSON.stringify([gate, gate]), /exactly one question/],
-                [JSON.stringify({ questions: "x" }), /exactly one question/],
-                [JSON.stringify([{ ...gate, question: "  " }]), /non-empty string/],
-                [JSON.stringify([{ ...gate, options: ["only"] }]), /2 to 6 strings/],
-                [JSON.stringify([{ ...gate, options: seven }]), /2 to 6 strings/],
-                [JSON.stringify([{ ...gate, options: ["a", 2] }]), /2 to 6 strings/],
-                [JSON.stringify([{ ...gate, is_multi_select: true }]), /are single-select\./],
-            ];
-            for (const [questions, fault] of refusals) {
-                await expect(run(pi, "ask_question", { questions }), questions).rejects.toThrow(
-                    fault,
-                );
-            }
-            expect(daemon.requests.length).toBe(sent);
-        } finally {
-            daemon.close();
-        }
-    });
-
-    it("gives design_doc and ask_question to the lead only, not to a worker (2.8, 3.5)", () => {
-        const worker = fake_pi();
-        register(worker, { env: { ...env_for(""), SPINNER_AGENT: "web", SPINNER_ROLE: "worker" } });
-        expect(worker.tools.has("design_doc")).toBe(false);
-        expect(worker.tools.has("ask_question")).toBe(false);
-        expect(worker.tools.has("mission_log")).toBe(true);
     });
 
     it("blocks the bash calls the operator keeps", () => {

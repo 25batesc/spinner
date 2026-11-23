@@ -1,19 +1,10 @@
-// The Goldfish of the fixture daemon (docs/designs/egm-adoption.md, entry 4.18, Technical Plan
-// T5). The design-review session carries six chips in mixed states over two runs: a
-// brainstorm run (done, stopped) and a review run (running, running, failed, queued). One
-// step has a transcript, which `GET …/egm/goldfish/:run/:step/events` serves; every other step
-// answers 404, as the daemon does for a step without a transcript file. The brainstorm session
-// carries `goldfish_live: 12`, so the cap line shows without a chip.
+// The lead's subagents in the fixture daemon. The seeded session carries six steps in mixed
+// states over two runs (done, stopped; running, running, failed, queued). One step has a
+// transcript, which `GET …/egm/goldfish/:run/:step/events` serves; every other step answers
+// 404, as the daemon does for a step without a transcript file.
 import type { ServerResponse } from "node:http";
 
-import type {
-    GoldfishView, PiAssistantMessage, PiEvent, SessionView,
-} from "@spinner/protocol";
-
-/** The session whose chips the `goldfish` driver flow reads. */
-export const GOLDFISH_DIR = "s205-csv-design-review";
-/** The session at the global cap, with no chips of its own. */
-export const GOLDFISH_CAP_DIR = "s202-csv-brainstorm";
+import type { GoldfishView, PiAssistantMessage, PiEvent } from "@spinner/protocol";
 
 export const GOLDFISH_ROUTE = /^\/sessions\/([^/]+)\/egm\/goldfish\/([^/]+)\/(\d+)\/events$/;
 
@@ -27,15 +18,11 @@ function step(
     return {
         run, step: index, agent: `egm-${persona.replaceAll("_", "-")}`, persona,
         state: "done", model: MODEL, tokens: 0, usd: 0, started: null, last_activity: null,
-        design_step: run === BRAINSTORM_RUN ? "brainstorm" : "review", transcript: false,
-        ...partial,
+        transcript: false, ...partial,
     };
 }
 
-/**
- * Six chips: the sums match the view's `cost_by_stage` (brainstorm $0.42, review $1.20), and
- * the two running steps are the stepper's Review superscript.
- */
+/** Six steps of two runs, in every state a step can have. */
 export function fixtureGoldfish(): GoldfishView[] {
     const early = "2026-10-20T10:05:00Z";
     const late = "2026-10-20T10:40:00Z";
@@ -58,22 +45,6 @@ export function fixtureGoldfish(): GoldfishView[] {
         }),
         step(REVIEW_RUN, 3, "readiness", { state: "queued", model: null }),
     ];
-}
-
-/** Seeds the Goldfish facts of the two sessions above; every other view stays as it is. */
-export function withGoldfish(view: SessionView): SessionView {
-    const dir = view.summary.dir;
-    if (view.design === undefined) {
-        return view;
-    }
-    if (dir === GOLDFISH_DIR) {
-        const design = { ...view.design, goldfish: fixtureGoldfish(), goldfish_live: 2 };
-        return { ...view, design };
-    }
-    if (dir === GOLDFISH_CAP_DIR) {
-        return { ...view, design: { ...view.design, goldfish_live: 12 } };
-    }
-    return view;
 }
 
 const USAGE = {

@@ -132,8 +132,8 @@ function with_top_level(session: Session, record: ChangeRecord): Session {
 /**
  * Pure: the session focused on change `id` (2.2). For the current change it is the session
  * itself. For another one, the top-level change fields are that change's, and the
- * session-level facts the stage derivation reads (the design gate, diff comments, preview
- * comments, the review draft) are left out: they belong to the current change's stage.
+ * session-level facts the stage derivation reads (diff comments, preview comments, the
+ * review draft) are left out: they belong to the current change's stage.
  */
 export function focus_change(session: Session, id: string): Session {
     if (current_change(session).id === id) {
@@ -142,7 +142,6 @@ export function focus_change(session: Session, id: string): Session {
     const record = records_of(session).find((entry) => entry.id === id);
     assert.ok(record !== undefined, `session ${session.id} has no change "${id}"`);
     const next = with_top_level(session, record);
-    delete next.design;
     delete next.diff;
     delete next.comments;
     delete next.review;

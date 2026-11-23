@@ -375,32 +375,6 @@ describe("MissionWriter", () => {
         expect(writer.last_write("s9-test")?.author).toBe("api");
     });
 
-    it("rewrite applies a function to the file and publishes one mission.changed", async () => {
-        const writer = new MissionWriter(home, bus, { now: () => new Date(2026, 9, 28, 12, 0) });
-        const first = writer.write("s9-test", {
-            section: "log",
-            mode: "append",
-            text: "before",
-            author: "lead",
-        });
-        const rewrite = writer.rewrite("s9-test", "spinner", (text) =>
-            text.replace("## Plan\n", "## Plan\n- [ ] 1. [1.1] seeded\n"),
-        );
-        await Promise.all([first, rewrite]);
-        const text = readFileSync(join(home.sessions, "s9-test", "MISSION.md"), "utf8");
-        expect(mission_section(text, "Plan")).toContain("- [ ] 1. [1.1] seeded");
-        expect(mission_section(text, "Log")).toContain("before");
-        const changed = events.filter((event) => event.type === "mission.changed");
-        expect(changed).toHaveLength(2);
-        expect(changed[1]).toMatchObject({ author: "spinner", sections: [] });
-        expect(changed[1]?.type === "mission.changed" && changed[1].view.plan[0]).toMatchObject({
-            id: 1,
-            entry: "1.1",
-            text: "seeded",
-        });
-        expect(writer.last_write("s9-test")?.author).toBe("spinner");
-    });
-
     it("rewrites the agent's NOTES.md on a Roster row write", async () => {
         const writer = new MissionWriter(home, bus, { now: () => new Date(2026, 9, 28, 11, 0) });
         await writer.write("s9-test", {
@@ -444,81 +418,5 @@ describe("MissionWriter", () => {
             author: "a",
         });
         expect(good.sections).toEqual(["log"]);
-    });
-});
-
-describe("MissionWriter on the design track (2.21, 2.22)", () => {
-    let home: SpinnerHome;
-
-    beforeEach(() => {
-        home = resolve_home({ SPINNER_HOME: mkdtempSync(join(tmpdir(), "spinner-writer-")) });
-        mkdirSync(join(home.sessions, "s9-test"), { recursive: true });
-        writeFileSync(join(home.sessions, "s9-test", "MISSION.md"), base);
-    });
-
-    afterEach(() => {
-        rmSync(home.root, { recursive: true, force: true });
-    });
-
-    /** A session.yaml with the given `design` block, or none. */
-    function session_with(design: string): void {
-        const yaml = [
-            "version: 1",
-            "id: s9",
-            "slug: test",
-            "title: Test",
-            "created: 2026-11-02",
-            "stage: planned",
-            "needs_human: null",
-            "branch: feat/test",
-            "base: main",
-            "repos: {}",
-            "stack: { state: none }",
-            "agents: {}",
-            design,
-        ].join("\n");
-        writeFileSync(join(home.sessions, "s9-test", "session.yaml"), `${yaml}\n`);
-    }
-
-    const write = (section: "goal" | "done_when" | "plan" | "log", author: string) => {
-        const writer = new MissionWriter(home, new EventBus());
-        const request: MissionSectionRequest =
-            section === "plan" || section === "log"
-                ? { section, mode: "append", text: "a line", author }
-                : { section, mode: "replace", text: "- [ ] x", author };
-        return writer.write("s9-test", request);
-    };
-
-    it("refuses the lead's Goal and Done when; Plan, Log and Roster pass", async () => {
-        session_with("design: { track: design, doc: docs/designs/x.md }");
-        const refusal = "this session's spec is the design doc (docs/designs/x.md)";
-        await expect(write("goal", "lead")).rejects.toThrow(refusal);
-        await expect(write("done_when", "lead")).rejects.toThrow(refusal);
-        await expect(write("done_when", "operator")).rejects.toThrow(refusal);
-        expect((await write("plan", "lead")).ok).toBe(true);
-        expect((await write("log", "lead")).ok).toBe(true);
-        const roster = await new MissionWriter(home, new EventBus()).write("s9-test", {
-            section: "roster",
-            mode: "roster_row",
-            text: "the draft",
-            author: "lead",
-            blocked: "no",
-        });
-        expect(roster.ok).toBe(true);
-        expect((await write("goal", "spinner")).ok).toBe(true);
-    });
-
-    it("names a doc that is not named yet", async () => {
-        session_with("design: { track: design }");
-        await expect(write("goal", "lead")).rejects.toThrow(
-            "this session's spec is the design doc (not named yet)",
-        );
-    });
-
-    it("lets the lead write Goal on the direct track and without a design block", async () => {
-        session_with("design: { track: direct }");
-        expect((await write("goal", "lead")).ok).toBe(true);
-        session_with("");
-        expect((await write("goal", "lead")).ok).toBe(true);
     });
 });

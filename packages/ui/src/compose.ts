@@ -63,7 +63,6 @@ export function startBody(
     project: string,
     ticked: ReadonlySet<string>,
     prs: readonly ExtractedPr[],
-    planFirst = false,
 ): NewSessionRequest {
     const adopt: string[] = [];
     for (const pr of prs) {
@@ -74,10 +73,6 @@ export function startBody(
     const body: NewSessionRequest = { text, adopt };
     if (project !== "") {
         body.project = project;
-    }
-    // The fast path is the default; EGM planning is asked for, per session.
-    if (planFirst) {
-        body.track = "design";
     }
     return body;
 }

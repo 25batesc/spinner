@@ -160,8 +160,6 @@ export interface ComposeFormProps {
 export interface ComposeDraft {
     text: string;
     project: string;
-    /** Plan first with EGM (the design track); off means the fast path. */
-    planFirst?: boolean;
 }
 
 export const EMPTY_DRAFT: ComposeDraft = { text: "", project: "" };
@@ -179,12 +177,7 @@ export function ComposeForm({ run, draft, onDraft, starting }: ComposeFormProps)
         if (text.trim() === "" || starting) {
             return;
         }
-        const planFirst = draft.planFirst === true;
-        // `Make a plan` starts a planning session (talk-change-ship.md, 4.2): no code.
-        void run(
-            planFirst ? "/plans" : "/sessions",
-            startBody(text, project, extraction.ticked, extraction.prs, planFirst),
-        );
+        void run("/sessions", startBody(text, project, extraction.ticked, extraction.prs));
     };
 
     return (
@@ -206,17 +199,6 @@ export function ComposeForm({ run, draft, onDraft, starting }: ComposeFormProps)
                     <span className="field-label">Project</span>
                     <ProjectSelect projects={projects} value={project} onChange={setProject} />
                 </label>
-                <label
-                    className="compose-plan"
-                    title={PLAN_FIRST_TIP}
-                >
-                    <input
-                        type="checkbox"
-                        checked={draft.planFirst === true}
-                        onChange={(event) => onDraft({ ...draft, planFirst: event.target.checked })}
-                    />
-                    <span>Make a plan (no code)</span>
-                </label>
                 <button
                     type="submit"
                     className="primary"
@@ -228,11 +210,6 @@ export function ComposeForm({ run, draft, onDraft, starting }: ComposeFormProps)
         </form>
     );
 }
-
-const PLAN_FIRST_TIP =
-    "Off: the agent builds, tests, opens the pull request and keeps it ready. " +
-    "On: the agent writes a plan document with you, in the Plans library; no code " +
-    "changes. Press Implement on the plan when it is ready.";
 
 const SESSION_PLACEHOLDER =
     "Tell Remy what you need. Paste a ticket, a PR link, or a sentence.";

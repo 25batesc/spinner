@@ -1,8 +1,7 @@
-// The round badge (docs/designs/egm-adoption.md, entry 2.46, Technical Plan T14). A session is
-// the long-lived home of one feature area; from round 2 the card and the context bar show
-// `r<round>`, and the tooltip lists the PRs of every earlier round. The daemon sends the
-// round and the rounds in `SessionView`; a daemon from before the EGM design sends neither,
-// and the session then reads as round 1.
+// The round badge. A session is the long-lived home of one feature area; from round 2 the
+// card and the context bar show `r<round>`, and the tooltip lists the PRs of every earlier
+// round. The daemon sends the round and the rounds in `SessionView`; without them the
+// session reads as round 1.
 import type { RoundView, SessionView } from "@spinner/protocol";
 
 /** `r3` from round 2 on; null in round 1, where there is nothing earlier to show. */

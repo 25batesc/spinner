@@ -28,7 +28,7 @@ import type {
     ThinkingLevel,
 } from "./session.js";
 import type { DiffView } from "./diff.js";
-import type { DesignTrack, DesignView, SeedResult } from "./egm.js";
+import type { GoldfishView } from "./egm.js";
 import type { SessionCost } from "./costs.js";
 import type { DatabaseMode, DatabaseServer, PreviewMode } from "./stack-spec.js";
 import type { ThreadView, ThreadsView } from "./threads.js";
@@ -240,18 +240,6 @@ export const ROUTES = {
     "PUT /sessions/:dir/groups/:group/hold": "SessionResponse",
     /** Take a group off hold. 404 for an unknown group; a group not on hold is unchanged. */
     "DELETE /sessions/:dir/groups/:group/hold": "SessionResponse",
-    /** Every plan of the library, with its status and the sessions that implement it. */
-    "GET /plans": "PlansResponse",
-    /** Start a planning session from a paste. Body: NewPlanRequest. Answers as `POST /sessions`. */
-    "POST /plans": "JobResponse",
-    /** The plan's document as markdown text. 404 without one. */
-    "GET /plans/:id/doc": "text",
-    /**
-     * Attach the plan to a session and seed its mission board; the job then tells the lead.
-     * Body: PlanImplementRequest. 409 without a document, for one the seed refuses, for a
-     * review or planning session.
-     */
-    "POST /plans/:id/implement": "JobResponse",
     /** Write one section of MISSION.md. Body: MissionSectionRequest. The daemon serializes. */
     "PUT /sessions/:dir/mission/section": "MissionSectionResponse",
     /** Write an `inbox/` message and deliver it. Body: InboxMessageRequest. */
@@ -345,73 +333,20 @@ export const ROUTES = {
     "GET /jobs": "JobsResponse",
     /** One job by id. 404 when the daemon never ran it (jobs live in memory only). */
     "GET /jobs/:id": "JobResponse",
-    /** The EGM fetch state and the pin (docs/designs/egm-adoption.md, T2). */
+    /** The fetch state and the pin of the EGM skills (`egm.ts`). */
     "GET /egm": "EgmResponse",
-    /** Fetch or refetch EGM at the pin and regenerate the adapter. A job `egm`. */
+    /** Fetch or refetch the EGM skills at the pin and regenerate the adapter. A job `egm`. */
     "POST /egm/fetch": "JobResponse",
-    /**
-     * Body: DesignTrackRequest. 409 once a repo has commits, and 409 for `design` when EGM is
-     * not available.
-     */
-    "PUT /sessions/:dir/design/track": "SessionResponse",
-    /**
-     * Body: DesignDocRequest. The lead's `design_doc` tool. 400 with the reason when the path
-     * is not a design doc; 409 for the approved doc while its approval stands. Another doc
-     * clears the approval and starts a new design.
-     */
-    "PUT /sessions/:dir/design/doc": "SessionResponse",
-    /**
-     * Body: DesignGateRequest. The lead's `ask_question` tool writes `design.gate`. 400 with
-     * the first fault.
-     */
-    "PUT /sessions/:dir/design/gate": "OkResponse",
-    /**
-     * Body: DesignAnswerRequest. Clears the gate and prompts the lead with the text. 409 when
-     * the lead is not running; the gate then stays.
-     */
-    "POST /sessions/:dir/design/answer": "AgentCommandResponse",
-    /**
-     * Body: DesignRunRequest. Starts an EGM skill in the lead with the arguments the daemon
-     * composes (T9). 409 when the lead is not running.
-     */
-    "POST /sessions/:dir/design/run": "AgentCommandResponse",
     /**
      * The Log of an earlier round, from `## Previous rounds` of MISSION.md. 400 unless
      * `:round` is an integer from 1 to `ROUNDS_MAX`; 404 for a round without one.
      */
     "GET /sessions/:dir/rounds/:round/log": "text/markdown",
     /**
-     * The transcript events of one Goldfish step (build session 4), from the step's
-     * `sessionFile`. 404 for an unknown run or step, or a file outside `<session>/agents/`.
+     * The transcript events of one subagent step of the lead, from the step's `sessionFile`.
+     * 404 for an unknown run or step, or a file outside `<session>/agents/`.
      */
     "GET /sessions/:dir/egm/goldfish/:run/:step/events": "AgentEventsResponse",
-    /** The files of `<session>/design/` and the archived review runs (build session 5). */
-    "GET /sessions/:dir/design/files": "DesignFilesResponse",
-    /**
-     * One file of `<session>/design/`. 400 unless `:name` matches `DESIGN_FILE_NAME_PATTERN`
-     * and does not start with `.`; 404 when absent.
-     */
-    "GET /sessions/:dir/design/files/:name": "text/markdown",
-    /**
-     * One report of an archived review run, `<session>/design/reviews/:run/:name`. 400 unless
-     * `:run` matches `^r\d{1,2}$` and `:name` is valid as above; 404 when absent.
-     */
-    "GET /sessions/:dir/design/reviews/:run/:name": "text/markdown",
-    /** The design doc from the worktree of `design.repo`. 404 before `design.doc`. */
-    "GET /sessions/:dir/design/doc": "text/markdown",
-    /**
-     * Body: DesignApproveRequest. Approves the design doc (T10) and seeds the Plan from its
-     * entries (session-workspace T4). 409 with a DesignApproveRefusal without a doc, while
-     * resolving, with an open gate, when the newest report lists blockers that
-     * `blockers_confirmed` does not confirm, or when the seed checks refuse the doc.
-     */
-    "POST /sessions/:dir/design/approve": "DesignApproveResponse",
-    /** Removes the approval and `approved.md`; `design.approvals` keeps its history. */
-    "DELETE /sessions/:dir/design/approve": "SessionResponse",
-    /** The doc as approved, `<session>/design/approved.md`. 404 before an approval. */
-    "GET /sessions/:dir/design/approved": "text/markdown",
-    /** The `## ` sections changed since the approval; an empty list without a change. */
-    "GET /sessions/:dir/design/changes": "DesignChangesResponse",
 } as const;
 
 export type Route = keyof typeof ROUTES;
@@ -736,10 +671,10 @@ export interface SessionView {
      */
     review?: ReviewFields;
     /**
-     * The design facts (docs/designs/egm-adoption.md, T7, T12). Absent for a session without
-     * a `design` block in `session.yaml`.
+     * The subagents the lead started with pi-subagents (the Goldfish of an EGM skill, or any
+     * other), newest run first. The daemon always sets it; optional for older fixtures.
      */
-    design?: DesignView;
+    subagents?: GoldfishView[];
     /**
      * The round: `session.round`, else the `-r<n>` suffix of the branch, else 1. The daemon
      * always sets it; optional so a fixture written before the EGM design still type-checks.
@@ -968,9 +903,6 @@ export interface SessionResponse {
     session: SessionView;
 }
 
-/** `POST /sessions/:dir/design/approve`: the session and the seed's counts (T4). */
-export type DesignApproveResponse = SessionResponse & { seed: SeedResult };
-
 /** The actions the daemon runs as jobs. */
 export type JobAction =
     | "new"
@@ -989,7 +921,6 @@ export type JobAction =
     | "land"
     | "reset"
     | "change"
-    | "plan"
     | "diff"
     | "egm";
 
@@ -1010,7 +941,6 @@ export const JOB_ACTIONS: readonly JobAction[] = [
     "land",
     "reset",
     "change",
-    "plan",
     "diff",
     "egm",
 ];
@@ -1062,17 +992,6 @@ export interface NewSessionRequest {
     project?: string;
     /** PR URLs from `ExtractResponse.prs` to adopt: a worktree on each PR's head branch. */
     adopt?: string[];
-    /**
-     * `design` to plan first with EGM (brainstorm, draft, review, approve, then build). Absent
-     * means `DESIGN_DEFAULT_TRACK`, the fast path. `design` falls back to `direct` when EGM
-     * is not ready or a pull request was adopted.
-     */
-    track?: DesignTrack;
-    /**
-     * True for a planning session (docs/designs/talk-change-ship.md, 4.2): `kind: plan`, the
-     * design track, a plan in the library. `POST /plans` sets it.
-     */
-    plan?: boolean;
 }
 
 /** `POST /sessions/extract`: the PR references in `text`, resolved against `project`'s repos. */
@@ -1310,76 +1229,6 @@ export interface ApproveRequest {
 export interface LandRequest {
     /** Repo key of one PR. Every PR when absent. */
     pr?: string;
-}
-
-/** One session that implements a plan, as `plan.json` records it. */
-export interface PlanImplementation {
-    /** The session's directory name. */
-    session: string;
-    /** ISO 8601 time of the `Implement`. */
-    at: string;
-    /** The first 12 hex digits of the document's hash at that time. */
-    sha12: string;
-}
-
-/** `plan.json` of one plan in the library (docs/designs/talk-change-ship.md, 4.1). */
-export interface PlanRecord {
-    /** The plan's directory name under `<home>/plans`. */
-    id: string;
-    title: string;
-    created: string;
-    updated: string;
-    /** Project name or spec path the plan is about, or null. */
-    project: string | null;
-    /** File name of the document in the plan's directory; null until the lead names it. */
-    doc: string | null;
-    /** Directory name of the session the plan was written in, or null. */
-    origin: string | null;
-    implementations: PlanImplementation[];
-}
-
-export type PlanStatus = "draft" | "drafted" | "reviewed" | "implementing" | "done";
-
-/** One implementing session of a plan, with its progress. */
-export interface PlanSessionView {
-    session: string;
-    /** False once the session is archived. */
-    live: boolean;
-    title: string | null;
-    /** Plan entries whose items are all ticked, and the entries the session's Plan links. */
-    done: number;
-    entries: number;
-}
-
-/** One plan, as the Plans view lists it (4.3). */
-export interface PlanView extends PlanRecord {
-    status: PlanStatus;
-    /** The entries of the document's plan section; 0 without a readable document. */
-    entries: number;
-    /** The highest `done` among the implementing sessions. */
-    done: number;
-    /** The planning session while it lives, else null. */
-    session: string | null;
-    sessions: PlanSessionView[];
-}
-
-export interface PlansResponse {
-    plans: PlanView[];
-}
-
-/** `POST /plans`: a planning session from a paste. */
-export interface NewPlanRequest {
-    text: string;
-    title?: string;
-    project?: string;
-}
-
-/** `POST /plans/:id/implement` (4.5). */
-export interface PlanImplementRequest {
-    /** Directory name of the session that implements the plan. A new session when absent. */
-    session?: string;
-    /** Project of the new session; the plan's project when absent. */
-    project?: string;
 }
 
 /** `PUT /sessions/:dir/changes/:id/group`. `group` is a name; null takes the change out. */

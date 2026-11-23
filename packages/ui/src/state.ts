@@ -322,8 +322,8 @@ export function needsHuman(view: SessionView): string | null {
 
 /** Sessions waiting on the operator first, then newest first. Returns `[dir, view]` pairs. */
 /**
- * The session the operator spoke to last first (a prompt, a steer, a design
- * answer); a session he never spoke to sorts by its creation. A session that needs
+ * The session the operator spoke to last first (a prompt, a steer); a session he never
+ * spoke to sorts by its creation. A session that needs
  * him keeps its line and the rail badge, not a place at the top (dogfooding, 2026-11-10).
  */
 export function sortedSessions(state: UiState): [string, SessionView][] {
@@ -335,16 +335,16 @@ export function sortedSessions(state: UiState): [string, SessionView][] {
 }
 
 /**
- * True while the session works: an agent in a turn (`process: running`), a Goldfish of the
- * lead still running, or a reviewer of the swarm. The lead settles while its Goldfish run,
- * so the agents alone would read idle during a brainstorm or a review.
+ * True while the session works: an agent in a turn (`process: running`), a subagent of the
+ * lead still running, or a reviewer of the swarm. The lead settles while its subagents run,
+ * so the agents alone would read idle during a review that fans out.
  */
 export function agentWorking(view: SessionView): boolean {
     const agents = Object.values(view.summary.session.agents ?? {});
     if (agents.some((agent) => agent.process === "running")) {
         return true;
     }
-    if ((view.design?.goldfish_live ?? 0) > 0) {
+    if ((view.subagents ?? []).some((step) => step.state === "running")) {
         return true;
     }
     return (view.review?.swarm ?? []).some((member) => member.state === "reading");

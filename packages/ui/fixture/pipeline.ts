@@ -13,7 +13,7 @@ import type {
     ThreadView,
 } from "@spinner/protocol";
 
-import { DESIGN_MISSIONS } from "./data.ts";
+import { SESSION_MISSIONS } from "./data.ts";
 import { applyItem, applyQuestion, missionView } from "./mission-view.ts";
 
 /** The part of the fixture daemon these routes use. */
@@ -98,7 +98,7 @@ export class PipelineFixture {
     }
 
     mission(dir: string): string {
-        return this.missions.get(dir) ?? DESIGN_MISSIONS[dir] ?? MISSION;
+        return this.missions.get(dir) ?? SESSION_MISSIONS[dir] ?? MISSION;
     }
 
     /**

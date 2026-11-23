@@ -9,8 +9,6 @@ import type {
     AdoptRequest,
     ApproveRequest,
     ApproveView,
-    DesignTrack,
-    EgmStatus,
     ExtractRequest,
     ExtractResponse,
     FixRequest,
@@ -54,7 +52,6 @@ import { post_message, post_view } from "./pipeline/post.js";
 import { reset_session } from "./pipeline/reset.js";
 import { start_change_job, switch_change_job } from "./pipeline/change-jobs.js";
 import { current_change, has_change } from "./pipeline/changes.js";
-import { ensure_plan } from "./plans/library.js";
 import { open_prs, type PrOutcome } from "./pipeline/pr.js";
 import { slack_client_from_env, type SlackClient } from "./pipeline/slack.js";
 import {
@@ -80,7 +77,6 @@ import {
 import { list_projects } from "./projects.js";
 import { find_spec, load_spec } from "./stack/spec.js";
 import { create_session, read_session, write_session } from "./store/session-store.js";
-import { SPEC_AUTHOR, type MissionWriter } from "./store/mission-writer.js";
 import { diff_home } from "./diff/fetch.js";
 import { stop_viewers } from "./diff/viewer.js";
 
@@ -152,27 +148,12 @@ export function new_session(ctx: ActionContext, input: NewSessionRequest): Sessi
         throw new Error("`adopt` needs a `project`: a worktree needs a repo to come from");
     }
     const lead = input.text !== undefined;
-    const created = create_session(ctx.home, {
+    return create_session(ctx.home, {
         title,
         ...(input.slug === undefined ? {} : { slug: input.slug }),
         ...(lead ? { lead } : {}),
         ...(input.adopt === undefined || input.adopt.length === 0 ? {} : { adopted: input.adopt }),
     });
-    if (input.plan !== true) {
-        return created;
-    }
-    // A planning session: its plan's directory in the library is its designs directory, so
-    // it exists before the lead writes the document (talk-change-ship.md, 4.2).
-    created.session.kind = "plan";
-    write_session(created);
-    ensure_plan(ctx.home, {
-        id: created.dir,
-        title,
-        project: input.project ?? null,
-        origin: created.dir,
-        now: new Date(),
-    });
-    return created;
 }
 
 /**
@@ -303,83 +284,6 @@ export function set_title(
         writeFileSync(file, next);
     }
     return fresh.summary;
-}
-
-/** The Goal that `set_design_track` writes until the lead names its doc (2.20). */
-export const DESIGN_GOAL_PENDING =
-    "The design doc holds the goal. Spinner names it here once the lead calls design_doc.";
-/** The one Done when item of a design-track session (2.20). */
-export const DESIGN_DONE_WHEN = "The design is approved and every Plan item is ticked.";
-
-/** The one line the lead gets when the operator changes the track (dogfood #44). */
-export const TRACK_NOTICES: Record<DesignTrack, string> = {
-    direct:
-        "The operator switched this session to the direct track. Write the Goal, Done when " +
-        "and Plan with mission_goal, mission_done_when and mission_plan, then build.",
-    design:
-        "The operator switched this session to the design track. Spinner now writes the Goal " +
-        "and Done when; wait for the operator to start an EGM skill.",
-};
-
-/**
- * Writes `design.track`, creating the `design` block (docs/designs/egm-adoption.md, D1, 2.20).
- * A session whose build started keeps its track. `design` needs EGM ready and pi-subagents.
- * On `design` the Goal and Done when become the design pointers, as author `spinner`. A
- * change of an existing track writes the `spinner` Log line `track: <new> (was <old>)`; the
- * route tells the lead (`TRACK_NOTICES`).
- */
-export async function set_design_track(
-    ctx: ActionContext,
-    writer: MissionWriter,
-    summary: SessionSummary,
-    track: DesignTrack,
-    egm: EgmStatus,
-): Promise<SessionSummary> {
-    const fresh = read_session(ctx.home, summary.dir);
-    assert.ok(fresh.ok, `${summary.dir} must exist to set its track`);
-    const session = fresh.summary.session;
-    const started = Object.values(session.repos ?? {}).some((repo) => repo.changed);
-    if (session.design !== undefined && started) {
-        throw new Error("the build has started; the track is fixed");
-    }
-    if (track === "design" && egm.state !== "ready") {
-        const reason = egm.error === null ? egm.state : `${egm.state}: ${egm.error}`;
-        throw new Error(`EGM is not available: ${reason}`);
-    }
-    if (track === "design" && !egm.subagents) {
-        throw new Error("EGM is not available: pi-subagents is not installed");
-    }
-    const previous = session.design?.track;
-    session.design = { ...(session.design ?? {}), track };
-    write_session(fresh.summary);
-    // A change of an existing track is a milestone (dogfood #44); the first track a new
-    // session gets is not, and setting the same track again changes nothing.
-    if (previous !== undefined && previous !== track) {
-        await writer.write(summary.dir, {
-            section: "log",
-            mode: "append",
-            text: `track: ${track} (was ${previous})`,
-            author: SPEC_AUTHOR,
-        });
-    }
-    if (track === "design") {
-        const author = SPEC_AUTHOR;
-        await writer.write(summary.dir, {
-            section: "goal",
-            mode: "replace",
-            text: DESIGN_GOAL_PENDING,
-            author,
-        });
-        await writer.write(summary.dir, {
-            section: "done_when",
-            mode: "replace",
-            text: `- [ ] ${DESIGN_DONE_WHEN}`,
-            author,
-        });
-    }
-    const check = read_session(ctx.home, summary.dir);
-    assert.ok(check.ok, `${summary.dir} must read back after the track write`);
-    return check.summary;
 }
 
 /** The job half of `new`: worktrees and the spec copy, when the session has a project. */

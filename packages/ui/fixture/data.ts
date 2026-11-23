@@ -8,8 +8,6 @@ import {
     REVIEW_DRAFT_NEEDS_HUMAN,
     type BoardView,
     type ChangeView,
-    type DesignStage,
-    type DesignView,
     type DiffRepoView,
     type DiffView,
     type EgmStatus,
@@ -32,7 +30,7 @@ import {
 } from "@spinner/protocol";
 
 import { sessionCost } from "./costs.ts";
-import { fixtureGoldfish, withGoldfish } from "./goldfish.ts";
+import { fixtureGoldfish } from "./goldfish.ts";
 import { fixturePort } from "./port.ts";
 
 export const FIXTURE_PORT = fixturePort(process.env);
@@ -721,52 +719,18 @@ export function initialSessions(): SessionView[] {
     ];
 }
 
-/** The doc every fixture design session names once it is drafted. */
-export const DESIGN_DOC = "docs/designs/csv-export.md";
-
-/**
- * The plan section of the fixture doc (session-workspace.md, T2): three phases and seven
- * entries, in the layout Spinner's docs use, so the seed and the Implement view have phases.
- */
-export const PLAN_SECTION = [
-    "## Detailed Implementation Plan",
-    "",
-    "#### Build session 1: the route",
-    "",
-    "##### 1.1 `api/src/exports.ts` (Create)",
-    "",
-    "*   **Proposed Changes**: The streaming route.",
-    "",
-    "##### 1.2 `api/src/exports.test.ts` (Create)",
-    "",
-    "##### 1.3 `api/src/filters.ts` (Modify)",
-    "",
-    "#### Build session 2: the button",
-    "",
-    "##### 2.1 `web/src/ExportButton.tsx` (Create)",
-    "",
-    "##### 2.2 `web/src/list.ts` (Modify)",
-    "",
-    "#### Build session 3: the docs",
-    "",
-    "##### 3.1 `docs/exports.md` (Create)",
-    "",
-    "##### 3.2 `CHANGELOG.md` (Modify)",
-    "",
-].join("\n");
-
-/** The seeded session of the Implement flows (entry 2.30). */
+/** The session whose agents are in every state, with the lead's subagents. */
 export const SEEDED_DIR = "s213-csv-seeded";
 
 /**
- * The MISSION.md of the seeded session: two free items, then one item per entry with the
- * `[n.n]` token, one stale (`[2.2]` carries another title) and one orphan (`[4.1]` is not in
- * the doc); `engine` is on item 5 through its Roster cell, `ui` is blocked.
+ * The MISSION.md of the seeded session: a Plan with free items and items linked to the
+ * entries of a plan document by the `[n.n]` token; `engine` is on item 5 through its Roster
+ * cell, `ui` is blocked.
  */
 export const SEEDED_MISSION = [
     "# s213 \u00b7 CSV export \u00b7 seeded", "",
-    "## Goal", "The design doc holds the goal: `docs/designs/csv-export.md`.", "",
-    "## Done when", "- [ ] The design is approved and every Plan item is ticked.", "",
+    "## Goal", "A streamed CSV export of the list page.", "",
+    "## Done when", "- [ ] Every Plan item is ticked and the pull request is merged.", "",
     "## Plan",
     "- [x] 1. pin the row cap (lead, 10:05)",
     "- [ ] 2. write the e2e row (lead)",
@@ -777,115 +741,20 @@ export const SEEDED_MISSION = [
     "- [ ] 7. [2.2] `web/src/list-old.ts` (ui)",
     "- [ ] 8. [3.1] `docs/exports.md`",
     "- [ ] 9. [3.2] `CHANGELOG.md`",
-    "- [ ] 10. [4.1] `web/src/gone.ts`",
     "",
     "## Roster", "| Agent | Owns | Doing | Blocked? | Updated |",
     "|-------|------|-------|----------|---------|",
-    "| lead | docs/designs/** | coordinating | no | 10:00 |",
+    "| lead | docs/** | coordinating | no | 10:00 |",
     "| engine | api/** | #5 filters.ts | no | 10:31 |",
     "| ui | web/** | #6 ExportButton.tsx | yes: waiting for 1.3 | 10:32 |", "",
     "## Contracts & decisions", "- 10:00 lead: the row cap is 50,000", "",
     "## Open questions", "- ui: does the button show on an empty list?", "",
     "## Log", "- 10:00 operator: session created",
-    "- 10:01 spinner: plan seeded from docs/designs/csv-export.md (9f2c4be1d0a7): " +
-        "7 added, 2 kept, 0 stale, 0 orphaned",
     "- 10:20 engine: 1.1 done", "",
 ].join("\n");
 
-/** The MISSION.md of each design session that has its own; the others take the default. */
-export const DESIGN_MISSIONS: Record<string, string> = { [SEEDED_DIR]: SEEDED_MISSION };
-
-/** A file of `<session>/design/`, as `DesignView.files` lists it. */
-function designFile(name: string, mtime: string) {
-    return { name, bytes: 4096, mtime };
-}
-
-/**
- * `SessionView.design` of a design-track session at a stage (entry 2.37), with the files and
- * the report flags that the daemon's rule table would read for it (Technical Plan T7).
- */
-export function designView(
-    stage: DesignStage | null,
-    partial: Partial<DesignView> = {},
-): DesignView {
-    const at = "2026-10-20T10:00:00Z";
-    const order: (DesignStage | null)[] = [
-        "intake", "brainstorm", "drafting", "drafted", "design-review", "resolving",
-        "design-ready", "approved",
-    ];
-    const reached = (from: DesignStage) =>
-        stage !== null && order.indexOf(stage) >= order.indexOf(from);
-    const reviewed = reached("design-review");
-    const files = [
-        ...(reached("brainstorm") ? [designFile("concepts_brief.md", at)] : []),
-        ...(reached("drafting") ? [designFile("design_draft.md", at)] : []),
-        ...(reviewed ? [
-            designFile("zoom_out_report.md", at), designFile("comprehension_report.md", at),
-            designFile("critic_report.md", at),
-        ] : []),
-        ...(reached("resolving") ? [designFile("consolidated_review_report.md", at),
-            designFile("goldfish_review_report.md", at)] : []),
-    ];
-    const approval = {
-        path: DESIGN_DOC, repo: "web", sha256: "9f2c4be1d0a7", at: "2026-10-20T11:40:00Z",
-        blockers: 0, round: 1,
-    };
-    return {
-        track: "design", stage, files,
-        reviews: { "5": reviewed, "6": reviewed, "7": reviewed, "8": false, "9": false },
-        consolidated: reached("resolving"),
-        resolve: stage === "resolving" ? "open" : reached("design-ready") ? "resolved" : "none",
-        review_run: reviewed ? { id: "r1", preset: "uninterrupted", started: at } : null,
-        doc: reached("drafted") ? DESIGN_DOC : null, doc_missing: false,
-        approved: stage === "approved" ? approval : null,
-        approvals: stage === "approved" ? [approval] : [],
-        changed_after_approval: false, gate: null, goldfish: [], goldfish_live: 0,
-        cost_by_stage: reviewed ? { brainstorm: 0.42, draft: 0.18, review: 1.2 } : {},
-        ...partial,
-    };
-}
-
-/** The `needs_human` the daemon derives per design stage (Technical Plan T7, lines 2 to 7). */
-const DESIGN_NEEDS: Partial<Record<DesignStage, string>> = {
-    drafted: "review the design",
-    resolving: "resolve the review findings",
-    "design-ready": "approve the design",
-};
-
-/** The gate the fixture's gate session waits on: a question with a list, and 3 options. */
-export const FIXTURE_GATE = {
-    question: "Which export shape should the brief carry forward?\n\n" +
-        "- **Streamed CSV**: rows go out as the query reads them.\n" +
-        "- **Background job**: a file is built, then linked by mail.",
-    options: [
-        "Streamed CSV from the list page",
-        "Background job with a mailed link",
-        "Both, picked by row count",
-    ],
-    asked: "2026-10-20T10:12:00Z",
-};
-
-/** `needs_human` for an open gate (Technical Plan T7, line 1): the first 80 characters. */
-export function gateNeeds(question: string): string {
-    return `answer Remy: ${question.slice(0, 80)}`;
-}
-
-/**
- * The blockers the newest review report lists, per session (entry 6.18): the design-ready
- * session's report lists 1, so its approval goes through the blocker confirmation.
- */
-export const LISTED_BLOCKERS: Record<string, number> = { "s207-csv-design-ready": 1 };
-
-/** The session whose doc changed after its approval (entry 6.18, CUJ 7). */
-export const CHANGED_DIR = "s212-csv-changed";
-
-/** `needs_human` after an edit invalidated the approval (Technical Plan T7, line 5). */
-export const REAPPROVE_NEEDS = "re-approve the design (changed since approval)";
-
-/** `DesignView.repo` and `designs_dir` as the daemon sets them for a `web` worktree. */
-function designsOf(dir: string): Pick<DesignView, "repo" | "designs_dir"> {
-    return { repo: "web", designs_dir: `/home/fixture/.spinner/sessions/${dir}/web/docs/designs` };
-}
+/** The MISSION.md of each session that has its own; the others take the default. */
+export const SESSION_MISSIONS: Record<string, string> = { [SEEDED_DIR]: SEEDED_MISSION };
 
 /** The two earlier rounds of the round-3 session: one merged PR, then one closed and one open. */
 export const ROUNDS_OF_R3: RoundView[] = [
@@ -914,46 +783,11 @@ export const ROUNDS_OF_R3: RoundView[] = [
 ];
 
 /**
- * The EGM sessions of the fixture (entries 2.37, 2.47 and 3.24): one design-track session per
- * design stage, one direct-track session, one session at round 3 with two round records, and
- * one session whose lead waits on an open gate. The design sessions have a `web` worktree, so
- * the `EGM \u25be` dialogs prefill absolute paths.
- * They were created before the Refund flow, so the cards that the older flows read first stay
- * first.
+ * The sessions of the fixture besides the Refund flow: one at round 3 with two round
+ * records, and one whose agents are in every state. They were created before the Refund
+ * flow, so the cards that the older flows read first stay first.
  */
-export function initialDesignSessions(): SessionView[] {
-    const stages: DesignStage[] = [
-        "intake", "brainstorm", "drafting", "drafted", "design-review", "resolving",
-        "design-ready", "approved",
-    ];
-    const lead = {
-        lead: {
-            harness: "tty" as const, model: "anthropic/claude-opus-5-5", process: "idle" as const,
-        },
-    };
-    const designs = stages.map((stage, index) => {
-        const id = `s${201 + index}`;
-        const slug = `csv-${stage}`;
-        const base = session({
-            id, slug, title: `CSV export · ${stage}`,
-            created: `2026-10-20T10:0${index}:00Z`,
-            stage: stage === "approved" ? "building" : "planned",
-            needs_human: DESIGN_NEEDS[stage] ?? null,
-            agents: lead,
-            repos: { web: { path: "~/src/web", worktree: "web", changed: false } },
-        });
-        const dir = `${id}-${slug}`;
-        const plain = view(dir, base, stackView(id, "none"), [], ["lead"]);
-        return { ...plain, design: designView(stage, designsOf(dir)), round: 1, rounds: [] };
-    });
-    const direct = session({
-        id: "s209", slug: "csv-direct", title: "CSV export · direct track",
-        created: "2026-10-19T10:00:00Z", stage: "planned",
-    });
-    const directView = {
-        ...view("s209-csv-direct", direct, stackView("s209", "none")),
-        design: designView(null, { track: "direct" }), round: 1, rounds: [],
-    };
+export function initialWorkSessions(): SessionView[] {
     const third = session({
         id: "s210", slug: "csv-round-3", title: "CSV export · round 3",
         created: "2026-10-18T12:00:00Z", stage: "planned", round: 3,
@@ -963,38 +797,24 @@ export function initialDesignSessions(): SessionView[] {
         ...view("s210-csv-round-3", third, stackView("s210", "none")),
         round: 3, rounds: ROUNDS_OF_R3,
     };
-    const gated = session({
-        id: "s211", slug: "csv-gate", title: "CSV export · gate",
-        created: "2026-10-20T10:09:00Z", stage: "planned",
-        needs_human: gateNeeds(FIXTURE_GATE.question), agents: lead,
-        repos: { web: { path: "~/src/web", worktree: "web", changed: false } },
-    });
-    const gatedView = {
-        ...view("s211-csv-gate", gated, stackView("s211", "none"), [], ["lead"]),
-        design: designView("brainstorm", { gate: FIXTURE_GATE, ...designsOf("s211-csv-gate") }),
-        round: 1, rounds: [],
-    };
-    return [
-        ...designs, directView, thirdView, gatedView, changedView(lead), seededView(),
-    ].map(withGoldfish);
+    return [thirdView, seededView()];
 }
 
 /**
- * The approved session whose Plan is seeded (entry 2.30): the lead and `engine` in a turn,
- * `ui` idle, so the Implement rail shows working, idle and blocked. The Agents view (R9) has
- * a row in every state: `docs` stopped by the operator, `api` done, the fixer failed, a done
- * reviewer, and the Goldfish of two runs.
+ * The session of the Agents view's rows: the lead and `engine` in a turn, `ui` idle, `docs`
+ * stopped by the operator, `api` done, the fixer failed, a done reviewer, and the lead's
+ * subagents of two runs.
  */
 function seededView(): SessionView {
     const model = "anthropic/claude-opus-5-5";
     const ended = (code: number | null, by?: "operator") =>
         ({ code, ...(by === undefined ? {} : { by }), at: "2026-10-20T10:40:00Z" });
     const agents: Session["agents"] = {
-        lead: { harness: "tty", model, process: "running" },
-        engine: { harness: "tty", model, process: "running" },
-        ui: { harness: "tty", model, process: "idle" },
-        docs: { harness: "tty", model, process: "exited", ended: ended(null, "operator") },
-        api: { harness: "tty", model, process: "exited", ended: ended(0) },
+        lead: { harness: "rpc", model, process: "running" },
+        engine: { harness: "rpc", model, process: "running" },
+        ui: { harness: "rpc", model, process: "idle" },
+        docs: { harness: "rpc", model, process: "exited", ended: ended(null, "operator") },
+        api: { harness: "rpc", model, process: "exited", ended: ended(0) },
         fixer: { harness: "rpc", model, process: "exited", ended: ended(1) },
         "review-openai-gpt-6-luna": {
             harness: "rpc", model: "openai/gpt-6-luna", process: "exited", ended: ended(0),
@@ -1008,26 +828,5 @@ function seededView(): SessionView {
     const hosted = view(SEEDED_DIR, base, stackView("s213", "none"), [], ["lead", "engine", "ui"]);
     // The three bands past the quiet one: lead hides its figure, engine amber, ui red.
     const plain = withContext(hosted, { lead: 30, engine: 52, ui: 81 });
-    const approved = designView("approved", designsOf(SEEDED_DIR));
-    const design = { ...approved, goldfish: fixtureGoldfish() };
-    return { ...plain, design, round: 1, rounds: [] };
-}
-
-/**
- * The session whose doc changed after its approval (entry 6.18): stage `design-ready`, the
- * approval record kept, `changed_after_approval` set, and the re-approve needs line.
- */
-function changedView(agents: Session["agents"]): SessionView {
-    const base = session({
-        id: "s212", slug: "csv-changed", title: "CSV export · changed",
-        created: "2026-10-20T10:10:00Z", stage: "planned", needs_human: REAPPROVE_NEEDS, agents,
-        repos: { web: { path: "~/src/web", worktree: "web", changed: false } },
-    });
-    const approved = designView("approved", designsOf(CHANGED_DIR)).approved;
-    const design = designView("design-ready", {
-        ...designsOf(CHANGED_DIR), approved, approvals: approved === null ? [] : [approved],
-        changed_after_approval: true,
-    });
-    const plain = view(CHANGED_DIR, base, stackView("s212", "none"), [], ["lead"]);
-    return { ...plain, design, round: 1, rounds: [] };
+    return { ...plain, subagents: fixtureGoldfish(), round: 1, rounds: [] };
 }

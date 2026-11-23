@@ -7,14 +7,12 @@
 import assert from "node:assert/strict";
 import { Type, type TSchema, type TProperties } from "typebox";
 import {
-    DESIGN_GATE_OPTIONS_MAX,
     DIFF_TOOL_TIMEOUT_MS,
     DONE_WHEN_COMMANDS,
     MISSION_ITEM_COMMANDS,
     QUESTION_TOOL_COMMANDS,
 } from "@spinner/protocol";
 import type {
-    DesignGateRequest,
     DiffCommentsRequest,
     DiffCommentsResponse,
     ExtensionToolSpec,
@@ -445,19 +443,6 @@ export async function run_tool(
                 "review pane; do not post."
             );
         }
-        case "design_doc": {
-            const path = text("path").trim();
-            await client.send<SessionResponse>("PUT", `${session}/design/doc`, { path });
-            return `Spinner tracks ${path} as the design doc.`;
-        }
-        case "ask_question": {
-            const gate = parse_gate(text("questions"));
-            await client.send<OkResponse>("PUT", `${session}/design/gate`, gate);
-            return (
-                "The operator sees this question as buttons in Spinner's chat. " +
-                "End your turn now. The answer arrives as your next message."
-            );
-        }
         case "comments_list":
         case "comment_reply":
         case "comment_suggest_resolve":
@@ -714,54 +699,6 @@ export function parse_comments(text: string): unknown[] {
         throw new Error("`comments` must be a JSON array; [] for none");
     }
     return parsed;
-}
-
-/**
- * The one gate of `ask_question` (3.4): EGM's payload as JSON text, either the array of
- * questions or an object with a `questions` array, because EGM's examples show the object.
- * Throws the first fault, so the tool calls nothing for a payload that is not one
- * single-select question with 2 to `DESIGN_GATE_OPTIONS_MAX` options.
- */
-export function parse_gate(text: string): DesignGateRequest {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text.trim());
-    } catch {
-        throw new Error(
-            '`questions` must be JSON text: [{"question": "...", "options": ["...", "..."], ' +
-                '"is_multi_select": false}]',
-        );
-    }
-    const questions: unknown =
-        typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-            ? (parsed as { questions?: unknown }).questions
-            : parsed;
-    if (!Array.isArray(questions) || questions.length !== 1) {
-        throw new Error("`questions` must hold exactly one question; ask the next one later");
-    }
-    const entry: unknown = questions[0];
-    if (typeof entry !== "object" || entry === null) {
-        throw new Error("the question must be an object { question, options, is_multi_select }");
-    }
-    const { question, options, is_multi_select } = entry as Record<string, unknown>;
-    if (typeof question !== "string" || question.trim().length === 0) {
-        throw new Error("`question` must be a non-empty string");
-    }
-    const valid_options =
-        Array.isArray(options) &&
-        options.length >= 2 &&
-        options.length <= DESIGN_GATE_OPTIONS_MAX &&
-        options.every((option) => typeof option === "string");
-    if (!valid_options) {
-        throw new Error(
-            `\`options\` must be 2 to ${DESIGN_GATE_OPTIONS_MAX} strings; ask an open question ` +
-                "in chat",
-        );
-    }
-    if (is_multi_select === true) {
-        throw new Error("EGM gates are single-select.");
-    }
-    return { question, options: options as string[] };
 }
 
 /** `backend#100`, `backend #100` or `backend` → `backend`. */

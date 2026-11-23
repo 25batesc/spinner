@@ -187,15 +187,8 @@ export interface StackSpec {
     harness?: HarnessConfig;
     pipeline?: Record<string, unknown>;
     /**
-     * Where the session's design doc lives (docs/designs/egm-adoption.md, D3). `repo` is a key
-     * of `repos` and defaults to the first repo; `dir` is relative to that repo and defaults
-     * to `docs/designs`.
+     * Where a design doc went while Spinner ran EGM as a lifecycle (removed on 2026-11-23,
+     * `egm.ts`). A `spinner.yaml` written before that can carry the block; nothing reads it.
      */
-    designs?: StackDesigns;
-}
-
-/** The `designs:` block of `spinner.yaml`. */
-export interface StackDesigns {
-    repo?: string;
-    dir?: string;
+    designs?: unknown;
 }

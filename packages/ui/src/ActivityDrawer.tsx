@@ -63,8 +63,8 @@ export interface DrawerWatch {
  * True when the drawer opens itself between two reads: the watched job reached `failed`
  * (a new job that is already failed counts), or an action failed before it became a job.
  * A `needs_human` line never opens it: the rail badge, the card pill and the context bar
- * already carry it, and a design session turns it on at every gate, which popped the
- * drawer open many times an hour (dogfooding, 2026-11-05). A job that runs or ends ok does
+ * already carry it, and a line that comes and goes popped the drawer open many times an
+ * hour (dogfooding, 2026-11-05). A job that runs or ends ok does
  * not open it either.
  */
 export function drawerOpens(before: DrawerWatch, after: DrawerWatch): boolean {

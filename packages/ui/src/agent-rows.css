@@ -58,7 +58,7 @@
 }
 .ar-fold-line:hover, .ar-add:hover { color: var(--text); background: var(--fill); }
 .ar-add.ar-add-on { color: var(--accent); background: var(--accent-tint); }
-.ar-cap { margin: 0; font-size: var(--text-meta); }
+
 /* A narrow pane keeps the current action readable: the role goes first, then the model; the
    name's tooltip carries the role. */
 @container ar (width < 820px) {

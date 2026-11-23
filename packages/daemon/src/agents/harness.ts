@@ -7,9 +7,8 @@
 // `stop` then `resume`. The Spinner pi extension (`packages/pi-extension`) goes in through
 // `--extension` with the session directory, the agent name, the daemon URL and the role in
 // the environment (`EXTENSION_ENV`); it adds the mission to the prompt, the tools and
-// `/spinner-reload`, which makes a context edit a reload instead of a restart. A lead in an
-// EGM session also gets the EGM skills, the adapters and the run directory (Technical Plan
-// T3 of the EGM design).
+// `/spinner-reload`, which makes a context edit a reload instead of a restart. A lead also
+// gets the EGM skills, the adapters and the run directory, when they are fetched.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -293,11 +292,10 @@ const AGENT_ENV_KEYS: readonly string[] = Object.values(EXTENSION_ENV);
  * The inherited variables that describe another agent, which the new agent must not see. A
  * daemon started from inside an agent (a scratch daemon, or a test run from an agent's
  * shell) inherits that agent's `SPINNER_*` extension variables and its `PI_SUBAGENT_*` and
- * `PI_SUBAGENTS_*` variables: `PI_SUBAGENT_CHILD=1` turns the Spinner extension off (EGM
- * design, build findings of session 1), and a lead's `SPINNER_EGM_ROOT` and
- * `PI_SUBAGENTS_TEMP_ROOT` would give a worker the lead's EGM run directory (dogfood
- * r3.7). The variables the plan sets itself stay; `SPINNER_HOME`, `SPINNER_PI` and
- * `PI_CODING_AGENT_DIR` are the daemon's own settings and stay.
+ * `PI_SUBAGENTS_*` variables: `PI_SUBAGENT_CHILD=1` turns the Spinner extension off, and a
+ * lead's `SPINNER_EGM_ROOT` and `PI_SUBAGENTS_TEMP_ROOT` would give a worker the lead's EGM
+ * run directory (dogfood r3.7). The variables the plan sets itself stay; `SPINNER_HOME`,
+ * `SPINNER_PI` and `PI_CODING_AGENT_DIR` are the daemon's own settings and stay.
  */
 function inherited_agent_env(env: Record<string, string>): string[] {
     const unset = Object.keys(process.env).filter(

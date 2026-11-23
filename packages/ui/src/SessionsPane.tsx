@@ -4,7 +4,6 @@ import type { SessionView } from "@spinner/protocol";
 
 import { otherOpenChanges } from "./changes.ts";
 import { ArchiveButton, ArchiveConfirm } from "./CardArchive.tsx";
-import { designSteps, stepperText } from "./design.ts";
 import { fetchForeignHome } from "./events-client.ts";
 import { ContextFigure, CostFigure, PrBadge, RoundBadge, SyncBadge } from "./PaneHead.tsx";
 import { prLine } from "./prLine.ts";
@@ -33,24 +32,6 @@ export interface SessionsPaneProps {
 
 function stackDot(view: SessionView): string {
     return `dot dot-${view.stack.state}`;
-}
-
-/**
- * The five EGM steps as dots without labels (entry 2.34), for a design-track session only;
- * the steps in words are the tooltip.
- */
-function CardDots({ view, needs }: { view: SessionView; needs: string | null }) {
-    if (view.design?.track !== "design") {
-        return null;
-    }
-    const steps = designSteps(view.design, needs);
-    return (
-        <span className="card-dots" title={`EGM: ${stepperText(steps)}`}>
-            {steps.map((step) => (
-                <span key={step.id} className="card-dot" data-state={step.state} />
-            ))}
-        </span>
-    );
 }
 
 /** One session, a block of fixed height; the per-PR lines are the card's tooltip. */
@@ -106,12 +87,6 @@ function SessionCard(props: {
                 </strong>
                 <span className="badges">
                     <span className="badge">{stageOf(view)}</span>
-                    <CardDots view={view} needs={needs} />
-                    {view.kind === "plan" && (
-                        <span className="badge change-count" title="A planning session: no code">
-                            plan
-                        </span>
-                    )}
                     <RoundBadge view={view} />
                     {others > 0 && (
                         <span

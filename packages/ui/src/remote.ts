@@ -4,8 +4,6 @@
 import { useEffect, useState } from "react";
 
 import type {
-    PlansResponse,
-    PlanView,
     AttachmentResponse,
     CommentResponse,
     CommentsResponse,
@@ -14,7 +12,6 @@ import type {
     SessionFileResponse,
     SessionFileSaveRequest,
     SessionFilesResponse,
-    AgentCommandResponse,
     AgentEventsResponse,
     ApproveResponse,
     ApproveView,
@@ -23,18 +20,7 @@ import type {
     CostGroup,
     CostsResponse,
     DefaultBriefResponse,
-    DesignAnswerRequest,
-    DesignApproveRefusal,
-    DesignApproveRequest,
-    DesignApproveResponse,
-    DesignChange,
-    DesignChangesResponse,
-    DesignFilesResponse,
-    DesignRunRequest,
-    DesignTrack,
-    DesignTrackRequest,
     DiffRepoRequest,
-    EgmResponse,
     ExtractRequest,
     ExtractResponse,
     InboxMessageRequest,
@@ -383,47 +369,7 @@ export function useLoaded<T>(
 }
 
 /**
- * `GET /egm`: the fetch state and the pin, for the About EGM block in settings. The fetch
- * itself is `postAction("/egm/fetch")`, a job `egm`.
- */
-export async function fetchEgm(signal: AbortSignal): Promise<EgmResponse> {
-    return getJson<EgmResponse>("/egm", signal);
-}
-
-/**
- * `PUT /sessions/:dir/design/track` (entry 2.35): the track chip's pick. 409 once a repo has
- * commits, and for `design` while EGM is not available; the error text names the reason.
- */
-export async function putDesignTrack(dir: string, track: DesignTrack): Promise<SessionResponse> {
-    const body: DesignTrackRequest = { track };
-    return send("PUT", `/sessions/${dir}/design/track`, body);
-}
-
-/**
- * `POST /sessions/:dir/design/run` (entry 3.23): starts an EGM skill in the lead. 400 for a
- * bad body, 409 when the lead is not running; the error text names the reason.
- */
-export async function postDesignRun(
-    dir: string,
-    body: DesignRunRequest,
-): Promise<AgentCommandResponse> {
-    return send("POST", `/sessions/${dir}/design/run`, body);
-}
-
-/**
- * `POST /sessions/:dir/design/answer` (entry 3.23): clears the gate and prompts the lead with
- * the text. The `session.updated` that follows removes the card.
- */
-export async function postDesignAnswer(
-    dir: string,
-    text: string,
-): Promise<AgentCommandResponse> {
-    const body: DesignAnswerRequest = { text };
-    return send("POST", `/sessions/${dir}/design/answer`, body);
-}
-
-/**
- * `GET /sessions/:dir/egm/goldfish/:run/:step/events` (entry 4.18): one Goldfish step's
+ * `GET /sessions/:dir/egm/goldfish/:run/:step/events`: one subagent step's
  * transcript events. Null on a 404, which the daemon answers while the step has no transcript
  * file yet or after its run left the newest runs.
  */
@@ -442,21 +388,6 @@ export async function fetchGoldfishEvents(
         throw await failure("GET", path, response);
     }
     return ((await response.json()) as AgentEventsResponse).events;
-}
-
-// The design workspace's reads (entries 5.12 and 5.14). Each markdown route answers text.
-
-async function getText(path: string, signal: AbortSignal): Promise<string> {
-    const response = await fetch(path, { signal });
-    if (!response.ok) {
-        throw await failure("GET", path, response);
-    }
-    return response.text();
-}
-
-/** `GET /plans`: the plans library (docs/designs/talk-change-ship.md, 4.3). */
-export async function fetchPlans(signal: AbortSignal): Promise<PlanView[]> {
-    return (await getJson<PlansResponse>("/plans", signal)).plans;
 }
 
 /** `GET /projects/:name`: the project's file, what it sets, and the sessions that use it. */
@@ -491,115 +422,6 @@ export async function deleteProject(name: string): Promise<void> {
     if (!response.ok) {
         throw await failure("DELETE", path, response);
     }
-}
-
-/** `GET /plans/:id/doc`: the plan's document as markdown text. */
-export async function fetchPlanDoc(id: string, signal: AbortSignal): Promise<string> {
-    return getText(`/plans/${encodeURIComponent(id)}/doc`, signal);
-}
-
-/** `GET /sessions/:dir/design/files`: the files of `<session>/design/` and the archived runs. */
-export async function fetchDesignFiles(
-    dir: string,
-    signal: AbortSignal,
-): Promise<DesignFilesResponse> {
-    return getJson<DesignFilesResponse>(`/sessions/${dir}/design/files`, signal);
-}
-
-/** `GET /sessions/:dir/design/files/:name`: one file of `<session>/design/`. */
-export async function fetchDesignFile(
-    dir: string,
-    name: string,
-    signal: AbortSignal,
-): Promise<string> {
-    return getText(`/sessions/${dir}/design/files/${encodeURIComponent(name)}`, signal);
-}
-
-/** `GET /sessions/:dir/design/reviews/:run/:name`: one report of an archived review run. */
-export async function fetchReviewFile(
-    dir: string,
-    run: string,
-    name: string,
-    signal: AbortSignal,
-): Promise<string> {
-    const path = `/sessions/${dir}/design/reviews/${encodeURIComponent(run)}/` +
-        encodeURIComponent(name);
-    return getText(path, signal);
-}
-
-/** `GET /sessions/:dir/design/doc`: the design doc from the worktree; 404 before `design.doc`. */
-export async function fetchDesignDoc(dir: string, signal: AbortSignal): Promise<string> {
-    return getText(`/sessions/${dir}/design/doc`, signal);
-}
-
-// Approval (entries 6.1 and 6.18, Technical Plan T10).
-
-/** A 409 of `POST …/design/approve`: the daemon's reason, and the listed blockers or null. */
-export class ApproveRefused extends Error {
-    readonly blockers: number | null;
-
-    constructor(refusal: DesignApproveRefusal) {
-        super(refusal.error);
-        this.blockers = refusal.blockers;
-    }
-}
-
-/**
- * `POST /sessions/:dir/design/approve`: approves the doc, seeds the Plan from its entries
- * (session-workspace.md T4; the counts come back in `seed`) and, with `build`, prompts the
- * lead with the build message. A 409 throws `ApproveRefused`; the dialog asks for the blocker
- * confirmation when its count is above 0, and shows the seed's refusal otherwise.
- */
-export async function postDesignApprove(
-    dir: string,
-    body: DesignApproveRequest,
-): Promise<DesignApproveResponse> {
-    const path = `/sessions/${dir}/design/approve`;
-    const response = await fetch(path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-    });
-    if (response.status === 409) {
-        throw new ApproveRefused((await response.json()) as DesignApproveRefusal);
-    }
-    if (!response.ok) {
-        throw await failure("POST", path, response);
-    }
-    return (await response.json()) as DesignApproveResponse;
-}
-
-/** `DELETE /sessions/:dir/design/approve`: removes the approval; the approvals keep it. */
-export async function deleteDesignApprove(dir: string): Promise<SessionResponse> {
-    const path = `/sessions/${dir}/design/approve`;
-    const response = await fetch(path, { method: "DELETE" });
-    if (!response.ok) {
-        throw await failure("DELETE", path, response);
-    }
-    return (await response.json()) as SessionResponse;
-}
-
-/** `GET /sessions/:dir/design/approved`: the doc as approved; 404 before an approval. */
-export async function fetchDesignApproved(dir: string, signal: AbortSignal): Promise<string> {
-    return getText(`/sessions/${dir}/design/approved`, signal);
-}
-
-/** `GET /sessions/:dir/design/changes`: the `## ` sections changed since the approval. */
-export async function fetchDesignChanges(
-    dir: string,
-    signal: AbortSignal,
-): Promise<DesignChange[]> {
-    const path = `/sessions/${dir}/design/changes`;
-    return (await getJson<DesignChangesResponse>(path, signal)).changes;
-}
-
-/** `GET /sessions/:dir/rounds/:round/log`: the Log of an earlier round, as markdown. */
-export async function fetchRoundLog(
-    dir: string,
-    round: number,
-    signal: AbortSignal,
-): Promise<string> {
-    return getText(`/sessions/${dir}/rounds/${round}/log`, signal);
 }
 
 /** `GET /costs` over a span of local-zone days, grouped. The Usage section's report. */

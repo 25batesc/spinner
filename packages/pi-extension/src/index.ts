@@ -19,7 +19,6 @@ import {
 import { read_env, type SpinnerEnv } from "./env.js";
 import {
     guard_edit,
-    read_design_state,
     refuse_branch_change,
     refuse_operator_bash,
     refuse_process_sweep,
@@ -129,9 +128,6 @@ export function register(pi: ExtensionAPI, options: SpinnerExtensionOptions): Sp
             session_dir: env.session_dir,
             brief: read_or_empty(join(env.session_dir, "agents", env.agent, "BRIEF.md")),
             mission: read_or_empty(join(env.session_dir, "MISSION.md")),
-            // Read at every check, so a track switch or an approval applies at once (6.13).
-            design: read_design_state(env.session_dir),
-            role: env.role,
         });
         if (verdict.allow) {
             return undefined;

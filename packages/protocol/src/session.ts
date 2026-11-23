@@ -4,7 +4,6 @@
 // is generated from this file; run `pnpm --filter @spinner/protocol schema` after an edit.
 
 import type { CommentWaiting } from "./comments.js";
-import type { DesignState } from "./egm.js";
 
 /** The schema version this package understands. The daemon migrates older files forward. */
 export const SESSION_VERSION = 1 as const;
@@ -284,16 +283,10 @@ export interface AgentEnded {
 /**
  * What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the
  * PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action.
- * `plan` is a planning session (talk-change-ship.md, 4.2): its product is a plan document
- * in the plans library, not code.
+ * A file from before 2026-11-23 can say `plan` (a planning session of the removed plans
+ * library); the daemon reads it as an ordinary session.
  */
-export type SessionKind = "session" | "review" | "plan";
-
-/**
- * The `design.repo` of a document in the plans library (talk-change-ship.md, 4.2 and 4.5):
- * `design.doc` is then relative to `<home>/plans`, not to a repo's worktree.
- */
-export const PLANS_REPO = "plans";
+export type SessionKind = "session" | "review";
 
 /**
  * A reviewer's state (s015, s016). `done`: its verdict is in `artifacts/reviews/` and its pi
@@ -378,30 +371,27 @@ export interface Session {
     diff?: DiffState;
     /** The review swarm (s015). Absent until the first `review`. */
     review?: ReviewState;
-    /** Absent means a session from before the EGM design. `SESSION_VERSION` stays 1. */
-    design?: DesignState;
     /**
-     * Earlier rounds, oldest first, appended by `reset` since the EGM design. Rounds before
-     * that are only in `## Previous rounds` of MISSION.md.
+     * The state of the EGM lifecycle, removed on 2026-11-23 (`egm.ts`). A file written before
+     * that keeps the block; nothing reads it.
+     */
+    design?: unknown;
+    /**
+     * Earlier rounds, oldest first, appended by `reset`. Rounds from before the daemon kept
+     * them are only in `## Previous rounds` of MISSION.md.
      */
     rounds?: RoundRecord[];
-    /** Absent in sessions created before EGM build session 6. */
-    outcomes?: OutcomeCounts;
+    /**
+     * Counters of the EGM comparison (fixer rounds, operator steers), removed with the
+     * lifecycle on 2026-11-23. A file written before that keeps the block; nothing reads it.
+     */
+    outcomes?: unknown;
     /**
      * Preview comments (s054) that wait on the operator, oldest first, so the stage
      * derivation can name them. The records are `artifacts/comments/<id>.json`. Absent while
      * none waits.
      */
     comments?: { waiting: CommentWaiting[] };
-}
-
-/**
- * The outcome counters (docs/designs/egm-adoption.md, 6.19 to 6.22): fixer rounds and the
- * operator's steers to the lead, counted per session across rounds.
- */
-export interface OutcomeCounts {
-    fix_rounds: number;
-    operator_steers: number;
 }
 
 /** What names a change: the current one carries only this; a record adds its facts. */

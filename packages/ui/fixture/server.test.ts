@@ -5,14 +5,13 @@ import type { AddressInfo } from "node:net";
 import {
     EGM_NOTICE,
     EVENTS_PATH,
+    type CommentsResponse,
     type CostsResponse,
-    type DesignApproveRefusal,
-    type DesignApproveRequest,
-    type DesignApproveResponse,
-    type DesignChangesResponse,
     type EgmResponse,
     type JobResponse,
     type MissionView,
+    type SessionFileResponse,
+    type SessionFilesResponse,
     type SessionResponse,
     type SessionsResponse,
     type ReviewCancelResponse,
@@ -24,7 +23,7 @@ import {
 import { afterEach, expect, it } from "vitest";
 import { WebSocket } from "ws";
 
-import { initialDesignSessions, initialReviews, initialSessions } from "./data.ts";
+import { initialReviews, initialSessions, initialWorkSessions } from "./data.ts";
 import { isReviewSession } from "./reviews.ts";
 import { COMPACTED_PCT, startFixture } from "./server.ts";
 
@@ -49,7 +48,7 @@ it("serves GET /sessions as SessionViews", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/sessions`);
     const body = (await response.json()) as SessionsResponse;
     expect(body.sessions.map((s) => s.summary.dir)).toEqual(
-        [...initialSessions(), ...initialDesignSessions(), ...initialReviews()]
+        [...initialSessions(), ...initialWorkSessions(), ...initialReviews()]
             .map((s) => s.summary.dir),
     );
 });
@@ -444,152 +443,18 @@ it("GET /egm is ready at the pin; POST /egm/fetch is an `egm` job that ends read
     expect(after.egm.fetched_at).not.toBe(before.egm.fetched_at);
 });
 
-it("PUT design/track switches the track, answers the view and refuses as the daemon", async () => {
+it("serves the lead's six subagents and the transcript of one", async () => {
+    // Only the critic step has a transcript, so the other steps and an unknown run answer
+    // 404 as the daemon does.
     const base = `http://127.0.0.1:${await start()}`;
-    const put = (dir: string, track: string) => fetch(`${base}/sessions/${dir}/design/track`, {
-        method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ track }),
-    });
-    const toDesign = await put("s209-csv-direct", "design");
-    expect(toDesign.status).toBe(200);
-    const designed = (await toDesign.json()) as { session: SessionView };
-    expect(designed.session.design?.track).toBe("design");
-    expect(designed.session.design?.stage).toBe("intake");
-    const toDirect = await put("s205-csv-design-review", "direct");
-    const direct = (await toDirect.json()) as { session: SessionView };
-    expect(direct.session.design?.track).toBe("direct");
-    expect(direct.session.design?.stage).toBeNull();
-    expect((await put("s209-csv-direct", "sideways")).status).toBe(400);
-    expect((await put("no-such-session", "direct")).status).toBe(404);
-});
-
-it("the design routes open, answer and clear a gate and record runs as the daemon", async () => {
-    // Entry 3.24: the gate session's card clears on an answer; a run clears a gate and a
-    // review starts the next run id; each refusal answers the daemon's status.
-    const base = `http://127.0.0.1:${await start()}`;
-    const call = (method: string, dir: string, verb: string, body?: unknown) =>
-        fetch(`${base}/sessions/${dir}/design/${verb}`, {
-            method, headers: { "content-type": "application/json" },
-            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        });
-    const read = async (dir: string) =>
-        ((await (await fetch(`${base}/sessions/${dir}`)).json()) as SessionResponse).session;
-    const gated = "s211-csv-gate";
-    expect((await read(gated)).design?.gate?.options).toHaveLength(3);
-    expect((await call("POST", gated, "answer", { text: " " })).status).toBe(400);
-    const answered = await call("POST", gated, "answer", { text: "Both, picked by row count" });
-    expect(answered.status).toBe(200);
-    expect((await read(gated)).design?.gate).toBeNull();
-    expect((await read(gated)).summary.session.needs_human).toBeNull();
-
-    const question = "Which shape?";
-    expect((await call("PUT", gated, "gate", { question, options: ["A"] })).status).toBe(400);
-    expect((await call("PUT", gated, "gate", { question, options: ["A", "B"] })).status).toBe(200);
-    const asked = await read(gated);
-    expect(asked.design?.gate?.question).toBe(question);
-    expect(asked.summary.session.needs_human).toBe(`answer Remy: ${question}`);
-    expect((await call("POST", gated, "run", { skill: "egm-draft" })).status).toBe(200);
-    expect((await read(gated)).design?.gate).toBeNull();
-
-    const drafted = "s204-csv-drafted";
-    const review = { skill: "egm-review", preset: "uninterrupted" };
-    expect((await call("POST", drafted, "run", review)).status).toBe(200);
-    expect((await read(drafted)).design?.review_run?.id).toBe("r1");
-    const wrong = { skill: "egm-draft", preset: "uninterrupted" };
-    expect((await call("POST", drafted, "run", wrong)).status).toBe(400);
-    expect((await call("POST", drafted, "run", { skill: "egm-nothing" })).status).toBe(400);
-    expect((await call("POST", "s201-csv-intake", "run", review)).status).toBe(409);
-    const received = (await (await call("GET", gated, "received")).json()) as {
-        answers: string[]; runs: unknown[];
-    };
-    expect(received).toEqual({
-        answers: ["Both, picked by row count"], runs: [{ skill: "egm-draft" }],
-    });
-    expect((await call("POST", "no-such-session", "run", review)).status).toBe(404);
-});
-
-it("the approve routes confirm the listed blockers, approve, show changes and remove", async () => {
-    // Entry 6.18: the design-ready session lists 1 blocker, so the first approve is a 409
-    // with the count and the confirmed one approves; the changed session answers its changed
-    // section and the approved copy; DELETE removes the approval and keeps the history.
-    const base = `http://127.0.0.1:${await start()}`;
-    const call = (method: string, dir: string, verb: string, body?: unknown) =>
-        fetch(`${base}/sessions/${dir}/design/${verb}`, {
-            method, headers: { "content-type": "application/json" },
-            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        });
-    const ready = "s207-csv-design-ready";
-    expect((await call("POST", ready, "approve", { build: "yes" })).status).toBe(400);
-    const first = await call("POST", ready, "approve", { build: true });
-    expect(first.status).toBe(409);
-    expect(((await first.json()) as DesignApproveRefusal).blockers).toBe(1);
-    expect((await call("GET", ready, "approved")).status).toBe(404);
-    const second = await call("POST", ready, "approve", { build: true, blockers_confirmed: 1 });
-    expect(second.status).toBe(200);
-    const response = (await second.json()) as DesignApproveResponse;
-    const approved = response.session.design;
-    expect(approved?.stage).toBe("approved");
-    expect(approved?.approved?.blockers).toBe(1);
-    expect(approved?.approvals).toHaveLength(1);
-    // The seed (session-workspace.md T4, entry 2.29): the fixture doc has 7 entries and the
-    // default Plan 3 free items, so 7 are added and 3 kept; the view then carries the tokens.
-    expect(response.seed).toMatchObject({ added: 7, kept: 3, stale: [], orphaned: [] });
-    const seeded = (await (await fetch(`${base}/sessions/${ready}/mission/view`)).json()) as {
-        view: MissionView;
-    };
-    expect(seeded.view.plan.map((item) => item.entry)).toEqual(
-        [null, null, null, "1.1", "1.2", "1.3", "2.1", "2.2", "3.1", "3.2"],
-    );
-    expect(seeded.view.plan[3]).toMatchObject({ id: 4, text: "`api/src/exports.ts`", owner: null });
-    expect((await call("GET", ready, "approved")).status).toBe(200);
-    const bodies = (await (await call("GET", ready, "approve-received")).json()) as {
-        approves: DesignApproveRequest[];
-    };
-    expect(bodies.approves).toEqual([{ build: true }, { build: true, blockers_confirmed: 1 }]);
-
-    const resolving = await call("POST", "s206-csv-resolving", "approve", { build: true });
-    expect(resolving.status).toBe(409);
-    expect(((await resolving.json()) as DesignApproveRefusal).blockers).toBeNull();
-    expect((await call("POST", "s201-csv-intake", "approve", { build: false })).status)
-        .toBe(409);
-
-    const changed = "s212-csv-changed";
-    const changes = (await (await call("GET", changed, "changes")).json()) as
-        DesignChangesResponse;
-    expect(changes.changes.map((change) => change.heading)).toEqual(["Technical Plan"]);
-    expect(changes.changes[0]?.approved).not.toBe(changes.changes[0]?.current);
-    const copy = await (await call("GET", changed, "approved")).text();
-    expect(copy).toContain(changes.changes[0]?.approved ?? "missing");
-    const none = (await (await call("GET", ready, "changes")).json()) as DesignChangesResponse;
-    expect(none.changes).toEqual([]);
-
-    const removed = await call("DELETE", changed, "approve");
-    expect(removed.status).toBe(200);
-    const cleared = ((await removed.json()) as SessionResponse).session.design;
-    expect(cleared?.approved).toBeNull();
-    expect(cleared?.changed_after_approval).toBe(false);
-    expect(cleared?.approvals).toHaveLength(1);
-    expect((await call("DELETE", changed, "approve")).status).toBe(200);
-    // The round-3 session has no lead running: the build is refused, the approval alone not.
-    const idle = await call("POST", "s210-csv-round-3", "approve", { build: true });
-    expect(((await idle.json()) as DesignApproveRefusal).error).toContain("approve without");
-    expect((await call("POST", "s210-csv-round-3", "approve", { build: false })).status)
-        .toBe(200);
-});
-
-it("serves six Goldfish, one transcript and a session at the cap (entry 4.18)", async () => {
-    // The design-review session carries the chips; only the critic step has a transcript, so
-    // the other steps and an unknown run answer 404 as the daemon does.
-    const base = `http://127.0.0.1:${await start()}`;
-    const read = async (dir: string) =>
-        ((await (await fetch(`${base}/sessions/${dir}`)).json()) as SessionResponse).session;
-    const design = (await read("s205-csv-design-review")).design;
-    expect(design?.goldfish.map((item) => item.state)).toEqual([
+    const dir = "s213-csv-seeded";
+    const seeded = ((await (await fetch(`${base}/sessions/${dir}`)).json()) as SessionResponse)
+        .session;
+    expect(seeded.subagents?.map((item) => item.state)).toEqual([
         "done", "stopped", "running", "running", "failed", "queued",
     ]);
-    expect((await read("s202-csv-brainstorm")).design?.goldfish_live).toBe(12);
     const events = (step: string, run = "e5f6a7b8") =>
-        fetch(`${base}/sessions/s205-csv-design-review/egm/goldfish/${run}/${step}/events`);
+        fetch(`${base}/sessions/${dir}/egm/goldfish/${run}/${step}/events`);
     const found = await events("0");
     expect(found.status).toBe(200);
     const body = (await found.json()) as { events: { type: string }[] };
@@ -598,6 +463,34 @@ it("serves six Goldfish, one transcript and a session at the cap (entry 4.18)", 
     ]);
     expect((await events("1")).status).toBe(404);
     expect((await events("0", "unknown")).status).toBe(404);
+});
+
+it("serves a session's files, saves an edit and keeps a comment thread", async () => {
+    const at = `http://127.0.0.1:${await start()}/sessions/s213-csv-seeded`;
+    const send = (method: string, path: string, body: unknown) =>
+        fetch(`${at}${path}`, {
+            method, headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        });
+    const tree = (await (await fetch(`${at}/files`)).json()) as SessionFilesResponse;
+    expect(tree.entries.map((entry) => entry.path)).toEqual(expect.arrayContaining([
+        "MISSION.md", "egm", "egm/concepts_brief.md", "egm/reviews/critic_report.md",
+    ]));
+    const path = "egm/concepts_brief.md";
+    const file = (await (await fetch(`${at}/files/text?path=${path}`)).json()) as
+        SessionFileResponse;
+    expect(file.text).toContain("# CSV export: concepts");
+    const saved = await send("PUT", "/files/text", { path, text: "# New\n", mtime: file.mtime });
+    expect(saved.status).toBe(200);
+    // The page still holds the first version: the fixture refuses as the daemon does.
+    const stale = await send("PUT", "/files/text", { path, text: "x", mtime: file.mtime });
+    expect(stale.status).toBe(409);
+    expect((await fetch(`${at}/files/text?path=egm/none.md`)).status).toBe(404);
+    const anchor = { kind: "doc", path, quote: "New", heading: null, line: null };
+    const made = await send("POST", "/comments", { agent: "lead", text: "Shorter.", anchor });
+    expect(made.status).toBe(201);
+    await send("POST", "/comments/c1/resolve", {});
+    const listed = (await (await fetch(`${at}/comments`)).json()) as CommentsResponse;
+    expect(listed.comments.map((item) => [item.id, item.state])).toEqual([["c1", "resolved"]]);
 });
 
 /** The `YYYY-MM-DD` of the local day after `day`. */

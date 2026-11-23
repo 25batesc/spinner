@@ -256,7 +256,7 @@ A local daemon (`spinnerd`) owns sessions, stacks, agent processes and the pipel
 
 ## Credits
 
-The design workflow runs Google's Elephant-Goldfish Model (EGM, Apache-2.0, https://github.com/google/elephant-goldfish-model) from a pinned copy that Spinner fetches. EGM is not an officially supported Google product.
+A lead can run the skills of Google's Elephant-Goldfish Model (EGM, Apache-2.0, https://github.com/google/elephant-goldfish-model) when you ask for one: brainstorm, draft, review. Spinner fetches a pinned copy; what a skill writes is a file of the session, under `egm/`. EGM is not an officially supported Google product.
 
 ## License
 

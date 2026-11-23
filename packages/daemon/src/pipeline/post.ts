@@ -1,6 +1,6 @@
 // `spinner post <session>`: composes the Slack message for the session's PR set (the PR
-// links, the Goal in one line or the approved design doc's first sentence and path, a tagged
-// reviewer when one is named), shows it, and posts it as the operator only on confirmation.
+// links, a tagged reviewer when one is named), shows it, and posts it as the operator only
+// on confirmation.
 // The permalink goes into `pipeline.slack_post`; the poller then reads replies and reactions
 // under it into `pipeline.slack_activity`, which is what tells the board a reviewer
 // responded. The daemon never posts on its own.
@@ -30,13 +30,10 @@ export interface PostDeps {
     now?: () => Date;
 }
 
-/** The approved design doc as `post` reads it: the repo-relative path and the text. */
-
 /**
  * Pure: what `post` would send, and why it would refuse. The message is each PR's title
  * with its link under it (the operator's ask of 2026-11-03), then the reviewer's mention
- * when one is set. The design doc and the Goal stay out of the message: the PR body names
- * the doc (6.9) and the reader opens the link.
+ * when one is set. The Goal stays out of the message: the reader opens the link.
  */
 export function compose_post(
     summary: SessionSummary,

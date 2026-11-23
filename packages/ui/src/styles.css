@@ -225,110 +225,11 @@ html, body, #root { height: 100%; margin: 0; }
     line-height: 18px;
 }
 .context-stack { color: var(--text); }
-/* The session's track, after the needs-you pill; its menu opens under it to the right. */
-.track-menu { position: relative; display: flex; flex: none; }
-.track-menu .menu { left: 0; right: auto; top: 24px; min-width: 100px; }
-button.track-chip { border: 0; font: inherit; font-size: var(--text-meta); cursor: pointer; }
-button.track-chip:hover { background: var(--fill); color: var(--text); }
-/* The toolbar's design group (entry 3.19): the stage's one filled primary joined to the
-   `EGM ▾` menu button; the menu opens under it to the left like the track menu. */
-.design-menu { position: relative; display: flex; }
-.design-menu .menu { left: 0; right: auto; top: 28px; min-width: 160px; }
-.design-group > button.primary:has(+ .design-menu) {
-    border-radius: var(--radius-control) 0 0 var(--radius-control);
-}
-.design-group > button.primary + .design-menu > button {
-    margin-left: -1px; border-radius: 0 var(--radius-control) var(--radius-control) 0;
-}
-.design-menu .menu button { justify-content: flex-start; height: auto; }
-/* The current step's skill in the split button's ▾ half (r4.6): an accent dot before it. */
-.menu .menu-current {
-    display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
-    background: var(--accent); vertical-align: 1px;
-}
-.menu button[data-current] { font-weight: 600; }
-.design-group > .primary + .design-menu > .design-more { padding: 0 6px; }
-/* `remove approval` ends the menu, apart from the skills, in the danger colour (entry 6.17). */
-.design-menu .menu .danger, .toolbar-menu .menu .design-group > .danger { color: var(--fail); }
-.menu [data-action=remove-approval] {
-    margin-top: 2px; border-top: 1px solid var(--line-soft); border-radius: 0 0 3px 3px;
-}
-/* The approve dialog (entry 6.16): the doc, the changed sections side by side when the doc
-   changed after approval, the build checkbox, then the one filled confirm. */
-.confirm.approve-dialog-wide { width: min(960px, 92vw); }
-.approve-doc code { font-family: var(--font-mono); font-size: var(--text-dense); }
-.approve-build {
-    display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-dense);
-}
-.approve-changes {
-    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
-    gap: var(--space-3);
-}
-.approve-change h4 { margin: 0 0 var(--space-1); font-size: var(--text-dense); font-weight: 600; }
-.approve-sides { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
-.approve-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.approve-side .confirm-text { max-height: 240px; overflow: auto; }
-/* The Design tab's banner while the doc differs from its approval (entry 6.17). */
-.dw-changed-banner {
-    display: flex; align-items: center; gap: var(--space-2); box-sizing: border-box;
-    padding: var(--space-2) var(--space-3); font-size: var(--text-dense);
-    background: var(--warn-tint); border-left: 2px solid var(--warn);
-    border-radius: var(--radius-control);
-}
-.dw-changed-banner > span { flex: 1; }
 .menu button:disabled { opacity: 0.4; cursor: default; }
 .menu button:disabled:hover { background: transparent; }
-.design-presets {
-    display: flex; flex-direction: column; gap: var(--space-1); margin: 0; padding: 0;
-    border: 0;
-}
-.design-preset {
-    display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-dense);
-}
-/* The `needs you` pill opens the gate card while one shows (entry 3.22). */
-button.context-needs-button {
-    border: 0; font: inherit; font-size: var(--text-meta); cursor: pointer;
-}
-button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 25%, transparent); }
-/* The gate and resolve cards above the agent chips (entry 3.21): a warn-tinted card, since the
-   lead waits on it; the question as markdown, the options as equal secondary buttons, no
-   primary, because EGM's gates list options without a ranking. */
-.design-gate {
-    display: flex; flex-direction: column; gap: var(--space-2); flex: none;
-    padding: var(--space-3) var(--space-4); border: 1px solid var(--warn);
-    border-radius: var(--radius-box); background: var(--warn-tint);
-}
-.design-gate-title {
-    margin: 0; font-size: var(--text-meta); font-weight: 600; color: var(--warn);
-}
-.design-gate-question { font-size: var(--text-body); }
-.design-gate-question > :first-child { margin-top: 0; }
-.design-gate-question > :last-child { margin-bottom: 0; }
-.design-gate-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.design-gate-options > button {
-    max-width: 100%; height: auto; min-height: var(--control-row); padding: 2px 10px;
-    white-space: normal; text-align: left; background: var(--surface);
-}
-.design-gate-other { display: flex; gap: var(--space-2); }
-.design-gate-other input { flex: 1; min-width: 0; }
-/* The compact form on the Brainstorm and Review tabs (session-workspace.md, K1): one warn
-   line, the question's first characters, then the link that opens Agents. */
-.design-gate.design-gate-compact {
-    display: block; margin: 0; padding: var(--space-2) var(--space-3);
-    font-size: var(--text-dense); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.design-gate-compact-text { color: var(--text); }
 /* The round badge from round 2 on: accent, so a long-lived session stands out. */
 .badge.round-badge { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
-/* The card's five EGM dots, without labels. */
-.card-dots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
-.card-dot {
-    width: 6px; height: 6px; box-sizing: border-box; border: 1px solid var(--muted);
-    border-radius: 50%;
-}
-.card-dot[data-state="done"] { background: var(--ok); border-color: var(--ok); }
-.card-dot[data-state="active"] { background: var(--accent); border-color: var(--accent); }
-.card-dot[data-state="waiting"] { background: var(--warn); border-color: var(--warn); }
+
 .activity-bar {
     display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: 40px;
     padding: var(--space-2) 0; border-right: 1px solid var(--line-soft); flex: none;
@@ -526,10 +427,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
     display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-1);
 }
 .compose-project { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.compose-plan {
-    display: flex; align-items: center; gap: 6px; margin-right: var(--space-3);
-    color: var(--muted); font-size: var(--text-dense); cursor: pointer; white-space: nowrap;
-}
+
 .compose-actions button { height: var(--control-form); padding: 0 14px; }
 /* The card's `archive` (s038): a small pill at the top right that shows on hover and on
    keyboard focus; its confirm takes the card's place with a red hairline. */
@@ -602,28 +500,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 }
 .view-tabs .pane-controls, .view-tabs > .icon-button { align-self: center; }
 .view-tabs .pane-controls { margin-left: auto; }
-/* The step mark of an EGM tab (docs/designs/session-workspace.md, T5): a dot before the label,
-   hollow to do, accent while active, warn while the step waits on the operator, green once
-   done; the state is in the tab's accessible name too. A suffix (`2/5`, `1 live`) follows the
-   label in the meta size. When the row overflows, the four EGM tabs fold into one tab labelled
-   `EGM 3/5 Review` with a chevron that opens a menu of the four. */
-.view-tab-mark {
-    display: inline-block; width: 8px; height: 8px; margin-right: 6px; box-sizing: border-box;
-    border: 1px solid currentColor; border-radius: 50%; vertical-align: 0;
-}
-.view-tab-mark-active { background: var(--accent); border-color: var(--accent); }
-.view-tab-mark-waiting { background: var(--warn); border-color: var(--warn); }
-.view-tab-mark-done { background: var(--ok); border-color: var(--ok); }
-.view-tabs .view-tab[data-state="active"] { color: var(--accent); }
-.view-tabs .view-tab[data-state="waiting"] { color: var(--warn); }
-.view-tab-suffix {
-    margin-left: 4px; font-size: var(--text-meta); font-weight: 500; color: var(--muted);
-    font-variant-numeric: tabular-nums;
-}
-.view-tab-fold { position: relative; display: inline-flex; flex: none; }
-.view-tabs .view-tab-fold-toggle { padding: 0 4px; }
-.view-tab-fold .menu { left: 0; right: auto; top: 34px; min-width: 140px; }
-.view-tab-fold .menu button { justify-content: flex-start; }
+
 /* The session toolbar, at the right end of the context bar: the local stack, the pipeline,
    and the ellipsis menu with the two that end a round or the session. Each group is one joined
    control; the gap between groups replaces the separators. */
@@ -999,7 +876,7 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .mission {
     display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-1);
 }
-.mission-head { display: flex; justify-content: flex-end; }
+
 .context h3 {
     display: flex; align-items: center; gap: var(--space-2); min-height: 22px;
     margin: 0 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted);
@@ -1121,33 +998,21 @@ button.context-needs-button:hover { background: color-mix(in srgb, var(--warn) 2
 .setting { display: flex; flex-direction: column; gap: 6px; }
 .setting > span { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
 .setting select { width: 100%; }
-/* The Review block: a fieldset with its own label row, the fields, the hint, one save. The
-   About EGM block (entry 1.36) is the same box: the notice, the facts, the state pill. */
-.review-setting, .about-egm {
+/* The Review block: a fieldset with its own label row, the fields, the hint, one save. */
+.review-setting {
     margin: 0; padding: var(--space-3); border: 1px solid var(--line-soft);
     border-radius: var(--radius-box); gap: var(--space-3);
 }
-.review-setting legend, .about-egm legend {
+.review-setting legend {
     padding: 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted);
 }
 .review-setting textarea { font-family: var(--font-mono); font-size: var(--text-dense); }
 .review-setting input[type="number"] { width: 80px; }
-.review-actions, .about-egm-actions { display: flex; }
-.about-egm-notice { margin: 0; font-size: var(--text-dense); line-height: 1.5; }
-.about-egm-facts {
-    display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3);
-    margin: 0; font-size: var(--text-dense);
-}
-.about-egm-facts dt { font-size: var(--text-meta); font-weight: 600; color: var(--muted); }
-.about-egm-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.about-egm-facts code { font-family: var(--font-mono); font-size: var(--text-meta); }
+.review-actions { display: flex; }
+
 /* The state line takes the full width under its label: a failed fetch's error or the
    pi-subagents note is long, so the pill wraps instead of clipping. */
-.about-egm-facts .about-egm-state { grid-column: 1 / -1; }
-.about-egm-facts .pill {
-    height: auto; min-height: 18px; padding: 2px 7px; line-height: 1.4; white-space: normal;
-    border-radius: 9px;
-}
+
 .swatches { display: flex; gap: 2px; }
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line-soft); }
 .invalid-themes {
@@ -1297,18 +1162,6 @@ a.rv-head-title:hover { text-decoration: underline; }
     animation: rv-pulse 1.2s ease-in-out infinite;
 }
 @keyframes rv-pulse { 50% { opacity: 0.35; } }
-/* The Goldfish chips (entry 4.14): a fact like a review chip (the mark, the dot, the persona,
-   the tokens, `$`), but a click shows the transcript, so they keep the agent chips' pointer.
-   A running dot pulses; a failed persona is red, a stopped one muted. */
-.gf-block { display: flex; flex-direction: column; gap: var(--space-1); }
-.gf-chips { font-size: var(--text-dense); }
-.gf-chip .chip-name { gap: 5px; }
-.gf-mark { font-size: 12px; line-height: 1; }
-.gf-fact { font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
-.gf-chip-running .chip-dot { animation: rv-pulse 1.2s ease-in-out infinite; }
-.gf-chip-failed .gf-name { color: var(--fail); }
-.gf-chip-stopped .gf-name, .gf-chip-queued .gf-name { color: var(--muted); }
-.gf-cap { margin: 0; font-size: var(--text-dense); }
 /* The lead's blocks (s016), above the threads: the briefing as markdown, the draft with its
    event pill, the summary and one row per line comment, each a textarea that saves on blur;
    `post` is the one primary action, `drop` the danger one. The posted URL takes the draft's
@@ -1344,112 +1197,6 @@ a.rv-head-title:hover { text-decoration: underline; }
 }
 .rv-context .rv-branches { max-width: 220px; }
 .rv-toolbar button { height: var(--control-row); }
-/* The design workspace (docs/designs/egm-adoption.md, build session 5): the `design` view of
-   the agents pane. A list on the left (files, review stages, the doc's outline) and the
-   rendered file on the right; under 560 px of pane width the list stacks above the file. */
-button.badge.round-badge-button {
-    border: 0; font: inherit; font-size: var(--text-meta); cursor: pointer;
-}
-button.badge.round-badge-button:hover { background: var(--accent-fill); }
-.dw {
-    container-type: inline-size; container-name: dw;
-    display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
-    padding-bottom: var(--space-4);
-}
-.dw-tab-body { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.dw-empty { margin: var(--space-2) 0; font-size: var(--text-body); }
-.dw-error { margin: var(--space-2) 0; }
-.dw-split {
-    display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); align-items: start;
-}
-@container dw (min-width: 560px) {
-    .dw-split { grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); }
-    .dw-outline, .dw-side { position: sticky; top: 0; }
-}
-.dw-side { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.dw-body { min-width: 0; }
-.dw-list, .dw-goldfish, .dw-rounds, .dw-approvals {
-    list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
-}
-.dw-row {
-    display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 26px;
-    box-sizing: border-box; padding: 2px var(--space-2); border: 0;
-    border-radius: var(--radius-control); background: transparent; color: var(--text);
-    font: inherit; font-size: var(--text-dense); text-align: left; cursor: pointer;
-}
-.dw-row:hover:not(:disabled) { background: var(--fill-soft); }
-.dw-row[aria-pressed="true"] { background: var(--accent-tint); }
-.dw-row:disabled { color: var(--muted); cursor: default; }
-.dw-row-name {
-    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.dw-row-meta { flex: none; color: var(--muted); font-size: var(--text-meta); }
-.dw-label {
-    margin: 0 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.04em;
-}
-.dw-review-head {
-    display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-dense);
-}
-/* The Review tab's approve header (session-workspace.md, T5): the one filled primary that
-   opens the approve dialog, after the reason it shows. */
-.dw-approve-head {
-    display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-dense);
-}
-.dw-approve-head .dw-approve { margin-left: auto; }
-.dw-run { display: inline-flex; align-items: center; gap: var(--space-2); }
-.dw-run select { min-height: var(--control-row); font-size: var(--text-dense); }
-.dw-goldfish-row {
-    display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2);
-    font-size: var(--text-dense);
-}
-.dw-goldfish .dot-done { background: var(--muted); border-color: var(--muted); }
-.dw-goldfish .dot-queued { border-style: dashed; }
-.dw-goldfish .dot-stopped { border-color: var(--warn); }
-.dw-doc { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
-.dw-doc-head { display: flex; align-items: center; gap: var(--space-2); }
-.dw-doc-head .link { margin-left: auto; }
-.dw-doc-name {
-    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: var(--text-dense); color: var(--muted);
-}
-.dw-outline { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.dw-outline-item {
-    min-height: 24px; padding: 2px var(--space-2); border: 0; border-radius: var(--radius-control);
-    background: transparent; color: var(--text); font: inherit; font-size: var(--text-dense);
-    text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.dw-outline-item:hover { background: var(--fill-soft); }
-.dw-section { scroll-margin-top: var(--space-2); }
-.dw-section-md > :first-child { margin-top: 0; }
-.dw-revise { margin-left: 0; }
-.dw-revision {
-    display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0;
-}
-.dw-revision textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
-.dw-revision-actions { display: flex; gap: var(--space-2); }
-.dw-source { font-family: var(--font-mono); font-size: var(--text-dense); }
-.dw-history { gap: var(--space-4); }
-.dw-round { display: flex; flex-direction: column; gap: var(--space-1); }
-.dw-round-head, .dw-approval {
-    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
-    min-height: 26px; padding: 0 var(--space-2); font-size: var(--text-dense);
-}
-.dw-round-name { font-weight: 600; }
-.dw-round-toggle {
-    border: 0; padding: 0 var(--space-1); background: transparent; color: var(--text);
-    font: inherit; font-weight: 600; cursor: pointer; border-radius: var(--radius-control);
-}
-.dw-round-toggle:hover { background: var(--fill-soft); }
-.dw-round-log {
-    margin-left: var(--space-4); padding: var(--space-2) var(--space-3);
-    border-left: 2px solid var(--line-soft);
-}
-.dw-approval[data-mark="invalidated"] {
-    background: var(--warn-tint); border-radius: var(--radius-control);
-}
-
 /* The PRs tab of the right pane (talk-change-ship.md, 2.9): its table is in pr-table.css. */
 .changes-rail {
     flex: 1 1 auto; min-height: 0; overflow: auto;
@@ -1495,23 +1242,3 @@ button.link.changes-finished-toggle {
 .pr-row-meta, .pr-row-session { font-size: var(--text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-rows-finished .pr-row { opacity: 0.7; }
 
-/* Plans (talk-change-ship.md, 4.6): the library in the sidebar, a plan's page, its bar. */
-.sidebar .side-body > .plans-pane { display: flex; flex-direction: column; min-height: 0; }
-.plans-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-3) var(--space-1); }
-.plan-row-item { display: flex; flex-direction: column; gap: 2px; }
-.plan-row-sessions { font-size: var(--text-meta); padding: 0 var(--space-2) var(--space-1); }
-.plan-row-sessions button.link {
-    background: none; border: 0; padding: 0 var(--space-1); color: var(--link); cursor: pointer;
-    font: inherit;
-}
-.plan-bar {
-    flex: none; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
-    padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border);
-}
-.plan-bar-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-bar-target { display: inline-flex; align-items: center; gap: var(--space-1); }
-.plan-bar-target select { max-width: 240px; }
-.plan-page { display: flex; flex-direction: column; min-height: 0; padding: 0; }
-.plan-doc { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4); }
-.plan-session { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
-.plan-session > .pane { flex: 1 1 auto; min-height: 0; }

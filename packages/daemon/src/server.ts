@@ -18,8 +18,6 @@ import { parse } from "yaml";
 import type {
     ProjectCreateResponse,
     ProjectDetailResponse,
-    NewSessionRequest,
-    PlansResponse,
     GithubAccess,
     AgentCommandResponse,
     AgentEventsResponse,
@@ -85,18 +83,21 @@ import { JobRunner, type JobWork } from "./jobs/jobs.js";
 import { DiffManager } from "./diff/manager.js";
 import { mount_diff_routes } from "./diff/routes.js";
 import { mount_file_routes, type FileHooks } from "./files/routes.js";
-import { DesignTracker } from "./egm/design.js";
 import { EgmFetcher } from "./egm/fetch.js";
-import { clear_gate } from "./egm/gate.js";
-import { GoldfishWatcher } from "./egm/goldfish.js";
+import { GoldfishWatcher, subagent_views } from "./egm/goldfish.js";
 import { mount_egm_routes } from "./egm/routes.js";
 import { gh_runner, type GhRunner } from "./pipeline/github.js";
 import { git_runner, type GithubWriter, type GitRunner } from "./pipeline/github-write.js";
 import { event_notifier, macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
-import { count_outcome, counts_as_operator_steer } from "./pipeline/outcomes.js";
 import { new_found_state } from "./pipeline/found-prs.js";
-import { poll_once, start_poller, type Poller, type PollOptions } from "./pipeline/poller.js";
+import {
+    poll_once,
+    rederive_design_sessions,
+    start_poller,
+    type Poller,
+    type PollOptions,
+} from "./pipeline/poller.js";
 import { start_syncer, SYNC_SECONDS_DEFAULT, type Syncer } from "./pipeline/sync.js";
 import { mount_review_routes } from "./pipeline/review-routes.js";
 import { start_review_lead } from "./agents/review-lead.js";
@@ -128,21 +129,12 @@ import {
     parse_agent_thinking,
     parse_extract,
     parse_new_session,
-    parse_plan_implement,
     parse_reviews,
     parse_session_adopt,
     parse_up,
     parse_verify,
 } from "./requests.js";
 import { start_lead_session, type LeadStartDeps } from "./agents/lead.js";
-import {
-    attach_plan,
-    implement_blocker,
-    implement_message,
-    plan_to_implement,
-    PlanRefusal,
-} from "./plans/implement.js";
-import { import_designs, plan_doc_path, plan_views, read_plan } from "./plans/library.js";
 import { MissionWriter, SPEC_AUTHOR } from "./store/mission-writer.js";
 import {
     find_session,
@@ -268,12 +260,8 @@ export interface AppDeps {
     poll?: () => Promise<void>;
     /** The file manager and the Downloads folder of the Files view; the system's when absent. */
     files?: FileHooks | undefined;
-    /** The EGM fetcher; `/egm` mounts and a lead fetches EGM when given. */
+    /** The EGM fetcher; `/egm` mounts and a lead fetches the EGM skills when given. */
     egm?: EgmFetcher;
-    /** The design tracker (EGM, 2.26); the EGM routes mount with `egm` and `writer`. */
-    design?: DesignTracker;
-    /** The Goldfish watcher (EGM, 4.10); the EGM routes mount only with it. */
-    goldfish?: GoldfishWatcher;
 }
 
 const POLL_SECONDS_DEFAULT = 60;
@@ -409,100 +397,6 @@ export function create_app(deps: AppDeps): Hono {
         return start_job(c, deps, "new", dir, (log) =>
             actions.attach_new_session(deps.ctx, summary, request.project, log).then(() => {}),
         );
-    });
-
-    // A planning session (docs/designs/talk-change-ship.md, 4.2): `POST /sessions` with `plan`.
-    app.post("/plans", async (c) => {
-        const request = parse_new_session(await json_body(c));
-        if (typeof request === "string") {
-            return c.json(error_body(request), 400);
-        }
-        if (request.text === undefined) {
-            return c.json(error_body("`text` is required: what the plan is about"), 400);
-        }
-        const planned = { ...request, plan: true, track: "design" as const };
-        let summary: SessionSummary;
-        try {
-            summary = actions.new_session(deps.ctx, planned);
-        } catch (error) {
-            return c.json(error_body(describe_error(error)), 409);
-        }
-        return start_job(c, deps, "new", summary.dir, (log) =>
-            start_lead_session(lead_deps_of(deps), summary, planned, log).then(() => {}),
-        );
-    });
-
-    app.get("/plans", (c) => {
-        const body: PlansResponse = {
-            plans: plan_views(deps.home, list_sessions(deps.home).sessions),
-        };
-        return c.json(body);
-    });
-
-    app.get("/plans/:id/doc", (c) => {
-        const record = read_plan(deps.home, c.req.param("id"));
-        const path = record === null ? null : plan_doc_path(deps.home, record);
-        if (path === null) {
-            return c.json(error_body(`no document for plan ${c.req.param("id")}`), 404);
-        }
-        return c.body(readFileSync(path, "utf8"), 200, { "content-type": "text/markdown" });
-    });
-
-    app.post("/plans/:id/implement", async (c) => {
-        const request = parse_plan_implement(await json_body(c));
-        if (typeof request === "string") {
-            return c.json(error_body(request), 400);
-        }
-        const writer = deps.writer;
-        if (writer === undefined) {
-            return c.json(error_body("the mission writer is not available"), 503);
-        }
-        const implement = { home: deps.home, writer };
-        try {
-            const plan = plan_to_implement(deps.home, c.req.param("id"));
-            if (request.session !== undefined) {
-                const target = find_session(deps.home, request.session);
-                if (target === null) {
-                    return c.json(error_body(`no session ${request.session}`), 404);
-                }
-                const blocker = implement_blocker(target, plan);
-                if (blocker !== null) {
-                    return c.json(error_body(blocker), 409);
-                }
-                return start_job(c, deps, "plan", target.dir, async (log) => {
-                    const seed = await attach_plan(implement, target, plan);
-                    log(`plan ${plan.record.id} attached: ${seed.added} items added`);
-                    await deps.design?.refresh(target.dir);
-                    const text = implement_message(plan, seed);
-                    const told = await tell_lead(deps.agents, target.dir, text, log);
-                    log(told ? "the lead was told to implement it" : "the lead was not reached");
-                });
-            }
-            // A new session for the plan: the plan is attached before its lead starts, so
-            // the lead's first message is the plan and its board is seeded.
-            const project = request.project ?? plan.record.project ?? undefined;
-            const created = actions.new_session(deps.ctx, {
-                title: plan.record.title,
-                text: plan.record.title,
-                ...(project === undefined ? {} : { project }),
-            });
-            return start_job(c, deps, "plan", created.dir, async (log) => {
-                const seed = await attach_plan(implement, created, plan);
-                log(`plan ${plan.record.id} attached: ${seed.added} items added`);
-                const fresh = read_session(deps.home, created.dir);
-                assert.ok(fresh.ok, fresh.ok ? "" : fresh.error);
-                const start: NewSessionRequest = {
-                    title: plan.record.title,
-                    text: implement_message(plan, seed),
-                    track: "direct",
-                    ...(project === undefined ? {} : { project }),
-                };
-                await start_lead_session(lead_deps_of(deps), fresh.summary, start, log);
-            });
-        } catch (error) {
-            const status = error instanceof PlanRefusal ? error.status : 409;
-            return c.json(error_body(describe_error(error)), status);
-        }
     });
 
     app.post("/sessions/extract", async (c) => {
@@ -741,12 +635,6 @@ export function create_app(deps: AppDeps): Hono {
                     return c.json(error_body(describe_error(error)), 500);
                 }
             }
-            // A prompt or steer to the lead answers its open EGM gate (T8, 3.10).
-            if (name === LEAD_NAME && deps.design !== undefined) {
-                if (clear_gate(deps.home, summary.dir)) {
-                    await deps.design.refresh(summary.dir);
-                }
-            }
             if (request.source === "operator") {
                 touch_interaction(deps.home, summary.dir, new Date());
             }
@@ -756,11 +644,6 @@ export function create_app(deps: AppDeps): Hono {
                     request.text,
                     images,
                 );
-                // The outcome counter (6.20, review v2 M-5): only a steer to the lead that
-                // the UI's message box marked with `source: "operator"`.
-                if (counts_as_operator_steer(command, name, request)) {
-                    count_outcome(deps.home, summary.dir, "operator_steers");
-                }
                 const body: AgentCommandResponse = { ok: true, disposition };
                 return c.json(body);
             } catch (error) {
@@ -1003,23 +886,8 @@ export function create_app(deps: AppDeps): Hono {
     if (deps.diff !== undefined) {
         mount_diff_routes(app, { ...deps, diff: deps.diff });
     }
-    if (
-        deps.egm !== undefined &&
-        deps.design !== undefined &&
-        deps.writer !== undefined &&
-        deps.goldfish !== undefined
-    ) {
-        mount_egm_routes(app, {
-            fetcher: deps.egm,
-            jobs: deps.jobs,
-            design: deps.design,
-            ctx: deps.ctx,
-            view: deps.view,
-            writer: deps.writer,
-            agents: deps.agents,
-            home: deps.home,
-            goldfish: deps.goldfish,
-        });
+    if (deps.egm !== undefined) {
+        mount_egm_routes(app, { fetcher: deps.egm, jobs: deps.jobs, home: deps.home });
     }
     if (deps.writer !== undefined && deps.deliverer !== undefined) {
         // ext: mission section, inbox, context
@@ -1270,8 +1138,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     let observer: StackObserver | null = null;
     let usage: UsageSampler | null = null;
     let costs: LedgerLoop | null = null;
-    // Late-bound: `view_ctx` is built before `refresh`, which the tracker needs.
-    let design: DesignTracker | null = null;
     // The model list gives each agent's context window (#45); once it loads, every session
     // republishes so the chips show the figure without waiting for the next event.
     const catalog = new ModelCatalog(() => fetch_models(pi(), home.root), {
@@ -1296,7 +1162,13 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
             },
         agents_running: (dir) => agents.running(dir),
         diff: (summary) => diff.view(summary),
-        design: (summary) => design?.view(summary),
+        subagents: (summary) =>
+            subagent_views(
+                summary.path,
+                agents.is_busy(summary.dir, LEAD_NAME),
+                costs?.ledger.session_cost(summary.dir, (model) => catalog.window_of(model))
+                    .children ?? {},
+            ),
         now: () => new Date(),
         log,
     };
@@ -1365,30 +1237,17 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         sampler.wake();
         publish_view(dir);
     };
-    // The watcher comes before the tracker: the tracker reads the watcher, and the watcher's
-    // `on_change` reads the late-bound `design` (4.10).
+    // The lead's subagents write status files the daemon polls; a change republishes the view.
     const goldfish = new GoldfishWatcher({
         home,
         agents,
         bus,
         log,
-        on_change: async (dir) => {
-            await design?.refresh(dir);
+        on_change: (dir) => {
             publish_view(dir);
+            return Promise.resolve();
         },
     });
-    design = new DesignTracker({
-        home,
-        cwd,
-        agents,
-        bus,
-        writer,
-        refresh,
-        log,
-        goldfish,
-        cost: (dir) => view_ctx.cost?.(dir) ?? { usd: 0, tokens_in: 0, tokens_out: 0, agents: {} },
-    });
-    const designs = design;
 
     const build = options.build ?? { version: "0.0.0", commit: null, built: null };
     // The poller starts after the port opens; a posted review asks it for a round through
@@ -1445,8 +1304,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         swarm,
         poll,
         egm: new EgmFetcher(home, process.env),
-        design: designs,
-        goldfish,
         files: options.files,
         ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
@@ -1463,7 +1320,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         on_mission: (dir) => deliverer.on_mission_change(dir),
         on_notes: (dir, agent) => deliverer.on_notes_change(dir, agent),
         on_inbox: (dir, file) => void deliverer.deliver_inbox(dir, file),
-        on_design: (dir) => void designs.refresh(dir),
         on_error: log,
     });
     await files.ready;
@@ -1479,12 +1335,8 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     for (const resumed of await agents.adopt_all()) {
         log(`adopt: resumed agent ${resumed} on its transcript`);
     }
-    // The approved design of an older session becomes a plan of the library (4.4).
-    for (const id of import_designs(home, new Date())) {
-        log(`plans: imported the approved design of ${id}`);
-    }
     await swarm.prime();
-    await designs.prime();
+    rederive_design_sessions(home, cwd, log);
 
     return {
         port: bound_port,
@@ -1497,7 +1349,6 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         close: async () => {
             unwatch_stack_jobs();
             swarm.close();
-            await designs.close();
             await diff.close();
             goldfish.close();
             await agents.stop_all();
@@ -1534,8 +1385,6 @@ function lead_deps_of(deps: AppDeps): LeadStartDeps {
         ctx: deps.ctx,
         agents: deps.agents,
         ...(deps.egm === undefined ? {} : { egm: deps.egm }),
-        ...(deps.design === undefined ? {} : { design: deps.design }),
-        ...(deps.writer === undefined ? {} : { writer: deps.writer }),
     };
 }
 

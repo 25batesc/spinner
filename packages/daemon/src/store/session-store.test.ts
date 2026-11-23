@@ -184,7 +184,7 @@ describe("render_agents_file", () => {
         const with_egm = render_agents_file({ ...input, egm: true });
         expect(with_egm).toContain("## EGM");
         expect(with_egm.split("\n")).toContain(
-            "EGM artifact directory: /home/sessions/s040-egm/design",
+            "EGM artifact directory: /home/sessions/s040-egm/egm",
         );
         expect(render_agents_file({ ...input, egm: false })).not.toContain("## EGM");
         expect(render_agents_file(input)).not.toContain("## EGM");

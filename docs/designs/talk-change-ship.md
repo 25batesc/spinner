@@ -172,6 +172,11 @@ A file written before is valid as it is, so nothing migrates and every reader of
 
 ### Step 4 in detail: plans
 
+> **Removed on 2026-11-23.** The plans library, the planning session (`kind: plan`) and
+> `Implement` are gone: a plan is a document among a session's files
+> (`docs/SESSION_PROTOCOL.md`, *Decisions*, 2026-11-23). This section is kept as the record
+> of what was built.
+
 **4.1 The library.** `~/.spinner/plans/<plan id>/` holds one plan: its document (a `.md` file with `## Overview` and `## Detailed Implementation Plan`, as a design doc has) and `plan.json`, its record: `{ id, title, created, updated, project, doc, origin, implementations }`. `origin` names the session the plan was written in. `implementations` lists the sessions that implement it, each with the time and the hash of the document it took. The plan id is the directory name of the session the plan was written in.
 
 **4.2 A planning session.** `POST /plans { text, title?, project? }` makes a session with `kind: plan` on the design track and starts its lead, as `POST /sessions` does. Its product is the plan document, not code. Its designs directory is `~/.spinner/plans/<session dir>/`, with or without a project: the design tracker answers that location for a `kind: plan` session, and `design.repo` is the constant `plans`. A project gives the agent worktrees to read; the brief forbids code changes. The lead writes the document from the talk and names it with `design_doc`. The EGM skills (`brainstorm`, `review`, `resolve`) are the buttons of the session's Brainstorm, Draft and Review views, in any order; none is required. A planning session is listed under Plans, and under Sessions with a `plan` mark. It works without EGM installed: the lead writes the plan from the talk.

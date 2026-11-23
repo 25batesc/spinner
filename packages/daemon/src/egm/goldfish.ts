@@ -1,6 +1,7 @@
-// The Goldfish watcher (docs/designs/egm-adoption.md, Technical Plan T5, entry 4.4). The
-// lead's Goldfish run as pi-subagents children inside the lead's pi. The daemon cannot see
-// them as agents, so it reads the files pi-subagents writes:
+// The watcher of the lead's subagents. An EGM skill starts its Goldfish reviewers through
+// pi-subagents, and the lead can start any other subagent the same way: each runs as a child
+// inside the lead's pi. The daemon cannot see them as agents, so it reads the files
+// pi-subagents writes:
 //
 // 1. An async run writes `<session>/egm-runs/async-subagent-runs/<runId>/status.json`
 //    (`PI_SUBAGENTS_TEMP_ROOT` is `<session>/egm-runs`). pi-subagents 0.84.0 runs a parallel
@@ -12,23 +13,13 @@
 //    transcript exists while it runs; the `meta.json` appears when it ends.
 //
 // `read_runs` is pure over the files. `GoldfishWatcher` polls the runs of each session that
-// may have live Goldfish, attributes each new run to a design step in `runs.json`, and tells
-// the daemon when the chips changed.
-import {
-    existsSync,
-    mkdirSync,
-    readdirSync,
-    readFileSync,
-    realpathSync,
-    statSync,
-    writeFileSync,
-} from "node:fs";
+// may have live subagents and tells the daemon when their rows changed.
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
-import type { DesignStage, GoldfishState } from "@spinner/protocol";
+import type { GoldfishState, GoldfishView } from "@spinner/protocol";
 import {
     EGM_RUNS_DIR,
     GOLDFISH_POLL_MS,
-    GOLDFISH_RUNS_FILE,
     GOLDFISH_RUNS_MAX,
     GOLDFISH_SETTLE_POLL_MS,
     LEAD_NAME,
@@ -37,9 +28,6 @@ import type { AgentManager } from "../agents/manager.js";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { read_session } from "../store/session-store.js";
-
-/** The design steps a Goldfish run is attributed to. */
-export type DesignStep = "brainstorm" | "draft" | "review" | "build";
 
 export interface GoldfishStep {
     /** The step's index in its run's `steps`, which `child_key` uses. */
@@ -71,8 +59,6 @@ export interface GoldfishRun {
 const ASYNC_RUNS_DIR = "async-subagent-runs";
 /** pi-subagents' debug artifacts, under the lead's pi session directory. */
 const ARTIFACTS_DIR = "subagent-artifacts";
-/** `runs.json` keeps at most this many runs; past it the oldest entry drops. */
-export const GOLDFISH_ATTRIBUTIONS_MAX = 1_000;
 /** A foreground transcript: `<runId>_<agent>_<step>_transcript.jsonl`. */
 const FOREGROUND_TRANSCRIPT = /^([0-9a-f-]{36})_(.+)_(\d{1,3})_transcript\.jsonl$/;
 
@@ -316,68 +302,39 @@ export function inside_agents(session_path: string, file: string): boolean {
     }
 }
 
-/** Pure: the design stage at a run's first sight to the step it belongs to (4.4). */
-export function design_step_of(stage: DesignStage | undefined): DesignStep | null {
-    switch (stage) {
-        case "intake":
-        case "brainstorm":
-            return "brainstorm";
-        case "drafting":
-            return "draft";
-        case "drafted":
-        case "design-review":
-        case "resolving":
-        case "design-ready":
-            return "review";
-        case "approved":
-            return "build";
-        default:
-            return null;
-    }
-}
-
-/** `<session>/egm-runs/runs.json`: each run's design step; `{}` when absent or unreadable. */
-export function read_attributions(session_path: string): Record<string, DesignStep> {
-    const json = read_json(join(session_path, EGM_RUNS_DIR, GOLDFISH_RUNS_FILE));
-    const out: Record<string, DesignStep> = {};
-    for (const [run, step] of Object.entries(json ?? {})) {
-        if (step === "brainstorm" || step === "draft" || step === "review" || step === "build") {
-            out[run] = step;
+/**
+ * The subagent steps of a session as the agents table shows them, newest run first. `usd`
+ * comes from `children`, the cost ledger's rows by `child_key`; a step it has not priced yet
+ * reads 0.
+ */
+export function subagent_views(
+    session_path: string,
+    lead_busy: boolean,
+    children: Readonly<Record<string, { usd: number }>>,
+): GoldfishView[] {
+    const views: GoldfishView[] = [];
+    for (const run of session_runs(session_path, lead_busy)) {
+        for (const step of run.steps) {
+            views.push({
+                run: run.run,
+                step: step.index,
+                agent: step.agent,
+                persona: step.agent.startsWith("egm-") ? step.agent.slice(4) : null,
+                state: chip_state(step.status, run.state),
+                model: step.model,
+                tokens: step.tokens,
+                usd: children[child_key(run.run, step.index)]?.usd ?? 0,
+                started: iso_or_null(step.started ?? run.started),
+                last_activity: iso_or_null(step.last_activity),
+                transcript: step.session_file !== null && existsSync(step.session_file),
+            });
         }
     }
-    return out;
+    return views;
 }
 
-/**
- * Writes the design step of each run not yet in `runs.json`. Returns whether it wrote. Past
- * `GOLDFISH_ATTRIBUTIONS_MAX` entries, the oldest by insertion order drop.
- */
-export function attribute_runs(
-    session_path: string,
-    runs: GoldfishRun[],
-    step: DesignStep | null,
-): boolean {
-    if (step === null) {
-        return false;
-    }
-    const known = read_attributions(session_path);
-    const fresh = runs.filter((run) => known[run.run] === undefined);
-    if (fresh.length === 0) {
-        return false;
-    }
-    // Oldest first, so the insertion order follows the runs' start times.
-    for (const run of [...fresh].reverse()) {
-        known[run.run] = step;
-    }
-    const entries = Object.entries(known);
-    const kept = entries.slice(Math.max(0, entries.length - GOLDFISH_ATTRIBUTIONS_MAX));
-    const dir = join(session_path, EGM_RUNS_DIR);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-        join(dir, GOLDFISH_RUNS_FILE),
-        `${JSON.stringify(Object.fromEntries(kept), null, 4)}\n`,
-    );
-    return true;
+function iso_or_null(ms: number | null): string | null {
+    return ms === null ? null : new Date(ms).toISOString();
 }
 
 export interface GoldfishWatcherDeps {
@@ -448,15 +405,6 @@ export class GoldfishWatcher {
         void this.tick(dir);
     }
 
-    /** The `running` Goldfish across all watched sessions, from the last tick of each. */
-    live_count(): number {
-        let count = 0;
-        for (const entry of this.watched.values()) {
-            count += entry.running;
-        }
-        return count;
-    }
-
     /** True while the session's poll timer runs, for a test. */
     watching(dir: string): boolean {
         return this.watched.has(dir);
@@ -469,7 +417,7 @@ export class GoldfishWatcher {
         }
     }
 
-    /** One poll: read, attribute, compare, and stop the timer once nothing can change. */
+    /** One poll: read, compare, and stop the timer once nothing can change. */
     async tick(dir: string): Promise<void> {
         const entry = this.watched.get(dir);
         const read = read_session(this.deps.home, dir);
@@ -481,11 +429,6 @@ export class GoldfishWatcher {
         let runs: GoldfishRun[];
         try {
             runs = session_runs(read.summary.path, busy);
-            attribute_runs(
-                read.summary.path,
-                runs,
-                design_step_of(read.summary.session.design?.stage),
-            );
         } catch (error) {
             this.deps.log(`goldfish ${dir}: ${String(error)}`);
             return;

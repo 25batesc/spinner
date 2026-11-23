@@ -1,8 +1,7 @@
-// A session's rounds (docs/designs/egm-adoption.md, Technical Plan T14, entry 2.41). `reset`
-// records each finished round in `session.yaml` `rounds` since the EGM design; rounds before
-// that exist only as `### Round <n> · <branch> · PRs: <list>` headings under
-// `## Previous rounds` in MISSION.md, which `archive_round` writes. Every function here is
-// pure, so the view and the log route read both sources the same way.
+// A session's rounds. `reset` records each finished round in `session.yaml` `rounds`; rounds
+// from before the daemon kept them exist only as `### Round <n> · <branch> · PRs: <list>`
+// headings under `## Previous rounds` in MISSION.md, which `archive_round` writes. Every
+// function here is pure, so the view and the log route read both sources the same way.
 import assert from "node:assert/strict";
 import type { PrState, RoundPr, RoundRecord, RoundView, Session } from "@spinner/protocol";
 import { ROUNDS_MAX } from "@spinner/protocol";

@@ -312,9 +312,13 @@ the daemon runs the CLI in the agent's worktree, signed as the agent, and hands 
 output. The reason for routing the CLI through the daemon: the extension holds no state and
 does not know where the viewer is. [DAEMON_API.md](DAEMON_API.md#the-diff-tab) has the shapes.
 
-### EGM (Elephant-Goldfish Model)
+### EGM skills
 
-Elephant-Goldfish Model by Google, Apache-2.0. Spinner runs its skills from a pinned copy. Not an officially supported Google product. Source: https://github.com/google/elephant-goldfish-model. The design is [designs/egm-adoption.md](designs/egm-adoption.md); build session 1 adds the harness adapter described here.
+Elephant-Goldfish Model by Google, Apache-2.0. Spinner runs its skills from a pinned copy. Not an officially supported Google product. Source: https://github.com/google/elephant-goldfish-model.
+
+The skills are tools: `/skill:egm-brainstorm`, `egm-draft`, `egm-review`, `egm-review-loop`, `egm-resolve`, `egm-drift-report`. A lead runs one when the operator asks for it. Nothing in a session needs one, and no stage waits on one. A skill writes its files (the brief, the draft, the design doc, the reports) to `<session>/egm/`, and the Files view shows them like any other session file.
+
+Until 2026-11-23 Spinner also ran EGM as a lifecycle: a design track with derived stages, gates, an approval that seeded the Plan, a tab for each step, and a plans library. The operator found it too slow and too costly, and it grew the scope of every project. That code is removed: the design tracker, the gates, the approval, the plans library, the `design_doc` and `ask_question` tools, and the UI of each. [designs/egm-adoption.md](designs/egm-adoption.md) and [designs/session-workspace.md](designs/session-workspace.md) describe what was built and are kept as history.
 
 The daemon fetches EGM like the diff viewer: a shallow clone of one commit, with no install step and no code run from the checkout. The pin is `EGM_PIN` in `packages/daemon/src/egm/pins.ts`. A moved pin, or a moved `EGM_ADAPTER_VERSION`, fetches again. A lead start fetches it when pi-subagents is installed, and `POST /egm/fetch` refetches it on request.
 
@@ -342,7 +346,7 @@ The adapter mirrors EGM's `.claude-plugin/agents/*.md`. Each generated file name
 | `PI_SUBAGENT_EXTRA_AGENT_DIRS` | `<home>/egm/pi/agents` | pi-subagents loads the adapters as user agents. |
 | `PI_SUBAGENTS_TEMP_ROOT` | `<session>/egm-runs` | Async run status files land inside the session. |
 | `SPINNER_EGM_ROOT` | `<home>/egm/src` | The extension's prompt section names the plugin root. |
-| `SPINNER_EGM_ARTIFACTS` | `<session>/design` | The extension's prompt section names the artifact directory. |
+| `SPINNER_EGM_ARTIFACTS` | `<session>/egm` | The extension's prompt section names the artifact directory. |
 
 The session `AGENTS.md` of every ordinary session names the EGM artifact directory, as EGM's `docs/harnesses.md` defines that override. A review session has no EGM lines.
 
@@ -353,70 +357,7 @@ Four layers keep a Goldfish free of the lead's context:
 3. The Spinner extension registers nothing when `PI_SUBAGENT_CHILD` is `1`. Without this check a child would carry `MISSION.md` and take the lead's commands.
 4. The `tools:` allowlist, which pi enforces. It is not a filesystem sandbox.
 
-The tty channel rewrites a prompt or a steer that starts with `/skill:<name>`. `pi.sendUserMessage` does not expand it, so the extension sends "Read the skill file at `<path>` and follow it in this thread". The evidence for each layer and each probe is in [egm/HARNESS_EVIDENCE.md](egm/HARNESS_EVIDENCE.md).
-
-Build session 3 puts the skills and the gates in the app ([DAEMON_API.md](DAEMON_API.md#gates-and-skill-runs)):
-
-```text
-UI button ──POST …/design/run──▶ daemon: archive the review run, compose the arguments ──prompt──▶ lead
-lead ──ask_question──▶ extension: check EGM's payload ──PUT …/design/gate──▶ session.yaml design.gate
-UI gate card ──POST …/design/answer──▶ daemon: clear the gate ──prompt──▶ lead
-```
-
-| Module | Role |
-| --- | --- |
-| `egm/gate.ts` | `set_gate` checks the lengths and writes `design.gate`; `clear_gate` removes it. Both re-read `session.yaml` right before they write. |
-| `egm/review-runs.ts` | `archive_review_run` moves the current run's reports into `design/reviews/<id>/` and returns the next free id. |
-| `egm/routes.ts` | The gate, answer and run routes, and the argument table of Technical Plan T9. |
-| `egm/design.ts` | The tracker passes `lead_busy` from `AgentManager.is_busy`, sets `design.waiting` when the lead settles on a question, and clears a gate on a later `agent_start` of the lead. |
-| `server.ts` | A prompt or a steer to the lead clears its gate before it is sent. |
-
-The lead brief of a new session has a "Design (EGM)" section: the lead proposes a track, starts no EGM skill on its own, asks each gate with `ask_question`, and writes only the design doc and the session's files before approval.
-The extension's prompt section names the designs directory from `.state.json` on the design track.
-
-Build session 4 makes the Goldfish visible ([DAEMON_API.md](DAEMON_API.md#goldfish)). The Goldfish are not daemon agents. They run inside the lead's pi, so the daemon observes the files that pi-subagents writes:
-
-```text
-lead pi ──subagent (async)──▶ <session>/egm-runs/async-subagent-runs/<runId>/status.json
-lead pi ──subagent (foreground)──▶ agents/lead/pi/subagent-artifacts/<runId>_<agent>_<step>_*
-        each child's pi session: agents/lead/pi/<lead session>/<runId>/run-<i>/session.jsonl
-GoldfishWatcher (2 s poll) ──on change──▶ DesignTracker.refresh ──▶ session.updated (chips)
-CostLedger ──steps[].sessionFile──▶ rows with child ──▶ SessionCost.children
-```
-
-| Module | Role |
-| --- | --- |
-| `egm/goldfish.ts` | `read_runs` reads the async and foreground runs; each Goldfish shows once. `GoldfishWatcher` polls, attributes new runs in `runs.json`, and counts live Goldfish. |
-| `costs/ledger.ts` | Folds each step's transcript inside `<session>/agents/` as rows of the lead with `child`. They sum into `SessionCost.children`. |
-| `egm/design.ts` | The view fills `goldfish`, `goldfish_live` and `cost_by_stage`. A running Goldfish keeps the "lead waits" line off. |
-| `egm/routes.ts` | The Goldfish transcript route, the global cap of 12 live Goldfish on `POST …/design/run`, and the workspace reads of build session 5. |
-
-A result reaches the lead without the daemon. An async launch returns a receipt at once. pi-subagents delivers a completion notice into the lead's session when the run ends, and the lead can block on `bg_wait`. The prompt section tells the lead to wait for every Goldfish of a stage before it consolidates.
-
-The global cap holds new skill starts only. The daemon cannot stop a launch inside pi, so a lead that is already in a skill can pass the cap by one stage's fan-out. Cost is shown, not enforced.
-
-Build session 6 closes the loop: approval, the build handoff, the PR body and the design-only guard ([DAEMON_API.md](DAEMON_API.md#approval-and-the-build)):
-
-```text
-UI approve ──POST …/design/approve──▶ daemon: status line, hash, approved.md, design.approved, Log ──prompt──▶ lead (build)
-doc edit ──watcher──▶ DesignTracker: hash differs ──▶ changed_after_approval, .state.json approved: false
-                                                   └──notify_all (steer fallback)──▶ every agent of the session
-lead write ──tool_call──▶ extension guard: .state.json ──▶ refused outside the designs dir until re-approval
-create PR ──▶ PR body from the approved doc's Overview and Goals
-```
-
-| Module | Role |
-| --- | --- |
-| `egm/approve.ts` | `approve_design` follows T10; `count_listed_blockers` reads the newest report's headings; `clear_approval` removes the approval and keeps the history. |
-| `egm/design.ts` | The tracker sends the change notice once per hash and computes the changed `## ` sections for `GET …/design/changes`. |
-| `agents/manager.ts` | `notify_all` with `steer_fallback` reaches an rpc agent by steer. |
-| `pi-extension/src/guard.ts` | A design-track lead whose `.state.json` reads `approved: false` writes only inside the designs directory and the session's own files. |
-| `egm/pr-body.ts` | The PR body from the approved doc. |
-| `pipeline/outcomes.ts` | The `fix_rounds` and `operator_steers` counters. |
-
-The guard covers `edit` and `write` only. A `bash` command can still write a file; the lead brief and EGM's design-only scope are the limit there.
-The guard reads `.state.json` before each check, so an approval, an invalidation or a switch to `direct` applies at the lead's next write.
-The worktrees live under `<session>/worktrees/`, so the design rule runs before the session-directory exemption and counts `worktrees/` as code, except the designs directory.
+The Goldfish of a skill are pi-subagents children of the lead, as any other subagent the lead starts. They are not daemon agents. `egm/goldfish.ts` reads the files pi-subagents writes (`<session>/egm-runs/async-subagent-runs/<runId>/status.json` for an async run, `agents/lead/pi/subagent-artifacts/` for a foreground one), `GoldfishWatcher` polls them every 2 s while the lead may have live children, and `SessionView.subagents` lists each step with its state, tokens and cost. The cost ledger folds their transcripts into the session's spend ([DAEMON_API.md](DAEMON_API.md#egm-skills-and-the-leads-subagents)).
 
 ### Storage
 

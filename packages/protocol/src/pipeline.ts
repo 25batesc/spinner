@@ -5,7 +5,6 @@
 // GitHub repo with no bots, no approval check and no merge queue.
 
 import type { CommentWaiting } from "./comments.js";
-import type { DesignStage } from "./egm.js";
 import type { ApprovalRole, DiffThreadRecord, Pipeline, PullRequest, Stage } from "./session.js";
 
 /** Who must approve, by PR author kind. Spinner-opened PRs fall under `human_author`. */
@@ -114,11 +113,6 @@ export interface PipelineFacts {
      * wins over the pipeline's own `needs_human`: the operator posts or drops it first.
      */
     review_draft?: boolean;
-    /**
-     * The design facts (docs/designs/egm-adoption.md, T7), present only for the `design`
-     * track once the tracker derived a stage. `needs` is the design stage's `needs_human`.
-     */
-    design?: { stage: DesignStage; needs: string | null };
 }
 
 /** The single next action for the operator, or null when nothing waits on them. */

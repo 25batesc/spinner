@@ -29,7 +29,6 @@ import {
     REVIEW_VERDICT_PREFIX,
     model_slug,
 } from "@spinner/protocol";
-import { approved_doc_of } from "../egm/pr-body.js";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import { parse_pr_url } from "../pipeline/github.js";
@@ -486,17 +485,7 @@ export class ReviewSwarm {
         const pr = parse_pr_url(target.url);
         assert.ok(pr !== null, `${target.url} is not a GitHub PR URL`);
         mkdirSync(dirname(path), { recursive: true });
-        // D11: with an approved design, the reviewers read the doc and name where the code
-        // differs from it.
-        const design_doc = approved_doc_of(summary)?.absolute;
-        const brief = render_review_brief({
-            name,
-            model,
-            pr,
-            url: target.url,
-            skill,
-            ...(design_doc === undefined ? {} : { design_doc }),
-        });
+        const brief = render_review_brief({ name, model, pr, url: target.url, skill });
         writeFileSync(path, brief);
     }
 

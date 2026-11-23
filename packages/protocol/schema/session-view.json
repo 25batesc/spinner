@@ -49,9 +49,12 @@
                     "$ref": "#/definitions/ReviewFields",
                     "description": "The review facts (s015): set for a review session, and for an ordinary session once its swarm ran. Absent otherwise."
                 },
-                "design": {
-                    "$ref": "#/definitions/DesignView",
-                    "description": "The design facts (docs/designs/egm-adoption.md, T7, T12). Absent for a session without a `design` block in `session.yaml`."
+                "subagents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/GoldfishView"
+                    },
+                    "description": "The subagents the lead started with pi-subagents (the Goldfish of an EGM skill, or any other), newest run first. The daemon always sets it; optional for older fixtures."
                 },
                 "round": {
                     "type": "number",
@@ -219,19 +222,17 @@
                     "description": "The review swarm (s015). Absent until the first `review`."
                 },
                 "design": {
-                    "$ref": "#/definitions/DesignState",
-                    "description": "Absent means a session from before the EGM design. `SESSION_VERSION` stays 1."
+                    "description": "The state of the EGM lifecycle, removed on 2026-11-23 (`egm.ts`). A file written before that keeps the block; nothing reads it."
                 },
                 "rounds": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/RoundRecord"
                     },
-                    "description": "Earlier rounds, oldest first, appended by `reset` since the EGM design. Rounds before that are only in `## Previous rounds` of MISSION.md."
+                    "description": "Earlier rounds, oldest first, appended by `reset`. Rounds from before the daemon kept them are only in `## Previous rounds` of MISSION.md."
                 },
                 "outcomes": {
-                    "$ref": "#/definitions/OutcomeCounts",
-                    "description": "Absent in sessions created before EGM build session 6."
+                    "description": "Counters of the EGM comparison (fixer rounds, operator steers), removed with the lifecycle on 2026-11-23. A file written before that keeps the block; nothing reads it."
                 },
                 "comments": {
                     "type": "object",
@@ -271,10 +272,9 @@
             "type": "string",
             "enum": [
                 "session",
-                "review",
-                "plan"
+                "review"
             ],
-            "description": "What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action. `plan` is a planning session (talk-change-ship.md, 4.2): its product is a plan document in the plans library, not code."
+            "description": "What a session is (s015). `review` is a place for a peer's PR: a detached worktree at the PR head under `<home>/reviews/`, no project, no stack, and `review` as its one action. A file from before 2026-11-23 can say `plan` (a planning session of the removed plans library); the daemon reads it as an ordinary session."
         },
         "ChangeHead": {
             "type": "object",
@@ -1245,182 +1245,6 @@
             ],
             "description": "A reviewer's state (s015, s016). `done`: its verdict is in `artifacts/reviews/` and its pi is stopped. `failed`: it settled without a `VERDICT:` block, or exited."
         },
-        "DesignState": {
-            "type": "object",
-            "properties": {
-                "track": {
-                    "$ref": "#/definitions/DesignTrack"
-                },
-                "stage": {
-                    "$ref": "#/definitions/DesignStage"
-                },
-                "needs": {
-                    "type": [
-                        "string",
-                        "null"
-                    ],
-                    "description": "The derived `needs_human` text of the design stage, or null."
-                },
-                "waiting": {
-                    "type": "boolean",
-                    "description": "True when the lead settled on a question."
-                },
-                "doc": {
-                    "type": "string",
-                    "description": "Repo-relative path of the design doc; absent until the lead calls `design_doc`."
-                },
-                "repo": {
-                    "type": "string",
-                    "description": "Repo key of the doc."
-                },
-                "review_run": {
-                    "$ref": "#/definitions/DesignReviewRun"
-                },
-                "gate": {
-                    "$ref": "#/definitions/DesignGate"
-                },
-                "approved": {
-                    "$ref": "#/definitions/DesignApproval"
-                },
-                "approvals": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/DesignApproval"
-                    },
-                    "description": "Every approval, oldest first; at most `DESIGN_APPROVALS_MAX`."
-                },
-                "changed_after_approval": {
-                    "type": "boolean",
-                    "description": "True when the doc changed after the approval: the approval is invalidated."
-                }
-            },
-            "required": [
-                "track"
-            ],
-            "additionalProperties": false,
-            "description": "The `design` block of `session.yaml`. `stage`, `needs` and `waiting` are derived."
-        },
-        "DesignTrack": {
-            "type": "string",
-            "enum": [
-                "design",
-                "direct"
-            ]
-        },
-        "DesignStage": {
-            "type": "string",
-            "enum": [
-                "intake",
-                "brainstorm",
-                "drafting",
-                "drafted",
-                "design-review",
-                "resolving",
-                "design-ready",
-                "approved"
-            ]
-        },
-        "DesignReviewRun": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "preset": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ReviewPreset"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "started": {
-                    "type": "string",
-                    "description": "ISO 8601 start time."
-                }
-            },
-            "required": [
-                "id",
-                "preset",
-                "started"
-            ],
-            "additionalProperties": false,
-            "description": "The review run that the app started (build session 3). Ids are `r1`, `r2`, …"
-        },
-        "ReviewPreset": {
-            "type": "string",
-            "enum": [
-                "interactive",
-                "uninterrupted",
-                "feature_spec",
-                "implementation"
-            ]
-        },
-        "DesignGate": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string"
-                },
-                "options": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "asked": {
-                    "type": "string",
-                    "description": "ISO 8601 time the lead asked."
-                }
-            },
-            "required": [
-                "question",
-                "options",
-                "asked"
-            ],
-            "additionalProperties": false,
-            "description": "An open gate: the one question the lead asked through `ask_question` (build session 3)."
-        },
-        "DesignApproval": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Repo-relative path of the doc."
-                },
-                "repo": {
-                    "type": "string",
-                    "description": "Repo key of the doc."
-                },
-                "sha256": {
-                    "type": "string"
-                },
-                "at": {
-                    "type": "string",
-                    "description": "ISO 8601 time of the approval."
-                },
-                "blockers": {
-                    "type": "number",
-                    "description": "The blockers the newest report listed when the operator approved."
-                },
-                "round": {
-                    "type": "number",
-                    "description": "The session round the approval belongs to."
-                }
-            },
-            "required": [
-                "path",
-                "repo",
-                "sha256",
-                "at",
-                "blockers",
-                "round"
-            ],
-            "additionalProperties": false,
-            "description": "One approval of the design doc. `sha256` is the normalized hash (T7)."
-        },
         "RoundRecord": {
             "type": "object",
             "properties": {
@@ -1494,23 +1318,6 @@
             ],
             "additionalProperties": false,
             "description": "One PR of an earlier round. `merged_at` is the PR's `last_activity` when merged, else null."
-        },
-        "OutcomeCounts": {
-            "type": "object",
-            "properties": {
-                "fix_rounds": {
-                    "type": "number"
-                },
-                "operator_steers": {
-                    "type": "number"
-                }
-            },
-            "required": [
-                "fix_rounds",
-                "operator_steers"
-            ],
-            "additionalProperties": false,
-            "description": "The outcome counters (docs/designs/egm-adoption.md, 6.19 to 6.22): fixer rounds and the operator's steers to the lead, counted per session across rounds."
         },
         "CommentWaiting": {
             "type": "object",
@@ -2286,200 +2093,6 @@
             ],
             "description": "Where a review stands (s016): `drafted` while a draft exists; else `reviewing` while a reviewer is `queued` or `reading` or the lead runs a turn; else `posted` once a review went up; else `idle`."
         },
-        "DesignView": {
-            "type": "object",
-            "properties": {
-                "track": {
-                    "$ref": "#/definitions/DesignTrack"
-                },
-                "stage": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/DesignStage"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "files": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/DesignFileView"
-                    }
-                },
-                "reviews": {
-                    "type": "object",
-                    "properties": {
-                        "5": {
-                            "type": "boolean"
-                        },
-                        "6": {
-                            "type": "boolean"
-                        },
-                        "7": {
-                            "type": "boolean"
-                        },
-                        "8": {
-                            "type": "boolean"
-                        },
-                        "9": {
-                            "type": "boolean"
-                        }
-                    },
-                    "required": [
-                        "5",
-                        "6",
-                        "7",
-                        "8",
-                        "9"
-                    ],
-                    "additionalProperties": false
-                },
-                "consolidated": {
-                    "type": "boolean"
-                },
-                "resolve": {
-                    "type": "string",
-                    "enum": [
-                        "none",
-                        "open",
-                        "resolved"
-                    ]
-                },
-                "review_run": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/DesignReviewRun"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "doc": {
-                    "type": [
-                        "string",
-                        "null"
-                    ]
-                },
-                "repo": {
-                    "type": [
-                        "string",
-                        "null"
-                    ],
-                    "description": "The repo key of the doc, else of the designs repo; null without one. Optional, so a fixture written before build session 3 still type-checks; the daemon always sets it."
-                },
-                "designs_dir": {
-                    "type": [
-                        "string",
-                        "null"
-                    ],
-                    "description": "The absolute designs directory (`spinner.yaml` `designs`, T7), the one `.state.json` carries; null when the designs repo has no worktree. Optional, as `repo`."
-                },
-                "doc_missing": {
-                    "type": "boolean"
-                },
-                "approved": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/DesignApproval"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "approvals": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/DesignApproval"
-                    }
-                },
-                "changed_after_approval": {
-                    "type": "boolean"
-                },
-                "gate": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/DesignGate"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "goldfish": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/GoldfishView"
-                    }
-                },
-                "goldfish_live": {
-                    "type": "number"
-                },
-                "cost_by_stage": {
-                    "type": "object",
-                    "properties": {
-                        "brainstorm": {
-                            "type": "number"
-                        },
-                        "draft": {
-                            "type": "number"
-                        },
-                        "review": {
-                            "type": "number"
-                        },
-                        "build": {
-                            "type": "number"
-                        }
-                    },
-                    "additionalProperties": false
-                }
-            },
-            "required": [
-                "track",
-                "stage",
-                "files",
-                "reviews",
-                "consolidated",
-                "resolve",
-                "review_run",
-                "doc",
-                "doc_missing",
-                "approved",
-                "approvals",
-                "changed_after_approval",
-                "gate",
-                "goldfish",
-                "goldfish_live",
-                "cost_by_stage"
-            ],
-            "additionalProperties": false,
-            "description": "The design facts of a `SessionView`. `stage` is null outside the design track. `reviews`, `consolidated` and `resolve` describe the current review run. Until build session 4, `goldfish` is `[]`, `goldfish_live` is 0 and `cost_by_stage` is `{}`."
-        },
-        "DesignFileView": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "bytes": {
-                    "type": "number"
-                },
-                "mtime": {
-                    "type": "string",
-                    "description": "ISO 8601 modification time."
-                }
-            },
-            "required": [
-                "name",
-                "bytes",
-                "mtime"
-            ],
-            "additionalProperties": false,
-            "description": "One file directly in `<session>/design/`."
-        },
         "GoldfishView": {
             "type": "object",
             "properties": {
@@ -2525,19 +2138,6 @@
                         "null"
                     ]
                 },
-                "design_step": {
-                    "type": [
-                        "string",
-                        "null"
-                    ],
-                    "enum": [
-                        "brainstorm",
-                        "draft",
-                        "review",
-                        "build",
-                        null
-                    ]
-                },
                 "transcript": {
                     "type": "boolean"
                 }
@@ -2553,11 +2153,10 @@
                 "usd",
                 "started",
                 "last_activity",
-                "design_step",
                 "transcript"
             ],
             "additionalProperties": false,
-            "description": "One Goldfish run of the lead. Build session 4 fills these."
+            "description": "One subagent step of the lead."
         },
         "GoldfishState": {
             "type": "string",

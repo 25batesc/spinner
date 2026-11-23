@@ -1,7 +1,7 @@
-// The selected Goldfish's transcript (docs/designs/egm-adoption.md, entry 4.15): read-only,
-// folded and rendered as the `chat` tab of an rpc agent, without the prompt form. The daemon
-// reads the step's `sessionFile`; the view reloads it every `GOLDFISH_POLL_MS` while the chip
-// is `running`, because a child's events do not reach the events socket.
+// The transcript of the selected subagent of the lead: read-only, folded and rendered as the
+// chat of an agent, without the prompt form. The daemon reads the step's `sessionFile`; the
+// view reloads it every `GOLDFISH_POLL_MS` while the step is `running`, because a child's
+// events do not reach the events socket.
 import { useEffect, useState } from "react";
 
 import { GOLDFISH_POLL_MS, type GoldfishView } from "@spinner/protocol";
@@ -68,9 +68,9 @@ export function GoldfishTranscript({ dir, view }: { dir: string; view: GoldfishV
         formatUsd(view.usd),
     ].join(" · ");
     return (
-        <div className="gf-transcript" aria-label="Goldfish transcript">
+        <div className="gf-transcript" aria-label="Subagent transcript">
             <p className="muted agent-status">
-                <span className="gf-mark" aria-hidden="true">🐟</span> {chipLabel(view)} · {facts}
+                {chipLabel(view)} · {facts}
                 {" · read-only"}
             </p>
             {loaded === null && <p className="muted">Loading the transcript.</p>}

@@ -1,5 +1,11 @@
 # Spinner adopts EGM: the design doc replaces MISSION.md as the session's spec
 
+> **Removed on 2026-11-23.** Spinner no longer runs EGM as a lifecycle: the design track, the
+> stages, the gates, the approval, the Plan seed and the tabs of this document are gone. EGM
+> is a set of skills a lead runs when the operator asks, and their files are session files
+> under `<session>/egm/` (`docs/SESSION_PROTOCOL.md`, *Decisions*, 2026-11-23). This
+> document is kept as the record of what was built.
+
 *   **Author:** spinner-agent (the Elephant of this design; see the Glossary)
 *   **Status:** Reviewed
 *   **Version:** 3 (version 3 applies the 19 findings of `review/readiness_report_v2.md` to the Detailed Implementation Plan; `resolve_report_v2.md` records each one. Version 1 was reviewed by 8 Goldfish reports; `resolve_report.md` records each finding)

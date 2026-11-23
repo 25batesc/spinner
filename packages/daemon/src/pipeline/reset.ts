@@ -3,9 +3,7 @@
 // the round's threads moved under `artifacts/`, the Log moved under `## Previous rounds` in
 // MISSION.md, and the stack recreated with a fresh database clone when it was up. Agent
 // transcripts stay, so an agent resumes with its history (docs/SESSION_PROTOCOL.md, "reset").
-// The round's PRs are also recorded in `session.yaml` `rounds`. The `design` block is not
-// touched: the design doc and its approvals carry across rounds (docs/designs/egm-adoption.md,
-// T14).
+// The round's PRs are also recorded in `session.yaml` `rounds`.
 import assert from "node:assert/strict";
 import {
     existsSync,

@@ -4,7 +4,7 @@
 // link text.
 import type { ReactNode } from "react";
 
-import type { CostTotals, DesignTrack, PrFacts, SessionView } from "@spinner/protocol";
+import type { CostTotals, PrFacts, SessionView } from "@spinner/protocol";
 
 import {
     agentLabel, contextLabel, contextTitle, contextTone, fullestContext,
@@ -12,12 +12,10 @@ import {
 import { ciMark, diffText, prChip, prTone, type Tone } from "./changes.ts";
 import { openChange } from "./ChangesRail.tsx";
 import { formatTokens, formatUsd } from "./costs.ts";
-import { trackChoices } from "./design.ts";
 import type { PaneName } from "./layout.ts";
 import {
     ciPill, decisionPill, draftPill, reviewFacts, reviewStatePill, type Pill, type ReviewFacts,
 } from "./review.ts";
-import { fetchEgm, putDesignTrack, useLoaded } from "./remote.ts";
 import { roundBadge, roundTooltip } from "./rounds.ts";
 import { needsHuman, stageOf } from "./state.ts";
 import {
@@ -47,7 +45,6 @@ export type IconName =
     | "gear"
     | "pull-request"
     | "merge"
-    | "plan"
     | "projects"
     | "comment"
     | "ping"
@@ -85,8 +82,6 @@ const GLYPHS: Record<IconName, string> = {
     merge:
         "M4 4.5v7M4 4.5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M4 14.5a1.5 1.5 0 1 0 0-3" +
         "a1.5 1.5 0 0 0 0 3M12 7.5a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3M12 7.5c0 3-4 2.5-8 4",
-    // A page with lines: the plans library.
-    plan: "M4 2.5h6l2.5 2.5v8.5h-8.5zM10 2.5v2.5h2.5M6 8h4.5M6 10.5h4.5",
     // Stacked layers: the projects and their stacks.
     projects: "M8 2.5l5.5 3-5.5 3-5.5-3zM2.5 8.5l5.5 3 5.5-3M2.5 11l5.5 3 5.5-3",
     // A speech bubble: comment on the preview (s054), and an agent's message in the chat.
@@ -202,7 +197,7 @@ export function PaneStrip({ name, popped, onRestore }: PaneStripProps) {
  * the peers' PRs (s015), and settings at the bottom.
  */
 export interface PanelView {
-    id: "sessions" | "prs" | "plans" | "projects" | "reviews" | "settings";
+    id: "sessions" | "prs" | "projects" | "reviews" | "settings";
     icon: IconName;
     label: string;
     /** Drawn at the bottom of the bar, apart from the views above. */
@@ -212,7 +207,6 @@ export interface PanelView {
 export const PANEL_VIEWS: readonly PanelView[] = [
     { id: "sessions", icon: "sessions", label: "Sessions" },
     { id: "prs", icon: "merge", label: "Pull requests" },
-    { id: "plans", icon: "plan", label: "Plans" },
     { id: "projects", icon: "projects", label: "Projects" },
     { id: "reviews", icon: "pull-request", label: "Reviews" },
     { id: "settings", icon: "gear", label: "Settings", bottom: true },
@@ -469,115 +463,21 @@ export interface ContextBarProps {
     usage: UsageSample | null;
     /** The session's actions (`SessionToolbar`), after the needs-you pill. */
     toolbar?: ReactNode;
-    /** Where a failed track switch goes: the drawer, as a failed job's error does. */
-    onError?: ((message: string) => void) | undefined;
-    /**
-     * Set while a gate card or the resolve card shows (entry 3.22): the `needs you` pill is a
-     * button that opens the card, in the `agents` view with `lead` picked.
-     */
-    onNeeds?: (() => void) | undefined;
-    /** Set for a session with a `design` block (entry 5.11): the round badge opens History. */
-    onRound?: (() => void) | undefined;
-}
-
-/** The `needs you` pill: a button that opens the gate card when `onNeeds` is set. */
-function NeedsPill({ needs, onNeeds }: { needs: string; onNeeds: (() => void) | undefined }) {
-    if (onNeeds === undefined) {
-        return (
-            <span className="needs-human pill pill-warn context-needs" title={needs}>
-                {needs}
-            </span>
-        );
-    }
-    return (
-        <button
-            type="button"
-            className="needs-human pill pill-warn context-needs context-needs-button"
-            title={`${needs} · open the question`}
-            onClick={onNeeds}
-        >
-            {needs}
-        </button>
-    );
 }
 
 /**
- * `r3` after the title from round 2 on (entry 2.47), on every session; the tooltip lists the
- * PRs of each earlier round.
+ * `r3` after the title from round 2 on, on every session; the tooltip lists the PRs of each
+ * earlier round.
  */
-export function RoundBadge(
-    { view, onRound }: { view: SessionView; onRound?: (() => void) | undefined },
-) {
+export function RoundBadge({ view }: { view: SessionView }) {
     const badge = roundBadge(view);
     if (badge === null) {
         return null;
     }
     const title = roundTooltip(view.rounds ?? []);
-    if (onRound !== undefined) {
-        return (
-            <button
-                type="button"
-                className="badge round-badge round-badge-button"
-                title={title}
-                onClick={onRound}
-            >
-                {badge}
-            </button>
-        );
-    }
     return (
         <span className="badge round-badge" title={title}>
             {badge}
-        </span>
-    );
-}
-
-/**
- * The track chip (entry 2.33): the session's track and, behind the chevron, the other tracks
- * that `GET /egm` allows. `design` is offered only while EGM is ready with pi-subagents. An
- * empty menu shows no chevron. A pick sends `PUT .../design/track`; the daemon's
- * `session.updated` moves the chip, and a refusal goes to the drawer.
- */
-function TrackChip(props: {
-    dir: string;
-    track: DesignTrack;
-    onError: ((message: string) => void) | undefined;
-}) {
-    const { dir, track, onError } = props;
-    const egm = useLoaded(`egm#${dir}`, fetchEgm).value?.egm ?? null;
-    const menu = useMenu<HTMLSpanElement>();
-    const others = trackChoices(egm).filter((choice) => choice !== track);
-    const pick = (choice: DesignTrack) => {
-        menu.close();
-        putDesignTrack(dir, choice).catch((failure: unknown) => onError?.(String(failure)));
-    };
-    if (others.length === 0) {
-        return (
-            <span className="pill track-chip" title="The session's track">
-                {track}
-            </span>
-        );
-    }
-    return (
-        <span className="track-menu" ref={menu.ref}>
-            <button
-                type="button"
-                className="pill track-chip"
-                title="The session's track; click to switch"
-                aria-expanded={menu.open}
-                onClick={menu.toggle}
-            >
-                {track} {"\u25be"}
-            </button>
-            {menu.open && (
-                <div className="menu" role="menu" aria-label="Track">
-                    {others.map((choice) => (
-                        <button key={choice} type="button" onClick={() => pick(choice)}>
-                            {choice}
-                        </button>
-                    ))}
-                </div>
-            )}
         </span>
     );
 }
@@ -641,7 +541,7 @@ export function ReviewPills({ facts }: { facts: ReviewFacts }) {
 }
 
 export function ContextBar(props: ContextBarProps) {
-    const { view, usage, toolbar, onError, onNeeds, onRound } = props;
+    const { view, usage, toolbar } = props;
     if (view === undefined) {
         return (
             <div className="context-bar muted">
@@ -687,7 +587,7 @@ export function ContextBar(props: ContextBarProps) {
                 {view.summary.session.title}
             </span>
             <PrChip view={view} />
-            <RoundBadge view={view} onRound={onRound} />
+            <RoundBadge view={view} />
             <span className="badge">{stageOf(view)}</span>
             <span className="pill context-stack">
                 <span className={`dot dot-${view.stack.state}`} />
@@ -698,9 +598,10 @@ export function ContextBar(props: ContextBarProps) {
             <ContextFigure view={view} />
             <MachineLine usage={usage} />
             <SyncBadge view={view} />
-            {needs !== null && <NeedsPill needs={needs} onNeeds={onNeeds} />}
-            {view.design !== undefined && (
-                <TrackChip dir={view.summary.dir} track={view.design.track} onError={onError} />
+            {needs !== null && (
+                <span className="needs-human pill pill-warn context-needs" title={needs}>
+                    {needs}
+                </span>
             )}
             {toolbar}
         </div>

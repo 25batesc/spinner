@@ -1,7 +1,7 @@
 import type { AgentSpec, RosterRow, SessionView } from "@spinner/protocol";
 import { describe, expect, it } from "vitest";
 
-import { initialDesignSessions, SEEDED_DIR } from "../fixture/data.ts";
+import { initialWorkSessions, SEEDED_DIR } from "../fixture/data.ts";
 import {
     agentRows,
     hostedState,
@@ -19,7 +19,7 @@ function spec(partial: Partial<AgentSpec> = {}): AgentSpec {
 }
 
 function seeded(): SessionView {
-    const view = initialDesignSessions().find((item) => item.summary.dir === SEEDED_DIR);
+    const view = initialWorkSessions().find((item) => item.summary.dir === SEEDED_DIR);
     if (view === undefined) {
         throw new Error("no seeded session in the fixture");
     }
@@ -36,8 +36,7 @@ function withAgents(
 }
 
 function withoutFish(view: SessionView): SessionView {
-    const design = view.design;
-    return design === undefined ? view : { ...view, design: { ...design, goldfish: [] } };
+    return { ...view, subagents: [] };
 }
 
 /** `name state`, the rows then `| finished` rows, per group. */
@@ -157,7 +156,7 @@ describe("agentRows", () => {
         expect(lead?.usd).toBeGreaterThan(0);
         const fish = agentRows(seeded(), {}, [])[2]?.rows.find((row) => row.name === "critic");
         expect(fish).toMatchObject({
-            key: "fish:e5f6a7b8/0", roleLabel: "goldfish · review", model: "opus-5-5",
+            key: "fish:e5f6a7b8/0", roleLabel: "subagent", model: "opus-5-5",
             context: null, usd: 0.45, doing: "—",
         });
     });

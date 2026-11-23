@@ -35,7 +35,6 @@ import {
     type MissionBlock,
     type MissionItem,
 } from "../pipeline/mission-sections.js";
-import { read_session } from "./session-store.js";
 
 /** Heading of each section, as the template writes it. */
 export const SECTION_HEADINGS: Record<MissionSection, string> = {
@@ -48,7 +47,7 @@ export const SECTION_HEADINGS: Record<MissionSection, string> = {
     log: "Log",
 };
 
-/** The daemon's own author: the one that writes Goal and Done when on the design track. */
+/** The daemon's own author, for a Log line the daemon writes itself. */
 export const SPEC_AUTHOR = "spinner";
 
 /** Sections the operator owns; `replace` is allowed there and nowhere else. */
@@ -511,28 +510,8 @@ export class MissionWriter {
         return this.last_notes.get(`${dir}/${agent}`) ?? null;
     }
 
-    /**
-     * On the design track the design doc is the spec (docs/designs/egm-adoption.md, D6, T11):
-     * only `spinner` writes Goal and Done when. The session is read before each write, so a
-     * track switch applies at the next write.
-     */
-    private design_refusal(dir: string, request: MissionSectionRequest): string | null {
-        if (request.section !== "goal" && request.section !== "done_when") {
-            return null;
-        }
-        if (request.author === SPEC_AUTHOR) {
-            return null;
-        }
-        const read = read_session(this.home, dir);
-        const design = read.ok ? read.summary.session.design : undefined;
-        if (design?.track !== "design") {
-            return null;
-        }
-        return `this session's spec is the design doc (${design.doc ?? "not named yet"})`;
-    }
-
     private write_now(dir: string, request: MissionSectionRequest): MissionSectionResponse {
-        const reason = validate_mission_write(request) ?? this.design_refusal(dir, request);
+        const reason = validate_mission_write(request);
         if (reason !== null) {
             throw new MissionWriteError(reason);
         }
@@ -586,19 +565,6 @@ export class MissionWriter {
             run.catch(() => undefined),
         );
         return run;
-    }
-
-    /**
-     * Reads `MISSION.md`, applies `change` to its text and writes the result, after every
-     * earlier write on the session and before the next one; publishes one `mission.changed`
-     * as `author` with the whole view. The seed uses it (session-workspace T4).
-     */
-    rewrite(dir: string, author: string, change: (text: string) => string): Promise<void> {
-        assert.ok(author.length > 0, "rewrite needs an author");
-        return this.serialized(dir, author, () => {
-            const file = join(this.home.sessions, dir, "MISSION.md");
-            writeFileSync(file, change(readFileSync(file, "utf8")));
-        });
     }
 
     /** The structured mission of `dir` as the file is now. */

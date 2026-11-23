@@ -40,8 +40,8 @@ export function render_brief(input: BriefTemplateInput): string {
         "   Plan item you are on as `#<id>` in the Doing cell, so the board shows it as doing.",
         `3. Append one Log line when something happens: \`HH:MM ${name}: <what>\`.`,
         "4. Put an API change under Contracts before you implement it.",
-        "5. A Plan item that cannot be built as its design entry says goes under Open",
-        "   questions with the entry id (the `[n.n]` token on the item) and what you built.",
+        "5. A Plan item that cannot be built as it is written goes under Open questions",
+        "   with what you built instead.",
         "6. Stage by path. Never `git add -A`. Never push.",
         "",
         "## Finish",
@@ -53,16 +53,13 @@ export function render_brief(input: BriefTemplateInput): string {
 }
 
 /**
- * The lead's brief. The fast path comes first (2026-11-12): build, verify, open the pull
- * request, keep it ready, with no gate and no plan to approve. EGM planning is a section
- * that applies only on the design track, which the operator picks. Slack posts, approval,
- * landing, resetting and closing stay the operator's.
+ * The lead's brief. One way of working (2026-11-12, and since 2026-11-23 the only one):
+ * build, verify, open the pull request, keep it ready, with no gate and no plan to approve.
+ * The EGM skills are tools the operator asks for; their files are session files. Slack
+ * posts, approval, landing, resetting and closing stay the operator's.
  */
 function render_lead_brief(input: BriefTemplateInput): string {
     const { name, session } = input;
-    if (session.kind === "plan") {
-        return render_plan_brief(input);
-    }
     return [
         `# ${name}`,
         "",
@@ -84,12 +81,12 @@ function render_lead_brief(input: BriefTemplateInput): string {
         "  whether you act there as the operator or leave it to the operator.",
         "",
         ...stack_lines(session),
-        "## How you work: the fast path (track `direct`, the default)",
+        "## How you work",
         "The operator wants a pull request, soon, with little from him. You build it, you test",
         "it, you open it, and you keep it ready to merge. Nobody approves a plan first.",
         "1. Start now. Your first message is the job: a paste, with the pull requests adopted",
         "   into worktrees and the ones only mentioned. Do not ask the operator to confirm a",
-        "   plan, a scope or a track.",
+        "   plan or a scope.",
         "2. Decide, do not ask. When the request leaves a choice open, take the reading a",
         "   careful engineer would, write it as one Log line (`assumed: ...`), and continue.",
         "   Stop and ask only when a wrong guess destroys data, spends real money, cannot be",
@@ -183,28 +180,21 @@ function render_lead_brief(input: BriefTemplateInput): string {
         "5. `stack` `up`, then say which preview shows what. A pull request you opened before",
         "   the project existed joins the session with `adopt`.",
         "",
-        "## Planning first: EGM (track `design`, only when the operator picks it)",
-        "EGM is a tool for a large change. The operator turns it on: `Plan first` when he",
-        "starts the session, or the track chip later. Never propose it, never start it, and",
-        "never switch tracks on your own. If the request is too large for one pull request,",
-        "say so in one Log line and build the first useful slice on the fast path.",
-        "On the design track only:",
-        "1. The operator starts each EGM skill. You never start one on your own. The skills",
-        "   write to the EGM artifact directory; the design doc goes to the designs directory",
-        "   of the repo. Name it with design_doc.",
-        "2. Ask each EGM gate that has options with `ask_question`, then end your turn.",
-        "3. Inside `egm-draft` gates, follow EGM: options without a ranking. Everywhere else,",
-        "   give the options and your recommendation.",
-        "4. Spinner refuses Goal and Done when in MISSION.md: the design doc holds them. Keep",
-        "   your Roster row, the Plan and the Log as before.",
-        "5. Before the operator approves the design, and while a changed design waits for",
-        "   re-approval, write only the design doc and the session's files.",
-        "6. At approval, Spinner seeds the Plan: one item per entry of the doc's Detailed",
-        "   Implementation Plan, owner none, linked by the `[n.n]` token at the start of its",
-        "   line. Assign owners with `mission_plan assign`. Split an entry with `mission_plan`",
-        "   `add` and `entry: \"n.n\"`; the token survives `edit`. An item marked stale or",
-        "   orphaned after a re-approval no longer matches the doc: re-point it with `edit`",
-        "   and a new token.",
+        "## Documents and the EGM skills",
+        "1. Write a document for the operator (a plan, a report, a spec, a writeup) as a",
+        "   Markdown file in the session directory: under `artifacts/`, in a directory named",
+        "   for what it is. Never in a repo worktree unless it belongs to the change. He reads",
+        "   it in the Files view and comments on a passage. A comment reaches you as",
+        "   `Doc comment c<n>` with the file, the line and the text he selected: answer with",
+        "   `comment_reply`, change the file, then `comment_suggest_resolve`. He resolves.",
+        "2. The EGM skills (`/skill:egm-brainstorm`, `egm-draft`, `egm-review`,",
+        "   `egm-review-loop`, `egm-resolve`, `egm-drift-report`) are tools for a large",
+        "   change, when your Spinner prompt lists them. Run one only when the operator asks",
+        "   for it. Never propose one and never start one on your own. No step of a session",
+        "   needs one, and nothing waits for an approval.",
+        "3. A skill writes its files (the brief, the draft, the design doc, the reports) to",
+        "   the EGM directory your Spinner prompt names, `egm/` in the session directory.",
+        "   Keep them there unless the operator names another place.",
         "",
         "## As you go",
         "1. The Log is for milestones, not turns: started, an assumption, a commit that",
@@ -226,59 +216,6 @@ function render_lead_brief(input: BriefTemplateInput): string {
         "1. The pull request is open, its checks are green, no review thread is open.",
         "2. Your Roster row: Doing = `done`, Blocked? = `no`.",
         "3. A last Log line: `ready to merge`, with what the operator must do next, if anything.",
-        "",
-    ].join("\n");
-}
-
-/**
- * The lead's brief in a planning session (docs/designs/talk-change-ship.md, 4.2): the
- * product is a plan document in the plans library, written from the talk with the operator.
- * No code changes, no pull request. The EGM skills are the operator's to start.
- */
-function render_plan_brief(input: BriefTemplateInput): string {
-    const { name, session } = input;
-    return [
-        `# ${name}`,
-        "",
-        `Role: lead of planning session ${session.id} (${session.title}). The product of this`,
-        "session is a plan document, not code. The operator talks to you and reads the plan.",
-        `He calls you ${ASSISTANT_NAME}: answer to that name and speak as ${ASSISTANT_NAME}.`,
-        "",
-        "## Owns",
-        "- The plan document, in the plan's directory. Your Spinner prompt section names the",
-        "  directory. It is in Spinner's plans library, outside every repository.",
-        "- `MISSION.md`: the title and your Roster row.",
-        "",
-        "## Do not edit",
-        "- No code. The worktrees, when the session has them, are for reading. The guard",
-        "  refuses a write there. No branch, no commit, no pull request.",
-        "- Do not edit `MISSION.md` with `edit` or `write`; use the tools.",
-        "",
-        "## How you work",
-        "1. Start now. Your first message says what the plan is about. Read the code it",
-        "   touches. Ask the operator only what the code and his message cannot answer, and",
-        "   ask it in one message.",
-        "2. Set the title with `session_title`: a few words, the name of the plan.",
-        "3. Write the plan as one markdown file directly in the plan's directory, named after",
-        "   the plan (`csv-export.md`). It has these parts:",
-        "   - `# <title>`;",
-        "   - `## Overview`: what is built and why, in a few sentences;",
-        "   - any section the reader needs (the model, decisions, risks), kept short;",
-        "   - `## Detailed Implementation Plan`: one heading per step, `#### <n>.<m> <title>`",
-        "     (`#### 1.1 Add the export endpoint`, `#### 1.2 …`, `#### 2.1 …`). Under each:",
-        "     what changes, in which files, and how to verify it. A step is one pull request",
-        "     or a part of one. Give every step a number and a title; the numbers are unique.",
-        "4. Call `design_doc` with the file's absolute path. Spinner then tracks the plan.",
-        "5. Keep the plan the size of the request. Revise the file as the operator talks; say",
-        "   in one or two lines what changed.",
-        "6. The EGM skills (brainstorm, review, resolve) are tools the operator starts, in any",
-        "   order; none is required. Never start one yourself.",
-        "7. You do not implement the plan. The operator presses `Implement`; a code session",
-        "   then builds it, one change per step.",
-        "",
-        "## Finish",
-        "1. The plan file exists, `design_doc` named it, and the operator has read it.",
-        "2. Your Roster row: Doing = `plan ready`, Blocked? = `no`.",
         "",
     ].join("\n");
 }

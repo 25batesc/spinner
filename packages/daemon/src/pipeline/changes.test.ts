@@ -123,13 +123,13 @@ describe("a session's changes", () => {
 
     it("focus shows a record at the top level, without the session-level facts", () => {
         const second = start_change(session_with(pr_with({})), SECOND);
-        second.design = { track: "design" } as Session["design"];
+        second.comments = { waiting: [{ id: "c1", where: "admin /refunds" }] };
         expect(focus_change(second, "c2")).toBe(second);
         const focused = focus_change(second, "c1");
         expect(focused.branch).toBe("feat/exports");
         expect(focused.repos["app"]?.pr?.number).toBe(7);
         expect(current_change(focused).id).toBe("c1");
-        expect(focused.design).toBeUndefined();
+        expect(focused.comments).toBeUndefined();
         expect(() => focus_change(second, "c9")).toThrow(/no change "c9"/);
     });
 
