@@ -146,7 +146,36 @@ export type ChatBlock =
           seconds: number | null;
           /** True for the last group of a turn that still runs. */
           live: boolean;
-      };
+      }
+    | HandledBlock;
+
+/**
+ * A turn the operator did not ask for: a message from Spinner or from another agent started
+ * it. The chat folds it to that message's one line and the agent's brief, so the operator's
+ * own conversation is not buried under it (s039: a quarter of the lead's answer text).
+ */
+export interface HandledBlock {
+    kind: "handled";
+    key: number;
+    /** Who sent the message that started the turn: `SPINNER_SENDER`, or an agent's name. */
+    from: string;
+    /** The message's one line, and its whole text. */
+    line: string;
+    text: string;
+    /** The turn's blocks: its work folded, then its answer. */
+    blocks: ChatBlock[];
+    /** The start of the agent's last words in the turn, its brief for the operator; "" without. */
+    brief: string;
+    /** True when `brief` is not the whole of those words. */
+    clipped: boolean;
+    /** Tool calls in the turn. */
+    steps: number;
+    /** True while the turn runs and has no answer yet. */
+    live: boolean;
+}
+
+/** The characters of a handled turn's answer that show without opening the turn. */
+export const BRIEF_CHARS_MAX = 320;
 
 /**
  * The blocks of a transcript. Within a turn (the entries after one operator message), the
@@ -157,21 +186,70 @@ export type ChatBlock =
 export function chatBlocks(entries: readonly Entry[], running: boolean): ChatBlock[] {
     const blocks: ChatBlock[] = [];
     let start = 0;
+    // The message from Spinner or an agent that started the turn being collected, if one did.
+    let opener: Opener | null = null;
     for (let index = 0; index <= entries.length; index += 1) {
         const entry = entries[index];
         if (index < entries.length && entry?.kind !== "user") {
             continue;
         }
-        if (index > start) {
-            const last = index === entries.length;
-            blocks.push(...turnBlocks(entries, start, index, running && last));
+        const live = running && index === entries.length;
+        const turn = index > start ? turnBlocks(entries, start, index, live) : [];
+        if (opener === null) {
+            blocks.push(...turn);
+        } else {
+            blocks.push(handledBlock(opener, turn, live));
         }
-        if (entry?.kind === "user") {
+        opener = entry?.kind === "user" ? turnOpener(entries, index) : null;
+        if (entry?.kind === "user" && opener === null) {
             blocks.push({ kind: "user", key: index, entry });
         }
         start = index + 1;
     }
     return blocks;
+}
+
+interface Opener {
+    key: number;
+    from: string;
+    line: string;
+    text: string;
+}
+
+/**
+ * The user entry at `index` as the start of a turn the operator did not ask for, or null.
+ * It is one when the whole message is Spinner's or another agent's, and no turn ran when it
+ * came. pi delivers a message into a running turn after that turn's tool calls, so such a
+ * message follows a tool entry: the turn then stays whose it was, and the message shows as
+ * its one line inside it.
+ */
+function turnOpener(entries: readonly Entry[], index: number): Opener | null {
+    const entry = entries[index];
+    if (entry?.kind !== "user" || entries[index - 1]?.kind === "tool") {
+        return null;
+    }
+    const notice = noticeOf(entry.text);
+    if (notice === null || splitPendingNotices(entry.text).operator !== null) {
+        return null;
+    }
+    return { key: index, from: notice.from, line: notice.line, text: entry.text.trim() };
+}
+
+function handledBlock(opener: Opener, blocks: ChatBlock[], running: boolean): HandledBlock {
+    const answer = blocks.findLast((block) => block.kind === "answer");
+    // Blank lines go: the brief shows as three lines at most, and each one must say something.
+    const whole = answer?.kind === "answer" ? answer.entry.text.trim() : "";
+    const said = whole.replace(/\n\s*\n/g, "\n");
+    const steps = blocks.reduce((sum, block) => sum + (block.kind === "work" ? block.steps : 0), 0);
+    return {
+        kind: "handled",
+        ...opener,
+        blocks,
+        brief: said.slice(0, BRIEF_CHARS_MAX),
+        clipped: said.length > BRIEF_CHARS_MAX,
+        steps,
+        live: running && said === "",
+    };
 }
 
 /** The blocks of the entries `[from, to)`, which hold no operator message. */
@@ -388,7 +466,8 @@ export function noticeOf(text: string): { from: string; line: string } | null {
         return from === OPERATOR_SENDER ? null : { from, line: inbox[2] ?? "" };
     }
     if (SPINNER_STARTS.some((prefix) => start.startsWith(prefix))) {
-        return { from: SPINNER_SENDER, line: first };
+        // The chat names the sender itself: `Spinner autopilot: …` reads `autopilot: …`.
+        return { from: SPINNER_SENDER, line: first.replace(/^Spinner:?\s+/, "") };
     }
     return null;
 }

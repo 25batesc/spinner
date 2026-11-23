@@ -10,6 +10,7 @@ import { RESOLVE_NEEDS } from "./design.ts";
 import {
     boxRows,
     dragsFiles,
+    BRIEF_CHARS_MAX,
     chatBlocks,
     durationText,
     isSpinnerNotice,
@@ -186,6 +187,69 @@ describe("the chat's turns", () => {
         kind: "tool", id, name: "bash", args: { command: `run ${id}` }, state,
     });
 
+    it("folds a turn that Spinner or another agent started to its line and the brief", () => {
+        const report = "Message from bot (inbox/1-bot-lead.md): #107 staged\n\nTwelve files.";
+        const ping = "MISSION.md changed by bot: Plan (+1).\nPlan:\n  - [x] 107.";
+        const long = `Handled. ${"detail ".repeat(100)}`;
+        const blocks = chatBlocks(
+            [
+                u(1000, "is it done"),
+                a(2000, "Not yet."),
+                // The bot reports while the lead is idle: a turn the operator did not ask for.
+                u(3000, report),
+                a(4000, "", "Reading the report."),
+                t("1"),
+                a(5000, "bot staged #107; I checked the diff.\n\nNo action for you."),
+                // Spinner pings next, and the lead answers at length.
+                u(6000, ping),
+                a(7000, long),
+                u(8000, "thanks"),
+                a(9000, "Welcome."),
+            ],
+            false,
+        );
+        expect(blocks.map((block) => block.kind)).toEqual([
+            "user", "answer", "handled", "handled", "user", "answer",
+        ]);
+        expect(blocks[2]).toMatchObject({
+            from: "bot",
+            line: "#107 staged",
+            text: report,
+            brief: "bot staged #107; I checked the diff.\nNo action for you.",
+            clipped: false,
+            steps: 1,
+            live: false,
+        });
+        // The whole turn is inside: its work, then its answer.
+        const inside = blocks[2]?.kind === "handled" ? blocks[2].blocks : [];
+        expect(inside.map((block) => block.kind)).toEqual(["work", "answer"]);
+        const pinged = blocks[3];
+        expect(pinged).toMatchObject({ from: "Spinner", steps: 0, clipped: true });
+        expect(pinged?.kind === "handled" && pinged.brief).toHaveLength(BRIEF_CHARS_MAX);
+    });
+
+    it("leaves the operator's turn whole when a ping enters it, and marks a live one", () => {
+        const ping = "Spinner autopilot: your pull request needs you.";
+        // The ping follows a tool call: pi delivered it into the turn the operator started.
+        const turn = [
+            u(1000, "fix it"), a(2000, "Looking."), t("1"),
+            u(3000, ping), t("2"), a(4000, "Fixed."),
+        ];
+        const steered = chatBlocks(turn, false);
+        const kinds = steered.map((block) => block.kind);
+        expect(kinds).toEqual(["user", "work", "user", "work", "answer"]);
+        expect(steered.at(-1)).toMatchObject({ kind: "answer", entry: { text: "Fixed." } });
+        // The operator's words after queued notices are the operator's turn, not a fold.
+        const joined = `${ping}\n\n---\n\nis it done`;
+        const queued = chatBlocks([u(1000, joined), a(2000, "Yes.")], false);
+        expect(queued.map((block) => block.kind)).toEqual(["user", "answer"]);
+        // A turn a ping started that still runs: live, with no brief yet.
+        const live = chatBlocks([u(1000, ping), a(2000, "On it."), t("1", "running")], true);
+        expect(live).toHaveLength(1);
+        expect(live[0]).toMatchObject({ kind: "handled", live: true, brief: "", steps: 1 });
+        expect(chatBlocks([u(1000, ping)], true)[0]).toMatchObject({ kind: "handled", blocks: [] });
+    });
+
     it("folds a turn's thoughts, remarks and tool calls; the last text is the answer", () => {
         const blocks = chatBlocks(
             [
@@ -282,6 +346,10 @@ it("names who sent a message that is not the operator's, and its one line", () =
         from: "Spinner",
         line: "MISSION.md changed by bot: Plan (+1).",
     });
+    // The chat names Spinner itself, so the line does not say it twice.
+    expect(noticeOf("Spinner autopilot: your pull request needs you.")?.line).toBe(
+        "autopilot: your pull request needs you.",
+    );
     // The operator's own inbox message is theirs, and so is a mention of the words.
     expect(noticeOf("Message from operator (inbox/120000-operator-lead.md): go\n\nnow")).toBeNull();
     expect(noticeOf("what does Message from bot (inbox/x.md): mean?")).toBeNull();

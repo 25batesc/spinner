@@ -49,7 +49,8 @@ export type IconName =
     | "merge"
     | "plan"
     | "projects"
-    | "comment";
+    | "comment"
+    | "ping";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
 const GLYPHS: Record<IconName, string> = {
@@ -83,8 +84,10 @@ const GLYPHS: Record<IconName, string> = {
     plan: "M4 2.5h6l2.5 2.5v8.5h-8.5zM10 2.5v2.5h2.5M6 8h4.5M6 10.5h4.5",
     // Stacked layers: the projects and their stacks.
     projects: "M8 2.5l5.5 3-5.5 3-5.5-3zM2.5 8.5l5.5 3 5.5-3M2.5 11l5.5 3 5.5-3",
-    // A speech bubble: comment on the preview (s054).
+    // A speech bubble: comment on the preview (s054), and an agent's message in the chat.
     comment: "M2.5 3.5h11v7.5h-6l-3 2.5V11h-2z",
+    // A bolt: a message Spinner itself sent an agent (a mission change, the autopilot).
+    ping: "M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z",
 };
 
 export function Icon({ name }: { name: IconName }) {

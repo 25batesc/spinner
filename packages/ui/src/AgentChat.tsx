@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import {
+    ASSISTANT_NAME,
     LEAD_NAME,
     type AgentTranscriptResponse,
     type ModelView,
@@ -49,12 +50,14 @@ import {
     withDictation,
     workLabel,
     type ChatBlock,
+    type HandledBlock,
     type SlashCommand,
     type WorkItem,
 } from "./chat.ts";
 import { agentLabel } from "./agent-view.ts";
 import { ChatGate, chatQuestion } from "./ChatGate.tsx";
 import { ChatPrompt } from "./ChatPrompt.tsx";
+import { Icon } from "./PaneHead.tsx";
 import { fetchModels, fetchProjects, fetchTranscript, postAgent } from "./events-client.ts";
 import "./chat.css";
 import { renderChatMarkdown } from "./markdown.ts";
@@ -161,35 +164,100 @@ function WorkGroup({ block }: { block: WorkBlock }) {
 }
 
 /**
- * A message the agent got from Spinner or from another agent: one muted line that names the
- * sender; a click opens the whole text. It is not the operator's, so it is not a bubble.
+ * Who a message that is not the operator's came from, as the chat marks it: a bolt in amber
+ * for Spinner's own pings, a speech bubble in violet for another agent's message. The mark
+ * and the colour say which at a glance; the name follows.
+ */
+function NoticeMark({ from }: { from: string }) {
+    const spinner = from === SPINNER_SENDER;
+    return (
+        <>
+            <span className="chat-from-icon" aria-hidden="true">
+                <Icon name={spinner ? "ping" : "comment"} />
+            </span>
+            <span className="chat-from-name">{spinner ? SPINNER_SENDER : agentLabel(from)}</span>
+        </>
+    );
+}
+
+function noticeKind(from: string): "spinner" | "agent" {
+    return from === SPINNER_SENDER ? "spinner" : "agent";
+}
+
+/**
+ * A message the agent got from Spinner or from another agent while a turn ran: one line
+ * that names the sender; a click opens the whole text. It is not the operator's, so it is
+ * not a bubble.
  */
 function SpinnerNotice({ text }: { text: string }) {
     const [open, setOpen] = useState(false);
     const notice = noticeOf(text);
-    const from = notice === null || notice.from === SPINNER_SENDER
-        ? SPINNER_SENDER
-        : agentLabel(notice.from);
+    const from = notice?.from ?? SPINNER_SENDER;
     const line = notice?.line ?? (text.trim().split("\n")[0] ?? "");
     return (
-        <li className="chat-notice">
+        <li className="chat-notice" data-from={noticeKind(from)}>
             <button
                 type="button"
                 className="chat-work-head"
                 aria-expanded={open}
                 onClick={() => setOpen(!open)}
-                title={`Sent to the agent by ${from}`}
+                title="Sent to the agent, not by you"
             >
                 <span className="chat-fold" data-open={open}>›</span>
-                <span className="chat-work-label">{from}: {line}</span>
+                <NoticeMark from={from} />
+                <span className="chat-work-label">{line}</span>
             </button>
             {open && <div className="chat-notice-text">{text.trim()}</div>}
         </li>
     );
 }
 
-function BlockView({ block }: { block: ChatBlock }) {
+/**
+ * A turn that Spinner or another agent started: the message's one line, then the agent's
+ * brief of what it did. A click opens the message, the work and the whole answer.
+ */
+function HandledTurn({ block, who }: { block: HandledBlock; who: string }) {
+    const [open, setOpen] = useState(false);
+    const steps = block.steps === 0 ? "" : `${block.steps} step${block.steps === 1 ? "" : "s"}`;
+    return (
+        <li className="chat-notice chat-handled" data-from={noticeKind(block.from)}>
+            <button
+                type="button"
+                className="chat-work-head"
+                aria-expanded={open}
+                onClick={() => setOpen(!open)}
+                title={`Not from you: ${who} handled it. Click for the whole turn.`}
+            >
+                <span className="chat-fold" data-open={open}>›</span>
+                {block.live && <span className="dot session-working" aria-hidden="true" />}
+                <NoticeMark from={block.from} />
+                <span className="chat-work-label">{block.line}</span>
+                {steps !== "" && <span className="chat-handled-steps">{steps}</span>}
+            </button>
+            {!open && block.brief !== "" && (
+                <div className="chat-handled-brief">
+                    <span className="chat-handled-who">{who}:</span> {block.brief}
+                    {block.clipped ? "…" : ""}
+                </div>
+            )}
+            {open && (
+                <div className="chat-handled-body">
+                    <div className="chat-notice-text">{block.text}</div>
+                    <ol className="chat-list">
+                        {block.blocks.map((inner) => (
+                            <BlockView key={`${inner.kind}-${inner.key}`} block={inner} who={who} />
+                        ))}
+                    </ol>
+                </div>
+            )}
+        </li>
+    );
+}
+
+function BlockView({ block, who }: { block: ChatBlock; who: string }) {
     switch (block.kind) {
+        case "handled":
+            return <HandledTurn block={block} who={who} />;
         case "user": {
             const { notice, operator } = splitPendingNotices(block.entry.text);
             return (
@@ -229,7 +297,14 @@ function BlockView({ block }: { block: ChatBlock }) {
  * answer. It draws the newest blocks; `show earlier` adds the rest (5.2). The Goldfish
  * transcript (entry 4.15) shows it read-only.
  */
-export function TranscriptView({ transcript }: { transcript: Transcript }) {
+export function TranscriptView({
+    transcript,
+    who = ASSISTANT_NAME,
+}: {
+    transcript: Transcript;
+    /** The agent's name in the chat, for the brief of a turn it handled alone. */
+    who?: string;
+}) {
     const [shown, setShown] = useState(CHAT_SHOWN_START);
     const blocks = useMemo(
         () => chatBlocks(transcript.entries, transcript.running),
@@ -255,7 +330,7 @@ export function TranscriptView({ transcript }: { transcript: Transcript }) {
             {entries.map((block) => (
                 // The key is the index of the block's first entry, so a block keeps its
                 // state (an opened group) when a new entry arrives.
-                <BlockView key={`${block.kind}-${block.key}`} block={block} />
+                <BlockView key={`${block.kind}-${block.key}`} block={block} who={who} />
             ))}
         </ol>
     );
@@ -743,7 +818,7 @@ export function AgentChat({ view, agent, chat = emptyChat, onPage }: AgentChatPr
         >
             <div className="chat-scroll" ref={scroller} onScroll={onScroll}>
                 <div className="chat-column">
-                    <TranscriptView transcript={transcript} />
+                    <TranscriptView transcript={transcript} who={who} />
                     <div
                         className="chat-status"
                         role="status"

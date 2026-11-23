@@ -25,8 +25,29 @@
 .chat-user-text { white-space: pre-wrap; }
 .chat-user-images { display: block; font-size: var(--text-meta); margin-top: 2px; }
 
-/* A message Spinner sent to the agent: a folded line, not the operator's pill. */
-.chat-notice { display: flex; flex-direction: column; min-width: 0; }
+/* A message the operator did not write: a folded line, not the operator's pill. The mark's
+   colour says who sent it: amber for Spinner's own pings, violet for another agent. */
+.chat-notice {
+    display: flex; flex-direction: column; min-width: 0;
+    --from: var(--warn);
+    border-left: 2px solid color-mix(in srgb, var(--from) 55%, transparent);
+    padding-left: var(--space-2);
+}
+.chat-notice[data-from="agent"] { --from: var(--terminal-magenta); }
+.chat-from-icon { display: inline-flex; color: var(--from); flex: none; }
+.chat-from-icon svg { width: 14px; height: 14px; }
+.chat-from-name { color: var(--from); font-weight: 600; flex: none; }
+/* A turn Spinner or an agent started: its one line, then the agent's brief of what it did. */
+.chat-handled-steps { flex: none; color: var(--muted); font-size: var(--text-meta); }
+.chat-handled-steps::before { content: "· "; }
+.chat-handled-brief {
+    margin: 2px 0 0 18px; color: var(--muted); font-size: var(--text-body); white-space: pre-line;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.chat-handled-who { color: var(--text); font-weight: 600; }
+.chat-handled-body {
+    display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-1) 0 0 18px;
+}
 .chat-notice-text {
     margin: var(--space-1) 0 0 4px; padding-left: var(--space-3); border-left: 2px solid var(--border);
     color: var(--muted); font-size: var(--text-body); white-space: pre-wrap;

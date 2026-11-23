@@ -263,6 +263,10 @@ describe("POST /sessions with text", () => {
         expect(brief).toContain("2. Ask each EGM gate that has options with `ask_question`");
         expect(brief).toContain("write only the design doc and the session's files.");
         expect(brief.indexOf("## How you work")).toBeLessThan(brief.indexOf("## Planning first"));
+        // A turn another agent or Spinner started ends with a short brief for the operator.
+        expect(brief).toContain("## Turns the operator did not start");
+        expect(brief).toContain("3. End the turn with a brief for the operator, three lines");
+        expect(brief).toContain("Start the brief with `Needs you:`");
         const mission = readFileSync(join(read.summary.path, "MISSION.md"), "utf8");
         expect(mission).toContain("the lead agent owns the mission");
         expect(mission).toContain(`- ${PR_URL}`);
