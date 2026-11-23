@@ -39,7 +39,7 @@ export const EGM_VIEWS: readonly ViewId[] = ["brainstorm", "draft", "review", "i
 
 /** The views that render inside the `.dw` design workspace container, with its split layout. */
 export const WORKSPACE_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
-    "brainstorm", "draft", "review", "files", "history",
+    "brainstorm", "draft", "review", "history",
 ]);
 
 /** The two rows of T5: the design track, and the direct track or a legacy session (R3). */

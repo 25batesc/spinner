@@ -1,0 +1,155 @@
+/* The Files view (`SessionFiles.tsx`): the tree of the session directory, the picked file and
+   the comments on it, in three columns that each scroll alone. The layout follows mdview's
+   (https://github.com/25batesc/mdview, MIT): a file list that hides, a reading column, and
+   the threads and the outline beside the text. A container query stacks the third column
+   above the text in a narrow pane and drops the outline. */
+.sf {
+    container: sf / inline-size; position: relative; flex: 1 1 0; min-height: 320px;
+    min-width: 0; display: flex; font-size: var(--text-dense);
+}
+.sf[hidden] { display: none; }
+.sf-grid {
+    flex: 1; min-width: 0; min-height: 0; display: grid; column-gap: var(--space-3);
+    row-gap: var(--space-1);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas: "side" "top" "aside" "doc";
+}
+.sf-side { grid-area: side; min-width: 0; overflow: auto; max-height: 240px; }
+.sf-top { grid-area: top; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sf-aside {
+    grid-area: aside; min-width: 0; overflow: auto; max-height: 200px;
+    display: flex; flex-direction: column; gap: var(--space-2);
+}
+.sf-scroll {
+    grid-area: doc; min-width: 0; min-height: 0; overflow: auto;
+    display: flex; flex-direction: column;
+}
+/* Beside the text there is room for the outline only in a wide pane. */
+.sf-outline { display: none; }
+@container sf (min-width: 520px) {
+    .sf-grid[data-tree="true"] {
+        grid-template-columns: minmax(170px, 250px) minmax(0, 1fr);
+        grid-template-areas: "side top" "side aside" "side doc";
+        grid-template-rows: auto auto minmax(0, 1fr);
+    }
+    .sf-side { max-height: none; }
+}
+/* The third column needs about 220 px beside a text column that still reads. Without the
+   file list that is a narrower pane than with it. */
+@container sf (min-width: 640px) {
+    .sf-grid[data-tree="false"][data-aside="true"] {
+        grid-template-columns: minmax(0, 1fr) minmax(210px, 280px);
+        grid-template-rows: auto minmax(0, 1fr);
+        grid-template-areas: "top aside" "doc aside";
+    }
+    .sf-grid[data-tree="false"] .sf-aside { max-height: none; }
+    .sf-grid[data-tree="false"] .sf-outline { display: flex; }
+}
+@container sf (min-width: 860px) {
+    .sf-grid[data-tree="true"][data-aside="true"] {
+        grid-template-columns: minmax(170px, 230px) minmax(0, 1fr) minmax(210px, 280px);
+        grid-template-rows: auto minmax(0, 1fr);
+        grid-template-areas: "side top aside" "side doc aside";
+    }
+    .sf-aside { max-height: none; }
+    .sf-outline { display: flex; }
+}
+/* The tree. */
+.sf-filter { display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-1); }
+.sf-filter input {
+    flex: 1; min-width: 0; height: 24px; box-sizing: border-box; padding: 0 var(--space-2);
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-control);
+}
+.sf-filter input:focus { outline: none; border-color: var(--accent); }
+.sf-tree { list-style: none; margin: 0; padding: 0; }
+.sf-row {
+    display: flex; align-items: center; gap: var(--space-1); width: 100%; height: 24px;
+    box-sizing: border-box; padding: 0 var(--space-1); border: 0;
+    border-radius: var(--radius-control); background: transparent; color: var(--text);
+    font: inherit; text-align: left; cursor: pointer;
+}
+.sf-row:hover { background: var(--fill-soft); }
+.sf-row[aria-pressed="true"] { background: var(--accent-tint); }
+.sf-row[data-kind="dir"] .sf-name { font-weight: 500; }
+.sf-twist { flex: none; width: 10px; color: var(--muted); font-size: 10px; }
+.sf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-meta {
+    flex: none; color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums;
+}
+.sf-row .pill { flex: none; height: 16px; padding: 0 5px; }
+.sf-row .icon { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.sf-label {
+    margin: var(--space-2) 0 2px; padding: 0 var(--space-1); font-size: var(--text-meta);
+    font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.sf-empty { margin: var(--space-2) var(--space-1); }
+/* The header of the open file: its path, what happened last, and the actions. */
+.sf-head { display: flex; align-items: center; gap: var(--space-2); min-height: 26px; }
+.sf-path {
+    flex: 0 1 auto; min-width: 0; padding: 0; border: 0; background: none; color: var(--text);
+    font: inherit; font-family: var(--font-mono); font-weight: 600; text-align: left;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+button.sf-path { cursor: copy; }
+.sf-note {
+    flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sf-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
+.sf-actions .link { margin: 0 var(--space-1); }
+.sf-facts { margin: 0; font-size: var(--text-meta); }
+.sf-doc.md { border: 0; background: none; padding: var(--space-2) var(--space-4) var(--space-6) var(--space-1); max-width: 78ch; }
+.sf-plain {
+    margin: 0; padding: var(--space-2) 0; font-family: var(--font-mono); font-size: var(--text-dense);
+    line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.sf-image { display: block; max-width: 100%; height: auto; align-self: flex-start; }
+.sf-editor {
+    flex: 1; min-height: 240px; box-sizing: border-box; width: 100%; resize: none;
+    padding: var(--space-2) var(--space-3); font-family: var(--font-mono);
+    font-size: var(--text-dense); line-height: 1.5; color: var(--text); background: var(--bg);
+    border: 1px solid var(--accent); border-radius: var(--radius-control);
+}
+.sf-editor:focus { outline: none; }
+/* A block that carries an open comment, and the one a jump just landed on. */
+.sf-doc [data-comment] {
+    box-shadow: -3px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.sf-doc .sf-flash { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.sf-doc [data-comment], .sf-doc .sf-flash { transition: background-color 400ms; }
+/* The button that follows a selection. */
+.sf-offer {
+    position: absolute; z-index: 30; display: inline-flex; align-items: center; gap: var(--space-1);
+    margin: 4px 0 0 4px; box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+/* The third column: the box a comment is written in, the threads, the outline. */
+.sf-composer {
+    display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2);
+    background: var(--surface); border: 1px solid var(--accent);
+    border-radius: var(--radius-box);
+}
+.sf-composer textarea {
+    font: inherit; min-height: 64px; resize: vertical; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line-soft); border-radius: var(--radius-control);
+    padding: var(--space-1) var(--space-2);
+}
+.sf-composer-on { margin: 0; }
+.sf-composer-send { display: flex; gap: var(--space-2); align-items: center; justify-content: flex-end; }
+.sf-composer-send select { margin-right: auto; font: inherit; }
+.comment-quote {
+    margin: var(--space-1) 0; padding: 0 var(--space-2); border-left: 2px solid var(--line-soft);
+    color: var(--muted); font-size: var(--text-dense); overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
+}
+.sf-threads { margin: 0; }
+.sf-threads .thread-head { flex-wrap: wrap; }
+.sf-threads button.thread-location { text-align: left; }
+.sf-resolved { align-self: flex-start; color: var(--muted); }
+.sf-outline { flex-direction: column; min-width: 0; }
+.sf-outline-item {
+    min-height: 22px; padding: 1px var(--space-1); border: 0; border-radius: var(--radius-control);
+    background: transparent; color: var(--muted); font: inherit; text-align: left; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sf-outline-item:hover { background: var(--fill-soft); color: var(--text); }

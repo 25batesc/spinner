@@ -169,6 +169,59 @@ describe("attachments", () => {
     });
 });
 
+describe("doc comments", () => {
+    it("sends a comment on a session file with its path, line and selected text", async () => {
+        const added = await post("/agents", { name: "lead", message: "ready" });
+        expect(added.status).toBe(201);
+        await until(() => echoes().length === 1);
+        mkdirSync(join(summary.path, "egm"), { recursive: true });
+        const doc = "# Draft\n\n## Overview\n\nThe poller reads every session.\n";
+        writeFileSync(join(summary.path, "egm", "design_draft.md"), doc);
+
+        const created = await post("/comments", {
+            agent: "lead",
+            text: "Only the focused session, please.",
+            // The page's `line` is not trusted: the daemon finds it in the file.
+            anchor: {
+                kind: "doc",
+                path: "egm/design_draft.md",
+                quote: `The poller reads every session. ${SECRET}`,
+                heading: "Overview",
+                line: 99,
+            },
+        });
+        expect(created.status).toBe(201);
+        const { comment } = (await created.json()) as CommentResponse;
+        expect(comment.anchor).toMatchObject({ kind: "doc", heading: "Overview", line: 5 });
+        await until(() => echoes().length === 2);
+        const prompt = echoes()[1] ?? "";
+        expect(prompt).toContain("Doc comment c1 from operator on egm/design_draft.md · Overview");
+        expect(prompt).toContain("/egm/design_draft.md\n- line: 5");
+        expect(prompt).toContain("Only the focused session, please.");
+        expect(prompt).not.toContain(SECRET);
+
+        // The agent answers; the operator's needs-you line names the file.
+        await post("/comments/c1/suggest-resolve", { author: "lead", text: "Changed." });
+        expect(await needs_human()).toBe(
+            "answer doc comment c1 on egm/design_draft.md · Overview",
+        );
+        expect((await post("/comments/c1/resolve")).status).toBe(200);
+        expect(await needs_human()).toBeNull();
+
+        // A file the Files view does not serve cannot be commented on.
+        const refused: Array<[string, number]> = [
+            ["egm/missing.md", 404],
+            ["../session.yaml", 400],
+            ["worktrees/backend/README.md", 400],
+        ];
+        for (const [path, status] of refused) {
+            const anchor = { kind: "doc", path, quote: "", heading: null };
+            const response = await post("/comments", { agent: "lead", text: "x", anchor });
+            expect([path, response.status]).toEqual([path, status]);
+        }
+    });
+});
+
 describe("preview comments", () => {
     it("sends the comment with the image, keeps secrets out, and moves the thread", async () => {
         const added = await post("/agents", { name: "lead", message: "ready" });
@@ -250,7 +303,7 @@ describe("preview comments", () => {
         expect(((await created.json()) as CommentResponse).delivered).toBe("stopped");
         expect(daemon.agents.pending_for(summary.dir, "lead")[0]).toContain("Wider.");
 
-        const doc = { kind: "doc", path: "docs/a.md", block: "Overview" };
+        const doc = { kind: "page", path: "docs/a.md" };
         const on_doc = { agent: "lead", text: "x", anchor: doc };
         expect((await post("/comments", on_doc)).status).toBe(400);
         const outside = { agent: "lead", text: "x", anchor: anchor("artifacts/../session.yaml") };

@@ -1,9 +1,9 @@
-// The preview comment store (s054): one JSON record per comment and the screenshots beside
-// them, under `<session>/artifacts/comments/`, never in a repo worktree. The functions here
-// read and write those files, parse the request bodies, keep secrets out of a record, and
-// mirror the comments waiting on the operator into `session.yaml` so the stage derivation
-// can name the next one. The routes in `routes-comments.ts` call them; nothing here talks to
-// an agent.
+// The comment store (preview comments, s054; doc comments, the Files view): one JSON record
+// per comment and the screenshots beside them, under `<session>/artifacts/comments/`, never
+// in a repo worktree. The functions here read and write those files, parse the request
+// bodies, keep secrets out of a record, and mirror the comments waiting on the operator into
+// `session.yaml` so the stage derivation can name the next one. The routes in
+// `routes-comments.ts` call them; nothing here talks to an agent.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -12,7 +12,9 @@ import {
     ATTACHMENT_BYTES_MAX,
     ATTACHMENT_NAME_PATTERN,
     COMMENT_ELEMENT_TEXT_MAX,
+    COMMENT_HEADING_CHARS_MAX,
     COMMENT_ID_PATTERN,
+    COMMENT_QUOTE_CHARS_MAX,
     COMMENT_TEXT_MAX,
     COMMENTS_DIR,
     COMMENTS_MAX,
@@ -24,9 +26,11 @@ import {
     redact_url,
     type AttachmentResponse,
     type Comment,
+    type CommentAnchor,
     type CommentReplyRequest,
+    type CommentWaiting,
+    type DocAnchor,
     type NewCommentRequest,
-    type PreviewAnchor,
     type PreviewRect,
     type SessionSummary,
 } from "@spinner/protocol";
@@ -140,7 +144,7 @@ export function next_comment_id(summary: SessionSummary): string {
 /** `session.comments` for the comments on disk: absent when none waits. */
 export function session_comments(
     comments: readonly Comment[],
-): { waiting: { id: string; where: string }[] } | undefined {
+): { waiting: CommentWaiting[] } | undefined {
     const waiting = comments_waiting_on_operator(comments);
     if (waiting.length === 0) {
         return undefined;
@@ -149,17 +153,21 @@ export function session_comments(
         waiting: waiting.map((comment) => ({
             id: comment.id,
             where: comment_where(comment.anchor),
+            ...(comment.anchor.kind === "doc" ? { kind: "doc" as const } : {}),
         })),
     };
 }
 
 /** A copy of `anchor` with secrets out: the URL's secret query values and the env's values. */
-export function redact_anchor(
-    anchor: PreviewAnchor,
+export function redact_anchor<Anchor extends CommentAnchor>(
+    anchor: Anchor,
     env: Readonly<Record<string, string | undefined>>,
-): PreviewAnchor {
+): Anchor {
     const text = (value: string) => redact(value, env);
     const maybe = (value: string | null) => (value === null ? null : text(value));
+    if (anchor.kind === "doc") {
+        return { ...anchor, quote: text(anchor.quote), heading: maybe(anchor.heading) };
+    }
     return {
         ...anchor,
         url: text(redact_url(anchor.url)),
@@ -241,13 +249,38 @@ function parse_text(value: unknown): string | { error: string } {
     return value.trim();
 }
 
-function parse_anchor(value: unknown): PreviewAnchor | string {
+/**
+ * A doc anchor as the page sends it. The route checks that `path` names a file of the
+ * session and fills `line`; whatever the page sent for `line` is dropped here.
+ */
+function parse_doc_anchor(anchor: Record<string, unknown>): DocAnchor | string {
+    const path = anchor["path"];
+    if (typeof path !== "string" || path.length === 0) {
+        return "`anchor.path` must be the file's path, relative to the session directory";
+    }
+    const quote = anchor["quote"] ?? "";
+    if (typeof quote !== "string") {
+        return "`anchor.quote` must be the selected text";
+    }
+    return {
+        kind: "doc",
+        path,
+        quote: quote.trim().slice(0, COMMENT_QUOTE_CHARS_MAX),
+        heading: optional_text(anchor["heading"], COMMENT_HEADING_CHARS_MAX),
+        line: null,
+    };
+}
+
+function parse_anchor(value: unknown): CommentAnchor | string {
     const anchor = as_record(value);
     if (typeof anchor === "string") {
         return "`anchor` must be an object";
     }
+    if (anchor["kind"] === "doc") {
+        return parse_doc_anchor(anchor);
+    }
     if (anchor["kind"] !== "preview") {
-        return "`anchor.kind` must be `preview`; doc comments come with the docs tab";
+        return "`anchor.kind` must be `preview` or `doc`";
     }
     const service = anchor["service"];
     if (typeof service !== "string" || service.length === 0 || service.length > SERVICE_CHARS_MAX) {

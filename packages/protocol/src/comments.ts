@@ -1,8 +1,9 @@
 // Preview comments (dogfood #52, session s054): the operator freezes a preview in the desktop
 // app, marks a part of the page, writes one sentence and sends it to an agent. Each comment
 // is a thread the daemon keeps under the session, `artifacts/comments/<id>.json`, with its
-// screenshot beside it; never in a repo worktree. The anchor is a union so that a comment on
-// a doc block (the docs tab, later) can share the type, the routes and the agent tools. The
+// screenshot beside it; never in a repo worktree. The anchor is a union: a comment on a
+// passage of a session file (the Files view, 2026-11-23) shares the type, the routes and the
+// agent tools. The
 // states follow the diff viewer's threads (`diff.ts`): the agent suggests, the operator
 // resolves. This file holds the types and the pure text helpers that the daemon (the prompt,
 // `needs_human`) and the UI (the listing) must agree on; it uses no `node:` module.
@@ -45,13 +46,21 @@ export interface PreviewAnchor {
     console_errors: string[];
 }
 
-/** Reserved for the docs tab (mdview behind the same type); the daemon refuses it for now. */
+/** Where a comment points: a passage of a session file, or the whole file. */
 export interface DocAnchor {
     kind: "doc";
-    /** The doc's path, relative to the session directory or a worktree. */
+    /** The file's path, relative to the session directory (`files.ts`). */
     path: string;
-    /** The block the comment is on, as the docs tab names it. */
-    block: string;
+    /** The text the operator selected, cut at `COMMENT_QUOTE_CHARS_MAX`; `""` is the file. */
+    quote: string;
+    /** The nearest heading above the selection, as the page shows it; null above the first. */
+    heading: string | null;
+    /**
+     * The 1-based line of the file where the quote starts, when the daemon found the quote's
+     * first words in the source at the time of the comment; else null. The rendered text of
+     * a Markdown file differs from its source, so this is a hint for the agent, not a key.
+     */
+    line: number | null;
 }
 
 export type CommentAnchor = PreviewAnchor | DocAnchor;
@@ -136,6 +145,10 @@ export const COMMENTS_MAX = 500;
 export const COMMENT_MESSAGES_MAX = 100;
 /** A decoded attachment is at most this many bytes. A 2x full-page PNG is a few MB. */
 export const ATTACHMENT_BYTES_MAX = 8 * 1024 * 1024;
+/** A doc comment's selected text is cut at this many characters. */
+export const COMMENT_QUOTE_CHARS_MAX = 600;
+/** A doc comment's heading is cut at this many characters. */
+export const COMMENT_HEADING_CHARS_MAX = 200;
 /** A picked element's text is cut at this many characters. */
 export const COMMENT_ELEMENT_TEXT_MAX = 200;
 /** At most this many console errors go with one comment; the newest are kept. */
@@ -181,10 +194,10 @@ function url_path(url: string): string {
     }
 }
 
-/** `admin /refunds?tab=2 · RefundQueue`, or `docs/x.md · Overview` for a doc. */
+/** `admin /refunds?tab=2 · RefundQueue`, or `egm/x.md · Overview` for a doc. */
 export function comment_where(anchor: CommentAnchor): string {
     if (anchor.kind === "doc") {
-        return `${anchor.path} · ${anchor.block}`;
+        return anchor.heading === null ? anchor.path : `${anchor.path} · ${anchor.heading}`;
     }
     const component = anchor.component === null ? "" : ` · ${anchor.component}`;
     return `${anchor.service} ${url_path(anchor.url)}${component}`;
@@ -194,11 +207,55 @@ function rect_text(rect: PreviewRect): string {
     return `x ${rect.x}, y ${rect.y}, ${rect.width}×${rect.height} CSS px`;
 }
 
-/** The structured place, one `- key: value` line each, for the agent's message. */
-function place_lines(anchor: CommentAnchor, screenshot_path: string | null): string[] {
-    if (anchor.kind === "doc") {
-        return [`- doc: ${anchor.path}`, `- block: ${anchor.block}`];
+/** A shorter start of a quote would match by chance. */
+const QUOTE_NEEDLE_CHARS_MIN = 4;
+
+/**
+ * The 1-based line of `source` where `quote` starts, or null. The search uses the first line
+ * of the quote, then a shorter start of it, because a selection in rendered Markdown loses
+ * the marks of the source (`**`, a link's target) after a few words.
+ */
+export function quote_line(source: string, quote: string): number | null {
+    const first = quote.split("\n").map((line) => line.trim()).find((line) => line !== "");
+    if (first === undefined) {
+        return null;
     }
+    for (const length of [80, 40, 20]) {
+        const needle = first.slice(0, length);
+        const at = needle.length < QUOTE_NEEDLE_CHARS_MIN ? -1 : source.indexOf(needle);
+        if (at >= 0) {
+            return source.slice(0, at).split("\n").length;
+        }
+    }
+    return null;
+}
+
+/** `Preview comment` or `Doc comment`: how the texts for the agent and the operator name one. */
+export function comment_noun(kind: CommentAnchor["kind"]): string {
+    return kind === "doc" ? "Doc comment" : "Preview comment";
+}
+
+/**
+ * The structured place, one `- key: value` line each, for the agent's message. `absolute` is
+ * the absolute path of the screenshot, or of the file for a doc comment; null without one.
+ */
+function place_lines(anchor: CommentAnchor, absolute: string | null): string[] {
+    if (anchor.kind === "doc") {
+        const lines = [`- file: ${absolute ?? anchor.path}`];
+        if (anchor.line !== null) {
+            lines.push(`- line: ${anchor.line}`);
+        }
+        if (anchor.heading !== null) {
+            lines.push(`- under the heading: ${anchor.heading}`);
+        }
+        lines.push(
+            anchor.quote === ""
+                ? "- about: the whole file"
+                : `- the selected text: ${JSON.stringify(anchor.quote)}`,
+        );
+        return lines;
+    }
+    const screenshot_path = absolute;
     const lines = [`- service: ${anchor.service}`, `- url: ${anchor.url}`];
     if (anchor.selector !== null) {
         lines.push(`- selector: ${anchor.selector}`);
@@ -230,20 +287,22 @@ function place_lines(anchor: CommentAnchor, screenshot_path: string | null): str
 
 /**
  * The message a new comment sends to its agent: the operator's text, the place, and what to
- * do. `screenshot_path` is the absolute path of the PNG, or null without one.
+ * do. `absolute` is the absolute path of the PNG, or of the file for a doc comment; null
+ * without one.
  */
-export function comment_prompt_text(comment: Comment, screenshot_path: string | null): string {
+export function comment_prompt_text(comment: Comment, absolute: string | null): string {
     const first = comment.messages[0];
     if (first === undefined) {
         throw new Error(`comment ${comment.id} has no message`);
     }
     return [
-        `Preview comment ${comment.id} from ${first.author} on ${comment_where(comment.anchor)}:`,
+        `${comment_noun(comment.anchor.kind)} ${comment.id} from ${first.author} on ` +
+            `${comment_where(comment.anchor)}:`,
         "",
         first.text,
         "",
         "Where:",
-        ...place_lines(comment.anchor, screenshot_path),
+        ...place_lines(comment.anchor, absolute),
         "",
         `Answer with comment_reply ${comment.id}. When the change is made, ` +
             `comment_suggest_resolve ${comment.id}; the operator resolves.`,
@@ -253,7 +312,8 @@ export function comment_prompt_text(comment: Comment, screenshot_path: string | 
 /** The message an operator's reply sends to the comment's agent. */
 export function comment_reply_text(comment: Comment, reply: CommentMessage): string {
     return (
-        `${reply.author} replied on preview comment ${comment.id} ` +
+        `${reply.author} replied on ${comment_noun(comment.anchor.kind).toLowerCase()} ` +
+        `${comment.id} ` +
         `(${comment_where(comment.anchor)}):\n\n${reply.text}\n\n` +
         `Read the thread with comments_list; answer with comment_reply ${comment.id}.`
     );
@@ -267,6 +327,8 @@ export interface CommentWaiting {
     id: string;
     /** `comment_where` of the anchor. */
     where: string;
+    /** `doc` for a comment on a session file; absent for a preview comment. */
+    kind?: "doc";
 }
 
 /** The `needs_human` line while comments wait on the operator; the first is the oldest. */
@@ -276,7 +338,8 @@ export function comments_needs_human(waiting: readonly CommentWaiting[]): string
         throw new Error("comments_needs_human needs at least one waiting comment");
     }
     const more = waiting.length > 1 ? ` and ${waiting.length - 1} more` : "";
-    return `answer preview comment ${first.id} on ${first.where}${more}`;
+    const noun = comment_noun(first.kind ?? "preview").toLowerCase();
+    return `answer ${noun} ${first.id} on ${first.where}${more}`;
 }
 
 /** The comments that wait on the operator, oldest first: open or suggested, not resolved. */

@@ -13,7 +13,6 @@ import { ContextTab } from "./ContextTab.tsx";
 import { compactLabel, designSteps, stepperText } from "./design.ts";
 import { DesignBrief } from "./DesignBrief.tsx";
 import { DesignDoc } from "./DesignDoc.tsx";
-import { DesignFiles } from "./DesignFiles.tsx";
 import { DesignHistory } from "./DesignHistory.tsx";
 import { DesignReview } from "./DesignReview.tsx";
 import {
@@ -28,6 +27,7 @@ import { fetchDesignDoc, fetchDesignFile, fetchMissionView, useLoaded } from "./
 import { needsHuman, type Revisions } from "./state.ts";
 import { ThreadsPanel } from "./ThreadsPanel.tsx";
 import { ServiceTable } from "./ServiceTable.tsx";
+import { SessionFiles } from "./SessionFiles.tsx";
 import { Tabs } from "./Tabs.tsx";
 import type { ChatState } from "./transcript-sync.ts";
 import type { Transcript } from "./transcript.ts";
@@ -227,9 +227,18 @@ export function AgentsPane(props: AgentsPaneProps) {
                                 onOpenAgent={onOpenAgent}
                             />
                         )}
-                        {shown === "files" && <DesignFiles view={view} reload={reload} />}
                         {shown === "history" && <DesignHistory view={view} />}
                     </div>
+                )}
+                {/* Hidden, not unmounted, while another view shows: the open file, its place
+                    and a half-written comment stay. */}
+                {view !== undefined && (
+                    <SessionFiles
+                        key={view.summary.dir}
+                        view={view}
+                        active={shown === "files"}
+                        commentsRevision={revisions.comments}
+                    />
                 )}
                 {view !== undefined && shown === "implement" && (
                     <MissionWorkspace

@@ -10,6 +10,10 @@ import type {
     CommentResponse,
     CommentsResponse,
     NewCommentRequest,
+    SessionFileDownloadResponse,
+    SessionFileResponse,
+    SessionFileSaveRequest,
+    SessionFilesResponse,
     AgentCommandResponse,
     AgentEventsResponse,
     ApproveResponse,
@@ -150,7 +154,46 @@ export async function threadAction(
     await send("POST", `/sessions/${dir}/threads/${id}/${verb}${query}`, body);
 }
 
-/** Preview comments (s054), newest first. */
+/** The tree of the session directory, for the Files view. */
+export async function fetchSessionFiles(
+    dir: string,
+    signal: AbortSignal,
+): Promise<SessionFilesResponse> {
+    return getJson<SessionFilesResponse>(`/sessions/${dir}/files`, signal);
+}
+
+/** A text file of the session. A binary or an oversized file is refused with the reason. */
+export async function fetchSessionFile(
+    dir: string,
+    path: string,
+    signal: AbortSignal,
+): Promise<SessionFileResponse> {
+    const query = `?path=${encodeURIComponent(path)}`;
+    return getJson<SessionFileResponse>(`/sessions/${dir}/files/text${query}`, signal);
+}
+
+/** Saves the operator's edit; refused when the file changed since `mtime`. */
+export async function saveSessionFile(
+    dir: string,
+    body: SessionFileSaveRequest,
+): Promise<SessionFileResponse> {
+    return send("PUT", `/sessions/${dir}/files/text`, body);
+}
+
+/** Shows a file, or the session directory for `""`, in the file manager. */
+export async function revealSessionFile(dir: string, path: string): Promise<void> {
+    await send("POST", `/sessions/${dir}/files/reveal`, { path });
+}
+
+/** Copies a file to the Downloads folder; answers the copy's path. */
+export async function downloadSessionFile(dir: string, path: string): Promise<string> {
+    const body = await send<SessionFileDownloadResponse>(
+        "POST", `/sessions/${dir}/files/download`, { path },
+    );
+    return body.saved;
+}
+
+/** The comments on previews (s054) and on session files, newest first. */
 export async function fetchComments(dir: string, signal: AbortSignal): Promise<CommentsResponse> {
     return getJson<CommentsResponse>(`/sessions/${dir}/comments`, signal);
 }

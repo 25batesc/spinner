@@ -9,7 +9,16 @@ import { comment_where, type Comment } from "@spinner/protocol";
 import { attachmentUrl, openCommentsOn, waitingLabel } from "./preview-comment.ts";
 import { commentAction, fetchComments, useLoaded } from "./remote.ts";
 
-export function CommentThread({ dir, comment }: { dir: string; comment: Comment }) {
+export interface CommentThreadProps {
+    dir: string;
+    comment: Comment;
+    /** Shows the place the comment is on: its passage in the open file, or its file. */
+    onShow?: (() => void) | undefined;
+    /** The place in fewer words, where the file is already on screen; else `comment_where`. */
+    place?: string | undefined;
+}
+
+export function CommentThread({ dir, comment, onShow, place }: CommentThreadProps) {
     const [reply, setReply] = useState("");
     const [error, setError] = useState<string | null>(null);
     const act = (verb: "reply" | "resolve", text?: string) =>
@@ -31,8 +40,22 @@ export function CommentThread({ dir, comment }: { dir: string; comment: Comment 
                     {waitingLabel(comment)}
                 </span>
                 <span className="muted">to {comment.agent}</span>
-                <code className="thread-location">{comment_where(anchor)}</code>
+                {onShow === undefined ? (
+                    <code className="thread-location">{place ?? comment_where(anchor)}</code>
+                ) : (
+                    <button
+                        type="button"
+                        className="link thread-location"
+                        title="Show where this comment is"
+                        onClick={onShow}
+                    >
+                        {place ?? comment_where(anchor)}
+                    </button>
+                )}
             </div>
+            {anchor.kind === "doc" && anchor.quote !== "" && (
+                <blockquote className="comment-quote">{anchor.quote}</blockquote>
+            )}
             {anchor.kind === "preview" && anchor.source !== null && (
                 <p className="muted comment-source">{anchor.source}</p>
             )}

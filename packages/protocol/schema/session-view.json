@@ -1521,6 +1521,11 @@
                 "where": {
                     "type": "string",
                     "description": "`comment_where` of the anchor."
+                },
+                "kind": {
+                    "type": "string",
+                    "const": "doc",
+                    "description": "`doc` for a comment on a session file; absent for a preview comment."
                 }
             },
             "required": [

@@ -1,7 +1,8 @@
-// The preview comment tools (s054): `comments_list` reads the operator's comments on the
-// running previews, `comment_reply` and `comment_suggest_resolve` answer one, signed with the
-// agent's name; the daemon makes the comment wait on the operator. Only the operator resolves.
-// Each tool is one daemon call; the daemon checks the author and the state.
+// The comment tools (s054): `comments_list` reads the operator's comments on the running
+// previews and on the session's files, `comment_reply` and `comment_suggest_resolve` answer
+// one, signed with the agent's name; the daemon makes the comment wait on the operator. Only
+// the operator resolves. Each tool is one daemon call; the daemon checks the author and the
+// state.
 import {
     COMMENT_ID_PATTERN,
     comment_where,
@@ -60,7 +61,7 @@ export function render_comments(
     session_dir: string,
 ): string {
     if (comments.length === 0) {
-        return all ? "No preview comments." : "No open preview comments.";
+        return all ? "No comments." : "No open comments.";
     }
     const blocks = comments
         .slice(0, COMMENTS_LISTED_MAX)
@@ -93,6 +94,14 @@ function render_comment(comment: Comment, session_dir: string): string {
         }
         for (const error of anchor.console_errors) {
             lines.push(`  console error: ${error.replace(/\s+/g, " ").trim()}`);
+        }
+    } else {
+        lines.push(`  file: ${session_dir}/${anchor.path}`);
+        if (anchor.line !== null) {
+            lines.push(`  line: ${anchor.line}`);
+        }
+        if (anchor.quote !== "") {
+            lines.push(`  selected text: ${JSON.stringify(anchor.quote)}`);
         }
     }
     for (const message of comment.messages) {

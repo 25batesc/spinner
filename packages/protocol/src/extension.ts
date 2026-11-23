@@ -259,11 +259,11 @@ export interface ExtensionToolArgs {
      */
     ask_question: { questions: string };
     /**
-     * The session's preview comments (s054): the open ones by default, each with its place
-     * and its messages; `all` adds the resolved ones.
+     * The operator's comments on previews (s054) and on session files: the open ones by
+     * default, each with its place and its messages; `all` adds the resolved ones.
      */
     comments_list: { all?: string };
-    /** Reply in a preview comment thread, as the agent; it then waits on the operator. */
+    /** Reply in a comment thread, as the agent; it then waits on the operator. */
     comment_reply: { id: string; text: string };
     /** Tell the operator the change is made and ask to resolve; the operator resolves. */
     comment_suggest_resolve: { id: string; text: string };
@@ -777,9 +777,10 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         {
             name: "comments_list",
             description:
-                "List the operator's preview comments: the open ones with their place (service, " +
-                "URL, selector, component, source file:line), the screenshot path, the console " +
-                "errors and the messages. Read a screenshot with the read tool.",
+                "List the operator's comments on previews and on the session's files: the " +
+                "open ones with their place (a preview's service, URL, selector, component, " +
+                "source file:line, screenshot path and console errors; a file's path, line " +
+                "and selected text) and the messages. Read a screenshot with the read tool.",
             parameters: {
                 all: { type: "string", description: "`yes` to include resolved comments" },
             },
@@ -790,8 +791,8 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         {
             name: "comment_reply",
             description:
-                "Reply in a preview comment thread: what you changed, or a question. The " +
-                "comment then waits on the operator.",
+                "Reply in a comment thread: what you changed, or a question. The comment " +
+                "then waits on the operator.",
             parameters: {
                 ...COMMENT_ID_PARAM,
                 text: { type: "string", description: "The reply" },
@@ -803,8 +804,8 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
         {
             name: "comment_suggest_resolve",
             description:
-                "Suggest that a preview comment is resolved, after the change is made; say " +
-                "what changed. Only the operator resolves.",
+                "Suggest that a comment is resolved, after the change is made; say what " +
+                "changed. Only the operator resolves.",
             parameters: {
                 ...COMMENT_ID_PARAM,
                 text: { type: "string", description: "What changed, one or two lines" },

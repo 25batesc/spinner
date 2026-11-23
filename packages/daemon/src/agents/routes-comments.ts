@@ -1,4 +1,5 @@
-// The preview comment routes (s054, docs/DAEMON_API.md "Preview comments"):
+// The comment routes (s054, docs/DAEMON_API.md "Preview comments"; doc comments on a
+// session file since the Files view):
 // `POST /sessions/:dir/attachments` saves a PNG under `artifacts/comments/`, `GET
 // .../attachments/:name` serves it back, `POST|GET /sessions/:dir/comments` create and list
 // the threads, and `.../comments/:id/reply|suggest-resolve|resolve` move them. A new comment
@@ -17,7 +18,9 @@ import {
     comment_reply_text,
     redact,
     type AttachmentResponse,
+    quote_line,
     type Comment,
+    type CommentAnchor,
     type CommentResponse,
     type CommentsResponse,
     type ErrorResponse,
@@ -28,6 +31,7 @@ import type { SpinnerHome } from "../home.js";
 import { derive_stage } from "../pipeline/derive-stage.js";
 import { config_for } from "../pipeline/poller.js";
 import { facts_from_session } from "../pipeline/tracker.js";
+import { FileRefusal, read_session_file } from "../files/session-files.js";
 import { find_session, write_session } from "../store/session-store.js";
 import {
     attachment_path,
@@ -127,13 +131,11 @@ export function mount_comment_routes(app: Hono, deps: CommentRouteDeps): void {
         if (list_comments(summary).length >= COMMENTS_MAX) {
             return c.json(error_body(`${summary.dir} holds ${COMMENTS_MAX} comments`), 409);
         }
-        if (request.anchor.kind !== "preview") {
-            return c.json(error_body("only preview comments for now"), 400);
+        const placed = place_anchor(summary, request.anchor);
+        if ("error" in placed) {
+            return c.json(error_body(placed.error), placed.status);
         }
-        const anchor = redact_anchor(request.anchor, env);
-        if (anchor.screenshot !== null && !exists_under(summary, anchor.screenshot)) {
-            return c.json(error_body(`no attachment ${anchor.screenshot}`), 400);
-        }
+        const anchor = redact_anchor(placed.anchor, env);
         const created = now().toISOString();
         const comment: Comment = {
             id: next_comment_id(summary),
@@ -146,13 +148,11 @@ export function mount_comment_routes(app: Hono, deps: CommentRouteDeps): void {
             updated: created,
         };
         write_comment(summary, comment);
-        const screenshot =
-            anchor.screenshot === null ? null : join(summary.path, anchor.screenshot);
         const delivered = await deps.agents.deliver_message(
             summary.dir,
             comment.agent,
-            comment_prompt_text(comment, screenshot),
-            screenshot === null ? [] : [screenshot],
+            comment_prompt_text(comment, placed.absolute),
+            placed.image === null ? [] : [placed.image],
         );
         deps.log(`${summary.dir}: comment ${comment.id} to ${comment.agent}: ${delivered}`);
         await changed(deps, summary, comment, OPERATOR);
@@ -241,6 +241,39 @@ async function answer(
     const body: CommentResponse =
         delivered === undefined ? { comment: next } : { comment: next, delivered };
     return c.json(body);
+}
+
+/** A checked anchor, the absolute path its message names, and the image that goes with it. */
+type Placed =
+    | { anchor: CommentAnchor; absolute: string | null; image: string | null }
+    | { error: string; status: 400 | 404 };
+
+/**
+ * Checks what an anchor points at. A preview's screenshot must be an attachment of the
+ * session. A doc's path must be a text file the Files view lists; its `line` is filled from
+ * the file as it is now.
+ */
+function place_anchor(summary: SessionSummary, anchor: CommentAnchor): Placed {
+    if (anchor.kind === "preview") {
+        if (anchor.screenshot === null) {
+            return { anchor, absolute: null, image: null };
+        }
+        if (!exists_under(summary, anchor.screenshot)) {
+            return { error: `no attachment ${anchor.screenshot}`, status: 400 };
+        }
+        const screenshot = join(summary.path, anchor.screenshot);
+        return { anchor, absolute: screenshot, image: screenshot };
+    }
+    try {
+        const file = read_session_file(summary.path, anchor.path);
+        const line = quote_line(file.text, anchor.quote);
+        return { anchor: { ...anchor, line }, absolute: file.absolute, image: null };
+    } catch (failure) {
+        if (failure instanceof FileRefusal) {
+            return { error: failure.message, status: failure.status === 404 ? 404 : 400 };
+        }
+        throw failure;
+    }
 }
 
 type Found =

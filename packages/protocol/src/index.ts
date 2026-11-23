@@ -21,3 +21,4 @@ export * from "./egm.js";
 export * from "./plan-entries.js";
 export * from "./redact.js";
 export * from "./comments.js";
+export * from "./files.js";

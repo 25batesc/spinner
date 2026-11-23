@@ -84,6 +84,7 @@ import type { SpinnerHome } from "./home.js";
 import { JobRunner, type JobWork } from "./jobs/jobs.js";
 import { DiffManager } from "./diff/manager.js";
 import { mount_diff_routes } from "./diff/routes.js";
+import { mount_file_routes, type FileHooks } from "./files/routes.js";
 import { DesignTracker } from "./egm/design.js";
 import { EgmFetcher } from "./egm/fetch.js";
 import { clear_gate } from "./egm/gate.js";
@@ -211,6 +212,8 @@ export interface DaemonOptions {
     agents_running_max?: number;
     /** The review skill when `settings.review.skill` names none; the operator's when absent. */
     review_skill_default?: string;
+    /** The file manager and the Downloads folder of the Files view; tests pass their own. */
+    files?: FileHooks;
 }
 
 export interface Daemon {
@@ -263,6 +266,8 @@ export interface AppDeps {
     clone_url?: CreateReviewsInput["clone_url"];
     /** One GitHub poll round, after a posted review (s016); absent in a route test. */
     poll?: () => Promise<void>;
+    /** The file manager and the Downloads folder of the Files view; the system's when absent. */
+    files?: FileHooks | undefined;
     /** The EGM fetcher; `/egm` mounts and a lead fetches EGM when given. */
     egm?: EgmFetcher;
     /** The design tracker (EGM, 2.26); the EGM routes mount with `egm` and `writer`. */
@@ -1030,6 +1035,7 @@ export function create_app(deps: AppDeps): Hono {
         cwd: deps.ctx.cwd,
         ...(deps.ctx.env === undefined ? {} : { env: deps.ctx.env }),
     });
+    mount_file_routes(app, { home: deps.home, log: deps.log, files: deps.files });
     mount_ui(app, deps.ui_dir);
     return app;
 }
@@ -1441,6 +1447,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
         egm: new EgmFetcher(home, process.env),
         design: designs,
         goldfish,
+        files: options.files,
         ...(options.clone_url === undefined ? {} : { clone_url: options.clone_url }),
     });
     // Viewers outlive the daemon; the record is validated by pid identity before any view.

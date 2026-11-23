@@ -50,7 +50,12 @@ export type IconName =
     | "plan"
     | "projects"
     | "comment"
-    | "ping";
+    | "ping"
+    | "folder"
+    | "file"
+    | "download"
+    | "edit"
+    | "copy";
 
 /** 16 px glyphs on a 16-unit grid, stroked in `currentColor`. */
 const GLYPHS: Record<IconName, string> = {
@@ -88,6 +93,13 @@ const GLYPHS: Record<IconName, string> = {
     comment: "M2.5 3.5h11v7.5h-6l-3 2.5V11h-2z",
     // A bolt: a message Spinner itself sent an agent (a mission change, the autopilot).
     ping: "M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z",
+    // The Files view: a folder (show in the file manager), a page, an arrow into a tray
+    // (copy to Downloads), a pencil, and two sheets (copy the text).
+    folder: "M2 4.5h4l1.5 1.5h6.5v6.5h-12z",
+    file: "M4 2.5h5l3 3v8h-8zM9 2.5v3h3",
+    download: "M8 2.5v7.5M5 7l3 3 3-3M3 13.5h10",
+    edit: "M3 13l.6-2.8 7-7 2.2 2.2-7 7zM9.5 4.3l2.2 2.2",
+    copy: "M5.5 5.5h7v8h-7zM3.5 10.5v-8h7",
 };
 
 export function Icon({ name }: { name: IconName }) {
