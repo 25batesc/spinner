@@ -91,6 +91,30 @@ describe.skipIf(!existsSync(main_js))("spinner daemon", () => {
         expect(err).toEqual([]);
     });
 
+    it("restarts: a new process on the same port, with the home's env file sourced", async () => {
+        await setup();
+        expect(await run_cli(["daemon", "start"], io)).toBe(0);
+        const first = Number.parseInt(readFileSync(join(root, "daemon.pid"), "utf8"), 10);
+
+        // `<home>/env` holds what the daemon must have whoever starts it. It is sourced at
+        // each start: a UI directory it names is the one the restarted daemon looks in.
+        const ui_dir = join(root, "ui-from-env-file");
+        writeFileSync(join(root, "env"), `SPINNER_UI_DIR=${ui_dir}\n`);
+        expect(await run_cli(["daemon", "restart"], io)).toBe(0);
+        const second = Number.parseInt(readFileSync(join(root, "daemon.pid"), "utf8"), 10);
+        expect(second).not.toBe(first);
+        expect(out).toContain(`spinner daemon: stopped (pid ${first})`);
+        expect(out.at(-2)).toBe(`spinner daemon: started (pid ${second}) at ${url()}`);
+        const page = await (await fetch(`${url()}/`)).text();
+        expect(page).toContain(join(ui_dir, "index.html"));
+
+        // A restart with no daemon running is a start.
+        expect(await run_cli(["daemon", "stop"], io)).toBe(0);
+        expect(await run_cli(["daemon", "restart"], io)).toBe(0);
+        expect(out.at(-2)).toMatch(/started \(pid \d+\)/);
+        expect(err).toEqual([]);
+    }, 60_000);
+
     it("removes a stale pid file and starts", async () => {
         await setup();
         // The largest pid macOS and Linux hand out is below this; the process cannot exist.

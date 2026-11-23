@@ -33,6 +33,9 @@ describe("start_command", () => {
         expect(command.args).toEqual([join(root, "packages/cli/dist/main.js"), "daemon", "start"]);
         expect(command.cwd).toBe(root);
         expect(command.env["ELECTRON_RUN_AS_NODE"]).toBeUndefined();
+        // The tray's "Restart daemon" asks the same CLI to restart.
+        const restart = start_command(root, { PATH: bin }, "/Electron", "restart");
+        expect(restart.args.slice(1)).toEqual(["daemon", "restart"]);
     });
 
     it("falls back to Electron as Node", () => {

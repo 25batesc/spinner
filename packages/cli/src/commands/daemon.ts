@@ -1,7 +1,9 @@
-// `spinner daemon start|stop|status|logs|install|uninstall`: the daemon as a tool. `start`
-// runs the checkout's build (`packages/daemon/dist/main.js`) in the background with its
-// output in `<home>/daemon.log`; the daemon writes `<home>/daemon.pid` itself, so `status`
-// and `stop` find a daemon no matter who started it, the CLI or launchd. `install` writes a
+// `spinner daemon start|stop|restart|status|logs|install|uninstall`: the daemon as a tool.
+// `start` runs the checkout's build (`packages/daemon/dist/main.js`) in the background with
+// its output in `<home>/daemon.log`; the daemon writes `<home>/daemon.pid` itself, so `status`
+// and `stop` find a daemon no matter who started it, the CLI or launchd. `restart` is `stop`
+// then `start`. `start` sources `<home>/env` as the launch agent does, so a daemon has the
+// same secrets whoever starts it: a shell, the desktop app's tray, or launchd. `install` writes a
 // macOS launch agent that starts the daemon at login; it sources `<home>/env` for secrets
 // (mode 600, written by the user, never by Spinner). The port comes from `config.yaml` or
 // `SPINNER_PORT`, the same way the daemon reads it, so both sides agree on the URL.
@@ -68,6 +70,10 @@ async function run_daemon(args: string[], home: SpinnerHome, io: CliIo): Promise
             return start(target, io);
         case "stop":
             return stop(target, io);
+        case "restart": {
+            const stopped = await stop(target, io);
+            return stopped === 0 ? start(target, io) : stopped;
+        }
         case "status":
             return status(target, io);
         case "logs":
@@ -77,7 +83,9 @@ async function run_daemon(args: string[], home: SpinnerHome, io: CliIo): Promise
         case "uninstall":
             return uninstall(io);
         default:
-            io.err(`spinner daemon: expected start, stop, status, logs, install or uninstall`);
+            io.err(
+                "spinner daemon: expected start, stop, restart, status, logs, install or uninstall",
+            );
             return 1;
     }
 }
@@ -124,7 +132,9 @@ async function start(target: Target, io: CliIo): Promise<number> {
     mkdirSync(target.home.root, { recursive: true });
     const log_file = daemon_log_file(target.home);
     const log_fd = openSync(log_file, "a");
-    const child = spawn(process.execPath, [main], {
+    // `/bin/sh` sources `<home>/env` and execs node, so the child's pid is the daemon's.
+    // `detached` gives the daemon its own session: it is no job of the caller's terminal.
+    const child = spawn("/bin/sh", ["-c", ENV_THEN_EXEC, process.execPath, main], {
         cwd: repo_root(),
         env: { ...io.env, SPINNER_HOME: target.home.root },
         detached: true,
@@ -275,17 +285,23 @@ async function uninstall(io: CliIo): Promise<number> {
 }
 
 /**
- * The launch agent. `/bin/sh` sources `<home>/env` (secrets, user-written) with `set -a` so
- * plain `NAME=value` lines export, then execs node on the checkout's build. PATH is the
+ * What `/bin/sh -c` runs to start the daemon, with node as `$0` and the daemon's main as
+ * `$1`: it sources `<home>/env` (secrets, user-written) with `set -a` so plain `NAME=value`
+ * lines export, then execs node. `start` and the launch agent share it.
+ */
+const ENV_THEN_EXEC = [
+    "set -a",
+    '[ -f "$SPINNER_HOME/env" ] && . "$SPINNER_HOME/env"',
+    "set +a",
+    'exec "$0" "$1"',
+].join("; ");
+
+/**
+ * The launch agent. `/bin/sh` runs `ENV_THEN_EXEC` on the checkout's build. PATH is the
  * installing shell's, because launchd's own PATH has no Homebrew, fnm or Docker.
  */
 function render_plist(label: string, target: Target, main: string, env: NodeJS.ProcessEnv): string {
-    const script = [
-        "set -a",
-        '[ -f "$SPINNER_HOME/env" ] && . "$SPINNER_HOME/env"',
-        "set +a",
-        'exec "$0" "$1"',
-    ].join("; ");
+    const script = ENV_THEN_EXEC;
     const log_file = daemon_log_file(target.home);
     // The installing shell may reach node through a per-shell path (fnm's multishell links
     // vanish with the shell), so the real node directory goes first and node is absolute.

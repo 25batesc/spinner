@@ -3,7 +3,7 @@
 // scripted probes, a counted start, and a sleep that only records its calls.
 import { describe, expect, it } from "vitest";
 import type { BuildInfo, DaemonStatus } from "@spinner/protocol";
-import { DaemonLink, probe_health } from "./daemon.js";
+import { DaemonLink, probe_health, working_agents } from "./daemon.js";
 
 const build: BuildInfo = { version: "0.0.0", commit: "abc1234", built: null };
 
@@ -20,6 +20,10 @@ function link(answers: Array<BuildInfo | null>) {
             calls.push("start");
             return Promise.resolve();
         },
+        restart: () => {
+            calls.push("restart");
+            return Promise.resolve();
+        },
         sleep: (ms) => {
             calls.push(`sleep ${ms}`);
             return Promise.resolve();
@@ -30,6 +34,63 @@ function link(answers: Array<BuildInfo | null>) {
     instance.subscribe((status: DaemonStatus) => states.push(status.state));
     return { instance, calls, states };
 }
+
+describe("DaemonLink.restart", () => {
+    it("restarts a connected daemon and polls until the new one answers", async () => {
+        const newer: BuildInfo = { version: "0.0.0", commit: "def5678", built: null };
+        // Connected first; after the restart command the new daemon answers on the 2nd probe.
+        const { instance, calls, states } = link([build, null, newer]);
+        await instance.check();
+        const status = await instance.restart();
+        expect(status).toMatchObject({ state: "connected", build: newer });
+        expect(calls).toEqual(["probe", "restart", "probe", "sleep 500", "probe"]);
+        expect(states).toEqual(["connected", "starting", "connected"]);
+    });
+
+    it("is down when the new daemon does not answer, and when the command fails", async () => {
+        const late = link([build]);
+        await late.instance.check();
+        expect((await late.instance.restart()).state).toBe("down");
+        expect(late.states).toEqual(["connected", "starting", "down"]);
+
+        const failing = new DaemonLink({
+            url: "http://localhost:7777",
+            probe: () => Promise.resolve(build),
+            start: () => Promise.resolve(),
+            restart: () => Promise.reject(new Error("spinner daemon exited 1")),
+            sleep: () => Promise.resolve(),
+        });
+        await failing.check();
+        await expect(failing.restart()).rejects.toThrow(/exited 1/);
+        expect(failing.status().state).toBe("down");
+    });
+});
+
+describe("working_agents", () => {
+    it("names the hosted agents that run a turn, and none for another body", () => {
+        const view = (title: string, running: string[], agents: Record<string, string>) => ({
+            agents_running: running,
+            summary: {
+                session: {
+                    title,
+                    agents: Object.fromEntries(
+                        Object.entries(agents).map(([name, process]) => [name, { process }]),
+                    ),
+                },
+            },
+        });
+        const body = {
+            sessions: [
+                view("Evals", ["lead", "bot"], { lead: "running", bot: "idle", old: "running" }),
+                view("Plan", ["lead"], { lead: "idle" }),
+            ],
+        };
+        // `old` says running but the daemon does not host it: a stale record, not a turn.
+        expect(working_agents(body)).toEqual([{ session: "Evals", agent: "lead" }]);
+        expect(working_agents({ error: "no" })).toEqual([]);
+        expect(working_agents(null)).toEqual([]);
+    });
+});
 
 describe("DaemonLink.ensure", () => {
     it("connects without starting when the daemon answers", async () => {

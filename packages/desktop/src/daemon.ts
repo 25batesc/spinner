@@ -2,10 +2,11 @@
 // launch, it runs `spinner daemon start` from the checkout and polls `/health` for up to
 // 30 s. After that the app never starts a daemon on its own: `spinner daemon stop` is the
 // operator's, and a daemon that goes away is only polled until it answers again. The tray's
-// "Start daemon" item is the one other way to start one. The class is pure: it takes the
-// probe, the start command and the clock as functions so Vitest can drive it.
+// "Start daemon" item is the one other way to start one, and "Restart daemon" stops the one
+// that runs and starts it again: a new build takes effect only in a new daemon. The class is
+// pure: it takes the probe, the commands and the clock as functions so Vitest can drive it.
 import assert from "node:assert/strict";
-import type { BuildInfo, DaemonStatus, HealthResponse } from "@spinner/protocol";
+import type { BuildInfo, DaemonStatus, HealthResponse, SessionView } from "@spinner/protocol";
 
 export const START_WAIT_MS = 30_000;
 export const START_POLL_MS = 500;
@@ -19,6 +20,8 @@ export interface DaemonLinkDeps {
     probe: () => Promise<BuildInfo | null>;
     /** Runs `spinner daemon start`; resolves when the command exits. */
     start: () => Promise<void>;
+    /** Runs `spinner daemon restart` (stop, then start); resolves when the command exits. */
+    restart: () => Promise<void>;
     sleep: (ms: number) => Promise<void>;
     start_wait_ms?: number;
     start_poll_ms?: number;
@@ -72,10 +75,28 @@ export class DaemonLink {
         if (probed.state === "connected" || this.starting) {
             return probed;
         }
+        return this.launch(this.deps.start);
+    }
+
+    /**
+     * Stops the daemon that runs, if one does, and starts it again; polls until the new one
+     * answers or the wait runs out. A call while a start or a restart is in flight does
+     * nothing but report the status.
+     */
+    async restart(): Promise<DaemonStatus> {
+        if (this.starting) {
+            return this.current;
+        }
+        return this.launch(this.deps.restart);
+    }
+
+    /** Runs `command` as `starting`, then polls `/health` until it answers or time is up. */
+    private async launch(command: () => Promise<void>): Promise<DaemonStatus> {
+        assert.ok(!this.starting, "one start or restart at a time");
         this.starting = true;
         try {
             this.transition("starting", null);
-            await this.deps.start();
+            await command();
             const polls_max = Math.ceil(this.start_wait_ms / this.start_poll_ms);
             for (let poll = 0; poll < polls_max; poll += 1) {
                 const build = await this.deps.probe();
@@ -136,4 +157,32 @@ export async function probe_health(
     } catch {
         return null;
     }
+}
+
+/** One agent that runs a turn now: a restart cuts its current step. */
+export interface WorkingAgent {
+    session: string;
+    agent: string;
+}
+
+/**
+ * The agents of `GET /sessions` that run a turn: hosted, with `process: running`. Empty for
+ * a body that is not the route's, so a daemon that answers oddly does not block a restart.
+ */
+export function working_agents(body: unknown): WorkingAgent[] {
+    const sessions = (body as { sessions?: unknown } | null)?.sessions;
+    if (!Array.isArray(sessions)) {
+        return [];
+    }
+    const working: WorkingAgent[] = [];
+    for (const view of sessions as Array<Partial<SessionView>>) {
+        const hosted = view.agents_running ?? [];
+        const agents = view.summary?.session.agents ?? {};
+        for (const [agent, spec] of Object.entries(agents)) {
+            if (hosted.includes(agent) && spec.process === "running") {
+                working.push({ session: view.summary?.session.title ?? "", agent });
+            }
+        }
+    }
+    return working;
 }

@@ -1,6 +1,6 @@
 // The tray item: a template icon with the daemon state as text beside it, and a menu that
-// opens the window, lists the popped-out windows to focus one, reconnects, starts a daemon,
-// or quits.
+// opens the window, lists the popped-out windows to focus one, reconnects, starts or restarts
+// the daemon, or quits.
 import { Menu, nativeImage, Tray } from "electron";
 import type { DaemonStatus } from "@spinner/protocol";
 import { tray_icon_png } from "./tray-icon.js";
@@ -9,6 +9,7 @@ export interface TrayActions {
     open_window: () => void;
     reconnect: () => void;
     start_daemon: () => void;
+    restart_daemon: () => void;
     quit: () => void;
 }
 
@@ -48,6 +49,12 @@ export function create_tray(
                     label: "Start daemon",
                     enabled: status.state === "down",
                     click: actions.start_daemon,
+                },
+                // A new build of the daemon or of the UI takes effect in a new daemon only.
+                {
+                    label: "Restart daemon",
+                    enabled: status.state === "connected",
+                    click: actions.restart_daemon,
                 },
                 { type: "separator" },
                 { label: "Quit Spinner", click: actions.quit },

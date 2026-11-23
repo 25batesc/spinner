@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain, Menu, Notification, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, shell } from "electron";
 import {
     DAEMON_HOST,
     DAEMON_PORT,
@@ -17,7 +17,13 @@ import {
     type PreviewRect,
     type ZoomDirection,
 } from "@spinner/protocol";
-import { DaemonLink, probe_health, RECONNECT_POLL_MS } from "./daemon.js";
+import {
+    DaemonLink,
+    HEALTH_TIMEOUT_MS,
+    probe_health,
+    RECONNECT_POLL_MS,
+    working_agents,
+} from "./daemon.js";
 import {
     data_url,
     electron_preview_host,
@@ -51,6 +57,11 @@ const link = new DaemonLink({
     url: daemon_url,
     probe: () => probe_health(daemon_url),
     start: () => run_start_command(start_command(repo_root(), process.env, process.execPath), log),
+    restart: () =>
+        run_start_command(
+            start_command(repo_root(), process.env, process.execPath, "restart"),
+            log,
+        ),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 });
 
@@ -329,6 +340,49 @@ async function ensure_daemon(): Promise<void> {
     }
 }
 
+/** Agents named in the restart question; the rest are counted. */
+const RESTART_NAMES_MAX = 8;
+
+/**
+ * The tray's "Restart daemon". A restart cuts the step of every agent that runs a turn (it
+ * resumes from its transcript), so the operator confirms when one does; with every agent
+ * idle it costs nothing and runs at once.
+ */
+async function restart_daemon(): Promise<void> {
+    const working = await fetch(`${daemon_url}/sessions`, {
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    }).then(
+        async (response) => working_agents(await response.json()),
+        () => [],
+    );
+    if (working.length > 0) {
+        const names = working.map((entry) => `${entry.agent} (${entry.session})`);
+        const shown = names.slice(0, RESTART_NAMES_MAX).join("\n");
+        const more = names.length - RESTART_NAMES_MAX;
+        const choice = await dialog.showMessageBox({
+            type: "warning",
+            buttons: ["Restart", "Cancel"],
+            defaultId: 1,
+            cancelId: 1,
+            message: `Restart the daemon while ${working.length} agent(s) work?`,
+            detail:
+                `${shown}${more > 0 ? `\nand ${more} more` : ""}\n\n` +
+                "The step each one runs now is cut. They resume from their transcripts.",
+        });
+        if (choice.response !== 0) {
+            return;
+        }
+    }
+    try {
+        const status = await link.restart();
+        if (status.state === "down") {
+            show_down("The daemon did not answer /health after the restart.");
+        }
+    } catch (error) {
+        show_down(error instanceof Error ? error.message : String(error));
+    }
+}
+
 function register_ipc(views: PreviewRegistry, windows: PaneWindows): void {
     ipcMain.handle(IPC.previews_set, (event, key: unknown, url: unknown, rect: unknown) => {
         assert.equal(typeof key, "string");
@@ -498,6 +552,7 @@ void app.whenReady().then(async () => {
         open_window,
         reconnect: () => void link.check(),
         start_daemon: () => void ensure_daemon(),
+        restart_daemon: () => void restart_daemon(),
         quit: () => app.quit(),
     });
     refresh_tray = () => {

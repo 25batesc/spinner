@@ -1,4 +1,5 @@
-// Runs `spinner daemon start` from the checkout: `node packages/cli/dist/main.js daemon start`.
+// Runs `spinner daemon start` or `spinner daemon restart` from the checkout:
+// `node packages/cli/dist/main.js daemon <verb>`.
 // The CLI spawns the daemon with its own `process.execPath`, so the Node that runs the CLI
 // is the Node that runs the daemon. `node` on PATH wins; when the app was launched from
 // Finder with no PATH to speak of, Electron's own Node runs it (`ELECTRON_RUN_AS_NODE`),
@@ -11,8 +12,14 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CLI_MAIN = join("packages", "cli", "dist", "main.js");
-/** The CLI's own wait for `/health` is 20 s; this bounds a CLI that hangs for another reason. */
+/**
+ * The CLI's own waits are 10 s for a daemon to stop and 20 s for `/health`; this bounds a
+ * CLI that hangs for another reason.
+ */
 const START_COMMAND_TIMEOUT_MS = 40_000;
+
+/** What the app asks the CLI to do with the daemon. */
+export type DaemonVerb = "start" | "restart";
 
 export interface StartCommand {
     command: string;
@@ -58,16 +65,17 @@ export function start_command(
     root: string,
     env: NodeJS.ProcessEnv,
     electron_exec_path: string,
+    verb: DaemonVerb = "start",
 ): StartCommand {
     const main = join(root, CLI_MAIN);
     assert.ok(existsSync(main), `${main} is missing: run pnpm -r build first`);
     const node = find_node_on_path(env);
     if (node !== null) {
-        return { command: node, args: [main, "daemon", "start"], env, cwd: root };
+        return { command: node, args: [main, "daemon", verb], env, cwd: root };
     }
     return {
         command: electron_exec_path,
-        args: [main, "daemon", "start"],
+        args: [main, "daemon", verb],
         env: { ...env, ELECTRON_RUN_AS_NODE: "1" },
         cwd: root,
     };
@@ -95,7 +103,7 @@ export function run_start_command(command: StartCommand, log: (line: string) => 
         child.stderr.on("data", collect);
         const timer = setTimeout(() => {
             child.kill("SIGTERM");
-            reject(new Error(`spinner daemon start: no exit after ${START_COMMAND_TIMEOUT_MS} ms`));
+            reject(new Error(`spinner daemon: no exit after ${START_COMMAND_TIMEOUT_MS} ms`));
         }, START_COMMAND_TIMEOUT_MS);
         child.on("error", (error) => {
             clearTimeout(timer);
@@ -107,7 +115,7 @@ export function run_start_command(command: StartCommand, log: (line: string) => 
                 resolve_promise();
             } else {
                 const tail = output.slice(-5).join("\n");
-                reject(new Error(`spinner daemon start exited ${code}:\n${tail}`));
+                reject(new Error(`spinner daemon exited ${code}:\n${tail}`));
             }
         });
     });
