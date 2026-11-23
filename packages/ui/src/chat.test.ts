@@ -356,6 +356,37 @@ it("names who sent a message that is not the operator's, and its one line", () =
     expect(noticeOf("fix the test")).toBeNull();
 });
 
+it("shows no bubble when queued notices were joined to a message Spinner sent", () => {
+    // s039: a mission change waited for the idle lead; the autopilot's message then took it
+    // along. The part after the separator showed as the operator's bubble.
+    const queued = "MISSION.md changed by bot: Roster (own row), Log (+1).\nRoster:\n  | bot |";
+    const autopilot = "Spinner autopilot: your pull request needs you.\n\n4 new threads.";
+    const joined = `${queued}\n\n---\n\n${autopilot}`;
+    expect(splitPendingNotices(joined)).toEqual({ notice: joined, operator: null });
+    // The message that started the turn names the row, not the notice that rode along.
+    expect(noticeOf(joined)).toEqual({
+        from: "Spinner",
+        line: "autopilot: your pull request needs you.",
+    });
+    const report = "Message from bot (inbox/1-bot-lead.md): #112 staged\n\nEight files.";
+    const reported = `${queued}\n\n---\n\n${report}`;
+    expect(noticeOf(reported)).toEqual({ from: "bot", line: "#112 staged" });
+    expect(splitPendingNotices(reported).operator).toBeNull();
+    // The whole turn folds, as a turn nobody asked for.
+    const entries: Entry[] = [
+        { kind: "user", text: joined, ts: 1000 },
+        { kind: "assistant", text: "Fixed T1 to T4.", thinking: "", done: true, ts: 2000 },
+    ];
+    expect(chatBlocks(entries, false)).toMatchObject([
+        { kind: "handled", from: "Spinner", line: "autopilot: your pull request needs you." },
+    ]);
+    // The operator's words after queued notices are still his.
+    expect(splitPendingNotices(`${queued}\n\n---\n\nis it done`).operator).toBe("is it done");
+    expect(noticeOf(`${queued}\n\n---\n\nis it done`)?.line).toBe(
+        "MISSION.md changed by bot: Roster (own row), Log (+1).",
+    );
+});
+
 it("keeps a sent message until the transcript holds it", () => {
     const sent = [{ text: "roll up the stacks", ts: 10_000 }];
     const user = (text: string, ts: number): Entry => ({ kind: "user", text, ts });

@@ -456,8 +456,24 @@ export const SPINNER_SENDER = "Spinner";
  * the operator's own words, an inbox message from the operator included. pi records all of
  * them as the user's; shown as the operator's bubbles, a worker's reports to the lead filled
  * the operator's chat with text that was not theirs and not for them (s039).
+ *
+ * The daemon may join the notices that waited for the agent's next prompt and the message
+ * that then came, with `PENDING_PROMPT_SEPARATOR`. When that message is itself Spinner's or
+ * an agent's (the autopilot waking an idle lead), it is the one named here: it started the
+ * turn, and the notices before it only rode along.
  */
 export function noticeOf(text: string): { from: string; line: string } | null {
+    const first = partNotice(text);
+    if (first === null) {
+        return null;
+    }
+    const at = text.indexOf(PENDING_PROMPT_SEPARATOR);
+    const last = at < 0 ? null : partNotice(text.slice(at + PENDING_PROMPT_SEPARATOR.length));
+    return last ?? first;
+}
+
+/** `noticeOf` for one part of a message: the notices before the separator, or what follows. */
+function partNotice(text: string): { from: string; line: string } | null {
     const start = text.trimStart();
     const first = start.split("\n")[0] ?? "";
     const inbox = INBOX_MESSAGE.exec(first);
@@ -483,8 +499,8 @@ export function isSpinnerNotice(text: string): boolean {
  * `PENDING_PROMPT_SEPARATOR`. The daemon joins them into one
  * prompt when a notice could not be steered in while the agent ran; shown whole, the message
  * read as one notice and the operator's words were lost (s039). A message that starts with
- * a notice and has no separator is one notice; one that starts with the operator's words is
- * theirs, whole.
+ * a notice and has no separator is one notice; so is one whose part after the separator is
+ * Spinner's or an agent's too. One that starts with the operator's words is theirs, whole.
  */
 export function splitPendingNotices(
     text: string,
@@ -496,8 +512,13 @@ export function splitPendingNotices(
     if (at < 0) {
         return { notice: text, operator: null };
     }
-    const operator = text.slice(at + PENDING_PROMPT_SEPARATOR.length);
-    return { notice: text.slice(0, at), operator: operator.trim() === "" ? null : operator };
+    const rest = text.slice(at + PENDING_PROMPT_SEPARATOR.length);
+    // What follows the queued notices is not always the operator's: the autopilot, or an
+    // agent's message, can be the prompt they were joined to. Then none of it is his.
+    if (rest.trim() === "" || partNotice(rest) !== null) {
+        return { notice: text, operator: null };
+    }
+    return { notice: text.slice(0, at), operator: rest };
 }
 
 /** A message the operator sent that the transcript has not shown yet. */
