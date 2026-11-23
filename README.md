@@ -82,7 +82,7 @@ The first `up` builds the dev image and pulls Traefik, Postgres and Temporal; th
 open http://localhost:7777
 ```
 
-The daemon serves the web UI. The UI shows `s001` with its services up; the preview pane shows `web.s001.localhost`. `pnpm daemon` runs the daemon in the foreground instead, with its log on the terminal. The daemon runs from this checkout's build. After a `git pull`, run `pnpm -r build`, then `daemon stop` and `daemon start`.
+The daemon serves the web UI. The UI shows `s001` with its services up; the preview pane shows `web.s001.localhost`. `pnpm daemon` runs the daemon in the foreground instead, with its log on the terminal. The daemon runs from this checkout's build. After a `git pull`, run `pnpm -r build`, then `daemon restart`; the desktop app's tray item **Restart daemon** runs the same command.
 
 ### 6. The desktop app
 
@@ -107,7 +107,7 @@ Themes are `system`, `light`, `dark` and `rainbow`, plus your own. A custom them
 
 While a stack is up, the daemon samples every 5 s: `docker stats` for containers, `ps` for host services. Each session card shows the stack's memory and CPU; the context bar shows the machine line. The `services` view of the agents pane shows the six columns per service.
 
-On macOS, `pnpm spinner daemon install` writes `~/Library/LaunchAgents/dev.spinner.daemon.plist`. It starts the daemon at login with your shell's PATH and `~/.spinner/env`. `daemon uninstall` removes it. `daemon logs` tails the log, `daemon stop` stops it, and `start` twice is a no-op.
+On macOS, `pnpm spinner daemon install` writes `~/Library/LaunchAgents/dev.spinner.daemon.plist`. It starts the daemon at login with your shell's PATH and `~/.spinner/env`. `daemon uninstall` removes it. `daemon logs` tails the log, `daemon stop` stops it, `daemon restart` stops and starts it, and `start` twice is a no-op. `start` sources `~/.spinner/env` too, so a daemon has the same secrets whoever starts it.
 
 ### 10. Your own stack
 
