@@ -361,6 +361,8 @@ export interface Session {
     change?: ChangeHead;
     /** Every other change of the session, open or finished, oldest first. Absent means none. */
     changes?: ChangeRecord[];
+    /** The groups the changes are in (`ChangeHead.group`), oldest first. Absent means none. */
+    groups?: ChangeGroup[];
     stage: Stage;
     /** The single next action for the operator, or null. */
     needs_human: string | null;
@@ -415,7 +417,39 @@ export interface ChangeHead {
      * change's branch while that pull request is open. Absent: started from the base.
      */
     on?: string;
+    /** The id of the group the change belongs to (`session.groups`). Absent: in no group. */
+    group?: string;
 }
+
+/**
+ * Changes that belong together, under one headline: the pull requests of one piece of work
+ * across repos and follow-ups. The lead names a group and says in one line what it is for;
+ * the operator can rename it. Either can put it on hold.
+ */
+export interface ChangeGroup {
+    /** `g1`, `g2`, …: unique in the session; a rename keeps it. */
+    id: string;
+    name: string;
+    /** One line: what these pull requests are for. Empty until somebody says. */
+    purpose: string;
+    /** Set while the group is on hold; absent while work on it goes on. */
+    hold?: ChangeHold;
+}
+
+/** Why work on a group is paused: not sure yet, other work first, waiting on something. */
+export interface ChangeHold {
+    /** `operator`, or the name of the agent that set it. */
+    by: string;
+    reason: string;
+    /** ISO 8601. */
+    at: string;
+}
+
+/** `session.groups` keeps at most this many; a group without a change is dropped. */
+export const GROUPS_MAX = 100;
+export const GROUP_NAME_CHARS_MAX = 60;
+/** Upper bound on a group's purpose and on a hold's reason: one line each. */
+export const GROUP_TEXT_CHARS_MAX = 240;
 
 /** The facts of one repo in a change that is not checked out. */
 export interface ChangeRepo {

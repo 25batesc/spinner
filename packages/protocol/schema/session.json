@@ -51,6 +51,13 @@
                     },
                     "description": "Every other change of the session, open or finished, oldest first. Absent means none."
                 },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ChangeGroup"
+                    },
+                    "description": "The groups the changes are in (`ChangeHead.group`), oldest first. Absent means none."
+                },
                 "stage": {
                     "$ref": "#/definitions/Stage"
                 },
@@ -173,6 +180,10 @@
                 "on": {
                     "type": "string",
                     "description": "The change this one was started on top of. Its pull request opens against that change's branch while that pull request is open. Absent: started from the base."
+                },
+                "group": {
+                    "type": "string",
+                    "description": "The id of the group the change belongs to (`session.groups`). Absent: in no group."
                 }
             },
             "required": [
@@ -201,6 +212,10 @@
                 "on": {
                     "type": "string",
                     "description": "The change this one was started on top of. Its pull request opens against that change's branch while that pull request is open. Absent: started from the base."
+                },
+                "group": {
+                    "type": "string",
+                    "description": "The id of the group the change belongs to (`session.groups`). Absent: in no group."
                 },
                 "branch": {
                     "type": "string"
@@ -615,6 +630,56 @@
                 "merged",
                 "closed"
             ]
+        },
+        "ChangeGroup": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "`g1`, `g2`, …: unique in the session; a rename keeps it."
+                },
+                "name": {
+                    "type": "string"
+                },
+                "purpose": {
+                    "type": "string",
+                    "description": "One line: what these pull requests are for. Empty until somebody says."
+                },
+                "hold": {
+                    "$ref": "#/definitions/ChangeHold",
+                    "description": "Set while the group is on hold; absent while work on it goes on."
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "purpose"
+            ],
+            "additionalProperties": false,
+            "description": "Changes that belong together, under one headline: the pull requests of one piece of work across repos and follow-ups. The lead names a group and says in one line what it is for; the operator can rename it. Either can put it on hold."
+        },
+        "ChangeHold": {
+            "type": "object",
+            "properties": {
+                "by": {
+                    "type": "string",
+                    "description": "`operator`, or the name of the agent that set it."
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "at": {
+                    "type": "string",
+                    "description": "ISO 8601."
+                }
+            },
+            "required": [
+                "by",
+                "reason",
+                "at"
+            ],
+            "additionalProperties": false,
+            "description": "Why work on a group is paused: not sure yet, other work first, waiting on something."
         },
         "SessionRepo": {
             "type": "object",

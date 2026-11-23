@@ -92,6 +92,17 @@ async function fake_daemon(): Promise<{ url: string; requests: Recorded[]; close
                 answer(200, { ok: true, sections: [(body as { section: string }).section] });
             } else if (path.startsWith(`/sessions/${DIR}/title`)) {
                 answer(200, { session: { summary: { session: { title: "x" } } } });
+            } else if (path.includes("/group")) {
+                // The group routes answer with the session and its groups.
+                const hold = method === "PUT" && path.endsWith("/hold")
+                    ? { hold: { by: "lead", reason: "other work first", at: "t" } }
+                    : {};
+                const group = { id: "g1", name: "Price rule", purpose: "No card without a price" };
+                const change = {
+                    id: "c2", title: "fix: price", state: "PR open", branch: "fix/price",
+                    current: true, on: null, group: "g1", prs: [],
+                };
+                answer(200, { session: { changes: [change], groups: [{ ...group, ...hold }] } });
             } else if (
                 path === `/sessions/${DIR}/adopt` ||
                 path === `/sessions/${DIR}/pr` ||
@@ -298,16 +309,25 @@ describe("the lead role", () => {
             stack: { services: [] },
             changes: [
                 { ...change, id: "r1", title: "old", branch: "feat/old", state: "merged" },
-                { ...change, id: "c1", title: "Exports", branch: "feat/exports", state: "PR open" },
+                { ...change, id: "c1", title: "Exports", branch: "feat/exports", state: "PR open",
+                  group: "g1" },
                 { ...change, id: "c2", title: "Button", branch: "feat/button", state: "building",
                   current: true },
+            ],
+            groups: [
+                { id: "g1", name: "CSV export", purpose: "Exports for finance",
+                  hold: { by: "operator", reason: "other work first", at: "t" } },
             ],
         } as unknown as SessionView;
         const env = read_env(env_for("http://127.0.0.1:1"));
         const section = render_prompt_section(env, load_session_files(env, view));
         expect(section).toContain("Changes of this session:");
-        expect(section).toContain('- c1 "Exports" · PR open · feat/exports');
-        expect(section).toContain('- c2 "Button" · building · feat/button (checked out now)');
+        // Each change with its group, so the lead sees what is ungrouped and what is on hold.
+        const exports = '- c1 "Exports" · PR open · feat/exports · group "CSV export"';
+        expect(section).toContain(`${exports} · ON HOLD: other work first`);
+        expect(section).toContain(
+            '- c2 "Button" · building · feat/button · no group (checked out now)',
+        );
         expect(section).not.toContain('"old"');
         // The guard refuses a branch made or switched with git, for the lead and a worker.
         expect(refuse_branch_change("git checkout -b feat/x")).toMatch(/`change` tool/);
@@ -322,6 +342,44 @@ describe("the lead role", () => {
         expect(refuse_branch_change("git checkout -- src/a.ts")).toBeNull();
         expect(refuse_branch_change("git -C /tmp/scratch checkout -b x")).toBeNull();
         expect(refuse_branch_change("git log --oneline")).toBeNull();
+    });
+
+    it("groups a change, holds the group with a reason, and resumes it", async () => {
+        const daemon = await fake_daemon();
+        const { requests } = daemon;
+        const pi = fake_pi();
+        register(pi, { env: env_for(daemon.url), job_poll_ms: 1 });
+        const grouped = await run(pi, "change", {
+            command: "group", id: "c2", group: "Price rule", purpose: "No card without a price",
+        });
+        expect(requests.at(-1)).toEqual({
+            method: "PUT",
+            path: `/sessions/${DIR}/changes/c2/group`,
+            body: { group: "Price rule", purpose: "No card without a price" },
+        });
+        // The answer lists the groups first, then each change with its group.
+        expect(grouped).toContain('group "Price rule": No card without a price');
+        expect(grouped).toContain('c2 "fix: price" · PR open · fix/price · group "Price rule"');
+
+        const held = await run(pi, "change", {
+            command: "hold", group: "Price rule", reason: "other work first",
+        });
+        expect(requests.at(-1)).toEqual({
+            method: "PUT",
+            path: `/sessions/${DIR}/groups/Price%20rule/hold`,
+            body: { reason: "other work first", by: "lead" },
+        });
+        expect(held).toContain("ON HOLD by lead: other work first");
+
+        await run(pi, "change", { command: "resume", group: "Price rule" });
+        expect(requests.at(-1)).toMatchObject({
+            method: "DELETE",
+            path: `/sessions/${DIR}/groups/Price%20rule/hold`,
+        });
+        await expect(run(pi, "change", { command: "hold", reason: "x" })).rejects.toThrow(
+            /`group` is required/,
+        );
+        daemon.close();
     });
 
     it("turns each tool into the route's body on its own session", async () => {

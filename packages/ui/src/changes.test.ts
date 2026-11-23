@@ -7,6 +7,7 @@ import type { ChangePr, ChangeView, SessionView } from "@spinner/protocol";
 import {
     BUSY,
     changeCards,
+    changeStatus,
     checksText,
     ciMark,
     diffText,
@@ -17,6 +18,8 @@ import {
     prChip,
     prFacts,
     prRows,
+    groupStatus,
+    prTableGroups,
     prTableRows,
     startRow,
     stateTone,
@@ -49,6 +52,69 @@ function view_with(changes: ChangeView[], stack = "down"): SessionView {
 const ROUND = change({ id: "r1", state: "merged", prs: [{ ...OPEN_PR, state: "merged" }] });
 const FIRST = change({ prs: [OPEN_PR], needs_human: "land backend#482" });
 const EMPTY = change({ id: "c2", title: "Fix the button", current: true, state: "empty" });
+
+describe("the groups of the PR table", () => {
+    const NEEDS_PEER = { required: ["peer" as const], peer: [] as string[], owner: false };
+    const pr = (over: Partial<ChangePr>): ChangePr => ({
+        ...OPEN_PR, threads: { bots_open: 0, humans_open: 0, resolved: 0 }, review: "none",
+        approvals: NEEDS_PEER, ...over,
+    });
+    const waiting = change({ id: "c22", state: "PR open", stage: "verifying", prs: [pr({})],
+        needs_human: "verify locally (backend#5974)", group: "g1" });
+    const draft = change({ id: "c15", state: "PR open", stage: "building",
+        prs: [pr({ state: "draft", number: 5919 })], group: "g2" });
+    const reviewing = change({ id: "c7", state: "in review", stage: "peer-review",
+        prs: [pr({ number: 985 })], group: "g1" });
+    const loose = change({ id: "c9", state: "fixing CI",
+        prs: [pr({ checks: "red", checks_failing: ["Lint"], number: 7 })] });
+
+    it("says where a change stands in the operator's words", () => {
+        expect(changeStatus(waiting)).toMatchObject({
+            text: "needs you", tone: "warn", title: "verify locally (backend#5974)",
+        });
+        // A draft, a pull request that waits on a reviewer and one whose checks fail all
+        // read `PR open` or close to it in the daemon's state.
+        expect(changeStatus(draft).text).toBe("draft");
+        expect(changeStatus(reviewing).text).toBe("needs peer review");
+        const failing = { text: "CI failing", tone: "fail", title: "Lint" };
+        expect(changeStatus(loose)).toMatchObject(failing);
+        const pending = change({ state: "PR open", prs: [pr({ checks: "pending" })] });
+        expect(changeStatus(pending).text).toBe("pending CI");
+        const ready = change({ state: "ready to merge", stage: "approving",
+            prs: [pr({ review: "approved", approvals: { ...NEEDS_PEER, peer: ["a"] } })] });
+        expect(changeStatus(ready)).toMatchObject({ text: "ready to merge", tone: "ok" });
+        expect(changeStatus(ROUND)).toMatchObject({ text: "merged", tone: "done" });
+    });
+
+    it("puts the open rows under their groups' headlines, the ungrouped last", () => {
+        const groups = [
+            { id: "g1", name: "Client-ready rule", purpose: "No card without a price" },
+            { id: "g2", name: "Past requests", purpose: "",
+              hold: { by: "lead", reason: "waits on #5954", at: "2026-11-23T10:00:00Z" } },
+        ];
+        const view = { ...view_with([reviewing, loose, draft, waiting]), groups } as SessionView;
+        const table = prTableGroups(view, new Date("2026-11-23T12:00:00Z"));
+        const drawn = table.map((bucket) => [
+            bucket.group?.name ?? null,
+            bucket.rows.map((row) => row.change.id),
+        ]);
+        expect(drawn).toEqual([
+                ["Client-ready rule", ["c22", "c7"]],
+                ["Past requests", ["c15"]],
+                [null, ["c9"]],
+            ]);
+        // A group's one status is its most pressing member's; a hold says so whatever else.
+        expect(table[0]?.status).toMatchObject({ text: "needs you" });
+        expect(table[1]?.status).toMatchObject({ text: "on hold", title: "waits on #5954 (lead)" });
+        // The row keeps its own status in the State column.
+        expect(table[1]?.rows[0]?.state.text).toBe("draft");
+        expect(groupStatus(groups[0] ?? null, [reviewing])?.text).toBe("needs peer review");
+        // Without any group the table is one bucket with no headline.
+        const flat = prTableGroups(view_with([reviewing, loose]), new Date());
+        expect(flat).toHaveLength(1);
+        expect(flat[0]?.group).toBeNull();
+    });
+});
 
 describe("the Changes rail", () => {
     it("shows the current change first, then the others, and folds the finished", () => {
@@ -221,9 +287,10 @@ describe("the Changes rail", () => {
         });
         expect(fail?.review).toEqual({ text: "changes requested", tone: "fail" });
         expect(fail?.threads).toMatchObject({ text: "2 open", tone: "warn", href: `${url}/files` });
-        expect(fail?.state).toEqual({ text: "fixing CI", tone: "plain" });
+        // The State column says where the change stands in the operator's words.
+        expect(fail?.state).toEqual({ text: "CI failing", tone: "fail", title: "lint, e2e" });
         expect(first?.state).toEqual({
-            text: "in review", tone: "warn", title: "land backend#482",
+            text: "needs you", tone: "warn", title: "land backend#482",
         });
         expect([first?.ci?.mark, first?.ci?.text, first?.ci?.title]).toEqual([
             "✓", "green", undefined,

@@ -88,6 +88,7 @@ export function build_session_view(ctx: ViewContext, summary: SessionSummary): S
         rounds,
         // A hand-written file may lack `repos`; it then has no change to show.
         changes: summary.session.repos === undefined ? [] : changes_view(summary.session, rounds),
+        ...(summary.session.groups === undefined ? {} : { groups: summary.session.groups }),
     };
 }
 

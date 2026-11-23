@@ -43,6 +43,7 @@ import {
 } from "./threads.js";
 import { apply_pr_facts, refresh_session, session_prs, type Transition } from "./tracker.js";
 import { autopilot_step, autopilot_text, baseline_autopilot } from "./autopilot.js";
+import { hold_of_current } from "./groups.js";
 import { current_change, has_change, open_change_ids } from "./changes.js";
 import {
     new_found_state,
@@ -289,6 +290,12 @@ async function run_autopilot(
 ): Promise<AutopilotPending | null> {
     const autopilot = options.autopilot;
     if (autopilot === undefined || !autopilot.enabled() || session.kind === "review") {
+        return null;
+    }
+    // A group on hold is work nobody wants done now: the lead hears nothing about its pull
+    // requests. The autopilot's state stays as it was, so what arrived during the hold is
+    // told when the hold ends.
+    if (hold_of_current(session) !== null) {
         return null;
     }
     const pipeline = session.pipeline ?? { verified_locally: false, slack_post: null };

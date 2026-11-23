@@ -141,7 +141,7 @@ export type ExtensionTool = (typeof EXTENSION_TOOLS)[number];
 
 export type StackToolCommand = "show" | "logs" | "restart" | "up";
 
-export type ChangeToolCommand = "list" | "start" | "switch";
+export type ChangeToolCommand = "list" | "start" | "switch" | "group" | "hold" | "resume";
 
 export type ProjectToolCommand = "help" | "list" | "create" | "update" | "attach";
 
@@ -175,7 +175,15 @@ export interface ExtensionToolArgs {
      * shows them; `start` begins one on a new branch (`title` names it; `on` is the id of a
      * change to build on top of); `switch` checks out the branch of change `id`.
      */
-    change: { command: ChangeToolCommand; title?: string; on?: string; id?: string };
+    change: {
+        command: ChangeToolCommand;
+        title?: string;
+        on?: string;
+        id?: string;
+        group?: string;
+        purpose?: string;
+        reason?: string;
+    };
     /**
      * Projects, the lead only. A project is a `spinner.yaml`: the repos a session gets
      * worktrees of and the services `stack up` starts and the preview pane shows. `help`
@@ -447,12 +455,15 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                 "new change on a new branch from the base (or on top of the change `on` " +
                 "names) and puts the current one aside; its pull request stays open and " +
                 "watched. `switch` checks out another change's branch. Both refuse on " +
-                "uncommitted work: commit first. Never make or switch a branch with git.",
+                "uncommitted work: commit first. Never make or switch a branch with git. " +
+                "`group` puts a change under a headline with the changes it belongs to, so " +
+                "the operator sees which pull requests go together and what they are for. " +
+                "`hold` pauses a group with a reason; `resume` ends the hold.",
             parameters: {
                 command: {
                     type: "string",
                     description: "What to do",
-                    enum: ["list", "start", "switch"],
+                    enum: ["list", "start", "switch", "group", "hold", "resume"],
                 },
                 title: {
                     type: "string",
@@ -464,7 +475,28 @@ export const EXTENSION_MANIFEST: ExtensionManifest = {
                         "For `start`: id of an unmerged change this one needs (c1). Leave " +
                         "it out for an independent change from the base",
                 },
-                id: { type: "string", description: "For `switch`: the change's id (c1)" },
+                id: {
+                    type: "string",
+                    description:
+                        "For `switch`: the change's id (c1). For `group`: the change to " +
+                        "put in the group; the current change when left out",
+                },
+                group: {
+                    type: "string",
+                    description:
+                        "For `group`, `hold` and `resume`: the group's name, a few words " +
+                        "the operator reads as a headline. `group` makes it when it is new",
+                },
+                purpose: {
+                    type: "string",
+                    description:
+                        "For `group`: one line that says what the group's pull requests " +
+                        "are for. Give it when you make a group or its purpose changed",
+                },
+                reason: {
+                    type: "string",
+                    description: "For `hold`: one line that says why the group waits",
+                },
             },
             required: ["command"],
             roles: LEAD,

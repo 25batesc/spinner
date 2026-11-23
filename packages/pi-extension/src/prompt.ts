@@ -37,7 +37,17 @@ export interface SessionFiles {
      * the daemon did not answer. The operator's `test locally` can switch the worktrees
      * between two turns, so the lead reads which change is checked out at each one.
      */
-    changes: { id: string; title: string; branch: string; current: boolean; state: string }[];
+    changes: {
+        id: string;
+        title: string;
+        branch: string;
+        current: boolean;
+        state: string;
+        /** The name of the change's group, or null: the lead groups what goes together. */
+        group: string | null;
+        /** The reason the change's group is on hold, or null. */
+        hold: string | null;
+    }[];
     /**
      * `designs_dir` of `<session>/design/.state.json` while its `track` is `design`, else null
      * (3.6). The tracker writes that file; the extension reads JSON, not `session.yaml`.
@@ -59,7 +69,10 @@ function change_lines(changes: SessionFiles["changes"]): string[] {
     }
     const lines = changes.map((change) => {
         const mark = change.current ? " (checked out now)" : "";
-        return `- ${change.id} "${change.title}" · ${change.state} · ${change.branch}${mark}`;
+        const group = change.group === null ? "no group" : `group "${change.group}"`;
+        const hold = change.hold === null ? "" : ` · ON HOLD: ${change.hold}`;
+        const head = `- ${change.id} "${change.title}" · ${change.state} · ${change.branch}`;
+        return `${head} · ${group}${hold}${mark}`;
     });
     return ["", "Changes of this session:", ...lines];
 }
@@ -84,13 +97,18 @@ export function load_session_files(env: SpinnerEnv, view: SessionView | null): S
         hosts,
         changes: (view?.changes ?? [])
             .filter((change) => change.current || !CHANGE_STATES_HIDDEN.includes(change.state))
-            .map((change) => ({
-                id: change.id,
-                title: change.title,
-                branch: change.branch,
-                current: change.current,
-                state: change.state,
-            })),
+            .map((change) => {
+                const group = (view?.groups ?? []).find((entry) => entry.id === change.group);
+                return {
+                    id: change.id,
+                    title: change.title,
+                    branch: change.branch,
+                    current: change.current,
+                    state: change.state,
+                    group: group?.name ?? null,
+                    hold: group?.hold?.reason ?? null,
+                };
+            }),
         designs_dir: design_designs_dir(env.session_dir),
         track: design_track(env.session_dir),
         kind: /^kind:\s*"?([a-z]+)"?\s*$/m.exec(yaml)?.[1] ?? null,

@@ -13,6 +13,7 @@ import type {
     HostProcess,
     PrApprovals,
     PrDiff,
+    ChangeGroup,
     PrState,
     PrThreads,
     QueueState,
@@ -221,6 +222,24 @@ export const ROUTES = {
     "POST /sessions/:dir/changes": "JobResponse",
     /** Make change `:id` the current one: its branch checked out in every worktree. */
     "POST /sessions/:dir/changes/:id/switch": "JobResponse",
+    /**
+     * Put a change in a group, or take it out. Body: ChangeGroupRequest. The group is found
+     * by its name (letter case aside) or made; a `purpose` given replaces the group's. A
+     * group left without a change is dropped. 404 for an unknown change.
+     */
+    "PUT /sessions/:dir/changes/:id/group": "SessionResponse",
+    /**
+     * Rename a group or reword its purpose. `:group` is the group's id or its name. Body:
+     * GroupEditRequest. 404 for an unknown group; 409 when another group has the name.
+     */
+    "PUT /sessions/:dir/groups/:group": "SessionResponse",
+    /**
+     * Put a group on hold. Body: GroupHoldRequest. While it holds, the autopilot sends the
+     * lead nothing about the group's pull requests. 404 for an unknown group.
+     */
+    "PUT /sessions/:dir/groups/:group/hold": "SessionResponse",
+    /** Take a group off hold. 404 for an unknown group; a group not on hold is unchanged. */
+    "DELETE /sessions/:dir/groups/:group/hold": "SessionResponse",
     /** Every plan of the library, with its status and the sessions that implement it. */
     "GET /plans": "PlansResponse",
     /** Start a planning session from a paste. Body: NewPlanRequest. Answers as `POST /sessions`. */
@@ -737,6 +756,8 @@ export interface SessionView {
      * before step 2 still type-checks.
      */
     changes?: ChangeView[];
+    /** The groups of the changes (`ChangeView.group`), oldest first; absent means none. */
+    groups?: ChangeGroup[];
 }
 
 /** The state of a change in plain words, for its card (talk-change-ship.md, 2.8). */
@@ -794,6 +815,8 @@ export interface ChangeView {
     prs: ChangePr[];
     /** Id of the change this one was started on, or null. */
     on: string | null;
+    /** Id of the change's group (`SessionView.groups`); null or absent in no group. */
+    group?: string | null;
     /**
      * True when the operator ticked `verified` at the head of every open pull request of
      * the change: it was tested locally as it stands. A new commit makes it false.
@@ -1357,6 +1380,27 @@ export interface PlanImplementRequest {
     session?: string;
     /** Project of the new session; the plan's project when absent. */
     project?: string;
+}
+
+/** `PUT /sessions/:dir/changes/:id/group`. `group` is a name; null takes the change out. */
+export interface ChangeGroupRequest {
+    group: string | null;
+    /** One line: what the group's pull requests are for. Absent keeps the group's. */
+    purpose?: string;
+}
+
+/** `PUT /sessions/:dir/groups/:group`: at least one of the two. */
+export interface GroupEditRequest {
+    name?: string;
+    purpose?: string;
+}
+
+/** `PUT /sessions/:dir/groups/:group/hold`. */
+export interface GroupHoldRequest {
+    /** Why: not sure yet, other work first, waiting on a merge. One line. */
+    reason: string;
+    /** `operator`, or the agent that sets it. */
+    by: string;
 }
 
 /** `POST /sessions/:dir/changes`: start a change (docs/designs/talk-change-ship.md, 2.3). */

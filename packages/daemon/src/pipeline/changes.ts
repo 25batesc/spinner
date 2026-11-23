@@ -107,8 +107,14 @@ export function record_of_current(session: Session): ChangeRecord {
 /** Pure: the session with `record` as its top-level change fields. `changes` is not touched. */
 function with_top_level(session: Session, record: ChangeRecord): Session {
     const next: Session = structuredClone(session);
-    const { id, title, started, on } = record;
-    next.change = { id, title, started, ...(on === undefined ? {} : { on }) };
+    const { id, title, started, on, group } = record;
+    next.change = {
+        id,
+        title,
+        started,
+        ...(on === undefined ? {} : { on }),
+        ...(group === undefined ? {} : { group }),
+    };
     next.branch = record.branch;
     for (const [repo, entry] of Object.entries(next.repos)) {
         const facts = record.repos[repo];
@@ -181,14 +187,18 @@ export function store_change(disk: Session, focused: Session, id: string): Sessi
     const stored = record_of_current(focused);
     const previous = records[index];
     assert.ok(previous !== undefined);
-    // The name and the branch of a record are fixed when it is put aside.
+    // The name and the branch of a record are fixed when it is put aside. Its group is
+    // the file's: a job that held the session for a while must not undo a regrouping.
+    const facts = { ...stored };
+    delete facts.group;
     records[index] = {
-        ...stored,
+        ...facts,
         id: previous.id,
         title: previous.title,
         started: previous.started,
         branch: previous.branch,
         ...(previous.on === undefined ? {} : { on: previous.on }),
+        ...(previous.group === undefined ? {} : { group: previous.group }),
     };
     next.changes = records;
     return next;
@@ -228,11 +238,15 @@ export function start_change(session: Session, input: StartChange): Session {
     for (const repo of Object.keys(session.repos)) {
         repos[repo] = { changed: false, pr: null };
     }
+    // A change started on another one is part of the same work: it joins that one's group.
+    const heads = [current_change(session), ...records_of(session)];
+    const group = heads.find((head) => head.id === input.on)?.group;
     const next = with_top_level(session, {
         id: input.id,
         title: input.title,
         started: input.started,
         ...(input.on === undefined ? {} : { on: input.on }),
+        ...(group === undefined ? {} : { group }),
         branch: input.branch,
         repos,
         pipeline: empty_pipeline(),
@@ -439,6 +453,7 @@ function view_of_record(record: ChangeRecord, current: boolean): ChangeView {
         needs_human: record.needs_human,
         prs,
         on: record.on ?? null,
+        group: record.group ?? null,
         verified: is_verified(record, prs),
         posted: record.pipeline?.slack_post ?? null,
         approved: is_approved(record, prs),

@@ -13,6 +13,34 @@
 .pr-table > .changes-finished-toggle {
     grid-column: 1 / -1; justify-self: start; margin: var(--space-2) 0 var(--space-1);
 }
+/* The headline of a group: its name, what it is for, one status, and the hold. It spans the
+   table; the rows under it are the group's pull requests. */
+.pr-group-head {
+    grid-column: 1 / -1; display: flex; align-items: baseline; gap: var(--space-2);
+    min-width: 0; margin-top: var(--space-3); padding: var(--space-1);
+    border-bottom: 1px solid var(--border);
+}
+.pr-group-head:first-of-type { margin-top: var(--space-1); }
+.pr-group-head button { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.pr-group-name { flex: none; font-size: var(--text-body); font-weight: 600; color: var(--text); }
+.pr-group-purpose {
+    flex: 1 1 10ch; min-width: 6ch; text-align: left; color: var(--muted); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}
+.pr-group-none .pr-group-name { color: var(--muted); font-weight: 500; }
+.pr-group-status { flex: none; }
+.pr-group-hold {
+    flex: 0 2 auto; min-width: 0; max-width: 45%; color: var(--muted); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}
+.pr-group-action { flex: none; color: var(--muted); }
+.pr-group-action:hover { color: var(--text); }
+.pr-group-input {
+    font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--accent);
+    border-radius: var(--radius-control); padding: 0 var(--space-1); min-width: 0;
+}
+.pr-group-input.pr-group-purpose, .pr-group-input.pr-group-reason { flex: 1 1 0; }
+.pr-group-error { flex: none; }
 .pr-table-row {
     grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center;
     height: 26px; padding: 0 var(--space-1); white-space: nowrap; cursor: pointer;

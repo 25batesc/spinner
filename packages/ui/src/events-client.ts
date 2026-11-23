@@ -180,6 +180,18 @@ export async function postAgent(path: string, body: unknown): Promise<void> {
     }
 }
 
+/** A `PUT` or a `DELETE` whose answer the page does not need: the event stream brings it. */
+export async function sendJson(method: "PUT" | "DELETE", path: string, body?: unknown) {
+    const response = await fetch(path, {
+        method,
+        headers: { "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    if (!response.ok) {
+        throw new Error(postFailure(path, response.status, await response.text()));
+    }
+}
+
 /**
  * What a refused `POST` says to the operator: the daemon's own sentence when the body is its
  * `{ error }`, else the route, the status and the body. The route and the JSON around a

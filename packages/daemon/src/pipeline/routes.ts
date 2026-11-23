@@ -8,9 +8,12 @@ import type { Hono, Context } from "hono";
 import type {
     ApproveRequest,
     ApproveResponse,
+    ChangeGroupRequest,
     ChangeStartRequest,
     ErrorResponse,
     FixRequest,
+    GroupEditRequest,
+    GroupHoldRequest,
     JobAction,
     JobResponse,
     LandRequest,
@@ -19,7 +22,10 @@ import type {
     PrRequest,
     ResetRequest,
     ReviewRequest,
+    Session,
+    SessionResponse,
     SessionSummary,
+    SessionView,
     ThreadFlagRequest,
     ThreadReplyRequest,
     ThreadResponse,
@@ -36,8 +42,9 @@ import type { ActionContext } from "../actions.js";
 import type { EventBus } from "../event-bus.js";
 import type { SpinnerHome } from "../home.js";
 import type { JobRunner, JobWork } from "../jobs/jobs.js";
-import { find_session, focus_summary } from "../store/session-store.js";
+import { find_session, focus_summary, write_session } from "../store/session-store.js";
 import { current_change, has_change } from "./changes.js";
+import { assign_group, edit_group, GroupRefusal, hold_group } from "./groups.js";
 
 /** What the routes need from the daemon; `server.ts` passes its `AppDeps` plus the bus. */
 export interface PipelineRouteDeps {
@@ -47,6 +54,8 @@ export interface PipelineRouteDeps {
     bus: EventBus;
     /** Called after a job on `dir` finished, so the view carries fresh facts. */
     refresh: (dir: string) => Promise<void>;
+    /** The session as the UI gets it, for a route that answers with the session. */
+    view: (summary: SessionSummary) => SessionView;
     /** The review swarm (s015); `review` answers 503 without it (a route test without agents). */
     swarm?: ReviewSwarm;
 }
@@ -284,6 +293,61 @@ export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void 
             actions.change_switch(deps.ctx, summary, id, log).then(() => {}),
         );
     });
+
+    // The groups of the changes: pure edits of `session.yaml`, no job. Each reads the file
+    // as it is now, so an edit cannot write another change's stale facts back.
+    const group_edit = async (
+        c: Context,
+        edit: (session: Session) => Session,
+    ): Promise<Response> => {
+        const summary = find_session(deps.home, c.req.param("dir") ?? "");
+        if (summary === null) {
+            return c.json(error_body(`no session ${c.req.param("dir") ?? ""}`), 404);
+        }
+        try {
+            write_session({ ...summary, session: edit(summary.session) });
+        } catch (error) {
+            if (error instanceof GroupRefusal) {
+                return c.json(error_body(error.message), error.status);
+            }
+            throw error;
+        }
+        await deps.refresh(summary.dir);
+        const fresh = find_session(deps.home, summary.dir);
+        const body: SessionResponse = { session: deps.view(fresh ?? summary) };
+        return c.json(body);
+    };
+
+    app.put("/sessions/:dir/changes/:id/group", async (c) => {
+        const request = parse_change_group(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const { group, purpose } = request;
+        const input = { name: group, ...(purpose === undefined ? {} : { purpose }) };
+        return group_edit(c, (session) => assign_group(session, c.req.param("id") ?? "", input));
+    });
+
+    app.put("/sessions/:dir/groups/:group", async (c) => {
+        const request = parse_group_edit(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        return group_edit(c, (session) => edit_group(session, c.req.param("group") ?? "", request));
+    });
+
+    app.put("/sessions/:dir/groups/:group/hold", async (c) => {
+        const request = parse_group_hold(await json_body(c));
+        if (typeof request === "string") {
+            return c.json(error_body(request), 400);
+        }
+        const hold = { ...request, at: new Date().toISOString() };
+        return group_edit(c, (session) => hold_group(session, c.req.param("group") ?? "", hold));
+    });
+
+    app.delete("/sessions/:dir/groups/:group/hold", (c) =>
+        group_edit(c, (session) => hold_group(session, c.req.param("group") ?? "", null)),
+    );
 
     app.post("/sessions/:dir/reset", async (c) => {
         const request = parse_reset(await json_body(c));
@@ -533,6 +597,61 @@ export function parse_land(input: unknown): LandRequest | string {
         return { pr };
     }
     return pr === undefined ? {} : "`pr` must be a repo key";
+}
+
+/** `PUT …/changes/:id/group`: a group name, or null to take the change out. */
+export function parse_change_group(input: unknown): ChangeGroupRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const group = record["group"];
+    if (group !== null && typeof group !== "string") {
+        return "`group` must be the group's name, or null to take the change out of its group";
+    }
+    const purpose = record["purpose"];
+    if (purpose !== undefined && typeof purpose !== "string") {
+        return "`purpose` must be one line of text";
+    }
+    return purpose === undefined ? { group } : { group, purpose };
+}
+
+/** `PUT …/groups/:group`: a new name, a new purpose, or both. */
+export function parse_group_edit(input: unknown): GroupEditRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const { name, purpose } = record;
+    if (name !== undefined && typeof name !== "string") {
+        return "`name` must be text";
+    }
+    if (purpose !== undefined && typeof purpose !== "string") {
+        return "`purpose` must be one line of text";
+    }
+    if (name === undefined && purpose === undefined) {
+        return "give `name`, `purpose`, or both";
+    }
+    return {
+        ...(name === undefined ? {} : { name }),
+        ...(purpose === undefined ? {} : { purpose }),
+    };
+}
+
+/** `PUT …/groups/:group/hold`: why, and who says so. */
+export function parse_group_hold(input: unknown): GroupHoldRequest | string {
+    const record = as_record(input);
+    if (typeof record === "string") {
+        return record;
+    }
+    const { reason, by } = record;
+    if (typeof reason !== "string" || reason.trim() === "") {
+        return "`reason` is required: one line that says why the group is on hold";
+    }
+    if (typeof by !== "string" || by.trim() === "") {
+        return "`by` is required: `operator`, or the agent's name";
+    }
+    return { reason, by: by.trim() };
 }
 
 export function parse_change_start(input: unknown): ChangeStartRequest | string {

@@ -3,7 +3,14 @@
 // the session card, and the rows of the PRs view. The daemon sends `SessionView.changes`; a
 // daemon from before step 2 sends none, and the session then shows no PR view. Pure
 // functions; the components draw them.
-import type { ChangePr, ChangeStateName, ChangeView, SessionView } from "@spinner/protocol";
+import type {
+    ChangeGroup,
+    ChangeHold,
+    ChangePr,
+    ChangeStateName,
+    ChangeView,
+    SessionView,
+} from "@spinner/protocol";
 
 import { agoText } from "./state.ts";
 
@@ -479,11 +486,84 @@ function threadsCell(pr: ChangePr): PrCell | null {
     return { text, tone: fact.tone, href: link(pr, "files"), title: fact.text };
 }
 
+/**
+ * Where a change stands, in the operator's words (his ask of 2026-11-23): `needs you`,
+ * `CI failing`, `pending CI`, `draft`, `needs peer review`, `ready to merge`. The daemon's
+ * `state` said `PR open` for a draft, for a pull request that waits on him and for one that
+ * waits on a reviewer alike. `rank` orders them by who must act: the lower, the sooner.
+ */
+export interface ChangeStatus {
+    text: string;
+    tone: Tone;
+    /** The detail behind the word: what he must do, which checks fail, why it holds. */
+    title?: string;
+    rank: number;
+}
+
+/** The status of a group on hold: nobody works on it, whatever its pull requests say. */
+export function holdStatus(hold: ChangeHold): ChangeStatus {
+    return { text: "on hold", tone: "plain", title: `${hold.reason} (${hold.by})`, rank: 9 };
+}
+
+export function changeStatus(change: ChangeView): ChangeStatus {
+    const open = change.prs.filter(isOpenPr);
+    if (isFinished(change)) {
+        return { text: change.state, tone: "done", rank: 10 };
+    }
+    if (change.needs_human !== null) {
+        return { text: "needs you", tone: "warn", title: change.needs_human, rank: 0 };
+    }
+    if (open.some((pr) => pr.checks === "red")) {
+        const failing = open.flatMap((pr) => pr.checks_failing ?? []).join(", ");
+        const title = failing === "" ? {} : { title: failing };
+        return { text: "CI failing", tone: "fail", ...title, rank: 1 };
+    }
+    if (change.state === "answering review") {
+        return { text: "answering review", tone: "warn", rank: 2 };
+    }
+    if (open.some((pr) => pr.checks === "pending")) {
+        return { text: "pending CI", tone: "plain", rank: 3 };
+    }
+    if (open.some((pr) => pr.state === "draft")) {
+        return { text: "draft", tone: "plain", title: "Not marked ready for review yet", rank: 4 };
+    }
+    if (change.state === "in merge queue") {
+        return { text: "in merge queue", tone: "ok", rank: 7 };
+    }
+    if (change.state === "ready to merge") {
+        return { text: "ready to merge", tone: "ok", rank: 8 };
+    }
+    if (open.some((pr) => reviewCell(pr)?.text === "review required")) {
+        return { text: "needs peer review", tone: "warn", rank: 5 };
+    }
+    return { text: change.state, tone: "plain", rank: 6 };
+}
+
+/**
+ * The one status of a group: `on hold` when it holds, else the status of the member that
+ * needs action soonest, so a group is ready only when every member is. Null without members.
+ */
+export function groupStatus(
+    group: ChangeGroup | null,
+    members: readonly ChangeView[],
+): ChangeStatus | null {
+    if (group?.hold !== undefined) {
+        return holdStatus(group.hold);
+    }
+    const statuses = members.map(changeStatus);
+    if (statuses.length === 0) {
+        return null;
+    }
+    return statuses.reduce((first, next) => (next.rank < first.rank ? next : first));
+}
+
 function prRow(change: ChangeView, pr: ChangePr | null, now: Date): PrTableRow {
-    const needs = change.needs_human;
-    const state: PrCell = needs === null
-        ? { text: change.state, tone: "plain" }
-        : { text: change.state, tone: "warn", title: needs };
+    const status = changeStatus(change);
+    const state: PrCell = {
+        text: status.text,
+        tone: status.tone,
+        ...(status.title === undefined ? {} : { title: status.title }),
+    };
     const facts: DetailFact[] = [];
     if (pr !== null) {
         for (const fact of prFacts(pr, now)) {
@@ -533,6 +613,49 @@ function prRow(change: ChangeView, pr: ChangePr | null, now: Date): PrTableRow {
         updated: updated === null ? null : { text: updated, tone: "plain" },
         facts,
     };
+}
+
+/** The rows of one group under its headline; `group` null is the changes in no group. */
+export interface PrTableGroup {
+    key: string;
+    group: ChangeGroup | null;
+    status: ChangeStatus | null;
+    rows: PrTableRow[];
+}
+
+/**
+ * The open rows of the PR table under their groups' headlines, in the order of the first
+ * row of each; the changes in no group come last. Without any group there is one bucket and
+ * no headline to draw. A group whose changes are all finished has no open row and no
+ * headline: its rows are under the finished fold.
+ */
+export function prTableGroups(view: SessionView, now: Date): PrTableGroup[] {
+    const open = changeCards(view).open;
+    const groups = view.groups ?? [];
+    // A change that names a group the session no longer has is in no group.
+    const group_of = (change: ChangeView): ChangeGroup | null =>
+        groups.find((entry) => entry.id === change.group) ?? null;
+    const buckets = new Map<string, PrTableGroup>();
+    for (const change of open) {
+        const group = group_of(change);
+        const key = group?.id ?? "";
+        let bucket = buckets.get(key);
+        if (bucket === undefined) {
+            const members = open.filter((other) => (group_of(other)?.id ?? "") === key);
+            bucket = { key, group, status: groupStatus(group, members), rows: [] };
+            buckets.set(key, bucket);
+        }
+        const rows = change.prs.length === 0
+            ? [prRow(change, null, now)]
+            : change.prs.map((pr) => prRow(change, pr, now));
+        bucket.rows.push(...rows);
+    }
+    const ordered = [...buckets.values()];
+    // The changes in no group read as the rest: after every headline.
+    return [
+        ...ordered.filter((bucket) => bucket.group !== null),
+        ...ordered.filter((bucket) => bucket.group === null),
+    ];
 }
 
 /**

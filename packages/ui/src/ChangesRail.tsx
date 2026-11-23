@@ -5,7 +5,7 @@
 // the top toolbar's. `merge`, `post` and `approve` act on that change, checked out or not
 // (`?change=<id>`); `create PR`, `review` and `fix` on the current one. Finished changes fold
 // under a count.
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import type { ChangeView, SessionView } from "@spinner/protocol";
 
@@ -16,14 +16,18 @@ import {
     hasStack,
     isFinished,
     prActions,
+    prTableGroups,
     prTableRows,
     startRow,
     type PrAction,
     type PrActionName,
     type PrCell,
     type PrColumn,
+    type PrTableGroup,
     type PrTableRow,
 } from "./changes.ts";
+import { sendJson } from "./events-client.ts";
+import { agoText } from "./state.ts";
 import { ApproveDialog, PIPELINE_TIPS, PostDialog } from "./PipelineActions.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
 
@@ -312,12 +316,146 @@ function TableRow({ row, open, onToggle, ...actions }: RowProps) {
     );
 }
 
+/** The text of a headline's field while the operator edits it; null while he does not. */
+type GroupEdit = { field: "name" | "purpose" | "hold"; text: string } | null;
+
+/**
+ * The headline of a group: its name and what it is for, its one status, and the hold. A
+ * click on the name or the purpose edits it (Enter saves, Escape leaves it); `hold` asks for
+ * the reason. The lead names the groups; the operator may rename them and hold them.
+ */
+function GroupHead({ dir, bucket }: { dir: string; bucket: PrTableGroup }) {
+    const [edit, setEdit] = useState<GroupEdit>(null);
+    const [error, setError] = useState<string | null>(null);
+    const { group, status } = bucket;
+    if (group === null) {
+        return (
+            <div className="pr-group-head pr-group-none" role="row">
+                <span className="pr-group-name">Not in a group</span>
+            </div>
+        );
+    }
+    const at = `/sessions/${dir}/groups/${encodeURIComponent(group.id)}`;
+    const send = (work: Promise<void>) => {
+        setEdit(null);
+        work.then(
+            () => setError(null),
+            (failure: unknown) =>
+                setError(failure instanceof Error ? failure.message : String(failure)),
+        );
+    };
+    const save = () => {
+        if (edit === null) {
+            return;
+        }
+        const text = edit.text.trim();
+        if (edit.field === "hold") {
+            if (text !== "") {
+                send(sendJson("PUT", `${at}/hold`, { reason: text, by: "operator" }));
+            }
+            return;
+        }
+        if (text === group[edit.field] || (edit.field === "name" && text === "")) {
+            setEdit(null);
+            return;
+        }
+        send(sendJson("PUT", at, { [edit.field]: text }));
+    };
+    const field = (name: "name" | "purpose", shown: string, label: string) =>
+        edit?.field === name ? (
+            <input
+                className={`pr-group-input pr-group-${name}`}
+                autoFocus
+                aria-label={label}
+                value={edit.text}
+                onChange={(event) => setEdit({ field: name, text: event.target.value })}
+                onBlur={save}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                        save();
+                    } else if (event.key === "Escape") {
+                        setEdit(null);
+                    }
+                }}
+            />
+        ) : (
+            <button
+                type="button"
+                className={`pr-group-${name}`}
+                title={`${label}: click to change it`}
+                onClick={() => setEdit({ field: name, text: group[name] })}
+            >
+                {shown}
+            </button>
+        );
+    const hold = group.hold;
+    return (
+        <div className="pr-group-head" role="row" data-hold={hold !== undefined}>
+            {field("name", group.name, "The group's name")}
+            {field(
+                "purpose",
+                group.purpose === "" ? "what is this for?" : group.purpose,
+                "What the group's pull requests are for",
+            )}
+            {status !== null && (
+                <span className={`pill pill-${status.tone} pr-group-status`} title={status.title}>
+                    {status.text}
+                </span>
+            )}
+            {hold !== undefined && (
+                <span className="pr-group-hold" title={`Set ${agoText(hold.at, new Date()) ?? ""}`}>
+                    {hold.reason} · {hold.by === "operator" ? "you" : hold.by}
+                </span>
+            )}
+            {edit?.field === "hold" ? (
+                <input
+                    className="pr-group-input pr-group-reason"
+                    autoFocus
+                    aria-label="Why the group is on hold"
+                    placeholder="why? (Enter to hold)"
+                    value={edit.text}
+                    onChange={(event) => setEdit({ field: "hold", text: event.target.value })}
+                    onBlur={() => setEdit(null)}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                            save();
+                        } else if (event.key === "Escape") {
+                            setEdit(null);
+                        }
+                    }}
+                />
+            ) : (
+                <button
+                    type="button"
+                    className="link pr-group-action"
+                    title={
+                        hold === undefined
+                            ? "Pause this group: nobody works on it, Spinner does not ping about it"
+                            : "End the hold"
+                    }
+                    onClick={() =>
+                        hold === undefined
+                            ? setEdit({ field: "hold", text: "" })
+                            : send(sendJson("DELETE", `${at}/hold`))
+                    }
+                >
+                    {hold === undefined ? "hold" : "resume"}
+                </button>
+            )}
+            {error !== null && <span className="needs-human pr-group-error">{error}</span>}
+        </div>
+    );
+}
+
 export function ChangesRail({ view, busy, run, revision, focus }: ChangesRailProps) {
     const [dialog, setDialog] = useState<Dialog | null>(null);
     const [showFinished, setShowFinished] = useState(false);
     const list = useRef<HTMLDivElement | null>(null);
     const dir = view.summary.dir;
     const rows = prTableRows(view, new Date());
+    const groups = prTableGroups(view, new Date());
+    // A headline is drawn once the session has a group; before that the table is flat.
+    const headed = (view.groups ?? []).length > 0;
     const finished = changeCards(view).finished.length;
     const [openRow, setOpenRow] = useState(() => startRow(rows.open));
     const focused = focus === undefined
@@ -366,7 +504,12 @@ export function ChangesRail({ view, busy, run, revision, focus }: ChangesRailPro
                             </span>
                         ))}
                     </div>
-                    {rows.open.map(tableRow)}
+                    {groups.map((bucket) => (
+                        <Fragment key={bucket.key}>
+                            {headed && <GroupHead dir={dir} bucket={bucket} />}
+                            {bucket.rows.map(tableRow)}
+                        </Fragment>
+                    ))}
                     {rows.finished.length > 0 && (
                         <button
                             className="link changes-finished-toggle"

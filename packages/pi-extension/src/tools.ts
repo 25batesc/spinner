@@ -57,7 +57,12 @@ export interface DaemonClient {
     get<T>(path: string): Promise<T>;
     /** A text route (`GET /sessions/:dir/mission`). */
     get_text(path: string): Promise<string>;
-    send<T>(method: "POST" | "PUT", path: string, body: unknown, timeout_ms?: number): Promise<T>;
+    send<T>(
+        method: "POST" | "PUT" | "DELETE",
+        path: string,
+        body: unknown,
+        timeout_ms?: number,
+    ): Promise<T>;
 }
 
 /** An HTTP client on `env.daemon_url` that turns a non-2xx answer into an Error. */
@@ -282,6 +287,9 @@ export async function run_tool(
             const command = text("command");
             if (command === "list") {
                 return render_changes(await client.get<{ session: SessionView }>(session));
+            }
+            if (command === "group" || command === "hold" || command === "resume") {
+                return render_changes(await run_group_command(client, session, env, args));
             }
             const path =
                 command === "start"
@@ -818,17 +826,64 @@ export function render_threads(prs: readonly PrThreadsView[]): string {
 }
 
 /** One line per change, oldest first, and one per pull request under it. */
+/**
+ * `change` `group`, `hold` and `resume`: one write each, answered with the session. `group`
+ * takes the current change when `id` names none.
+ */
+async function run_group_command(
+    client: DaemonClient,
+    session: string,
+    env: SpinnerEnv,
+    args: Record<string, unknown>,
+): Promise<{ session: SessionView }> {
+    const text = (key: string): string => String(args[key] ?? "").trim();
+    const name = text("group");
+    if (name === "") {
+        throw new Error("`group` is required: the group's name");
+    }
+    const at = `${session}/groups/${encodeURIComponent(name)}`;
+    if (args["command"] === "hold") {
+        const body = { reason: text("reason"), by: env.agent };
+        return client.send<{ session: SessionView }>("PUT", `${at}/hold`, body);
+    }
+    if (args["command"] === "resume") {
+        return client.send<{ session: SessionView }>("DELETE", `${at}/hold`, undefined);
+    }
+    let id = text("id");
+    if (id === "") {
+        const view = await client.get<{ session: SessionView }>(session);
+        id = (view.session.changes ?? []).find((change) => change.current)?.id ?? "";
+    }
+    const purpose = text("purpose");
+    const body = { group: name, ...(purpose === "" ? {} : { purpose }) };
+    const path = `${session}/changes/${encodeURIComponent(id)}/group`;
+    return client.send<{ session: SessionView }>("PUT", path, body);
+}
+
 export function render_changes(response: { session: SessionView }): string {
     const changes = response.session.changes ?? [];
     if (changes.length === 0) {
         return "This session has no change yet.";
     }
+    const groups = new Map((response.session.groups ?? []).map((group) => [group.id, group]));
     const lines: string[] = [];
+    for (const group of groups.values()) {
+        const hold = group.hold === undefined
+            ? ""
+            : ` · ON HOLD by ${group.hold.by}: ${group.hold.reason}`;
+        const purpose = group.purpose === "" ? "(no purpose yet)" : group.purpose;
+        lines.push(`group "${group.name}": ${purpose}${hold}`);
+    }
+    if (lines.length > 0) {
+        lines.push("");
+    }
     for (const change of changes) {
         const mark = change.current ? " (current: checked out in the worktrees)" : "";
         const on = change.on === null ? "" : ` · on ${change.on}`;
+        const group = groups.get(change.group ?? "");
+        const of = group === undefined ? " · no group" : ` · group "${group.name}"`;
         lines.push(
-            `${change.id} "${change.title}" · ${change.state} · ${change.branch}${on}${mark}`,
+            `${change.id} "${change.title}" · ${change.state} · ${change.branch}${on}${of}${mark}`,
         );
         for (const pr of change.prs) {
             const threads =
