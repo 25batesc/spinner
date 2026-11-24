@@ -769,7 +769,8 @@ pipeline:
   linear:
     team: GKA                                  # the team's key; without it nothing is written
     labels: { backend: Backend, admin: Frontend }   # a label per repo key; made when missing
-    states: { draft: In Progress, open: In Review, merged: In Dev Env }   # these are the defaults
+    # The state of each stage; these are the defaults.
+    states: { draft: In Progress, open: In Review, merged: In Dev Env, closed: Canceled, hold: Canceled }
 ```
 
 A unit of work is a group of changes, or a change in no group. Each pull request of a unit
@@ -783,12 +784,15 @@ repositories has a parent and two tickets.
 | A pull request is first seen open or as a draft | It asks Linear for a ticket already linked to the pull request's URL. With one, it adopts it: the state and the parent follow, the title and the description stay as written. Without one, it makes the ticket and attaches the pull request (`attachmentLinkGitHubPR`, Linear's own GitHub link). |
 | A unit gets its second pull request | The parent ticket, then `parentId` on each ticket of the unit. |
 | A draft is marked ready, a pull request merges | The state: `draft`, `open` or `merged` of `states`. A parent is as far as its least advanced pull request. |
+| A pull request is closed without a merge | The `closed` state, for a ticket the daemon made. A parent whose pull requests were all dropped closes too. Opened again, the ticket returns to its stage. |
+| A group is put on hold | The `hold` state for the ticket of each open pull request of the group and for its parent, for tickets the daemon made. A merged ticket stays merged. When the hold ends, each returns to the stage of its pull request. |
 | The title of the pull request or the purpose of the group changes | The title and the description of the tickets the daemon made. |
 
 Never sent: a comment; a ticket for a pull request that was already merged or closed when
 first seen; a state for a ticket that a person moved to a completed, cancelled or duplicate
-state; a state for a pull request closed without a merge. `merged` is the last state the
-daemon sets: the ticket goes no further by itself.
+state (the daemon reopens only a ticket it closed itself); the `closed` or `hold` state for
+an adopted ticket, because another pull request or another person may still carry it.
+`merged` is the furthest state the daemon sets: the ticket goes no further by itself.
 
 The sync runs at the end of each poll round, after GitHub was read. `session.linear` records
 each ticket (`prs` by pull request URL, `parents` by unit) with a signature of what was last

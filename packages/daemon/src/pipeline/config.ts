@@ -92,7 +92,8 @@ export function pipeline_config_from_spec(spec: Pick<StackSpec, "pipeline">): Pi
 
 /**
  * The `linear:` block: on once it names a `team`. `labels` maps a repo key to a label name;
- * `states` renames the workflow state of a draft, an open or a merged pull request.
+ * `states` renames the workflow state of each stage: `draft`, `open`, `merged`, `closed`
+ * (a pull request closed without a merge) and `hold` (its group is on hold).
  */
 function linear_config(block: Record<string, unknown>): LinearConfig | undefined {
     const team = string_value(block["team"]);
@@ -114,6 +115,8 @@ function linear_config(block: Record<string, unknown>): LinearConfig | undefined
             draft: string_value(states["draft"]) ?? LINEAR_STATES_DEFAULT.draft,
             open: string_value(states["open"]) ?? LINEAR_STATES_DEFAULT.open,
             merged: string_value(states["merged"]) ?? LINEAR_STATES_DEFAULT.merged,
+            closed: string_value(states["closed"]) ?? LINEAR_STATES_DEFAULT.closed,
+            hold: string_value(states["hold"]) ?? LINEAR_STATES_DEFAULT.hold,
         },
     };
 }

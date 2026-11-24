@@ -31,16 +31,29 @@ export interface LinearStates {
     open: string;
     /** A merged pull request. The ticket goes no further than this by itself. */
     merged: string;
+    /** A pull request closed without a merge: the work was dropped. */
+    closed: string;
+    /** An open pull request whose group is on hold: nobody works on it for now. */
+    hold: string;
 }
 
 export const LINEAR_STATES_DEFAULT: LinearStates = {
     draft: "In Progress",
     open: "In Review",
     merged: "In Dev Env",
+    closed: "Canceled",
+    hold: "Canceled",
 };
 
-/** Where a ticket stands, from its pull requests. A closed pull request moves nothing. */
+/**
+ * Where a ticket stands, from its pull request and its group. `closed` and `hold` close a
+ * ticket the daemon made; a ticket it adopted keeps its state through both, because another
+ * pull request or another person may still carry that ticket.
+ */
 export type LinearStage = keyof LinearStates;
+
+/** The stages that take a ticket out of the work. */
+export const LINEAR_CLOSING_STAGES: readonly LinearStage[] = ["closed", "hold"];
 
 /** One Linear ticket as `session.yaml` keeps it. */
 export interface LinearTicket {

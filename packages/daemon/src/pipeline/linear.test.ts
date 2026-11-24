@@ -19,7 +19,7 @@ import { resolve_home, type SpinnerHome } from "../home.js";
 import { create_session, read_session, write_session } from "../store/session-store.js";
 import { start_change } from "./changes.js";
 import { pipeline_config_from_spec } from "./config.js";
-import { assign_group } from "./groups.js";
+import { assign_group, hold_group } from "./groups.js";
 import { linear_client, LINEAR_URL } from "./linear-client.js";
 import {
     linear_work,
@@ -43,6 +43,7 @@ const STATES = [
     { id: "s-review", name: "In Review", type: "started" },
     { id: "s-dev", name: "In Dev Env", type: "started" },
     { id: "s-done", name: "Done", type: "completed" },
+    { id: "s-canceled", name: "Canceled", type: "canceled" },
 ];
 
 /** An in-memory Linear: the issues, the links, and a count of every call by name. */
@@ -333,6 +334,69 @@ describe("the sync with Linear", () => {
         ]);
     });
 
+    it("closes the ticket of a dropped pull request, never one it has no ticket for", async () => {
+        set_pr("backend", pull("backend", 7, "open", "feat: the rule"));
+        await sync();
+        set_pr("backend", pull("backend", 7, "closed", "feat: the rule"));
+        expect(await sync()).toBe(1);
+        expect(linear.named("GKA-1").state.name).toBe("Canceled");
+        linear.calls = [];
+        expect(await sync()).toBe(0);
+        expect(linear.calls).toEqual([]);
+        // The pull request is opened again: the daemon closed the ticket, so it may open it.
+        set_pr("backend", pull("backend", 7, "open", "feat: the rule"));
+        await sync();
+        expect(linear.named("GKA-1").state.name).toBe("In Review");
+    });
+
+    it("closes a held group's open tickets and its parent, and opens them on resume", async () => {
+        const group = { name: "Price rule", purpose: "No card without a price" };
+        const hold = { by: "operator", reason: "other work first", at: "2026-11-24T12:00:00Z" };
+        set_pr("backend", pull("backend", 7, "open", "feat: the rule"));
+        set_pr("admin", pull("admin", 3, "draft", "feat: show the rule"));
+        edit((current) => assign_group(current, "c1", group));
+        await sync();
+        set_pr("admin", pull("admin", 3, "merged", "feat: show the rule"));
+        await sync();
+        const states = () => linear.board().map((line) => line.split(" ^")[0]?.split(" [")[0]);
+        expect(states()).toEqual([
+            "GKA-1 In Review Price rule", "GKA-2 In Review", "GKA-3 In Dev Env",
+        ]);
+        edit((current) => hold_group(current, "g1", hold));
+        await sync();
+        // The merged ticket stays merged; the open one and the parent are closed.
+        expect(states()).toEqual([
+            "GKA-1 Canceled Price rule", "GKA-2 Canceled", "GKA-3 In Dev Env",
+        ]);
+        linear.calls = [];
+        expect(await sync()).toBe(0);
+        expect(linear.calls).toEqual([]);
+        edit((current) => hold_group(current, "g1", null));
+        await sync();
+        expect(states()).toEqual([
+            "GKA-1 In Review Price rule", "GKA-2 In Review", "GKA-3 In Dev Env",
+        ]);
+    });
+
+    it("never closes an adopted ticket for a hold or a dropped pull request", async () => {
+        const made = await linear.create_issue({
+            team_id: "team-1", title: "[Bug] Cards show without a price", description: "by Ana",
+            state_id: "s-todo", assignee_id: "user-2", label_ids: [], parent_id: null,
+        });
+        linear.linked.set(url_of("backend", 7), made.id);
+        set_pr("backend", pull("backend", 7, "open", "fix: no card without a price"));
+        await sync();
+        set_pr("backend", pull("backend", 7, "closed", "fix: no card without a price"));
+        linear.calls = [];
+        await sync();
+        // Another pull request, or another person, may still carry that ticket.
+        expect(linear.calls).not.toContain("update_issue");
+        expect(linear.named("GKA-1").state.name).toBe("In Review");
+        linear.calls = [];
+        expect(await sync()).toBe(0);
+        expect(linear.calls).toEqual([]);
+    });
+
     it("adopts the ticket Linear already links, and leaves its words alone", async () => {
         const made = await linear.create_issue({
             team_id: "team-1", title: "[Bug] Cards show without a price", description: "by Ana",
@@ -381,7 +445,10 @@ describe("the configuration and the client", () => {
         expect(pipeline_config_from_spec({ pipeline: { linear: block } }).linear).toEqual({
             team: "GKA",
             labels: { backend: "Backend" },
-            states: { draft: "In Progress", open: "In Review", merged: "Done" },
+            states: {
+                draft: "In Progress", open: "In Review", merged: "Done", closed: "Canceled",
+                hold: "Canceled",
+            },
         });
     });
 

@@ -9,6 +9,7 @@
 // its title or description.
 import assert from "node:assert/strict";
 import {
+    LINEAR_CLOSING_STAGES,
     LINEAR_TICKETS_MAX,
     LINEAR_TITLE_CHARS_MAX,
     linear_signature,
@@ -79,35 +80,67 @@ export interface LinearApi {
 /** One sync sends at most this many writes; the rest goes with the next round. */
 export const LINEAR_WRITES_PER_ROUND_MAX = 20;
 
-/** State types a ticket has left the work with: the daemon does not move it back. */
+/** State types a ticket has left the work with. */
 const FINAL_STATE_TYPES: readonly string[] = ["completed", "canceled", "duplicate"];
+
+/** The state name the daemon last sent for a ticket; null before its first write. */
+function last_sent_state(ticket: LinearTicket): string | null {
+    try {
+        const parts: unknown = JSON.parse(ticket.synced);
+        return Array.isArray(parts) && typeof parts[1] === "string" ? parts[1] : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * True when the ticket's state is not the daemon's to move. A person who put the ticket in
+ * a final state (done, cancelled, a duplicate) keeps it there; a ticket the daemon itself
+ * closed, for a hold or a dropped pull request, it may open again. An adopted ticket is
+ * never closed by a hold or a dropped pull request.
+ */
+function state_kept(ticket: LinearTicket, current: LinearIssue, stage: LinearStage): boolean {
+    if (ticket.adopted === true && LINEAR_CLOSING_STAGES.includes(stage)) {
+        return true;
+    }
+    const final = FINAL_STATE_TYPES.includes(current.state.type);
+    const ours = last_sent_state(ticket)?.toLowerCase() === current.state.name.toLowerCase();
+    return final && !ours;
+}
 
 interface UnitPr {
     change: ChangeView;
     pr: ChangePr & { url: string };
 }
 
-/** Where a pull request's ticket stands; null for one closed without a merge. */
-function stage_of(pr: ChangePr): LinearStage | null {
-    switch (pr.state) {
-        case "draft":
-            return "draft";
-        case "open":
-            return "open";
-        case "merged":
-            return "merged";
-        case "closed":
-            return null;
-    }
+function is_open(pr: ChangePr): boolean {
+    return pr.state === "open" || pr.state === "draft";
 }
 
-/** A parent is as far as its least advanced pull request. */
+/**
+ * Where a pull request's ticket stands. A hold on its group closes the ticket of an open
+ * pull request for as long as it lasts; a merged or closed one keeps its own stage.
+ */
+function stage_of(pr: ChangePr, held: boolean): LinearStage {
+    if (held && is_open(pr)) {
+        return "hold";
+    }
+    return pr.state;
+}
+
+/**
+ * A parent is on hold with its unit, else as far as its least advanced pull request. A
+ * dropped pull request does not hold it back; a parent whose pull requests were all dropped
+ * is closed.
+ */
 function parent_stage(stages: readonly LinearStage[]): LinearStage {
     assert.ok(stages.length > 0, "a parent has at least one pull request");
-    if (stages.includes("draft")) {
-        return "draft";
+    for (const stage of ["hold", "draft", "open", "merged"] as const) {
+        if (stages.includes(stage)) {
+            return stage;
+        }
     }
-    return stages.includes("open") ? "open" : "merged";
+    return "closed";
 }
 
 function cut(title: string): string {
@@ -117,8 +150,8 @@ function cut(title: string): string {
 /**
  * Pure: the tickets the session should have. A unit is a group of changes, or a change in
  * no group. Each pull request of a unit that is open, or that already has a ticket, wants a
- * ticket; a unit with two or more of those wants a parent over them. A pull request closed
- * without a merge wants nothing: its ticket stays as it is.
+ * ticket; a unit with two or more of those wants a parent over them. A pull request that
+ * ended before it had a ticket gets none after the fact.
  */
 export function wanted_tickets(session: Session): LinearWanted[] {
     const stored: SessionLinear = session.linear ?? { prs: {}, parents: {} };
@@ -139,18 +172,16 @@ export function wanted_tickets(session: Session): LinearWanted[] {
     const wanted: LinearWanted[] = [];
     for (const [unit, entries] of units) {
         const group = groups.find((entry) => entry.id === unit);
-        const live = entries.filter(({ pr }) => {
-            const open = pr.state === "open" || pr.state === "draft";
-            return stage_of(pr) !== null && (open || stored.prs[pr.url] !== undefined);
-        });
+        const held = group?.hold !== undefined;
+        const live = entries.filter(({ pr }) => is_open(pr) || stored.prs[pr.url] !== undefined);
         const purpose = group === undefined || group.purpose === "" ? [] : [group.purpose, ""];
-        const opened = live.some(({ pr }) => pr.state === "open" || pr.state === "draft");
+        const opened = live.some(({ pr }) => is_open(pr));
         // A parent is made while the unit has an open pull request. Two tickets whose pull
         // requests both ended before they were one unit stay as they are.
         const child = live.length >= 2 && (opened || stored.parents[unit] !== undefined);
         const stages: LinearStage[] = [];
         for (const { change, pr } of live) {
-            const stage = stage_of(pr) as LinearStage;
+            const stage = stage_of(pr, held);
             stages.push(stage);
             wanted.push({
                 kind: "pr",
@@ -161,7 +192,7 @@ export function wanted_tickets(session: Session): LinearWanted[] {
                 description: [...purpose, `Pull request: ${pr.url}`, "", footer].join("\n"),
                 stage,
                 child,
-                create: pr.state === "open" || pr.state === "draft",
+                create: is_open(pr),
             });
         }
         if (child) {
@@ -367,10 +398,9 @@ async function write_ticket(
 }
 
 /**
- * Sends what differs. A ticket in a final state (done, cancelled, a duplicate) keeps its
- * state: a person closed it. A ticket under a parent that a person gave it keeps that
- * parent; one under a parent the daemon made moves when its unit changed (a change that
- * joined a group).
+ * Sends what differs. The state follows `state_kept`. A ticket under a parent that a person
+ * gave it keeps that parent; one under a parent the daemon made moves when its unit changed
+ * (a change that joined a group).
  */
 async function update_ticket(
     api: LinearApi,
@@ -387,8 +417,8 @@ async function update_ticket(
     );
     const state_name = config.states[wanted.stage];
     const change: LinearIssueChange = {};
-    const final = FINAL_STATE_TYPES.includes(current.state.type);
-    const moves = !final && current.state.name.toLowerCase() !== state_name.toLowerCase();
+    const kept = state_kept(ticket, current, wanted.stage);
+    const moves = !kept && current.state.name.toLowerCase() !== state_name.toLowerCase();
     if (moves) {
         change.state_id = wanted_state;
     }
@@ -413,7 +443,7 @@ async function update_ticket(
     const next: LinearTicket = {
         ...linked,
         title,
-        state: final ? current.state.name : state_name,
+        state: kept ? current.state.name : state_name,
         parent: reparent ? parent_name : current.parent,
         synced: "",
     };
