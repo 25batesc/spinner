@@ -7,16 +7,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Job, Session, ThreadsResponse } from "@spinner/protocol";
+import type { Job, PollResponse, Session, ThreadsResponse } from "@spinner/protocol";
 import { resolve_home, type SpinnerHome } from "../home.js";
 import { start_daemon, type Daemon } from "../server.js";
-import { create_session, write_session } from "../store/session-store.js";
+import { create_session, read_session, write_session } from "../store/session-store.js";
 import type { GithubWriter } from "./github-write.js";
 
 let home: SpinnerHome;
 let daemon: Daemon;
 let base: string;
 let writes: string[][];
+let gh_calls: number;
 
 const writer: GithubWriter = {
     gh: async (args) => {
@@ -36,13 +37,17 @@ const writer: GithubWriter = {
 
 beforeEach(async () => {
     writes = [];
+    gh_calls = 0;
     home = resolve_home({ SPINNER_HOME: mkdtempSync(join(tmpdir(), "spinner-routes-")) });
     daemon = await start_daemon({
         home,
         port: 0,
         log: () => undefined,
         poll_seconds: 0,
-        gh: async (args) => (args[1] === "user" ? "owner-1\n" : "{}"),
+        gh: async (args) => {
+            gh_calls += 1;
+            return args[1] === "user" ? "owner-1\n" : "{}";
+        },
         writer,
         notify: async () => undefined,
         ui_dir: null,
@@ -88,6 +93,36 @@ async function finished(id: string): Promise<Job> {
     }
     throw new Error(`job ${id} still running`);
 }
+
+describe("POST /poll", () => {
+    it("reads the pull requests from GitHub now, one round for two clicks", async () => {
+        const dir = session_dir();
+        const read = read_session(home, dir);
+        if (!read.ok) {
+            throw new Error(read.error);
+        }
+        const pr = { number: 7, url: "https://github.com/acme/backend/pull/7", state: "open" };
+        read.summary.session.repos["backend"] = {
+            ...read.summary.session.repos["backend"],
+            path: "~/x",
+            changed: true,
+            pr: pr as never,
+        };
+        write_session(read.summary);
+        const before = gh_calls;
+        // Two clicks at once wait for one round.
+        const [first, second] = await Promise.all([post("/poll"), post("/poll")]);
+        expect([first.status, second.status]).toEqual([200, 200]);
+        const body = (await first.json()) as PollResponse;
+        expect(body.ok).toBe(true);
+        expect(Number.isNaN(Date.parse(body.at))).toBe(false);
+        const round = gh_calls - before;
+        expect(round).toBeGreaterThan(0);
+        // A later click is a new round with the same number of reads.
+        expect((await post("/poll")).status).toBe(200);
+        expect(gh_calls - before).toBe(round * 2);
+    });
+});
 
 describe("pipeline routes", () => {
     it("runs pr as a job and reports the allow-list refusal as its error", async () => {

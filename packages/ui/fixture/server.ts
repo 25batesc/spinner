@@ -891,6 +891,8 @@ class FixtureDaemon {
             sendJson(response, report.body, report.status);
         } else if (method === "GET" && path === "/health") {
             sendJson(response, { ok: true, home: "fixture", started: new Date().toISOString() });
+        } else if (method === "POST" && path === "/poll") {
+            sendJson(response, { ok: true, at: new Date().toISOString() });
         } else if (method === "GET" && path === "/egm") {
             sendJson(response, { egm: this.egm });
         } else if (method === "POST" && path === "/egm/fetch") {

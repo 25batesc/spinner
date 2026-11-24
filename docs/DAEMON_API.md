@@ -97,6 +97,7 @@ WebSockets below.
 | `GET /models` | | `ModelsResponse` | The models pi can run. |
 | `GET /jobs` | | `JobsResponse` | Running jobs and the last finished ones. |
 | `GET /jobs/:id` | | `JobResponse` | 404 when the daemon never ran it. |
+| `POST /poll` | | `PollResponse` | Reads every session's pull requests from GitHub now; the poller does it every 60 s (`SPINNER_POLL_SECONDS`). Answers `{ ok, at }` when the round ended; a call during a round waits for that round. 503 without a poller. The PR view's `refresh` calls it. |
 | `GET /egm` | | `EgmResponse` | The EGM fetch state and the pin; below. |
 | `POST /egm/fetch` | | `JobResponse` | The `egm` job: fetches EGM again at the pin and regenerates the adapter; below. |
 | `GET /sessions/:dir/rounds/:round/log` | | `text/markdown` | The Log of an earlier round from `## Previous rounds`. 400 unless `:round` is an integer from 1 to 200, 404 for a round without one. |

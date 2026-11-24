@@ -3,6 +3,13 @@
    the pane narrows, a container query drops whole columns (a track and its cells) in the
    order the brief gives, and the detail of a row shows the facts of the dropped ones. */
 .changes-rail { container: pr-rail / inline-size; }
+/* The line above the table: when GitHub was read, and the button that reads it now. */
+.pr-refresh {
+    display: flex; align-items: baseline; justify-content: flex-end; gap: var(--space-2);
+    font-size: var(--text-meta); padding: 0 var(--space-1);
+}
+.pr-refresh-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-refresh button:disabled { color: var(--muted); cursor: default; }
 .pr-table {
     --pr-columns: 8px max-content minmax(0, 1fr) max-content max-content max-content
         max-content max-content max-content 14px;

@@ -23,6 +23,7 @@ import type {
     ResetRequest,
     ReviewRequest,
     Session,
+    PollResponse,
     SessionResponse,
     SessionSummary,
     SessionView,
@@ -57,9 +58,31 @@ export interface PipelineRouteDeps {
     view: (summary: SessionSummary) => SessionView;
     /** The review swarm (s015); `review` answers 503 without it (a route test without agents). */
     swarm?: ReviewSwarm;
+    /** One GitHub poll round over every session; `POST /poll` answers 503 without it. */
+    poll?: () => Promise<void>;
 }
 
 export function mount_pipeline_routes(app: Hono, deps: PipelineRouteDeps): void {
+    // The operator's `refresh` above the PR table. A click during a round waits for that
+    // round: two clicks never queue two rounds of `gh` calls.
+    let polling: Promise<void> | null = null;
+    app.post("/poll", async (c) => {
+        const poll = deps.poll;
+        if (poll === undefined) {
+            return c.json(error_body("this daemon has no GitHub poller"), 503);
+        }
+        polling ??= poll().finally(() => {
+            polling = null;
+        });
+        try {
+            await polling;
+        } catch (error) {
+            return c.json(error_body(describe_error(error)), 502);
+        }
+        const body: PollResponse = { ok: true, at: new Date().toISOString() };
+        return c.json(body);
+    });
+
     // The Log of an earlier round, from `## Previous rounds` (EGM, T14, 2.45).
     app.get("/sessions/:dir/rounds/:round/log", (c) => {
         const raw = c.req.param("round");

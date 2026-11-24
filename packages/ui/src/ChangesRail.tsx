@@ -26,7 +26,7 @@ import {
     type PrTableGroup,
     type PrTableRow,
 } from "./changes.ts";
-import { sendJson } from "./events-client.ts";
+import { postAgent, sendJson } from "./events-client.ts";
 import { agoText } from "./state.ts";
 import { ApproveDialog, PIPELINE_TIPS, PostDialog } from "./PipelineActions.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
@@ -447,6 +447,56 @@ function GroupHead({ dir, bucket }: { dir: string; bucket: PrTableGroup }) {
     );
 }
 
+/** What the refresh line says: nothing yet, a round in flight, its end, or why it failed. */
+type Refresh =
+    | { state: "idle" }
+    | { state: "checking" }
+    | { state: "checked"; at: Date }
+    | { state: "failed"; reason: string };
+
+/**
+ * The line above the PR table: how often Spinner reads GitHub, and a button that reads it
+ * now. The daemon answers when the round over every session ended; the rows then follow
+ * from the events, as after a round of its own.
+ */
+function RefreshLine() {
+    const [refresh, setRefresh] = useState<Refresh>({ state: "idle" });
+    const check = () => {
+        setRefresh({ state: "checking" });
+        postAgent("/poll", {}).then(
+            () => setRefresh({ state: "checked", at: new Date() }),
+            (failure: unknown) => setRefresh({
+                state: "failed",
+                reason: failure instanceof Error ? failure.message : String(failure),
+            }),
+        );
+    };
+    let note = "GitHub is read every minute";
+    if (refresh.state === "checked") {
+        note = `read from GitHub at ${refresh.at.toLocaleTimeString()}`;
+    }
+    return (
+        <div className="pr-refresh">
+            {refresh.state === "failed" ? (
+                <span className="needs-human pr-refresh-note" title={refresh.reason}>
+                    {refresh.reason}
+                </span>
+            ) : (
+                <span className="muted pr-refresh-note">{note}</span>
+            )}
+            <button
+                type="button"
+                className="link"
+                disabled={refresh.state === "checking"}
+                title="Read every pull request from GitHub now"
+                onClick={check}
+            >
+                {refresh.state === "checking" ? "reading…" : "refresh"}
+            </button>
+        </div>
+    );
+}
+
 export function ChangesRail({ view, busy, run, revision, focus }: ChangesRailProps) {
     const [dialog, setDialog] = useState<Dialog | null>(null);
     const [showFinished, setShowFinished] = useState(false);
@@ -495,6 +545,7 @@ export function ChangesRail({ view, busy, run, revision, focus }: ChangesRailPro
             {rows.open.length === 0 && rows.finished.length === 0 && (
                 <p className="muted">No change yet. Tell the agent what to build.</p>
             )}
+            {rows.open.length + rows.finished.length > 0 && <RefreshLine />}
             {rows.open.length + rows.finished.length > 0 && (
                 <div className="pr-table" role="table">
                     <div className="pr-table-row pr-table-head" role="row">

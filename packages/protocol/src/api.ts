@@ -333,6 +333,12 @@ export const ROUTES = {
     "GET /jobs": "JobsResponse",
     /** One job by id. 404 when the daemon never ran it (jobs live in memory only). */
     "GET /jobs/:id": "JobResponse",
+    /**
+     * Read every session's pull requests from GitHub now, without waiting for the next round
+     * of the poller (every 60 s). Answers when the round ended; a second call during a round
+     * waits for the same round. 503 when the daemon has no poller wired.
+     */
+    "POST /poll": "PollResponse",
     /** The fetch state and the pin of the EGM skills (`egm.ts`). */
     "GET /egm": "EgmResponse",
     /** Fetch or refetch the EGM skills at the pin and regenerate the adapter. A job `egm`. */
@@ -901,6 +907,12 @@ export interface SessionsResponse {
 
 export interface SessionResponse {
     session: SessionView;
+}
+
+/** `POST /poll`: the round ended at `at` (ISO 8601). The changes arrive as `session.updated`. */
+export interface PollResponse {
+    ok: true;
+    at: string;
 }
 
 /** The actions the daemon runs as jobs. */
