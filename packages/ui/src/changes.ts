@@ -9,6 +9,8 @@ import type {
     ChangePr,
     ChangeStateName,
     ChangeView,
+    LinearTicket,
+    SessionLinear,
     SessionView,
 } from "@spinner/protocol";
 
@@ -440,6 +442,8 @@ export interface PrTableRow {
     size: PrCell | null;
     updated: PrCell | null;
     facts: DetailFact[];
+    /** The pull request's Linear ticket, or null before one. */
+    ticket: LinearTicket | null;
 }
 
 const FACT_COLUMN: Record<string, PrColumn> = {
@@ -557,7 +561,12 @@ export function groupStatus(
     return statuses.reduce((first, next) => (next.rank < first.rank ? next : first));
 }
 
-function prRow(change: ChangeView, pr: ChangePr | null, now: Date): PrTableRow {
+function prRow(
+    change: ChangeView,
+    pr: ChangePr | null,
+    now: Date,
+    linear: SessionLinear | undefined,
+): PrTableRow {
     const status = changeStatus(change);
     const state: PrCell = {
         text: status.text,
@@ -599,6 +608,7 @@ function prRow(change: ChangeView, pr: ChangePr | null, now: Date): PrTableRow {
         name: pr === null ? "no PR" : `${pr.repo} #${pr.number}`,
         href: pr?.url ?? null,
         title: pr?.title ?? change.title,
+        ticket: linear?.prs[pr?.url ?? ""] ?? null,
         state,
         ci: pr === null ? null : ciCell(pr),
         review: pr === null ? null : reviewCell(pr),
@@ -621,6 +631,8 @@ export interface PrTableGroup {
     group: ChangeGroup | null;
     status: ChangeStatus | null;
     rows: PrTableRow[];
+    /** The group's parent ticket in Linear: it has one once it has two pull requests. */
+    ticket: LinearTicket | null;
 }
 
 /**
@@ -632,6 +644,7 @@ export interface PrTableGroup {
 export function prTableGroups(view: SessionView, now: Date): PrTableGroup[] {
     const open = changeCards(view).open;
     const groups = view.groups ?? [];
+    const linear = view.summary.session.linear;
     // A change that names a group the session no longer has is in no group.
     const group_of = (change: ChangeView): ChangeGroup | null =>
         groups.find((entry) => entry.id === change.group) ?? null;
@@ -642,12 +655,13 @@ export function prTableGroups(view: SessionView, now: Date): PrTableGroup[] {
         let bucket = buckets.get(key);
         if (bucket === undefined) {
             const members = open.filter((other) => (group_of(other)?.id ?? "") === key);
-            bucket = { key, group, status: groupStatus(group, members), rows: [] };
+            const ticket = linear?.parents[key] ?? null;
+            bucket = { key, group, status: groupStatus(group, members), rows: [], ticket };
             buckets.set(key, bucket);
         }
         const rows = change.prs.length === 0
-            ? [prRow(change, null, now)]
-            : change.prs.map((pr) => prRow(change, pr, now));
+            ? [prRow(change, null, now, linear)]
+            : change.prs.map((pr) => prRow(change, pr, now, linear));
         bucket.rows.push(...rows);
     }
     const ordered = [...buckets.values()];
@@ -666,10 +680,11 @@ export function prTableRows(
     view: SessionView,
     now: Date,
 ): { open: PrTableRow[]; finished: PrTableRow[] } {
+    const linear = view.summary.session.linear;
     const rows = (changes: ChangeView[]) => changes.flatMap((change) =>
         change.prs.length === 0
-            ? [prRow(change, null, now)]
-            : change.prs.map((pr) => prRow(change, pr, now)),
+            ? [prRow(change, null, now, linear)]
+            : change.prs.map((pr) => prRow(change, pr, now, linear)),
     );
     const cards = changeCards(view);
     return { open: rows(cards.open), finished: rows(cards.finished) };
@@ -680,4 +695,71 @@ export function startRow(rows: PrTableRow[]): string | null {
     const row = rows.find((r) => r.change.needs_human !== null)
         ?? rows.find((r) => r.change.current);
     return row?.key ?? null;
+}
+
+/** One Linear ticket with the pull request it follows, for the Tickets view. */
+export interface TicketRow {
+    ticket: LinearTicket;
+    /** `backend #7`, and the pull request's place in plain words; null for a parent. */
+    pr: { name: string; url: string; status: ChangeStatus } | null;
+}
+
+/** The tickets of one unit of work: a parent when it has one, and its pull requests'. */
+export interface TicketUnit {
+    key: string;
+    dir: string;
+    /** The session's title. */
+    session: string;
+    parent: LinearTicket | null;
+    rows: TicketRow[];
+    /** True when no pull request of the unit is open any more. */
+    done: boolean;
+}
+
+/**
+ * Every Linear ticket of the ordinary sessions, by unit of work: a group of changes, or a
+ * change in no group. The units with an open pull request come first, newest session first;
+ * the finished ones follow.
+ */
+export function ticketUnits(sessions: readonly [string, SessionView][]): {
+    open: TicketUnit[];
+    done: TicketUnit[];
+} {
+    const units: TicketUnit[] = [];
+    for (const [dir, view] of sessions) {
+        const linear = view.summary.session.linear;
+        if (linear === undefined || view.kind === "review") {
+            continue;
+        }
+        const groups = view.groups ?? [];
+        const found = new Map<string, TicketUnit>();
+        for (const change of view.changes ?? []) {
+            const unit = groups.find((group) => group.id === change.group)?.id ?? change.id;
+            for (const pr of change.prs) {
+                const ticket = linear.prs[pr.url ?? ""];
+                if (ticket === undefined || pr.url === null) {
+                    continue;
+                }
+                const entry = found.get(unit) ?? {
+                    key: `${dir}#${unit}`, dir, session: view.summary.session.title,
+                    parent: linear.parents[unit] ?? null, rows: [], done: true,
+                };
+                const open = pr.state === "open" || pr.state === "draft";
+                const status: ChangeStatus = open
+                    ? changeStatus(change)
+                    : { text: pr.state, tone: "done", rank: 10 };
+                entry.rows.push({
+                    ticket,
+                    pr: { name: `${pr.repo} #${pr.number}`, url: pr.url, status },
+                });
+                entry.done = entry.done && !open;
+                found.set(unit, entry);
+            }
+        }
+        units.push(...[...found.values()].reverse());
+    }
+    return {
+        open: units.filter((unit) => !unit.done),
+        done: units.filter((unit) => unit.done),
+    };
 }

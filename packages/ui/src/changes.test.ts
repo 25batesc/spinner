@@ -22,6 +22,7 @@ import {
     prTableGroups,
     prTableRows,
     startRow,
+    ticketUnits,
     stateTone,
     SWITCH_FIRST,
     threadsText,
@@ -113,6 +114,66 @@ describe("the groups of the PR table", () => {
         const flat = prTableGroups(view_with([reviewing, loose]), new Date());
         expect(flat).toHaveLength(1);
         expect(flat[0]?.group).toBeNull();
+    });
+});
+
+describe("the Linear tickets of the pull requests", () => {
+    const ticket = (number: number, state: string, parent: string | null = null) => ({
+        id: `i${number}`, identifier: `GKA-${number}`, title: `ticket ${number}`, state, parent,
+        url: `https://linear.app/knit/issue/GKA-${number}`, synced: "",
+    });
+    const api_url = "https://github.com/acme/api/pull/87";
+    const api = { ...OPEN_PR, repo: "api", number: 87, url: api_url };
+    const LANDED_URL = "https://github.com/acme/backend/pull/9";
+    const both = change({ id: "c1", prs: [OPEN_PR, api], group: "g1" });
+    const landed = change({
+        id: "c2", state: "merged",
+        prs: [{ ...OPEN_PR, number: 9, state: "merged", url: LANDED_URL }],
+    });
+    const linear = {
+        prs: {
+            [OPEN_PR.url ?? ""]: ticket(2, "In Review", "GKA-1"),
+            [api.url]: ticket(3, "In Progress", "GKA-1"),
+            [LANDED_URL]: ticket(4, "In Dev Env"),
+        },
+        parents: { g1: ticket(1, "In Progress") },
+    };
+    const base = view_with([landed, both]);
+    const session = { ...base.summary.session, linear };
+    const view = {
+        ...base, summary: { ...base.summary, session },
+        groups: [{ id: "g1", name: "Exports", purpose: "Export every list" }],
+    } as SessionView;
+
+    it("gives each row of the PR table its ticket, and a group its parent ticket", () => {
+        const rows = prTableRows(view, new Date());
+        expect(rows.open.map((row) => [row.name, row.ticket?.identifier ?? null])).toEqual([
+            ["backend #482", "GKA-2"], ["api #87", "GKA-3"],
+        ]);
+        expect(rows.finished[0]?.ticket?.identifier).toBe("GKA-4");
+        expect(prTableGroups(view, new Date())[0]?.ticket?.identifier).toBe("GKA-1");
+        // A session without tickets has none to show.
+        expect(prTableRows(view_with([both]), new Date()).open[0]?.ticket).toBeNull();
+    });
+
+    it("lists the tickets across sessions by unit of work, the open units first", () => {
+        const units = ticketUnits([["s9-exports", view], ["s1-none", view_with([both])]]);
+        expect(units.open).toHaveLength(1);
+        expect(units.open[0]).toMatchObject({
+            dir: "s9-exports", session: "Exports", parent: { identifier: "GKA-1" }, done: false,
+        });
+        expect(units.open[0]?.rows.map((row) => [
+            row.ticket.identifier, row.ticket.state, row.pr?.name, row.pr?.status.text,
+        ])).toEqual([
+            ["GKA-2", "In Review", "backend #482", "in review"],
+            ["GKA-3", "In Progress", "api #87", "in review"],
+        ]);
+        // A unit whose pull requests all ended is done; its ticket keeps Linear's state.
+        const done = units.done.map((unit) => {
+            const row = unit.rows[0];
+            return [unit.parent, row?.ticket.state, row?.pr?.status.text];
+        });
+        expect(done).toEqual([[null, "In Dev Env", "merged"]]);
     });
 });
 

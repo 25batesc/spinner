@@ -91,6 +91,7 @@ import { git_runner, type GithubWriter, type GitRunner } from "./pipeline/github
 import { event_notifier, macos_notifier, type Notifier } from "./pipeline/notify.js";
 import { extract_refs } from "./pipeline/extract.js";
 import { new_found_state } from "./pipeline/found-prs.js";
+import type { LinearApi } from "./pipeline/linear.js";
 import {
     poll_once,
     rederive_design_sessions,
@@ -206,6 +207,8 @@ export interface DaemonOptions {
     review_skill_default?: string;
     /** The file manager and the Downloads folder of the Files view; tests pass their own. */
     files?: FileHooks;
+    /** Linear, for the tickets of the pull requests; `main.ts` builds it from the key. */
+    linear?: LinearApi;
 }
 
 export interface Daemon {
@@ -1256,6 +1259,7 @@ export async function start_daemon(options: DaemonOptions): Promise<Daemon> {
     let syncer: Syncer | null = null;
     const poll_options: PollOptions = {
         ...poll_options_for(ctx, notify, log),
+        ...(options.linear === undefined ? {} : { linear: options.linear }),
         autopilot: {
             enabled: () => github_access_of(home) === "full",
             tell: (dir, text) => tell_lead(agents, dir, text, log),

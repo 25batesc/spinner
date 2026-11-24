@@ -51,6 +51,7 @@ import {
 } from "./tracker.js";
 import { autopilot_step, autopilot_text, baseline_autopilot } from "./autopilot.js";
 import { hold_of_current } from "./groups.js";
+import { sync_linear, type LinearApi } from "./linear.js";
 import { current_change, has_change, open_change_ids } from "./changes.js";
 import {
     new_found_state,
@@ -83,6 +84,11 @@ export interface PollOptions {
      * (found-prs.ts). Absent: every round asks about every repository, which suits a test.
      */
     found?: FoundState;
+    /**
+     * Linear (`linear.ts`). After the round read GitHub, each session whose project names a
+     * Linear team gets its tickets made and moved. No ticket is written when absent.
+     */
+    linear?: LinearApi;
 }
 
 export interface PollReport {
@@ -156,7 +162,43 @@ export async function poll_once(home: SpinnerHome, options: PollOptions): Promis
             log(`poll ${entry.dir}: ${message}`);
         }
     }
+    if (options.linear !== undefined) {
+        await sync_tickets(home, listed.sessions, options, options.linear, log);
+    }
     return report;
+}
+
+/**
+ * The Linear half of a round, after GitHub was read. A session is looked at when it already
+ * has tickets or one of its pull requests is open; its project must name a Linear team. A
+ * failure is logged and the next session goes on: Linear never stops a poll.
+ */
+async function sync_tickets(
+    home: SpinnerHome,
+    sessions: readonly SessionSummary[],
+    options: PollOptions,
+    api: LinearApi,
+    log: (line: string) => void,
+): Promise<void> {
+    for (const entry of sessions) {
+        try {
+            const read = read_session(home, entry.dir);
+            if (!read.ok) {
+                continue;
+            }
+            const session = read.summary.session;
+            if (session.linear === undefined && open_change_ids(session).length === 0) {
+                continue;
+            }
+            const linear = config_for_session(read.summary, home, options.cwd, log).linear;
+            if (linear !== undefined) {
+                await sync_linear({ home, api, log }, entry.dir, linear);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            log(`linear ${entry.dir}: ${message}`);
+        }
+    }
 }
 
 /**

@@ -20,6 +20,7 @@ import {
 } from "./config.js";
 import { resolve_home } from "./home.js";
 import { github_fixture } from "./pipeline/github-fixture.js";
+import { linear_client } from "./pipeline/linear-client.js";
 import { silent_notifier } from "./pipeline/notify.js";
 import { start_daemon, type DaemonOptions } from "./server.js";
 
@@ -69,6 +70,12 @@ if (ui_dir !== undefined && ui_dir !== "") {
 }
 if (process.env["SPINNER_NOTIFY"] === "off") {
     options.notify = silent_notifier;
+}
+// The Linear key lives in `<home>/env`. Without it no ticket is ever written, whatever a
+// project's `linear:` block says.
+const linear_key = process.env["LINEAR_API_KEY"];
+if (linear_key !== undefined && linear_key !== "") {
+    options.linear = linear_client(linear_key);
 }
 const github_fixture_dir = process.env["SPINNER_GITHUB_FIXTURE"]; // engine: fake gh for UI/ext runs
 if (github_fixture_dir !== undefined && github_fixture_dir !== "") {

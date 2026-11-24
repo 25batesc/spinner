@@ -72,6 +72,13 @@
 .pr-table-title .badge {
     flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+/* The ticket's id: a small link to Linear after the title, and in a group's headline. */
+a.pr-ticket {
+    flex: none; gap: 3px; color: var(--muted); text-decoration: none;
+    font-variant-numeric: tabular-nums;
+}
+a.pr-ticket:hover { color: var(--accent); text-decoration: none; }
+.pr-ticket .icon { width: 11px; height: 11px; }
 .pr-table-row [data-tone="ok"] { color: var(--ok); }
 .pr-table-row [data-tone="warn"] { color: var(--warn); }
 .pr-table-row [data-tone="fail"] { color: var(--fail); }

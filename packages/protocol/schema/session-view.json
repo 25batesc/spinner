@@ -221,6 +221,10 @@
                     "$ref": "#/definitions/ReviewState",
                     "description": "The review swarm (s015). Absent until the first `review`."
                 },
+                "linear": {
+                    "$ref": "#/definitions/SessionLinear",
+                    "description": "The Linear tickets of the session's pull requests (`linear.ts`). Absent before one."
+                },
                 "design": {
                     "description": "The state of the EGM lifecycle, removed on 2026-11-23 (`egm.ts`). A file written before that keeps the block; nothing reads it."
                 },
@@ -1244,6 +1248,84 @@
                 "failed"
             ],
             "description": "A reviewer's state (s015, s016). `done`: its verdict is in `artifacts/reviews/` and its pi is stopped. `failed`: it settled without a `VERDICT:` block, or exited."
+        },
+        "SessionLinear": {
+            "type": "object",
+            "properties": {
+                "prs": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/LinearTicket"
+                    },
+                    "description": "The ticket of each pull request, by the pull request's URL."
+                },
+                "parents": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/LinearTicket"
+                    },
+                    "description": "The parent ticket of each unit that has one, by the unit: a group id or a change id."
+                }
+            },
+            "required": [
+                "prs",
+                "parents"
+            ],
+            "additionalProperties": false,
+            "description": "`session.yaml` `linear`: the tickets of the session. Absent before the first one."
+        },
+        "LinearTicket": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Linear's own id of the issue, for the API."
+                },
+                "identifier": {
+                    "type": "string",
+                    "description": "`GKA-123`."
+                },
+                "url": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string",
+                    "description": "The name of its workflow state when the daemon last wrote or read it."
+                },
+                "parent": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "The identifier of its parent ticket, or null."
+                },
+                "synced": {
+                    "type": "string",
+                    "description": "What the daemon last wrote: `linear_signature` of the ticket it wanted then. The same signature now means there is nothing to send."
+                },
+                "adopted": {
+                    "type": "boolean",
+                    "description": "True for a ticket somebody else made and Linear linked to the pull request. The daemon moves its state and puts it under a parent; its title and description stay as written."
+                },
+                "unlinked": {
+                    "type": "boolean",
+                    "description": "True while the ticket is made and the pull request is not attached to it yet: the attach call failed. The next round attaches it; the ticket is never made twice."
+                }
+            },
+            "required": [
+                "id",
+                "identifier",
+                "url",
+                "title",
+                "state",
+                "parent",
+                "synced"
+            ],
+            "additionalProperties": false,
+            "description": "One Linear ticket as `session.yaml` keeps it."
         },
         "RoundRecord": {
             "type": "object",

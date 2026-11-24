@@ -32,12 +32,13 @@ import { PreviewPane } from "./PreviewPane.tsx";
 import { deleteVerify, useLoaded } from "./remote.ts";
 import { isReview, ordinarySessions, reviewFacts, reviewsByActivity } from "./review.ts";
 import { ReviewPane } from "./ReviewPane.tsx";
-import { prRows } from "./changes.ts";
+import { prRows, ticketUnits } from "./changes.ts";
 import { useOpenChange } from "./ChangesRail.tsx";
 import { ProjectPage } from "./ProjectPage.tsx";
 import { NEW_PROJECT, projectRows, stackRows } from "./projects.ts";
 import { ProjectsPane } from "./ProjectsPane.tsx";
 import { PrsPane } from "./PrsPane.tsx";
+import { TicketsPane } from "./TicketsPane.tsx";
 import { ReviewsPane } from "./ReviewsPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import {
@@ -436,7 +437,7 @@ export function App() {
             app.activate(next.view);
         }
         // The PRs view lists pull requests of ordinary sessions; a row opens its session.
-        if (next.view === "prs" || next.view === "projects") {
+        if (next.view === "prs" || next.view === "tickets" || next.view === "projects") {
             app.activate("sessions");
         }
         if (next.view === null) {
@@ -579,6 +580,14 @@ export function App() {
         />
     );
     const openPrs = prRows(ordinary).open.length;
+    const ticketsPane = (
+        <TicketsPane
+            sessions={ordinary}
+            selected={selected}
+            onSelect={(dir) => app.pick("sessions", dir)}
+        />
+    );
+    const openTickets = ticketUnits(ordinary).open.length;
     const jobsDone = Object.values(state.jobs).filter((entry) => entry.state !== "running").length;
     // The projects the daemon finds, read again when a job ends, a session comes or goes, or
     // the operator makes or removes one; the stacks come from the state the events keep.
@@ -610,6 +619,7 @@ export function App() {
     const sideViews = {
         sessions: { facts: { count: ordinary.length }, pane: sessionsPane },
         prs: { facts: { count: openPrs }, pane: prsPane },
+        tickets: { facts: { count: openTickets }, pane: ticketsPane },
         projects: { facts: { count: projects.length }, pane: projectsPane },
         reviews: { facts: { count: reviewRows.length }, pane: reviewsPane },
         settings: { facts: undefined, pane: settingsPane },

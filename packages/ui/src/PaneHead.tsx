@@ -48,6 +48,7 @@ export type IconName =
     | "projects"
     | "comment"
     | "ping"
+    | "ticket"
     | "folder"
     | "file"
     | "download"
@@ -88,6 +89,8 @@ const GLYPHS: Record<IconName, string> = {
     comment: "M2.5 3.5h11v7.5h-6l-3 2.5V11h-2z",
     // A bolt: a message Spinner itself sent an agent (a mission change, the autopilot).
     ping: "M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z",
+    // A circle cut by slanted lines, after Linear's mark: the tickets of the pull requests.
+    ticket: "M8 2a6 6 0 1 0 0 12a6 6 0 1 0 0-12M3.2 9.6l3.2 3.2M2.4 6.6l7 7M4.6 3.4l8 8",
     // The Files view: a folder (show in the file manager), a page, an arrow into a tray
     // (copy to Downloads), a pencil, and two sheets (copy the text).
     folder: "M2 4.5h4l1.5 1.5h6.5v6.5h-12z",
@@ -197,7 +200,7 @@ export function PaneStrip({ name, popped, onRestore }: PaneStripProps) {
  * the peers' PRs (s015), and settings at the bottom.
  */
 export interface PanelView {
-    id: "sessions" | "prs" | "projects" | "reviews" | "settings";
+    id: "sessions" | "prs" | "tickets" | "projects" | "reviews" | "settings";
     icon: IconName;
     label: string;
     /** Drawn at the bottom of the bar, apart from the views above. */
@@ -207,6 +210,7 @@ export interface PanelView {
 export const PANEL_VIEWS: readonly PanelView[] = [
     { id: "sessions", icon: "sessions", label: "Sessions" },
     { id: "prs", icon: "merge", label: "Pull requests" },
+    { id: "tickets", icon: "ticket", label: "Linear tickets" },
     { id: "projects", icon: "projects", label: "Projects" },
     { id: "reviews", icon: "pull-request", label: "Reviews" },
     { id: "settings", icon: "gear", label: "Settings", bottom: true },

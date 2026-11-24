@@ -3,8 +3,13 @@
 // optional: a project without one is a plain GitHub repo with no bots, no approval check and
 // no merge queue. The stack runner finds and loads the spec; this module only reads one key.
 import assert from "node:assert/strict";
-import type { ApprovalRole, PipelineConfig, StackSpec } from "@spinner/protocol";
-import { PIPELINE_CONFIG_DEFAULTS } from "@spinner/protocol";
+import type {
+    ApprovalRole,
+    LinearConfig,
+    PipelineConfig,
+    StackSpec,
+} from "@spinner/protocol";
+import { LINEAR_STATES_DEFAULT, PIPELINE_CONFIG_DEFAULTS } from "@spinner/protocol";
 import type { SpinnerHome } from "../home.js";
 import { find_spec, load_spec } from "../stack/spec.js";
 
@@ -76,9 +81,41 @@ export function pipeline_config_from_spec(spec: Pick<StackSpec, "pipeline">): Pi
     if (channel !== undefined) {
         config.slack.channel = channel;
     }
+    const linear = linear_config(record(block["linear"]));
+    if (linear !== undefined) {
+        config.linear = linear;
+    }
     assert.ok(config.github.poll_seconds > 0);
     assert.ok(config.threads.stale_after_hours > 0);
     return config;
+}
+
+/**
+ * The `linear:` block: on once it names a `team`. `labels` maps a repo key to a label name;
+ * `states` renames the workflow state of a draft, an open or a merged pull request.
+ */
+function linear_config(block: Record<string, unknown>): LinearConfig | undefined {
+    const team = string_value(block["team"]);
+    if (team === undefined) {
+        return undefined;
+    }
+    const labels: Record<string, string> = {};
+    for (const [repo, name] of Object.entries(record(block["labels"]))) {
+        const label = string_value(name);
+        if (label !== undefined) {
+            labels[repo] = label;
+        }
+    }
+    const states = record(block["states"]);
+    return {
+        team,
+        labels,
+        states: {
+            draft: string_value(states["draft"]) ?? LINEAR_STATES_DEFAULT.draft,
+            open: string_value(states["open"]) ?? LINEAR_STATES_DEFAULT.open,
+            merged: string_value(states["merged"]) ?? LINEAR_STATES_DEFAULT.merged,
+        },
+    };
 }
 
 function record(value: unknown): Record<string, unknown> {

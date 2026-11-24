@@ -287,6 +287,53 @@ describe("poll_once", () => {
         expect(banners).toEqual([]);
     });
 
+    it("makes the Linear ticket of an open pull request, only for a project with a team",
+        async () => {
+            const dir = await adopt();
+            const made: string[] = [];
+            const linear = {
+                team: () => Promise.resolve({
+                    id: "team-1", viewer_id: "user-1", labels: [],
+                    states: [{ id: "s-review", name: "In Review", type: "started" }],
+                }),
+                issue_for_url: () => Promise.resolve(null),
+                issue: () => Promise.resolve(null),
+                create_issue: (input: { title: string }) => {
+                    made.push(input.title);
+                    return Promise.resolve({
+                        id: "i1", identifier: "GKA-1", url: "https://linear.app/x/GKA-1",
+                        title: input.title, state: { name: "In Review", type: "started" },
+                        parent: null,
+                    });
+                },
+                update_issue: () => Promise.resolve(),
+                link_pr: () => Promise.resolve(),
+                create_label: () => Promise.resolve("l1"),
+            };
+            const options = { gh: gh.runner, notify, cwd: root, linear };
+            // The project names no Linear team: the poll writes no ticket.
+            await poll_once(home, options);
+            expect(made).toEqual([]);
+            expect(read_yaml(dir).linear).toBeUndefined();
+            // The session's snapshot of the spec is what the poll reads.
+            const spec = `${SPEC}  linear:\n    team: GKA\n`;
+            writeFileSync(join(project, "spinner.yaml"), spec);
+            const snapshot = join(home.sessions, dir, "stack", "spinner.yaml");
+            if (existsSync(snapshot)) {
+                writeFileSync(snapshot, spec);
+            }
+            const report = await poll_once(home, options);
+            expect(report.errors).toEqual([]);
+            expect(made).toHaveLength(1);
+            const url = "https://github.com/acme/backend/pull/4812";
+            expect(read_yaml(dir).linear?.prs[url]).toMatchObject({
+                identifier: "GKA-1", state: "In Review",
+            });
+            // The next round has nothing to send.
+            await poll_once(home, options);
+            expect(made).toHaveLength(1);
+        });
+
     it("autopilot: a first sight is the baseline; new threads go to the lead once", async () => {
         const dir = await adopt();
         const told: string[] = [];

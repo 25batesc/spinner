@@ -757,6 +757,50 @@ purpose and one status: `on hold`, else the status of its most pressing change (
 `CI failing`, `answering review`, `pending CI`, `draft`, `needs peer review`, `in merge
 queue`, `ready to merge`).
 
+## Linear tickets
+
+The daemon keeps Linear tickets for a session's pull requests
+(`packages/protocol/src/linear.ts`, `packages/daemon/src/pipeline/linear.ts`). It is off
+until two things exist: `LINEAR_API_KEY` in the daemon's environment (`<home>/env`), and a
+`linear:` block with a `team` in the project's `pipeline:`.
+
+```yaml
+pipeline:
+  linear:
+    team: GKA                                  # the team's key; without it nothing is written
+    labels: { backend: Backend, admin: Frontend }   # a label per repo key; made when missing
+    states: { draft: In Progress, open: In Review, merged: In Dev Env }   # these are the defaults
+```
+
+A unit of work is a group of changes, or a change in no group. Each pull request of a unit
+gets one ticket, with its repo's label, assigned to the key's user. A unit with two or more
+pull requests also gets a parent ticket, named after the group (or the change), and its
+tickets go under it. A change in one repository therefore has one ticket; a change in two
+repositories has a parent and two tickets.
+
+| When | What the daemon sends |
+|---|---|
+| A pull request is first seen open or as a draft | It asks Linear for a ticket already linked to the pull request's URL. With one, it adopts it: the state and the parent follow, the title and the description stay as written. Without one, it makes the ticket and attaches the pull request (`attachmentLinkGitHubPR`, Linear's own GitHub link). |
+| A unit gets its second pull request | The parent ticket, then `parentId` on each ticket of the unit. |
+| A draft is marked ready, a pull request merges | The state: `draft`, `open` or `merged` of `states`. A parent is as far as its least advanced pull request. |
+| The title of the pull request or the purpose of the group changes | The title and the description of the tickets the daemon made. |
+
+Never sent: a comment; a ticket for a pull request that was already merged or closed when
+first seen; a state for a ticket that a person moved to a completed, cancelled or duplicate
+state; a state for a pull request closed without a merge. `merged` is the last state the
+daemon sets: the ticket goes no further by itself.
+
+The sync runs at the end of each poll round, after GitHub was read. `session.linear` records
+each ticket (`prs` by pull request URL, `parents` by unit) with a signature of what was last
+sent; a round in which nothing moved makes no call to Linear. One round sends at most 20
+writes per session. A failure is logged as `linear <session>: …` and tried again at the next
+round; it never fails the poll. A ticket whose attach call failed is recorded as `unlinked`
+and attached at the next round, so it is never made twice.
+
+In the UI, each row of the PR view carries its ticket id, a link to Linear, and a group's
+headline carries the parent's. The sidebar's `Linear tickets` view lists every ticket across
+sessions by unit of work, each with its Linear state and where its pull request stands.
+
 ## The chat
 
 The chat is the surface of every agent; `context` is a tab beside it. Each session agent is

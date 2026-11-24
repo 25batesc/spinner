@@ -4,6 +4,7 @@
 // docs/SESSION_PROTOCOL.md. Nothing here is specific to one team: defaults describe a plain
 // GitHub repo with no bots, no approval check and no merge queue.
 
+import type { LinearConfig } from "./linear.js";
 import type { CommentWaiting } from "./comments.js";
 import type { ApprovalRole, DiffThreadRecord, Pipeline, PullRequest, Stage } from "./session.js";
 
@@ -62,6 +63,8 @@ export interface PipelineConfig {
     github: GithubConfig;
     threads: ThreadsConfig;
     slack: SlackConfig;
+    /** The Linear team the session's tickets go to (`linear.ts`). Absent: no tickets. */
+    linear?: LinearConfig;
 }
 
 export const PIPELINE_CONFIG_DEFAULTS: PipelineConfig = {

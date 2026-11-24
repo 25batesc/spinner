@@ -7,7 +7,7 @@
 // under a count.
 import { Fragment, useEffect, useRef, useState } from "react";
 
-import type { ChangeView, SessionView } from "@spinner/protocol";
+import type { ChangeView, LinearTicket, SessionView } from "@spinner/protocol";
 
 import "./pr-view.css";
 import "./pr-table.css";
@@ -27,6 +27,7 @@ import {
     type PrTableRow,
 } from "./changes.ts";
 import { postAgent, sendJson } from "./events-client.ts";
+import { Icon } from "./PaneHead.tsx";
 import { agoText } from "./state.ts";
 import { ApproveDialog, PIPELINE_TIPS, PostDialog } from "./PipelineActions.tsx";
 import type { RunAction } from "./SessionsPane.tsx";
@@ -228,6 +229,7 @@ function TableRow({ row, open, onToggle, ...actions }: RowProps) {
                 </span>
                 <span role="cell" className="pr-table-title">
                     <span className="pr-table-title-text" title={row.title}>{row.title}</span>
+                    {row.ticket !== null && <TicketBadge ticket={row.ticket} />}
                     {change.current && (
                         <span className="badge" title="Checked out in the session's worktrees">
                             current
@@ -316,6 +318,22 @@ function TableRow({ row, open, onToggle, ...actions }: RowProps) {
     );
 }
 
+/** The Linear ticket of a pull request or of a group: its id, a link to Linear. */
+function TicketBadge({ ticket }: { ticket: LinearTicket }) {
+    return (
+        <a
+            className="badge pr-ticket"
+            href={ticket.url}
+            target="_blank"
+            rel="noreferrer"
+            title={`${ticket.identifier} in Linear: ${ticket.state}`}
+            onClick={(event) => event.stopPropagation()}
+        >
+            <Icon name="ticket" /> {ticket.identifier}
+        </a>
+    );
+}
+
 /** The text of a headline's field while the operator edits it; null while he does not. */
 type GroupEdit = { field: "name" | "purpose" | "hold"; text: string } | null;
 
@@ -397,6 +415,7 @@ function GroupHead({ dir, bucket }: { dir: string; bucket: PrTableGroup }) {
                 group.purpose === "" ? "what is this for?" : group.purpose,
                 "What the group's pull requests are for",
             )}
+            {bucket.ticket !== null && <TicketBadge ticket={bucket.ticket} />}
             {status !== null && (
                 <span className={`pill pill-${status.tone} pr-group-status`} title={status.title}>
                     {status.text}

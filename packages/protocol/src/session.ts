@@ -3,6 +3,7 @@
 // docs/SESSION_PROTOCOL.md, section "session.yaml". The JSON schema in `schema/session.json`
 // is generated from this file; run `pnpm --filter @spinner/protocol schema` after an edit.
 
+import type { SessionLinear } from "./linear.js";
 import type { CommentWaiting } from "./comments.js";
 
 /** The schema version this package understands. The daemon migrates older files forward. */
@@ -371,6 +372,8 @@ export interface Session {
     diff?: DiffState;
     /** The review swarm (s015). Absent until the first `review`. */
     review?: ReviewState;
+    /** The Linear tickets of the session's pull requests (`linear.ts`). Absent before one. */
+    linear?: SessionLinear;
     /**
      * The state of the EGM lifecycle, removed on 2026-11-23 (`egm.ts`). A file written before
      * that keeps the block; nothing reads it.
